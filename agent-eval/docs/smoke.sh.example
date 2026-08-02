@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Debounced smoke eval — the target of docs/hooks-example.json.
+#
+# Install: copy this file to <state_location>/scripts/smoke.sh in the TARGET
+# app (default: .agent-eval/scripts/smoke.sh), make it executable, and review
+# the launch command below — it spends tokens on every matching prompt edit.
+set -euo pipefail
+
+STATE_DIR="${AGENT_EVAL_STATE:-${CLAUDE_PROJECT_DIR:?}/.agent-eval}"
+STAMP="$STATE_DIR/runs/.last-smoke"
+
+# Debounce: skip if a smoke run finished less than 10 minutes ago.
+if [ -f "$STAMP" ] && [ -n "$(find "$STAMP" -mmin -10 2>/dev/null)" ]; then
+  exit 0
+fi
+mkdir -p "$STATE_DIR/runs"
+touch "$STAMP"
+
+# Headless smoke run; adjust flags (model, permission mode) to taste.
+claude -p "/agent-eval:run --smoke" >>"$STATE_DIR/runs/smoke-hook.log" 2>&1

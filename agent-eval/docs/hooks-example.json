@@ -1,0 +1,24 @@
+{
+  "_comment": "OPT-IN example: smoke eval when a prompt file is edited. Copy the 'hooks' block into the target app's .claude/settings.json (NOT the plugin's) and adjust the 'if' path globs to where that app keeps prompts. Note the schema rules: 'if' lives on each command object (not the matcher entry) and holds exactly ONE permission rule — hence one handler per tool. The command targets <state_location>/scripts/smoke.sh, which is NOT created automatically: copy the plugin's docs/smoke.sh.example there, review it, and make it executable BEFORE wiring this hook - otherwise every matching edit fails with 'no such file'. Deliberately not shipped active: it spends tokens on matching edits; the example script debounces (skips if a smoke run finished <10 min ago).",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Edit(prompts/*.md)",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.agent-eval/scripts/smoke.sh",
+            "async": true
+          },
+          {
+            "type": "command",
+            "if": "Write(prompts/*.md)",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.agent-eval/scripts/smoke.sh",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

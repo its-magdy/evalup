@@ -1,0 +1,104 @@
+# agent-eval
+
+A Claude Code plugin that **evaluates and improves LLM chat/agent
+applications** — any app it can invoke programmatically: simple chat,
+router→executor, multi-agent orchestrators.
+
+Claude Code does the intelligent work (profiling your app, generating test
+cases, diagnosing failures, proposing prompt/tool-description fixes).
+Deterministic Python scripts do the scoring, so numbers are cheap, fast, and
+reproducible. OpenTelemetry traces are the evidence.
+
+## Quick start
+
+```
+claude --plugin-dir ./agent-eval     # try locally, or install via marketplace
+> /agent-eval:start path/to/your/app
+```
+
+The wizard takes it from there: it profiles your app, patches missing
+instrumentation (with your approval), generates ~30 test cases, has you review
+only the ~15 suspicious ones, and gives you your first scored run — typically
+a routing confusion matrix that tells you something you didn't know — in
+about an hour.
+
+Lost at any point: `/agent-eval:help`.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/agent-eval:start` | Guided wizard — detects where you are, does the next step |
+| `/agent-eval:discover` | Profile the app; write adapter + profile; patch instrumentation; `--diff` after refactors |
+| `/agent-eval:generate` | Build/extend the eval dataset (coverage grid, targeted review, splits) |
+| `/agent-eval:run` | Execute + score all applicable layers; baseline diff. Modes: `--smoke` (fast subset) · `--regression` (full, pass^k) · `--targeted` (only what changed) · `--holdout` (sealed) · `--full` (release) |
+| `/agent-eval:analyze` | Cluster failures, calibrate the judge (`--label`), mine traces (`--mine`); builds a hotkey trace/annotation viewer for open→axial error analysis |
+| `/agent-eval:optimize` | Failure-driven prompt/tool-description improvement with statistical keep/revert |
+| `/agent-eval:help` | Explain any of this |
+
+## What gets measured
+
+Layered, so a failure tells you *which prompt to fix*:
+
+- **Routing** (router/multi-agent apps) — accuracy, per-target F1
+  (macro+micro), confusion matrix, out-of-scope leakage (deterministic)
+- **Tool use** — selection precision/recall, argument correctness,
+  trajectory subset/order matching, forbidden-tool policy, loop detection
+  (deterministic)
+- **Answer quality** — must-contain/regex and JSON-format checks
+  (deterministic), faithfulness to tool results, completeness, business
+  rules (rules are deterministic; judged dimensions use a decomposed-binary,
+  reference-guided judge, watermarked PROVISIONAL until calibrated)
+- **Execution accuracy** (data-Q&A) — grades the actual result set, not the
+  prose: result-set comparison (order-insensitive, float-tolerant) and GAIA-style
+  scalar quasi-exact-match, against ground truth from a read-only oracle
+  (deterministic) — catches the confident-but-wrong answer a prose check waves through
+- **Authorization / scope** — deterministic checks over the tool-call log and
+  returned record IDs (forbidden tools, out-of-scope leakage, scoped refusal) —
+  never a chat-text read, so a polite refusal over an open endpoint still fails
+- **Reliability & ops** — pass@k / pass^k across repeats (the gap is the
+  flakiness signal), crash rate, latency and token cost per agent stage
+
+## Principles (the short version)
+
+- **Staged rigor.** The harness matches its demands to your app's maturity.
+  Churning architecture → invariant checks only; trajectory evals, judged
+  layers, and the optimizer unlock as preconditions are met. It tells you
+  what's locked and why.
+- **Evidence before edits.** The optimizer reads failing traces and names the
+  cause before proposing anything, proposes ONE change at a time, and keeps
+  it only if a sealed holdout confirms improvement with statistical honesty.
+- **Comparability or nothing.** Every run records a manifest (dataset
+  version, app git SHA, model and judge versions…). Diffs across
+  incomparable runs are refused, not fudged.
+- **Humans stay in the loop where it matters**: reviewing suspicious
+  generated cases, labeling ~30 judge-calibration cases, approving every
+  kept edit. Nothing is committed or merged automatically.
+
+## Where state lives
+
+The plugin is reusable methodology. Everything about *your* app lives in
+`your-app/.agent-eval/` (adapter, profile, datasets, baselines, runs,
+reports) — plain YAML/Markdown, versioned with your app, readable by
+teammates who never open Claude Code.
+
+## Docs
+
+- `docs/workflow.md` — day 1 → steady state → production, and who does what
+- `docs/concepts.md` — eval layers, staged rigor, ground truth, the judge
+- `skills/discover/references/adapter-contract.md` — the language-agnostic adapter
+  spec (the seam that keeps the tool general); `references/adapters/dotnet.md` is
+  the first reference adapter (any other stack implements the same contract)
+- `docs/rubric-format.md` — the decomposed-binary DAG judge rubric + calibration
+- `skills/analyze/references/annotation-ux.md` — the open→axial error-analysis workflow
+- `docs/research.md` — pointer to the research behind the design decisions
+
+## Requirements
+
+Python 3.9+ (scorers are stdlib-only; the suite is verified on 3.9 and 3.14 —
+run it any time with `python3 -m unittest discover -s tests`, and
+`scripts/stats.py --version` reports the harness version a run manifest
+records). An app you can invoke
+programmatically. OpenTelemetry with GenAI spans is strongly recommended
+(discover offers to add it) — without traces, trajectory layers are
+unavailable and only answer-level evals run.
