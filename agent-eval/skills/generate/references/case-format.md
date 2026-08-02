@@ -133,7 +133,10 @@ expect:
                                      # define — extra columns the app returned are ignored.
     # ordered: false                 # rows only: true = list-equal (a defined ORDER BY)
     # columns: null                  # rows only: compare only these keys (default: the
-                                     # keys present in the expected rows)
+                                     # keys present in the expected rows). OMIT the key to
+                                     # get that default — an empty list is a hard error,
+                                     # not "compare nothing" (zero columns would make every
+                                     # row equal, a vacuous pass).
     # float_tolerance: 0.0           # absolute tolerance for numeric cells (default exact)
     # reference_query: "SELECT ..."  # provenance only (not read by the scorer): how the
                                      # runner computed `expected` offline from the seeded

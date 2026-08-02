@@ -160,11 +160,26 @@ def score_rows(spec, expected, actual, tol):
                           f"{type(actual).__name__}"}
     # Columns to compare: explicit override, else the union of keys the expected
     # rows define (the expected set is the spec; columns the app added are noise).
+    # OMITTED and EXPLICITLY EMPTY must stay distinguishable: `not columns` is
+    # true for both, and collapsing them made an explicit `columns: []` silently
+    # switch to bare-scalar-row mode, where whole rows compare as JSON — so the
+    # app's extra columns stopped being ignored and a correct result set FAILED.
+    # A manufactured failure is the one outcome this harness must never produce,
+    # so an empty list is a loud error, not a mode.
     columns = spec.get("columns")
-    if columns is None:
+    if columns is not None:
+        if not isinstance(columns, list):
+            die("expect.result.columns must be a list of column names")
+        if not columns:
+            die("expect.result.columns is empty; omit the key to compare every "
+                "column the expected rows define, or name at least one column")
+        scalar_rows = False
+    else:
         columns = sorted({k for r in expected if isinstance(r, dict)
                           for k in r})
-    scalar_rows = not columns  # expected rows are bare scalars, not objects
+        # Only an omitted `columns` can mean this: no expected row is an object,
+        # so the rows are bare scalars rather than column-keyed records.
+        scalar_rows = not columns
     if scalar_rows:
         columns = ["_v"]
         exp = [{"_v": r} for r in expected]

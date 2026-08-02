@@ -1163,6 +1163,43 @@ class TestScoreExecution(ScorerTest):
         self.assertEqual(rc, 2)
         self.assertIn("scalar", out["error"])
 
+    def test_explicit_columns_still_ignores_extra_actual_columns(self):
+        # The regression: an explicit `columns` list used to collapse with the
+        # omitted case, flipping to bare-scalar-row mode where whole rows are
+        # compared as JSON. That FAILED this correct result set because the app
+        # returned extra columns the spec says to ignore.
+        expected = [{"role": "nurse", "n": 7}]
+        actual = [{"role": "nurse", "n": 7, "dept": "ICU"}]
+        rc, out, _ = self.score({"rows": actual},
+                                {"result": {"rows": expected,
+                                            "columns": ["role", "n"]}})
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual(out["checks"][0]["columns"], ["role", "n"])
+
+    def test_explicit_columns_narrows_the_comparison(self):
+        # An explicit list is also a real narrowing: differ outside it -> pass.
+        rc, out, _ = self.score(
+            {"rows": [{"role": "nurse", "n": 999}]},
+            {"result": {"rows": [{"role": "nurse", "n": 7}],
+                        "columns": ["role"]}})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_empty_columns_list_exits_2(self):
+        # Comparing zero columns makes every row equal — a vacuous pass. Loud
+        # error beats a silently meaningless verdict.
+        rc, out, _ = self.score({"rows": [{"role": "nurse"}]},
+                                {"result": {"rows": [{"role": "nurse"}],
+                                            "columns": []}})
+        self.assertEqual(rc, 2)
+        self.assertIn("columns", out["error"])
+
+    def test_non_list_columns_exits_2(self):
+        rc, out, _ = self.score({"rows": [{"role": "nurse"}]},
+                                {"result": {"rows": [{"role": "nurse"}],
+                                            "columns": "role"}})
+        self.assertEqual(rc, 2)
+        self.assertIn("columns", out["error"])
+
 
 class TestReduceRepeats(ScorerTest):
     """pass^k / pass@k reliability reducer over repeats of the SAME case."""
