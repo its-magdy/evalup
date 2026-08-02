@@ -685,9 +685,16 @@ def build_page(records, annotations, title, source):
     if not records:
         return EMPTY_PAGE.format(title=esc(title), source=esc(source))
     for i, r in enumerate(records):
+        # Render BEFORE backfilling the ids. render_record flags a synthesized
+        # id by checking that neither case_id nor trace_id was present, and
+        # backfilling first made that check permanently false — every
+        # positional id then rendered as if it were a real one, which is the
+        # opposite of the promise in this module's docstring. A synthesized id
+        # does not correlate back to the dataset, so hiding it sends the
+        # reviewer looking for a case that does not exist.
+        r["detail_html"] = render_record(r, i)
         r.setdefault("case_id", r.get("trace_id") or f"case-{i}")
         r.setdefault("trace_id", r.get("case_id"))
-        r["detail_html"] = render_record(r, i)
     trace_data = _no_script_break(json.dumps({"records": records}))
     annotation_data = _no_script_break(json.dumps(annotations))
     return PAGE.format(title=esc(title), css=CSS, js=JS,
