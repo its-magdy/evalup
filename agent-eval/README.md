@@ -95,10 +95,16 @@ teammates who never open Claude Code.
 
 ## Requirements
 
-Python 3.9+ (scorers are stdlib-only; the suite is verified on 3.9 and 3.14 —
-run it any time with `python3 -m unittest discover -s tests`, and
-`scripts/stats.py --version` reports the harness version a run manifest
-records). An app you can invoke
-programmatically. OpenTelemetry with GenAI spans is strongly recommended
-(discover offers to add it) — without traces, trajectory layers are
-unavailable and only answer-level evals run.
+Python 3.9+, stdlib only. 3.9 is past upstream end-of-life (October 2025) and
+is kept as the floor deliberately, not by default: RHEL 9 ships it with
+vendor-backported fixes, and long-lived enterprise environments are where this
+harness is meant to run. The suite enforces the floor's *grammar* on whatever
+interpreter you have (`tests/test_scorers.py`, `PY_FLOOR`); confirming stdlib
+APIs and runtime typing under 3.9 needs a real 3.9 interpreter, which no CI
+matrix currently exercises. Run the suite any time with
+`python3 -m unittest discover -s tests`; `scripts/stats.py --version` reports
+the harness version a run manifest records.
+
+An app you can invoke programmatically. OpenTelemetry with GenAI spans is
+strongly recommended (discover offers to add it) — without traces, trajectory
+layers are unavailable and only answer-level evals run.

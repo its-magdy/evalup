@@ -7,6 +7,7 @@ Run: python3 -m unittest discover -s tests -v   (from the plugin root)
 Each scorer is exercised as a real subprocess — argv, files, exit codes —
 because that is its actual contract with the run skill.
 """
+import ast
 import json
 import math
 import pathlib
@@ -16,6 +17,13 @@ import tempfile
 import unittest
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
+
+# The Python floor README.md advertises. 3.9 is past upstream end-of-life
+# (October 2025), so the floor is a deliberate compatibility choice rather than
+# a default: RHEL 9 ships 3.9 and Red Hat backports fixes for that distro's
+# lifetime, and this harness is aimed at exactly those long-lived enterprise
+# environments. Raise it here and in README.md together, never separately.
+PY_FLOOR = (3, 9)
 
 
 def run_script(name, *argv):
@@ -869,6 +877,48 @@ class TestHarnessVersion(ScorerTest):
             capture_output=True, text=True)
         self.assertIn(manifest["version"], proc.stdout + proc.stderr,
                       "HARNESS_VERSION drifted from plugin.json")
+
+
+class TestDeclaredPythonFloor(unittest.TestCase):
+    """README.md advertises a minimum Python; nothing checked it, so the claim
+    could only ever be discovered wrong by a user on that version.
+
+    ast.parse(feature_version=...) compiles under the floor's grammar on ANY
+    interpreter, so this holds even where no old interpreter is installed. It
+    catches syntax that silently arrives with a newer Python — match statements
+    (3.10), except* (3.11), and so on.
+
+    What it does NOT catch, stated so the guarantee is not overread: newer
+    STDLIB APIs (str.removeprefix, itertools.pairwise, math.nextafter) and
+    annotations that parse everywhere but only evaluate on newer runtimes
+    (`int | None`). Those need a real interpreter of the floor version — a CI
+    matrix job, which this repo does not have yet."""
+
+    def sources(self):
+        root = SCRIPTS.parent
+        return sorted([*SCRIPTS.glob("*.py"), *(root / "tests").glob("*.py")])
+
+    def test_every_source_parses_under_the_declared_floor(self):
+        checked = 0
+        for path in self.sources():
+            src = path.read_text(encoding="utf-8")
+            try:
+                ast.parse(src, filename=str(path), feature_version=PY_FLOOR)
+            except SyntaxError as e:
+                self.fail(f"{path.name} needs newer than Python "
+                          f"{'.'.join(map(str, PY_FLOOR))}: {e.msg} "
+                          f"(line {e.lineno}). Either keep the floor and "
+                          f"rewrite this, or raise PY_FLOOR and README.md "
+                          f"together.")
+            checked += 1
+        self.assertGreater(checked, 10, "source glob matched almost nothing — "
+                                        "the test would pass vacuously")
+
+    def test_the_floor_check_actually_rejects_newer_syntax(self):
+        # Guard against a vacuous guard: if feature_version ever stopped being
+        # enforced, the test above would pass on anything.
+        with self.assertRaises(SyntaxError):
+            ast.parse("match x:\n    case 1: pass", feature_version=PY_FLOOR)
 
 
 class TestErrorContractAllScorers(ScorerTest):

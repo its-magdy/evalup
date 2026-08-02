@@ -189,6 +189,11 @@ suite, hard gate).
   Holdout-split cases appear as aggregate only, whichever mode's selection
   happened to include them (see references/run-modes.md `holdout`). `--baseline`
   pins this run as the new baseline.
+  You write the `.md`; produce the `.html` from it with
+  `${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>.md
+  reports/<run-id>.html` — do not hand-write HTML. It emits one self-contained
+  file (no external assets), which is what makes a report shareable with
+  teammates who never open Claude Code.
 
 ## 5. Headless / CI gate
 The hard-gated modes (`regression`, `full`) run unattended in CI. The LLM is
