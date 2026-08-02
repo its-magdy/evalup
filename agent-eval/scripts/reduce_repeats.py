@@ -34,7 +34,6 @@ error, same rule as stats.py: infra verdicts must be excluded upstream.
 import argparse
 import json
 import math
-import sys
 
 from _common import add_version_flag, die, load_jsonl
 
@@ -98,22 +97,18 @@ def main():
 
     groups = load_groups(a.repeats)
     if not groups:
-        print(json.dumps({"error": "no rows - nothing to reduce"}))
-        sys.exit(2)
+        die("no rows - nothing to reduce")
 
     ns = {cid: len(v) for cid, v in groups.items()}
     k = a.k if a.k is not None else min(ns.values())
     if k < 1:
-        print(json.dumps({"error": f"--k must be >= 1, got {k}"}))
-        sys.exit(2)
+        die(f"--k must be >= 1, got {k}")
     short = {cid: n for cid, n in ns.items() if n < k}
     if short:
         worst = sorted(short)[0]
-        print(json.dumps({"error": f"--k={k} exceeds the repeat count for "
-                          f"{len(short)} case(s), e.g. {worst!r} has only "
-                          f"{short[worst]} - lower --k or add more repeats "
-                          "for those cases"}))
-        sys.exit(2)
+        die(f"--k={k} exceeds the repeat count for {len(short)} case(s), "
+            f"e.g. {worst!r} has only {short[worst]} - lower --k or add more "
+            "repeats for those cases")
 
     per_case = []
     for cid in sorted(groups):

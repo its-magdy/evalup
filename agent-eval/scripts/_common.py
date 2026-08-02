@@ -26,6 +26,21 @@ def add_version_flag(ap):
 
 
 def die(message):
+    """The single exit path for bad input. Use this rather than hand-rolling
+    the same print+exit: drift in the error SHAPE is invisible in tests that
+    only assert the exit code, and the orchestrating skill parses this object.
+
+    Errors go to STDOUT, not stderr, deliberately. clig.dev pulls both ways —
+    "log messages, errors, and so on should all be sent to stderr", but also
+    "anything that is machine readable should also go to stdout". This object
+    is machine-readable output consumed by the skill that invoked the scorer,
+    so it follows the second rule; exit 2 is what signals failure.
+
+    Extra keys on top of "error" are allowed when a script's success output
+    already carries them: normalize_trace.py emits {"status": "error", ...}
+    because every one of its outputs carries a status ("ok"/"incomplete"), so
+    a consumer switching on that field sees a coherent tri-state. "error" is
+    the part every consumer can rely on."""
     print(json.dumps({"error": message}))
     sys.exit(2)
 

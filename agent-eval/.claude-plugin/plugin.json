@@ -13,6 +13,9 @@
     "otel"
   ],
   "license": "MIT",
+  "author": {
+    "name": "Mohamed Magdy Omar"
+  },
   "skills": "./skills/",
   "agents": [
     "./agents/judge.md",

@@ -47,7 +47,6 @@ SAME case (a reliability/flakiness signal, not a baseline-vs-candidate one).
 import argparse
 import json
 import math
-import sys
 from statistics import NormalDist
 
 from _common import add_version_flag, die, load_jsonl
@@ -158,9 +157,7 @@ def main():
     base, cand = load(a.baseline), load(a.candidate)
     common = sorted(set(base) & set(cand))
     if not common:
-        print(json.dumps({"error": "no common case ids - runs not comparable "
-                          "(check dataset_version)"}))
-        sys.exit(2)
+        die("no common case ids - runs not comparable (check dataset_version)")
 
     b01 = sum(1 for c in common if not base[c] and cand[c])  # candidate fixed
     b10 = sum(1 for c in common if base[c] and not cand[c])  # candidate broke

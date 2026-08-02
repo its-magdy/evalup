@@ -833,6 +833,18 @@ SCORERS = ("normalize_trace.py", "score_routing.py", "trajectory_match.py",
            "score_args.py", "score_answer.py", "detect_loops.py", "stats.py",
            "score_execution.py", "reduce_repeats.py")
 
+# Everything that parses JSON owes the exit-2-with-{"error"} contract. The
+# viewer generator does (it reads run records), so it belongs here even though
+# it scores nothing.
+JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py",)
+
+# Every script with a CLI owes --version/--help — both non-scorers stamp the
+# harness version into artifacts that runs get compared against, so a silent
+# drift there is a comparability bug. md_to_html.py is only in THIS set: it
+# reads Markdown, not JSON, so malformed JSON is not malformed input to it
+# ("{not json" is valid Markdown and converting it is the correct behavior).
+CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("md_to_html.py",)
+
 
 class TestHarnessVersion(ScorerTest):
     """run/SKILL.md refuses a baseline diff unless the harness versions match,
@@ -841,7 +853,7 @@ class TestHarnessVersion(ScorerTest):
 
     def test_every_scorer_reports_the_same_version(self):
         seen = set()
-        for name in SCORERS:
+        for name in CLI_SCRIPTS:
             proc = subprocess.run(
                 [sys.executable, str(SCRIPTS / name), "--version"],
                 capture_output=True, text=True)
@@ -876,7 +888,7 @@ class TestErrorContractAllScorers(ScorerTest):
     def test_all_scorers_reject_garbage_without_a_traceback(self):
         bad = self.tmp / "bad.json"
         bad.write_text("{not json")
-        for script in SCORERS:
+        for script in JSON_CLI_SCRIPTS:
             rc, out, err = run_script(script, *self.bad_argv(script, bad))
             self.assertEqual(rc, 2, f"{script}: expected exit 2, got {rc}\n{err}")
             self.assertIsNotNone(out, f"{script}: stdout not JSON\n{err}")
