@@ -146,11 +146,25 @@ def main():
     if a.oos_route:
         oos_expected = sum(1 for r in rows if r["expected"] == "__oos__")
         if "__oos__" in per_target:
+            # Report COVERAGE beside the rate. An OOS case whose acceptable set
+            # blessed a route target is excluded from the matrix (correctly — it
+            # is not a mismatch), but that shrinks the denominator this recall is
+            # computed over. Without the excluded count, a run where an OOS query
+            # did land in a route target still reads "recall 1.0", and the note
+            # below then reads as proof of something it did not measure.
+            excluded = oos_expected - per_target["__oos__"]["support"]
             out["oos"] = {
                 "precision": per_target["__oos__"]["precision"],
                 "recall": per_target["__oos__"]["recall"],
                 "support": per_target["__oos__"]["support"],
-                "note": "recall<1.0 means out-of-scope queries leaked into route targets",
+                "oos_cases": oos_expected,
+                "excluded_accepted_alternates": excluded,
+                "note": "recall<1.0 means out-of-scope queries leaked into route targets"
+                        + ("" if not excluded else
+                           f" — measured over {per_target['__oos__']['support']} of "
+                           f"{oos_expected} OOS case(s); {excluded} passed via the "
+                           "acceptable set or the clarify path and are not measured "
+                           "here (see accepted_alternates)"),
             }
         else:
             out["oos"] = {

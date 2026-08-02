@@ -950,6 +950,35 @@ class TestScoreRoutingOOSReporting(ScorerTest):
                                 self.write_jsonl("r.jsonl", rows))
         self.assertNotIn("oos", out)
 
+    def test_oos_recall_reports_the_cases_it_did_not_measure(self):
+        # The field-test shape: two OOS cases route correctly, a third lands in
+        # a route target but its acceptable set blessed that. Recall over the
+        # measured two is a legitimate 1.0 — but reporting it alone reads as
+        # "nothing leaked" when one OOS query did reach a route target. Rate
+        # without coverage is the misreading; report both.
+        rows = [{"case_id": "c1", "expected": "refuse", "observed": "refuse"},
+                {"case_id": "c2", "expected": "refuse", "observed": "refuse"},
+                {"case_id": "c3", "expected": "refuse",
+                 "acceptable": ["refuse", "billing"], "observed": "billing"}]
+        rc, out, _ = run_script("score_routing.py",
+                                self.write_jsonl("r.jsonl", rows),
+                                "--oos-route", "refuse")
+        self.assertEqual(out["oos"]["recall"], 1.0)
+        self.assertEqual(out["oos"]["support"], 2)
+        self.assertEqual(out["oos"]["oos_cases"], 3)
+        self.assertEqual(out["oos"]["excluded_accepted_alternates"], 1)
+        self.assertIn("2 of 3", out["oos"]["note"])
+
+    def test_oos_note_stays_clean_when_nothing_was_excluded(self):
+        rows = [{"case_id": "c1", "expected": "refuse", "observed": "refuse"},
+                {"case_id": "c2", "expected": "refuse", "observed": "billing"}]
+        rc, out, _ = run_script("score_routing.py",
+                                self.write_jsonl("r.jsonl", rows),
+                                "--oos-route", "refuse")
+        self.assertEqual(out["oos"]["excluded_accepted_alternates"], 0)
+        self.assertNotIn("not measured here", out["oos"]["note"])
+        self.assertEqual(out["oos"]["recall"], 0.5)
+
     def test_missing_case_id_names_the_real_problem(self):
         rows = [{"expected": "a", "observed": "a"},
                 {"expected": "b", "observed": "b"}]
