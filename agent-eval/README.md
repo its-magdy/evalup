@@ -78,8 +78,10 @@ Layered, so a failure tells you *which prompt to fix*:
 ## Where state lives
 
 The plugin is reusable methodology. Everything about *your* app lives in
-`your-app/.agent-eval/` (adapter, profile, datasets, baselines, runs,
-reports) — plain YAML/Markdown, versioned with your app, readable by
+`your-app/.agent-eval/` (adapter, profile, datasets, and `reports/` — one
+`reports/<run-id>/` folder per run with its manifest, per-case raw material,
+and report, plus `reports/baseline.json` pointing at the pinned baseline
+run) — plain YAML/Markdown/JSON, versioned with your app, readable by
 teammates who never open Claude Code.
 
 ## Docs
@@ -98,12 +100,30 @@ teammates who never open Claude Code.
 Python 3.9+, stdlib only. 3.9 is past upstream end-of-life (October 2025) and
 is kept as the floor deliberately, not by default: RHEL 9 ships it with
 vendor-backported fixes, and long-lived enterprise environments are where this
-harness is meant to run. The suite enforces the floor's *grammar* on whatever
-interpreter you have (`tests/test_scorers.py`, `PY_FLOOR`); confirming stdlib
-APIs and runtime typing under 3.9 needs a real 3.9 interpreter, which no CI
-matrix currently exercises. Run the suite any time with
+harness is meant to run. Run the suite any time with
 `python3 -m unittest discover -s tests`; `scripts/stats.py --version` reports
 the harness version a run manifest records.
+
+The floor is checked at three depths, weakest to strongest:
+
+```sh
+python3 -m unittest discover -s tests   # grammar, on whatever interpreter you have
+ruff check --config ruff.toml .         # target-version = py39 bounds every UP fix
+uv run --python 3.9 --with pytest --with pytest-subtests \
+    python -m pytest tests -q           # the real thing: stdlib APIs + runtime typing
+```
+
+Only the third is conclusive. `PY_FLOOR` in `tests/test_scorers.py` compiles the
+scripts against the floor's *grammar*, and ruff's `target-version` stops `UP`
+from proposing a 3.10+ form — but neither rejects a newer stdlib API or a typing
+construct that only fails at runtime. `uv` fetches a real 3.9 in seconds, so
+there is no reason to skip it before a release.
+
+`ruff` and `uv` are development tools only — nothing the harness ships at
+runtime imports outside the stdlib. `ruff.toml` keeps a deliberately small rule
+set, and each entry carries a comment saying which defect class it catches or
+which comment in the code already argues for it; read it there before adding to
+it.
 
 An app you can invoke programmatically. OpenTelemetry with GenAI spans is
 strongly recommended (discover offers to add it) — without traces, trajectory

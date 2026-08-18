@@ -15,7 +15,7 @@ argument-hint: "[--label] [--cluster] [--mine] [--unseal]"
 `analyze` reads the latest run's output and the dataset. Before assuming
 either exists, check — and if not, say so plainly and name the actual next
 step instead of clustering, labeling, or mining an empty set:
-- **No run has ever completed** (no `runs/` entries, or the latest is
+- **No run has ever completed** (no `reports/<run-id>/` directories, or the latest is
   interrupted/all-`infra_error`) → nothing to cluster or label yet. Say that,
   and point at `/agent-eval:run` (or `/agent-eval:start`, which routes to
   whichever of discover/generate/run hasn't happened yet — don't guess which
@@ -48,7 +48,19 @@ interactive viewer: `${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py
 <run-path> [-a <annotations.jsonl>] -o <out.html>` — one self-contained HTML
 file with the span tree, expected-vs-actual diff, per-stage cost, and a
 hotkeyed pass/fail+critique bar per trace (see `references/annotation-ux.md`
-for the full open-coding → axial-coding workflow this drives).
+for the full open-coding → axial-coding workflow this drives). If the run
+nests its records (`cases/<case-id>/verdict.json`), add `--glob
+'cases/*/verdict.json'` — a bare run root holds manifest/canary artifacts, not
+cases, and the viewer will say so rather than render them. `--glob` takes one
+pattern with no exclude syntax, so **on a `--full` or `--holdout` run, don't
+point it at `cases/` directly** — first stage a filtered copy: symlink every
+non-holdout `cases/<case-id>/verdict.json` (cross-referencing `datasets/
+holdout/` case ids to know which to skip) into a scratch directory, then
+`--glob` that directory instead. Holdout `request.json`/`response.json` are
+exactly the sealed content `run/SKILL.md` §4 keeps out of the aggregate
+report and `results.json`'s per-case rows — pointing the viewer at `cases/`
+unfiltered renders them anyway, silently spending a look against the N=5
+reseal budget without going through `--unseal`.
 End by asking: which clusters are "real" vs "the case label is wrong"? Label
 corrections feed back to the dataset (bump dataset_version).
 

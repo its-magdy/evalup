@@ -2,9 +2,8 @@
 
 One execution engine (SKILL.md §§1–4: pre-flight → execute → score →
 compare/report). These five modes are named selections + gate policies layered
-over it — nothing else about the engine changes per mode. Source: the research
-recommendation's run-mode taxonomy (EVAL-DESIGN-RECOMMENDATION.md §7), which
-maps onto the plugin's pre-existing `--smoke` flag.
+over it — nothing else about the engine changes per mode. This run-mode
+taxonomy maps onto the plugin's pre-existing `--smoke` flag.
 
 | Mode | Flag | Selection | k | Gate | When |
 |---|---|---|---|---|---|
@@ -102,7 +101,11 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 - **Reporting**: aggregate only, always — no per-case trace excerpts, no
   page-one failure clusters (per SKILL.md §4's zero-failure/holdout
   reporting rule). This is the one place in the harness where "less detail in
-  the report" is the correct, intentional behavior, not a gap.
+  the report" is the correct, intentional behavior, not a gap. Per-case
+  `cases/<case-id>/` folders still get written on disk (SKILL.md §2 — that's
+  what makes resume work), but their `request.json`/`response.json` content
+  is never pulled into `report.md`/`.html` or `results.json`'s per-case rows;
+  only the aggregate stats cross the seal.
 - **Holdout-look budget**: running `--holdout` counts as one look toward the
   N=5 reseal trigger (`skills/optimize/SKILL.md` "Candidate pool": "Holdout
   looks are counted; after 5, analyze forces a reseal"), the same as an
@@ -132,7 +135,7 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   is true (same gate as any other red-team probe; see SKILL.md §3's authz
   layer); still skipped (not failed) otherwise.
 - **When**: release validation, before staged rigor moves an app toward
-  `traffic`/`production` (EVAL-DESIGN-RECOMMENDATION.md §21) — a
+  `traffic`/`production` — a
   monitoring-window release habit sits on top of this, not instead of it
   (`docs/workflow.md` "Production era").
 
@@ -156,9 +159,17 @@ jq -e 'select(.type=="system" and .subtype=="init")
          and (.mcp_server_errors // [] | length == 0)' \
   run-output.json >/dev/null || { echo "plugin/mcp load errors — run untrusted"; exit 2; }
 
-# The actual gate: a plain script reads the verdict, no LLM involved.
-gating_failures=$(jq '.summary.gating_failures' run-output.json)
-infra_rate=$(jq '.summary.infra_rate' run-output.json)
+# The actual gate: a plain script reads the verdict, no LLM involved. Find
+# the run this invocation just wrote — its manifest.yaml is the newest one
+# under reports/, and manifest.yaml's own `run_id` field (SKILL.md §1) is the
+# source of truth, not stdout-parsing this CLI call's own text reply — then
+# pull results.json from that same run directory (SKILL.md §4), since
+# results.json is the durable file that also survives past this one CI
+# invocation.
+manifest=$(ls -t reports/*/manifest.yaml | head -1)
+run_id=$(yq -r '.run_id' "$manifest")   # or python -c 'import yaml,sys; ...' if yq isn't available
+gating_failures=$(jq '.summary.gating_failures' "reports/$run_id/results.json")
+infra_rate=$(jq '.summary.infra_rate' "reports/$run_id/results.json")
 if [ "$gating_failures" -gt 0 ] || awk "BEGIN{exit !($infra_rate > 0.05)}"; then
   exit 1
 fi
@@ -174,6 +185,18 @@ exit 0
   optional: a run that launched under a broken plugin load can produce a
   clean-looking JSON verdict for the wrong reason (e.g. every case silently
   skipped a layer), and the gate script would happily green-light it.
+- `ls -t reports/*/manifest.yaml | head -1` assumes this CI job has an
+  otherwise-empty `reports/` (or is the only writer racing at that moment) —
+  a shared `reports/` directory with concurrent runs needs the run id passed
+  through explicitly (e.g. captured from the invoking job's own arguments)
+  rather than inferred by recency.
+- Honesty check on both practices above: `--bare` is a real, working flag but
+  is currently absent from the official CLI reference (an open documentation
+  gap, not a plugin quirk), and gating on `system/init`'s `plugin_errors`
+  field is not an officially documented pattern — undocumented plugin load
+  failures currently tend to surface as generic hook errors instead. Both are
+  kept here as best-effort practice; re-verify against the current Claude
+  Code docs when actually wiring this into CI.
 - Note the zero-failure branch (SKILL.md §4) surfaces here as
   `gating_failures == 0` — a legitimate, common, good outcome, not an edge
   case the gate script needs to special-case beyond "0 is not greater than

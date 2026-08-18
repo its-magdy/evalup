@@ -30,7 +30,7 @@ engine (§§1–4 below never change). Full mechanics, flags, and worked example
 | `full` | everything, incl. judged layers | ≥3, pass^k | hard | release validation |
 
 `--smoke` is the existing flag and is unchanged; the other four are new
-flags mapped onto the same taxonomy (EVAL-DESIGN-RECOMMENDATION.md §7). No
+flags mapped onto the same taxonomy. No
 mode flag given → behave as `regression` (the old unqualified default: full
 suite, hard gate).
 
@@ -58,7 +58,12 @@ suite, hard gate).
   prices + judge calls if calibrated). Present "≈ $X, ~Y min. Proceed?" unless
   the user pre-approved with an explicit budget. Skip the prompt entirely
   under the headless CI gate (§5) — a human isn't there to answer it.
-- Write the **run manifest** first: run id, mode, dataset_version + case id/hash
+- Generate the **run id** first — `<mode>-<UTC timestamp, YYYYMMDDTHHMMSSZ>`
+  (e.g. `smoke-20260818T170500Z`) — it names `reports/<run-id>/` for every
+  file this run writes (§2, §4). Then write the **run manifest** to
+  `reports/<run-id>/manifest.yaml` with `run_id` as its own top-level key
+  (not just embedded in the directory name — §5's CI gate reads it back off
+  this field, not off the path), plus: mode, dataset_version + case id/hash
   list, app git SHA, prompt snapshot hashes, app model id, judge model +
   judge-prompt version, rubric versions, harness version, k, temperature,
   environment kind. A run without a manifest is not comparable to anything.
@@ -69,9 +74,26 @@ suite, hard gate).
 - Serial by default; adapter's max_concurrency only when state-safe.
 - Per case: (seed state if defined) → invoke via adapter (k times if k>1) →
   collect trace (respect completeness gate: quiescence, then max_wait →
-  `infra_incomplete`) → persist raw response + normalized trace + verdict
-  durably per case (**resume**: an interrupted run continues from the last
-  completed case under the same manifest).
+  `infra_incomplete`) → write `reports/<run-id>/cases/<case-id>/{request,
+  response,verdict}.json` **immediately, as that case completes, via
+  write-to-temp-then-rename** — never batched at run end and never a partial
+  file visible mid-write, since **resume** depends on it: an interrupted run
+  continues from the last case-id with a fully-written directory under the
+  same manifest.
+  `request.json`: persona, headers actually sent (redact values per
+  adapter.yaml `data.may_contain_pii`), the literal input message(s).
+  `response.json`: raw HTTP status + body + `latency_s` (+ retry count if
+  `infra_error` fired above). `verdict.json`: the per-layer verdict
+  (http/execution/authz/answer/etc., §3) plus a free-text `notes` field for
+  investigation context that doesn't fit a structured verdict.
+  `trace.json` is written alongside them only when `traces.source` is
+  `queryable` this run (§1 pre-flight); when it's `view-only` or `none`, no
+  `trace.json` is written and `verdict.json` says why — so a reader can't
+  mistake an absent trace file for nobody having looked.
+  If `adapter.yaml` declares `data.may_contain_pii: true`, write
+  `reports/.gitignore` containing `*/cases/` before the first case file of
+  the run is written — raw per-case material stays local; `manifest.yaml`,
+  `report.md`/`.html`, and `results.json` (§4) still commit normally.
 - Failure taxonomy: timeouts/429/5xx/app-crash → `infra_error` (bounded
   retries, then recorded); crash on `noise`/`adversarial` categories also
   increments the **crash-rate metric** (a first-class number, especially
@@ -93,11 +115,19 @@ suite, hard gate).
    and `route_acceptable`→`acceptable` (both accepted as aliases), plus
    `observed`/`clarified` from the run; pass `--oos-route <name>` with the
    profile's `oos_handling` route so OOS metrics appear; a null `observed`
-   is scored as `__no_route__`, a fail, never a crash),
+   is scored as `__no_route__`, a fail, never a crash. `macro_f1` averages
+   only over labels the dataset actually asks for; prediction-only labels
+   the app invented — `__no_route__`, a hallucinated route name — are
+   reported in a separate `spurious_labels` block and excluded from the
+   macro, so one unrouted case cannot crater the headline number or
+   misdirect the macro/micro gap warning. Surface `spurious_labels` in the
+   report: a route the app emits that no case asks for is a finding),
    `trajectory_match.py` (subset default; order/exact where
    asserted; forbidden-tool violations; trajectory precision/recall),
    `score_args.py` (value/present/from_tool_result assertions; unscorable
-   without content capture — reported, never failed),
+   without content capture — reported, never failed; each tool's expectation
+   is scoped by its `calls` key — `any` (default) / `all` / `first`, see
+   `skills/generate/references/case-format.md`),
    `detect_loops.py` (repeated tool+args-hash),
    `score_answer.py` (must_contain/must_not_contain — plain string or
    `/regex/` — and `format.json_schema`), latency/tokens per stage from the
@@ -119,7 +149,8 @@ suite, hard gate).
    layer in the per-case verdict and the run report, alongside routing/args/
    trajectory — do not fold it into `answer`.
 4. **Authz layer** — for every case carrying `expect.authz`, invoke
-   `score_authz.py <trajectory.json> <case_expect.json> [--answer FILE]`
+   `score_authz.py <trajectory.json> <case_expect.json> [--answer FILE]
+   [--id-pattern REGEX]`
    (see `scripts/score_authz.py`; call it, do not implement scoring logic
    here). Feed it `normalize_trace.py`'s output (or `{"tool_calls": [...]}`)
    as `trajectory.json` and the case's `expect` object as `case_expect.json`;
@@ -132,7 +163,16 @@ suite, hard gate).
    an open endpoint underneath; the log and the IDs are the ground truth).
    Missing tool-result content → the record-id checks report `unscorable`
    (never `fail`); `forbidden_tools` has no unscorable state (which tools
-   were invoked is structural, independent of content capture). Gate: if the
+   were invoked is structural, independent of content capture). An `--answer`
+   file that is empty or whitespace-only counts as no evidence, exactly like
+   passing no `--answer` at all — it can never turn an unscorable check into
+   a pass. **`--id-pattern`**: the default id recognizer only sees
+   `letters[-_]digits` tokens (`INV-1042`, `e_881`), so an app whose records
+   are integer primary keys, UUIDs, or separator-less ids scores every
+   record-id check `unscorable`. Pass the app's own id regex — from
+   profile.yaml — to make those cases scorable; if you see record-id checks
+   coming back uniformly unscorable on an app that clearly returns ids, this
+   is the reason. Gate: if the
    case's `category` is `adversarial-*` and the adapter's
    `environment.safe_to_attack` is not true (§1 pre-flight), skip the case
    for this layer and report it `skipped` (with the reason), the same
@@ -154,12 +194,18 @@ suite, hard gate).
    `regression`/`full`/`holdout` run them when calibrated.
 
 ## 4. Compare and report
-- **First-run branch** (no baseline exists yet): this is a branch, not an
-  error — skip the diff, pin this run as the baseline automatically
-  (`--baseline` semantics are implied on a first run, no flag needed), and
-  print "baseline established (run <id>); future runs diff against this."
-  Every other step in §§1–3 runs exactly as normal; only the comparison step
-  is short-circuited.
+- **Baseline pointer**: `reports/baseline.json` — `{"run_id": ..., "dataset_version":
+  ..., "harness_version": ...}` — is the one file that says which run is "the
+  baseline"; every diff in this section reads it, never the newest-by-mtime
+  `reports/` entry (mtime drifts once anyone re-runs a report or copies a
+  directory). Pinning a baseline (first-run branch below, or an explicit
+  `--baseline`) means overwriting this file, nothing else.
+- **First-run branch** (`reports/baseline.json` doesn't exist yet): this is a
+  branch, not an error — skip the diff, write `reports/baseline.json`
+  pointing at this run (`--baseline` semantics are implied on a first run, no
+  flag needed), and print "baseline established (run <id>); future runs diff
+  against this." Every other step in §§1–3 runs exactly as normal; only the
+  comparison step is short-circuited.
 - Baseline diff (same dataset_version AND same harness version only — a
   scorer change alters what a number means just like a dataset change does.
   Refuse cross-version diffs; for a harness upgrade, tell the user to pin a
@@ -167,6 +213,14 @@ suite, hard gate).
   exact Bayesian P(improvement) on paired verdicts at every n, with an exact
   one-sided sign test reported alongside (feed it only `pass`/`fail` rows —
   infra and `unscored` verdicts are a hard error, never silent failures).
+  It compares the two runs' shared cases, and reports what that cost:
+  `cases_only_in_baseline` / `cases_only_in_candidate` counts, plus a
+  `case_attrition_warning` when either side loses more than 10%. Read that
+  warning before the verdict — because infra verdicts are filtered out
+  upstream, the cases a candidate *crashed on* are exactly the ones that
+  drop out of the comparison, so an unexamined attrition warning can mean
+  "improved" was measured only on the cases that survived. Say so in the
+  report rather than quoting the delta alone.
   Report deltas as
   "improved / worsened / within noise (n=52 can only detect ~14pp)" — never a
   bare percentage.
@@ -180,20 +234,31 @@ suite, hard gate).
   "0 gating failures (n=<N>)" plus the metrics tables and skips the clusters
   section with that one-line reason (still print any `unscored`/`skipped`/
   non-gating counts so a quiet run isn't mistaken for a fully green one).
-- Report (`reports/<run-id>.md` + `.html`): **page one = top-3 failure
-  clusters** (or the zero-failure line above), each with 1–2 expected-vs-actual
-  trace examples and the implicated surface (router prompt / tool
-  description X / missing OOS route) + effort tag. Metrics tables and the
-  confusion matrix follow, including the `execution` and `authz` layers as
-  their own rows/sections — never merged into `answer` or `trajectory`.
-  Holdout-split cases appear as aggregate only, whichever mode's selection
-  happened to include them (see references/run-modes.md `holdout`). `--baseline`
-  pins this run as the new baseline.
+- Report, written to `reports/<run-id>/` alongside the `cases/` material from
+  §2 and the `manifest.yaml` from §1: `report.md` + `report.html`, and
+  **required alongside them, `results.json`** — the machine-readable summary
+  (`run_id`, `harness_version`, `dataset_version` — echoed from the manifest
+  so a gate script never has to open two files to check they match — plus
+  per-case verdict rows and `summary.gating_failures`/`summary.infra_rate`)
+  that §5's headless CI gate reads; it is not optional scaffolding, the gate
+  has nothing else to read.
+  **Page one = top-3 failure clusters** (or the zero-failure line above), each
+  with 1–2 expected-vs-actual trace examples and the implicated surface
+  (router prompt / tool description X / missing OOS route) + effort tag.
+  Metrics tables and the confusion matrix follow, including the `execution`
+  and `authz` layers as their own rows/sections — never merged into `answer`
+  or `trajectory`. Holdout-split cases appear as aggregate only, whichever
+  mode's selection happened to include them (see references/run-modes.md
+  `holdout` — same rule covers their `cases/` folders: they exist, per §2,
+  but their `request.json`/`response.json` content is never surfaced in
+  `report.md`/`.html` **or in `results.json`'s per-case rows** — both are
+  aggregate-only for holdout ids, matching the "no per-case trace excerpts"
+  seal). `--baseline` pins this run as the new baseline.
   You write the `.md`; produce the `.html` from it with
-  `${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>.md
-  reports/<run-id>.html` — do not hand-write HTML. It emits one self-contained
-  file (no external assets), which is what makes a report shareable with
-  teammates who never open Claude Code.
+  `${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
+  reports/<run-id>/report.html` — do not hand-write HTML. It emits one
+  self-contained file (no external assets), which is what makes a report
+  shareable with teammates who never open Claude Code.
 
 ## 5. Headless / CI gate
 The hard-gated modes (`regression`, `full`) run unattended in CI. The LLM is
@@ -209,7 +274,10 @@ claude -p "/agent-eval:run --regression" --output-format json --bare --permissio
   in §1 is skipped for the same reason.
 - Before trusting the run, check the `system/init` event in the JSON stream
   for `plugin_errors` / `mcp_server_errors` — a run that launched under a
-  broken plugin load is not a real result.
+  broken plugin load is not a real result. Note: `--bare` currently isn't in
+  the official CLI reference (open doc gap) and gating on `plugin_errors` is
+  not an officially documented pattern — both are best-effort here; re-verify
+  against current docs when wiring CI.
 - The shell step then reads the run's verdict (gating failures = 0 and no
   `infra_error`/`infra_incomplete` above the agreed threshold) and sets the
   process exit code accordingly — this script, not Claude, is what actually
