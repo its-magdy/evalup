@@ -90,10 +90,19 @@ Three roles, even if one person wears all hats (common at the start):
 - Plugin (this directory): reusable methodology, scorers, agents, docs.
 - The state location (default `<app-repo>/.agent-eval/`, or the adapter's
   `state_location`): everything app-specific — `adapter.yaml`,
-  `profile.yaml`, `datasets/` (smoke/full/holdout), `baselines/`, `runs/`,
-  `candidates/`, `reports/`, and optionally `scripts/` (e.g. `smoke.sh` for
+  `profile.yaml`, `datasets/` (smoke/full/holdout), `reports/`,
+  `candidates/`, and optionally `scripts/` (e.g. `smoke.sh` for
   the edit-hook, created from the plugin's `docs/smoke.sh.example`, or a
-  `traces.mapping_shim`). In-repo it is versioned with the app so eval
+  `traces.mapping_shim`).
+  Everything a run writes lives under `reports/<run-id>/`: `manifest.yaml`,
+  `cases/<case-id>/*.json`, `verdicts.jsonl` (+ the pass/fail-only
+  `verdicts_for_stats.jsonl` that `stats.py` pairs), `results.json`, and
+  `report.md`/`.html`. `reports/baseline.json` is a pointer naming which
+  run-id is the pinned baseline — there is no `baselines/` or `runs/`
+  directory any more; a state dir that still has them predates this layout,
+  see `docs/migrate-run-layout.md`. `candidates/<id>/` stays a sibling: an
+  `optimize` candidate is a proposed change, not a run's output, and its
+  measurement runs land in `reports/` like any other. In-repo it is versioned with the app so eval
   history travels with the app's git history; read-only/out-of-tree setups
   (state at any external path, no app patches) are equally supported.
 

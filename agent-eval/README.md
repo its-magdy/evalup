@@ -93,6 +93,8 @@ teammates who never open Claude Code.
   the first reference adapter (any other stack implements the same contract)
 - `docs/rubric-format.md` — the decomposed-binary DAG judge rubric + calibration
 - `skills/analyze/references/annotation-ux.md` — the open→axial error-analysis workflow
+- `docs/migrate-run-layout.md` — moving a pre-`reports/<run-id>` state dir onto
+  the per-run layout (and what `run` does when it finds the old one)
 - `docs/research.md` — pointer to the research behind the design decisions
 
 ## Requirements

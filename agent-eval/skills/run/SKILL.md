@@ -200,8 +200,26 @@ suite, hard gate).
   `reports/` entry (mtime drifts once anyone re-runs a report or copies a
   directory). Pinning a baseline (first-run branch below, or an explicit
   `--baseline`) means overwriting this file, nothing else.
-- **First-run branch** (`reports/baseline.json` doesn't exist yet): this is a
-  branch, not an error — skip the diff, write `reports/baseline.json`
+  Because the pointer holds no verdict data — the paired input `stats.py`
+  reads lives in the run's own directory (report step below) — a
+  `reports/<run-id>/` folder is self-contained: archiving or copying it
+  carries everything needed to diff against that run. The same property makes
+  the pinned baseline's folder load-bearing: **never prune `reports/` by age
+  or size without checking `baseline.json` first**, since deleting the pinned
+  run's directory leaves the pointer aimed at nothing and silently costs every
+  future diff. If it is already gone, say so and pin a fresh baseline rather
+  than quietly falling back to another run.
+- **Old-layout check, before the first-run branch**: if `reports/baseline.json`
+  is absent but a sibling `baselines/` or `runs/` directory exists, this state
+  dir predates the per-run layout and *does* have a baseline. Stop and say so
+  — "state dir uses the pre-`reports/<run-id>` layout; migrate with
+  `docs/migrate-run-layout.md`, or pass `--baseline` to deliberately pin this
+  run and abandon the old one" — rather than falling through. Treating it as a
+  first run would silently discard a real baseline and report "baseline
+  established" over the top of it.
+- **First-run branch** (`reports/baseline.json` doesn't exist yet, and no old
+  layout was detected above): this is a branch, not an error — skip the diff,
+  write `reports/baseline.json`
   pointing at this run (`--baseline` semantics are implied on a first run, no
   flag needed), and print "baseline established (run <id>); future runs diff
   against this." Every other step in §§1–3 runs exactly as normal; only the
@@ -209,7 +227,10 @@ suite, hard gate).
 - Baseline diff (same dataset_version AND same harness version only — a
   scorer change alters what a number means just like a dataset change does.
   Refuse cross-version diffs; for a harness upgrade, tell the user to pin a
-  fresh baseline; for dataset drift, suggest the comparable-core subset). Significance via `stats.py`:
+  fresh baseline; for dataset drift, suggest the comparable-core subset). Significance via `stats.py`, whose two paired
+  inputs are `reports/<baseline-run-id>/verdicts_for_stats.jsonl` and this
+  run's — the baseline pointer names the run-id and the run directory holds
+  the file, so no verdict data ever lives beside the pointer:
   exact Bayesian P(improvement) on paired verdicts at every n, with an exact
   one-sided sign test reported alongside (feed it only `pass`/`fail` rows —
   infra and `unscored` verdicts are a hard error, never silent failures).
@@ -242,6 +263,16 @@ suite, hard gate).
   per-case verdict rows and `summary.gating_failures`/`summary.infra_rate`)
   that §5's headless CI gate reads; it is not optional scaffolding, the gate
   has nothing else to read.
+  **Also required: `verdicts.jsonl`** — one row per case (`case_id`, `set`,
+  `category`, `gating`, per-layer `layers`, top-level `verdict`), the run's
+  durable verdict record; and **`verdicts_for_stats.jsonl`** — the same cases
+  reduced to `{"case_id", "verdict"}` with `infra_*`/`unscored` rows dropped,
+  which is exactly the input `stats.py` pairs. Two files rather than one
+  because `stats.py` treats a non-`pass`/`fail` verdict as a hard error
+  instead of filtering silently: the filtering stays a visible step here, and
+  the unfiltered record survives beside it. Both sit directly at
+  `reports/<run-id>/`, not under `cases/`, so they still commit when
+  `reports/.gitignore` excludes raw per-case material.
   **Page one = top-3 failure clusters** (or the zero-failure line above), each
   with 1–2 expected-vs-actual trace examples and the implicated surface
   (router prompt / tool description X / missing OOS route) + effort tag.
