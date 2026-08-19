@@ -49,7 +49,8 @@ make gains real instead of overfit.
    exact one-sided sign test reported alongside. When a keep rides on the
    posterior bar while the sign test is not significant, `stats.py` emits a
    `gate_note` — surface it rather than reporting a bare "kept". Pass → keep (apply for
-   real, new baseline, log candidate as champion). Fail → revert, keep the
+   real, pin the keeper run as the new baseline by overwriting
+   `reports/baseline.json`, log candidate as champion). Fail → revert, keep the
    reflection (it prunes the next hypothesis). Always report regressions on
    any layer, not just the target metric.
 6. **Stop conditions**: budget spent; two consecutive candidates rejected on

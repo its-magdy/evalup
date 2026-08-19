@@ -29,8 +29,9 @@ work on them at once.
    |---|---|
    | No state location found | Step 1: run the `discover` skill now (load it and follow it). |
    | `profile.yaml` exists, no datasets | Step 2: run `generate`. |
-   | Datasets exist, no baseline run | Step 3: run `run` to establish the baseline. |
-   | Baseline exists | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if judge is PROVISIONAL). |
+   | Datasets exist, no baseline run (no `reports/baseline.json`) | Step 3: run `run` to establish the baseline. |
+   | No `reports/baseline.json`, but a `baselines/` or `runs/` directory exists | Pre-per-run layout: this dir DOES have a baseline. Say so and point at `docs/migrate-run-layout.md` — never report it as "no baseline run". |
+   | Baseline exists (`reports/baseline.json` names the run-id) | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if judge is PROVISIONAL). Read the scores from that run's `reports/<run-id>/results.json`. |
    | `profile.yaml` older than the app's recent git history suggests | Offer `discover --diff` to detect staleness before anything else. |
 
 3. **State the stage.** Read the `stage` field from `profile.yaml` (or the one

@@ -36,7 +36,10 @@ prior state is a normal milestone to name, not a failure to paper over or a
 silence to leave the user parsing.
 
 ## `--cluster` (default after a run)
-Read the latest run's failed cases (never the holdout details). Group by
+Read the latest run's failed cases (never the holdout details) from
+`reports/<run-id>/` — run-ids sort lexically by their timestamp, so take the
+highest rather than the newest mtime, which drifts when a report is
+regenerated or a directory copied. Group by
 failure mode, not by metric: same wrong-route pair, same tool confusion, same
 rule violation, same missing-clarification. For each cluster: count, 2
 exemplar traces (expected vs actual side by side), implicated surface, effort
