@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-06 (audit session — no code changed yet)
+**Last updated:** 2026-09-07 (Step 0 done — baseline committed as `6c7d286`)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -17,11 +17,9 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Plugin:** `agent-eval/` (v0.1.0). Root also holds `research/`,
   `field-test-qa/`, and the review docs.
 - **Branch:** `run-layout-consistency`. Main branch is `main`.
-- **Working tree is DIRTY** — ~36 modified files and several untracked
-  (`ruff.toml`, `validate_cases.py`, `suite-sizing.md`, `scoring-layers.md`,
-  `.tool-versions`, `REVIEW-2026-08-08.md`). **Nothing from the last review
-  wave was ever committed.** Decide early whether to commit that as a baseline
-  before starting new work — it makes every later diff readable.
+- **Working tree is CLEAN** as of Step 0. The whole prior review wave is
+  committed as the baseline `6c7d286`; every later diff is now readable
+  against it.
 - **Health:** 399 tests pass, ruff clean, all 14 scripts `--help` rc=0,
   Python 3.9 compatible. Verified 2026-09-06.
 
@@ -57,9 +55,12 @@ watchdog, authz honest-degradation). Only the three named bugs in step 3.
 
 Each step is sized for a single low-usage session. Mark done as you go.
 
-- [ ] **Step 0 — Commit the current dirty tree** as a readable baseline
-      ("prior review wave: bug fixes, docs, validate_cases") so later diffs
-      mean something. Nothing else. ~10 min.
+- [x] **Step 0 — Commit the current dirty tree** as a readable baseline.
+      **DONE 2026-09-07 — `6c7d286`.** Single commit, 54 paths, +4547/-632.
+      Re-verified the tree before committing: 399 tests OK (~36s), ruff clean.
+      The shipped field-test run went in without its per-case dirs, since
+      `field-test-qa/.agent-eval/reports/.gitignore` ignores `*/cases/`.
+      Nothing else changed.
 
 - [ ] **Step 1 — Fix the splits field-vs-directory break.**
       `generate/SKILL.md:347` says splits are a **field on the case**
