@@ -7,11 +7,11 @@ taxonomy maps onto the plugin's pre-existing `--smoke` flag.
 
 | Mode | Flag | Selection | k | Gate | When |
 |---|---|---|---|---|---|
-| smoke | `--smoke` | tagged `datasets/smoke/` subset | 1 (fixed) | soft | every prompt/code edit |
-| regression | `--regression` (or no mode flag) | `datasets/full/` | ≥3, pass^k | hard | pre-merge / nightly |
-| targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of `full/` (or `smoke/`) | per-case `k` | soft | right after optimizing one surface |
-| holdout | `--holdout` | sealed `datasets/holdout/` | per-case `k` | decision | optimizer's keep/revert step |
-| full | `--full` | `full/` + `holdout/`, judged layers forced on | ≥3, pass^k | hard | release validation |
+| smoke | `--smoke` | cases with `smoke` in `split` | 1 (fixed) | soft | every prompt/code edit |
+| regression | `--regression` (or no mode flag) | cases with `full` in `split` | ≥3, pass^k | hard | pre-merge / nightly |
+| targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | per-case `k` | soft | right after optimizing one surface |
+| holdout | `--holdout` | sealed `holdout` split | per-case `k` | decision | optimizer's keep/revert step |
+| full | `--full` | `full` + `holdout` splits, judged layers forced on | ≥3, pass^k | hard | release validation |
 
 No mode flag behaves as `regression` (the pre-existing unqualified default:
 full suite, hard gate) so old invocations without a mode flag keep working.
@@ -20,7 +20,8 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `smoke`
 
-- **Selection**: `datasets/smoke/`, a **durable tag** written once by
+- **Selection**: every case whose `split` field contains `smoke` — a
+  **durable tag** written once by
   `/agent-eval:generate` (see `skills/generate/SKILL.md` §4 Splits:
   diversity-selected, about a third of the full set, min 5) — never
   recomputed per run. Recomputing membership on the fly would make the smoke
@@ -44,7 +45,8 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `regression`
 
-- **Selection**: `datasets/full/` — everything reviewed (see
+- **Selection**: every case whose `split` field contains `full` — everything
+  reviewed (see
   `skills/generate/SKILL.md` §4).
 - **k**: ≥3 by default so `pass^k` (all k repeats succeed — the reliability
   number; a single-run pass rate hides flakiness) is meaningful; computed by
@@ -91,7 +93,8 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `holdout`
 
-- **Selection**: `datasets/holdout/` — sealed (see
+- **Selection**: every case whose `split` field contains `holdout` — sealed
+  (see
   `skills/generate/SKILL.md` §4: written once, listed only by id+hash in
   reports, never displayed case-by-case; unsealing for human inspection is
   `analyze --unseal`, a deliberately inconvenient, logged, counted action —
@@ -121,7 +124,7 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `full`
 
-- **Selection**: everything — `full/` **and** `holdout/` combined. This is
+- **Selection**: everything — the `full` **and** `holdout` splits combined. This is
   the one mode where a holdout look is implied by scope rather than asked
   for explicitly; it still counts against the same N=5 budget as `--holdout`
   (see above), and holdout-split cases inside a `--full` run are still

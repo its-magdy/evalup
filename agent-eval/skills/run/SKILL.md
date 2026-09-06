@@ -23,16 +23,22 @@ engine (§§1–4 below never change). Full mechanics, flags, and worked example
 
 | Mode | Selection | k | Gate | When |
 |---|---|---|---|---|
-| `smoke` | tagged `datasets/smoke/` subset | 1 | soft | every prompt/code edit (hook) |
-| `regression` | full suite (`datasets/full/`) | ≥3, pass^k | hard | pre-merge / nightly |
+| `smoke` | cases tagged `smoke` in `split` | 1 | soft | every prompt/code edit (hook) |
+| `regression` | full suite (cases tagged `full`) | ≥3, pass^k | hard | pre-merge / nightly |
 | `targeted` | filter by component tag (+ `--filter-failing`) | per-case | soft | right after optimizing one surface |
-| `holdout` | sealed `datasets/holdout/` set | per-case | decision | optimizer's keep/revert step |
+| `holdout` | sealed `holdout`-tagged set | per-case | decision | optimizer's keep/revert step |
 | `full` | everything, incl. judged layers | ≥3, pass^k | hard | release validation |
 
 `--smoke` is the existing flag and is unchanged; the other four are new
 flags mapped onto the same taxonomy. No
 mode flag given → behave as `regression` (the old unqualified default: full
 suite, hard gate).
+
+**Selection is by the case's `split` field**, never by directory — splits are
+a list on each case (`split: [full, smoke]`); one case is one file. See
+`skills/generate/references/case-format.md` for the field, which owns this
+rule. `full` and `holdout` are mutually exclusive, so the seal is a property
+of the case, not of where its bytes live.
 
 ## 1. Pre-flight (before any spend)
 - Resolve adapter env vars; fail loudly if missing.
@@ -98,7 +104,7 @@ suite, hard gate).
   retries, then recorded); crash on `noise`/`adversarial` categories also
   increments the **crash-rate metric** (a first-class number, especially
   pre-launch). Infra verdicts never enter pass/fail denominators.
-- **Canaries every run**: the `datasets/canary/` split (`skills/generate/
+- **Canaries every run**: the `canary` split (`skills/generate/
   SKILL.md` §4 — ~10% of the full set, floor 2, stable versioned expected
   answers), minimum 1 known-good + 1 known-bad, run first. They are ordinary
   cases with ordinary ids, so they get ordinary `cases/<case-id>/` folders —

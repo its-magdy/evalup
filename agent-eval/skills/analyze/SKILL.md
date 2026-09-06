@@ -70,10 +70,11 @@ for the full open-coding → axial-coding workflow this drives). Since `run` nes
 `references/annotation-ux.md` §"Which files it reads" owns why, and is worth
 reading before the first invocation. The one thing that section does not cover
 is the seal: `--glob` takes one pattern with no exclude syntax, so **on a
-`--full` or `--holdout` run, don't point it at `cases/` directly** — first stage a filtered copy: symlink every
-non-holdout `cases/<case-id>/verdict.json` (cross-referencing `datasets/
-holdout/` case ids to know which to skip) into a scratch directory, then
-`--glob` that directory instead. Holdout `request.json`/`response.json` are
+`--full` or `--holdout` run, don't point it at `cases/` directly** — first
+stage a filtered copy: symlink every non-holdout
+`cases/<case-id>/verdict.json` (cross-referencing the case files to find the
+ids whose `split` contains `holdout`, so you know which to skip) into a
+scratch directory, then `--glob` that directory instead. Holdout `request.json`/`response.json` are
 exactly the sealed content `run/SKILL.md` §4 keeps out of the aggregate
 report and `results.json`'s per-case rows — pointing the viewer at `cases/`
 unfiltered renders them anyway, silently spending a look against the N=5
@@ -198,8 +199,9 @@ from scratch (see the flywheel section of `references/annotation-ux.md`).
 ## `--unseal` — holdout access, deliberately inconvenient
 Warn ("looking at holdout cases spends their validity"), log the access with
 date and reason into the dataset metadata, show what was asked, and after 5
-recorded looks require a reseal: move viewed cases into full/, promote
-fresh unviewed cases in, bump dataset_version. The N=5 counts **looks**, not
+recorded looks require a reseal: rewrite each viewed case's `split` from
+`holdout` to `full`, flip fresh unviewed cases the other way, bump
+dataset_version. The N=5 counts **looks**, not
 just unseals: a `run --holdout` or `run --full` appends to this same ledger
 (`skills/run/SKILL.md` §4), so read the ledger's running total rather than
 counting only the entries this skill wrote — otherwise the optimizer's

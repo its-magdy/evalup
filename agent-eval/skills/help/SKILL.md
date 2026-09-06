@@ -98,8 +98,9 @@ Three roles, even if one person wears all hats (common at the start):
 - Plugin (this directory): reusable methodology, scorers, agents, docs.
 - The state location (default `<app-repo>/.agent-eval/`, or the adapter's
   `state_location`): everything app-specific — `adapter.yaml`,
-  `profile.yaml`, `datasets/` (`full/` plus its `smoke/` and `canary/`
-  subsets and the sealed `holdout/`), `reports/`, `candidates/`, and
+  `profile.yaml`, `datasets/` (one file per case; membership in the `full`,
+  `smoke`, `canary`, and sealed `holdout` splits is the case's `split` field,
+  not a subdirectory), `reports/`, `candidates/`, and
   optionally `scripts/` (e.g. `smoke.sh` for
   the edit-hook, created from the plugin's `docs/smoke.sh.example`, or a
   `traces.mapping_shim`).

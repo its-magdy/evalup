@@ -46,10 +46,11 @@ make gains real instead of overfit.
    `candidates/<id>/` with: the diff, the reflection (why this failure ←
    this cause ← this fix), predicted affected cases.
 4. **Measure**: apply to a working copy and run the training split — that is
-   `/agent-eval:run --regression` (whose selection is `datasets/full/`, i.e.
-   full minus the sealed holdout), or `--targeted --tag <component>` when the
-   edit is scoped to one surface and you want the faster loop — under a new
-   manifest. Compare paired per-case vs current champion.
+   `/agent-eval:run --regression` (whose selection is every case whose `split`
+   field contains `full`, which by construction excludes the sealed holdout —
+   the two splits are mutually exclusive), or `--targeted --tag <component>`
+   when the edit is scoped to one surface and you want the faster loop — under
+   a new manifest. Compare paired per-case vs current champion.
 5. **Gate on holdout**: only if training looks positive, run the sealed
    holdout (aggregate) via `/agent-eval:run --holdout`. That run spends one of
    the N=5 looks and records itself in the holdout-look ledger (see
