@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-07 (Step 0 done — baseline committed as `6c7d286`)
+**Last updated:** 2026-09-07 (Step 1 done — splits are now a field everywhere)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -62,15 +62,19 @@ Each step is sized for a single low-usage session. Mark done as you go.
       `field-test-qa/.agent-eval/reports/.gitignore` ignores `*/cases/`.
       Nothing else changed.
 
-- [ ] **Step 1 — Fix the splits field-vs-directory break.**
-      `generate/SKILL.md:347` says splits are a **field on the case**
-      (`split: [full, smoke]`), "not a directory copy". But `run/SKILL.md`,
-      `run/references/run-modes.md`, and `optimize/SKILL.md` still select by
-      **directory** (`datasets/smoke/`, `datasets/holdout/`, `datasets/full/`,
-      `datasets/canary/` — 9 references, 3 files). This is a live break between
-      two skills and the **holdout seal depends on it**. Pick the field
-      (generate's newer decision) and update the three consumers.
-      Find them: `grep -rn 'datasets/\(full\|smoke\|holdout\|canary\)/' skills docs README.md`
+- [x] **Step 1 — Fix the splits field-vs-directory break.**
+      **DONE 2026-09-07 — `f03c960`.** Picked the field (`split: [full, smoke]`,
+      generate's newer decision, already enforced by `validate_cases.py`
+      including the holdout/full mutual exclusion) and rewrote every consumer
+      that selected by directory. 5 files, +38/-25:
+      `run/references/run-modes.md` (mode table + all four `**Selection**`
+      bullets), `run/SKILL.md` (mode table, canary bullet, plus a new
+      three-sentence rule in §0 naming `case-format.md` as the owning doc),
+      `optimize/SKILL.md` step 4, `help/SKILL.md` "Where things live",
+      `analyze/SKILL.md` (the viewer-staging filter and the `--unseal` reseal
+      procedure, which said "move viewed cases into full/" — now a `split`
+      rewrite). Only `datasets/*/` mentions left are in generate's own
+      rationale for *not* using directories. 399 tests OK, ruff clean.
 
 - [ ] **Step 2 — One path convention.** Three coexist; the bare relative ones
       are broken (they resolve against the *user's app CWD*, not the plugin).
