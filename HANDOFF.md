@@ -77,7 +77,7 @@ Each step is sized for a single low-usage session. Mark done as you go.
       rationale for *not* using directories. 399 tests OK, ruff clean.
 
 - [x] **Step 2 — One path convention.**
-      **DONE 2026-09-07 — `<SHA>`.** 18 files, +434/-388. Applied the rule
+      **DONE 2026-09-07 — `05804ef`.** 18 files, +434/-388. Applied the rule
       exactly as stated: `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or
       read cross-skill (scripts, `docs/`, `agents/`, another skill's `SKILL.md`
       or `references/`), relative markdown links for a `SKILL.md` pointing into
