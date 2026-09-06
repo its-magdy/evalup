@@ -9,7 +9,7 @@ because that is its actual contract with the run skill.
 """
 import ast
 import json
-import math
+import os
 import pathlib
 import subprocess
 import sys
@@ -45,13 +45,26 @@ class ScorerTest(unittest.TestCase):
 
     def write_json(self, name, obj):
         p = self.tmp / name
-        p.write_text(json.dumps(obj))
+        p.write_text(json.dumps(obj), encoding="utf-8")
         return p
 
     def write_jsonl(self, name, rows):
         p = self.tmp / name
-        p.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        p.write_text("".join(json.dumps(r) + "\n" for r in rows),
+                     encoding="utf-8")
         return p
+
+    def assert_clean_error(self, script, *argv):
+        """Every scorer promises: exit 0 with a verdict, or exit 2 with a JSON
+        {"error": ...} on stdout. Asserted through one helper so no caller can
+        check three of the four and leave the traceback case open — the run
+        skill reads a crash as an infra failure, not a data error."""
+        rc, out, err = run_script(script, *argv)
+        self.assertEqual(rc, 2, f"{script}: expected exit 2, got {rc}\n{err}")
+        self.assertIsNotNone(out, f"{script}: stdout was not JSON\n{err}")
+        self.assertIn("error", out, f"{script}: no error key\n{err}")
+        self.assertNotIn("Traceback", err, f"{script}: crashed\n{err}")
+        return out
 
 
 class TestScoreRouting(ScorerTest):
@@ -95,7 +108,7 @@ class TestScoreRouting(ScorerTest):
 
     def test_empty_input_exits_2(self):
         p = self.tmp / "empty.jsonl"
-        p.write_text("")
+        p.write_text("", encoding="utf-8")
         rc, out, _ = run_script("score_routing.py", p)
         self.assertEqual(rc, 2)
 
@@ -153,7 +166,7 @@ class TestTrajectoryMatch(ScorerTest):
 
     def test_malformed_input_exits_2(self):
         bad = self.tmp / "bad.json"
-        bad.write_text("{not json")
+        bad.write_text("{not json", encoding="utf-8")
         rc, out, _ = run_script("trajectory_match.py", bad, bad)
         self.assertEqual(rc, 2)
 
@@ -392,6 +405,31 @@ class TestScoreArgs(ScorerTest):
         rc, out, _ = run_script("score_args.py", traj, expect)
         self.assertEqual(out["verdict"], "fail")
 
+    def test_list_arg_sourced_from_scalar_field_passes(self):
+        # unitIds=[300] is legitimate provenance from a prior result's scalar
+        # "id": 300 field — the list's serialized form "[300]" never appears
+        # verbatim, so each element must be checked, not the whole list.
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search_units", "args": {"search": "abha"},
+             "result": "{\"id\": 300, \"name\": \"abha\"}"},
+            {"name": "search_employees", "args": {"unitIds": [300]}},
+        ]})
+        expect = self.write_json("e.json", {"args": {
+            "search_employees": {"unitIds": "from_tool_result"}}})
+        rc, out, _ = run_script("score_args.py", traj, expect)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_list_arg_with_one_hallucinated_element_fails(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search_units", "args": {},
+             "result": "{\"id\": 300, \"name\": \"abha\"}"},
+            {"name": "search_employees", "args": {"unitIds": [300, 999]}},
+        ]})
+        expect = self.write_json("e.json", {"args": {
+            "search_employees": {"unitIds": "from_tool_result"}}})
+        rc, out, _ = run_script("score_args.py", traj, expect)
+        self.assertEqual(out["verdict"], "fail")
+
     def test_no_content_capture_is_unscorable_not_fail(self):
         traj = self.write_json("t.json", {"tool_calls": [
             {"name": "list_invoices", "args": None, "result": None},
@@ -445,13 +483,32 @@ class TestLoaderContract(ScorerTest):
 
     def test_wrong_shape_exits_2(self):
         p = self.tmp / "bad.json"
-        p.write_text("[]")
+        p.write_text("[]", encoding="utf-8")
         for script, argv in (("detect_loops.py", [p]),
                              ("trajectory_match.py", [p, p]),
                              ("score_args.py", [p, p])):
             rc, out, _ = run_script(script, *argv)
             self.assertEqual(rc, 2, script)
             self.assertIn("tool_calls", out["error"])
+
+    def test_non_object_tool_call_is_a_clean_error(self):
+        """The container was validated; its ELEMENTS were not. Every consumer
+        reads a call with c.get(...), so one non-object entry — what a
+        miswritten adapter mapping_shim emits — raised AttributeError in all
+        four: exit 1 with an empty stdout, which is neither the {"error": ...}
+        payload nor the exit 2 the run skill branches on."""
+        traj = self.write_json("t.json",
+                               {"tool_calls": [{"name": "a"}, 42]})
+        expect = self.write_json("e.json", {
+            "tools": {"subset": ["a"]},
+            "args": {"a": {"x": "present"}},
+            "authz": {"forbidden_tools": ["a"]}})
+        for script, argv in (("detect_loops.py", [traj]),
+                             ("trajectory_match.py", [traj, expect]),
+                             ("score_args.py", [traj, expect]),
+                             ("score_authz.py", [traj, expect])):
+            out = self.assert_clean_error(script, *argv)
+            self.assertIn("tool_calls[1]", out["error"], script)
 
 
 class TestScoreArgsProvenance(ScorerTest):
@@ -564,6 +621,115 @@ class TestTrajectoryMatchPrecedence(ScorerTest):
         self.assertEqual(out["recall"], 1.0)
 
 
+class TestTrajectoryMatchShapeValidation(ScorerTest):
+    """expect.tools.<key> must be a LIST of tool names.
+
+    A string is a sequence too — of characters — so every matcher accepted one
+    and scored nonsense from it. This is the manufactured-failure class, not
+    the traceback class: exit 0, clean JSON, wrong verdict, nothing downstream
+    able to tell. Same rule score_execution.py applies to
+    expect.result.columns."""
+
+    def traj(self):
+        return self.write_json("t.json", {"tool_calls": [{"name": "foo"}]})
+
+    def test_list_subset_still_passes(self):
+        # The control the string cases are wrong against.
+        rc, out, _ = run_script(
+            "trajectory_match.py", self.traj(),
+            self.write_json("e.json", {"tools": {"subset": ["foo"]}}))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_string_subset_is_a_clean_error_not_a_fail(self):
+        # Was: missing ['f','o','o'] and verdict "fail" on a trajectory that
+        # called foo — a passing case reported as broken.
+        out = self.assert_clean_error(
+            "trajectory_match.py", self.traj(),
+            self.write_json("e.json", {"tools": {"subset": "foo"}}))
+        self.assertIn("expect.tools.subset", out["error"])
+
+    def test_string_order_is_a_clean_error_in_every_mode(self):
+        for mode in ("in_order", "exact", "any_order"):
+            out = self.assert_clean_error(
+                "trajectory_match.py", self.traj(),
+                self.write_json("e.json", {"tools": {
+                    "order": "foo", "order_mode": mode}}))
+            self.assertIn("expect.tools.order", out["error"], mode)
+
+    def test_string_forbidden_is_a_clean_error(self):
+        # The permissive direction: set("delete_user") holds single characters,
+        # so no real tool name is ever in it and the gate passed everything it
+        # exists to catch.
+        out = self.assert_clean_error(
+            "trajectory_match.py", self.traj(),
+            self.write_json("e.json", {"tools": {
+                "subset": ["foo"], "forbidden": "delete_user"}}))
+        self.assertIn("expect.tools.forbidden", out["error"])
+
+    def test_non_string_entry_is_a_clean_error(self):
+        out = self.assert_clean_error(
+            "trajectory_match.py", self.traj(),
+            self.write_json("e.json", {"tools": {"subset": [1]}}))
+        self.assertIn("expect.tools.subset[0]", out["error"])
+
+    def test_a_written_but_empty_order_is_a_clean_error(self):
+        # The vacuous pass: `order:` with nothing after it parses as None, and
+        # `order: []` is already a list, so both reached match() with
+        # expected == [] — is_subsequence of nothing is true, Counter() ==
+        # Counter() is true — and EVERY trajectory passed an assertion the
+        # author believed they had written. Absence is fine; the key being
+        # present is a claim that something was asserted.
+        for value in (None, []):
+            for mode in ("in_order", "exact", "any_order"):
+                out = self.assert_clean_error(
+                    "trajectory_match.py", self.traj(),
+                    self.write_json("e.json", {"tools": {
+                        "order": value, "order_mode": mode}}))
+                self.assertIn("expect.tools.order", out["error"],
+                              f"{value!r}/{mode}")
+
+    def test_a_written_but_empty_subset_is_a_clean_error(self):
+        for value in (None, []):
+            out = self.assert_clean_error(
+                "trajectory_match.py", self.traj(),
+                self.write_json("e.json", {"tools": {"subset": value}}))
+            self.assertIn("expect.tools.subset", out["error"], repr(value))
+
+    def test_an_absent_key_is_still_not_an_assertion(self):
+        # The other half of the rule: an empty/absent tools block asserts
+        # nothing and must stay a clean "none" pass, not become an error.
+        for expect in ({}, {"tools": {}}, {"tools": None}):
+            rc, out, err = run_script(
+                "trajectory_match.py", self.traj(),
+                self.write_json("e.json", expect))
+            self.assertEqual(rc, 0, f"{expect}: {err}")
+            self.assertEqual(out["mode"], "none")
+            self.assertEqual(out["verdict"], "pass")
+
+    def test_forbidden_alone_is_still_scorable(self):
+        # forbidden is a gate, not an order assertion — it must keep working
+        # with no order/subset key beside it.
+        rc, out, _ = run_script(
+            "trajectory_match.py", self.traj(),
+            self.write_json("e.json", {"tools": {"forbidden": ["foo"]}}))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(out["forbidden_violations"], ["foo"])
+
+    def test_an_empty_forbidden_list_is_not_an_error(self):
+        # Deliberately NOT asserted_list: an empty forbidden list forbids
+        # nothing, which is the permissive direction but also the honest
+        # reading — unlike an empty `order`, it makes no claim that was
+        # silently dropped.
+        rc, out, _ = run_script(
+            "trajectory_match.py", self.traj(),
+            self.write_json("e.json", {"tools": {"subset": ["foo"],
+                                                 "forbidden": []}}))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["verdict"], "pass")
+
+
 class TestNormalizeTraceValues(ScorerTest):
     span = staticmethod(TestNormalizeTrace.span)
 
@@ -620,7 +786,7 @@ class TestNormalizeTraceValues(ScorerTest):
 class TestScoreAnswer(ScorerTest):
     def answer(self, text):
         p = self.tmp / "a.txt"
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
         return p
 
     def test_must_contain_and_not_contain_pass(self):
@@ -673,19 +839,13 @@ class TestScoreAnswer(ScorerTest):
 class TestErrorContract(ScorerTest):
     """Every scorer promises: exit 0 with a verdict, or exit 2 with a JSON
     {"error": ...} on stdout. Malformed input must never produce a traceback
-    — the run skill reads a crash as an infra failure, not a data error."""
-
-    def assert_clean_error(self, script, *argv):
-        rc, out, err = run_script(script, *argv)
-        self.assertEqual(rc, 2, f"{script}: expected exit 2, got {rc}\n{err}")
-        self.assertIsNotNone(out, f"{script}: stdout was not JSON\n{err}")
-        self.assertIn("error", out, f"{script}: no error key\n{err}")
-        self.assertNotIn("Traceback", err, f"{script}: crashed\n{err}")
-        return out
+    — the run skill reads a crash as an infra failure, not a data error.
+    (The assertion itself lives on ScorerTest, so every class asserts the same
+    four things.)"""
 
     def test_non_dict_jsonl_row(self):
         p = self.tmp / "rows.jsonl"
-        p.write_text("[1, 2]\n")
+        p.write_text("[1, 2]\n", encoding="utf-8")
         self.assert_clean_error("score_routing.py", p)
         self.assert_clean_error("stats.py", p, p)
 
@@ -718,7 +878,7 @@ class TestErrorContract(ScorerTest):
 class TestScoreAnswerRobustness(ScorerTest):
     def answer(self, text):
         p = self.tmp / "a.txt"
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
         return p
 
     def test_unquoted_number_entry_is_coerced_not_crash(self):
@@ -744,6 +904,40 @@ class TestScoreAnswerRobustness(ScorerTest):
             self.write_json("e.json", {"answer": {"must_contain": ["/[a-/"]}}))
         self.assertEqual(out["verdict"], "unscored")
         self.assertEqual(out["checks"][0]["reason"], "invalid regex")
+
+    def test_trailing_flag_suffix_is_unscorable_not_silently_wrong(self):
+        # /pattern/i (Perl/JS-style) is not this convention's /.../ marker.
+        # Before this check existed, must_contain read it as a literal
+        # substring of the whole garbled string and always failed; here an
+        # answer that plainly satisfies the intended pattern still must not
+        # silently pass or fail — it must say the flag wasn't applied.
+        rc, out, _ = run_script(
+            "score_answer.py", self.answer("Yes, it does."),
+            self.write_json("e.json", {"answer": {"must_contain": [r"/\byes\b/i"]}}))
+        self.assertEqual(out["verdict"], "unscored")
+        self.assertIn("flag suffix", out["checks"][0]["reason"])
+
+    def test_must_not_contain_with_flag_suffix_is_unscorable_not_a_free_pass(self):
+        # The must_not_contain mirror of the bug above: silently reading the
+        # garbled string as a literal meant this NEVER matched, so the check
+        # vacuously passed on every answer — including ones that clearly
+        # violate the intended pattern. Must be unscorable, not a free pass.
+        rc, out, _ = run_script(
+            "score_answer.py", self.answer("I have renamed the unit."),
+            self.write_json("e.json", {"answer": {
+                "must_not_contain": [r"/I (have |'ve )?renamed/i"]}}))
+        self.assertEqual(out["verdict"], "unscored")
+        self.assertIn("flag suffix", out["checks"][0]["reason"])
+
+    def test_path_like_literal_still_reads_as_regex_not_flag_suffix(self):
+        # Regression guard: a path-like /usr/local/ already ends with "/" and
+        # must keep parsing as the regex "usr/local", unaffected by the new
+        # flag-suffix detection (which only fires when the string does NOT
+        # end in "/").
+        rc, out, _ = run_script(
+            "score_answer.py", self.answer("found at usr/local/bin"),
+            self.write_json("e.json", {"answer": {"must_contain": ["/usr/local/"]}}))
+        self.assertEqual(out["verdict"], "pass")
 
     def test_fenced_json_validates_with_a_note(self):
         schema = {"type": "object", "required": ["total"],
@@ -871,12 +1065,22 @@ class TestHarnessVersion(ScorerTest):
 
     def test_version_matches_the_plugin_manifest(self):
         manifest = json.loads(
-            (SCRIPTS.parent / ".claude-plugin" / "plugin.json").read_text())
+            (SCRIPTS.parent / ".claude-plugin" / "plugin.json")
+            .read_text(encoding="utf-8"))
         proc = subprocess.run(
             [sys.executable, str(SCRIPTS / "stats.py"), "--version"],
             capture_output=True, text=True)
         self.assertIn(manifest["version"], proc.stdout + proc.stderr,
                       "HARNESS_VERSION drifted from plugin.json")
+
+
+def all_sources():
+    """Every Python file in the package, scripts and tests alike. The two
+    whole-source guards (the floor's grammar, the blank-line run) must agree on
+    what "every source" means, or one of them silently stops covering a file the
+    other checks."""
+    root = SCRIPTS.parent
+    return sorted([*SCRIPTS.glob("*.py"), *(root / "tests").glob("*.py")])
 
 
 class TestDeclaredPythonFloor(unittest.TestCase):
@@ -894,13 +1098,9 @@ class TestDeclaredPythonFloor(unittest.TestCase):
     (`int | None`). Those need a real interpreter of the floor version — a CI
     matrix job, which this repo does not have yet."""
 
-    def sources(self):
-        root = SCRIPTS.parent
-        return sorted([*SCRIPTS.glob("*.py"), *(root / "tests").glob("*.py")])
-
     def test_every_source_parses_under_the_declared_floor(self):
         checked = 0
-        for path in self.sources():
+        for path in all_sources():
             src = path.read_text(encoding="utf-8")
             try:
                 ast.parse(src, filename=str(path), feature_version=PY_FLOOR)
@@ -937,20 +1137,16 @@ class TestErrorContractAllScorers(ScorerTest):
 
     def test_all_scorers_reject_garbage_without_a_traceback(self):
         bad = self.tmp / "bad.json"
-        bad.write_text("{not json")
+        bad.write_text("{not json", encoding="utf-8")
         for script in JSON_CLI_SCRIPTS:
-            rc, out, err = run_script(script, *self.bad_argv(script, bad))
-            self.assertEqual(rc, 2, f"{script}: expected exit 2, got {rc}\n{err}")
-            self.assertIsNotNone(out, f"{script}: stdout not JSON\n{err}")
-            self.assertIn("error", out, f"{script}: no error key\n{err}")
-            self.assertNotIn("Traceback", err, f"{script}: crashed\n{err}")
+            self.assert_clean_error(script, *self.bad_argv(script, bad))
 
     def test_normalize_trace_survives_a_list_of_scalars(self):
         # Regression: flatten_otlp probed doc[0] for "resourceSpans" without
         # checking dict-ness -> AttributeError on strings, TypeError on ints.
         for payload in ('["a","b"]', "[1,2]", '"just a string"', "42"):
             p = self.tmp / "s.json"
-            p.write_text(payload)
+            p.write_text(payload, encoding="utf-8")
             rc, out, err = run_script("normalize_trace.py", p,
                                       "--trace-id", "t1")
             self.assertEqual(rc, 2, f"{payload}: got rc={rc}\n{err}")
@@ -1054,7 +1250,7 @@ class TestScoreRoutingOOSReporting(ScorerTest):
 class TestScoreAnswerRegexBudget(ScorerTest):
     def test_catastrophic_backtracking_is_unscorable_not_a_hang(self):
         p = self.tmp / "a.txt"
-        p.write_text("a" * 40 + "b")
+        p.write_text("a" * 40 + "b", encoding="utf-8")
         rc, out, err = run_script(
             "score_answer.py", p,
             self.write_json("e.json", {"answer": {
@@ -1357,5 +1553,1310 @@ class TestReduceRepeats(ScorerTest):
         self.assertEqual(out["flakiness_gap"], 0.0)
 
 
+class TestScoreRoutingOOSLabelInvariance(ScorerTest):
+    """--oos-route only RENAMES a label to the __oos__ sentinel. Renaming must
+    not change any verdict, so every metric has to be invariant under the flag
+    for rows that pass either way."""
+
+    ROWS = [{"case_id": "c1", "expected": "billing",
+             "acceptable": ["refuse"], "observed": "refuse"},
+            {"case_id": "c2", "expected": "billing", "observed": "billing"}]
+
+    def test_oos_route_in_the_acceptable_set_still_passes(self):
+        # The bug: expected/observed were rewritten to __oos__ but `acceptable`
+        # was left holding the raw route name, so the membership test missed and
+        # a case that passes without the flag was scored a mismatch WITH it —
+        # accuracy 1.0 dropped to 0.5. An OOS route is a legitimate alternate
+        # for an ambiguous in-scope query (the field-test corpus has exactly
+        # this shape), and a manufactured failure is the one outcome this
+        # harness must never produce.
+        p = self.write_jsonl("r.jsonl", self.ROWS)
+        rc, out, _ = run_script("score_routing.py", p, "--oos-route", "refuse")
+        self.assertEqual(out["accuracy"], 1.0)
+        self.assertEqual(out["accepted_alternates"]["count"], 1)
+        self.assertNotIn("__oos__", out["confusion_matrix"].get("billing", {}))
+
+    def test_verdicts_are_identical_with_and_without_the_flag(self):
+        p = self.write_jsonl("r.jsonl", self.ROWS)
+        _, without, _ = run_script("score_routing.py", p)
+        _, with_flag, _ = run_script("score_routing.py", p,
+                                     "--oos-route", "refuse")
+        for key in ("accuracy", "confusion_matrix", "per_target"):
+            self.assertEqual(without[key], with_flag[key], key)
+
+    def test_route_acceptable_alias_is_mapped_too(self):
+        # The case-format spelling goes through the same alias rewrite, so it
+        # has to reach the same normalization.
+        p = self.write_jsonl("r.jsonl", [
+            {"case_id": "c1", "route": "billing",
+             "route_acceptable": ["refuse"], "observed": "refuse"}])
+        rc, out, _ = run_script("score_routing.py", p, "--oos-route", "refuse")
+        self.assertEqual(out["accuracy"], 1.0)
+
+
+class TestScoreExecutionUnits(ScorerTest):
+    """A unit is content, not decoration. Stripping it from BOTH sides before
+    comparing made the execution scorer pass the confidently-wrong answer it
+    exists to catch."""
+
+    score = TestScoreExecution.score
+
+    def test_same_number_different_units_fails(self):
+        # "12 hours" and "12 days" are not the same answer. Both sides had their
+        # unit deleted, leaving 12.0 == 12.0 -> pass.
+        rc, out, _ = self.score({"scalar": "12 days"},
+                                {"result": {"scalar": "12 hours"}})
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_unit_mismatch_reason_is_actionable(self):
+        # "expected 12, got 12" reads as a harness bug; the reviewer needs to
+        # know it was the unit, and what to do about it.
+        rc, out, _ = self.score({"scalar": "12 days"},
+                                {"result": {"scalar": "12 hours"}})
+        self.assertEqual(out["verdict"], "fail")   # fail cleanly, not on KeyError
+        reason = out["checks"][0]["reason"]
+        self.assertIn("units differ", reason)
+        self.assertIn("hours", reason)
+        self.assertIn("days", reason)
+
+    def test_currency_and_percent_are_units_too(self):
+        rc, out, _ = self.score({"scalar": "5%"}, {"result": {"scalar": "$5"}})
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_a_unit_on_only_the_actual_side_still_passes(self):
+        # The documented tolerance: the oracle stores a bare number and the app
+        # wrapped it for display. That is presentation, not disagreement, and
+        # tightening the both-sides case must not cost it.
+        for expected, actual in [(1200, "1200 hrs"), (5, "$5"), (45, "45%"),
+                                 (12, "12 days")]:
+            rc, out, _ = self.score({"scalar": actual},
+                                    {"result": {"scalar": expected}})
+            self.assertEqual(out["verdict"], "pass", f"{expected!r}/{actual!r}")
+
+    def test_a_bare_expected_number_accepts_any_unit_back(self):
+        """The full price of the one-sided tolerance, pinned rather than left
+        implicit: with nothing to compare a unit against, the scorer cannot tell
+        a presentational unit from a wrong one, so "5 apples" passes an expected
+        5 exactly as "$5" does. Documented in the module docstring — write the
+        unit into the expected value if it is part of the answer, which puts the
+        strict both-sides rule back in play."""
+        for actual in ("5 apples", "5 kg", "5 widgets"):
+            rc, out, _ = self.score({"scalar": actual},
+                                    {"result": {"scalar": 5}})
+            self.assertEqual(out["verdict"], "pass", actual)
+        rc, out, _ = self.score({"scalar": "5 apples"},
+                                {"result": {"scalar": "5 kg"}})
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_a_sign_before_the_currency_is_a_documented_gap(self):
+        """Pins the known gap named in the docstring so a future fix has to
+        notice this test rather than silently changing verdicts: the currency
+        strip runs before any sign, so "-$5" is not numeric here and falls
+        through to string comparison."""
+        rc, out, _ = self.score({"scalar": "-$5"}, {"result": {"scalar": -5}})
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_a_half_written_exponent_is_not_a_unit(self):
+        """The boundary of the one-sided tolerance above. "5e" does not spell a
+        quantity at all — it is a malformed number — but the trailing-unit regex
+        read the exponent marker as a unit token, so the bare-expected-number
+        rule handed back a pass for an unparseable answer. A separating space
+        ("5 e") is a real, if odd, unit and still passes."""
+        for actual in ("5e", "5E"):
+            rc, out, _ = self.score({"scalar": actual},
+                                    {"result": {"scalar": 5}})
+            self.assertEqual(out["verdict"], "fail", actual)
+        rc, out, _ = self.score({"scalar": "5 e"}, {"result": {"scalar": 5}})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_a_well_formed_exponent_is_still_a_number(self):
+        # The guard keys off a TRAILING e, so scientific notation is untouched.
+        for expected, actual in [("1e5", 100000), ("2.5e3", 2500),
+                                 ("1E5", 100000)]:
+            rc, out, _ = self.score({"scalar": actual},
+                                    {"result": {"scalar": expected}})
+            self.assertEqual(out["verdict"], "pass", f"{expected!r}")
+
+    def test_matching_units_compare_numerically(self):
+        # Same unit on both sides: fall through to the number, tolerance and all.
+        rc, out, _ = self.score(
+            {"scalar": "3.14 kg"},
+            {"result": {"scalar": "3.1 kg", "float_tolerance": 0.05}})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_units_are_case_insensitive(self):
+        rc, out, _ = self.score({"scalar": "12 HOURS"},
+                                {"result": {"scalar": "12 hours"}})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_unit_check_applies_to_row_cells(self):
+        rc, out, _ = self.score(
+            {"rows": [{"role": "nurse", "shift": "12 days"}]},
+            {"result": {"rows": [{"role": "nurse", "shift": "12 hours"}]}})
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_an_empty_string_scalar_scores_instead_of_crashing(self):
+        """The unit splitter tested `core[:1] in _CURRENCY`, and EVERY string
+        contains the empty string — so the currency branch was taken for an
+        empty core and indexed it. An app that answered "" (or a case whose
+        ground truth is "") took the scorer down with an IndexError: exit 1,
+        empty stdout, no {"error": ...}. The run skill reads that as an infra
+        failure rather than the plain data mismatch it is."""
+        for expected, actual, verdict in [
+                ("no data", "", "fail"),
+                ("", "something", "fail"),
+                ("", "", "pass"),
+                # Whitespace-only normalizes to empty on the string path, which
+                # is the documented casefold+trim rule, not a unit.
+                ("", "   ", "pass"),
+                # The currency/unit branch itself must still be reachable, and
+                # a lone symbol must not be read as a number.
+                ("$", "$", "pass"),
+                ("$5", "5", "pass")]:
+            with self.subTest(expected=expected, actual=actual):
+                rc, out, err = self.score({"scalar": actual},
+                                          {"result": {"scalar": expected}})
+                self.assertEqual(rc, 0, err)
+                self.assertNotIn("Traceback", err)
+                self.assertEqual(out["verdict"], verdict)
+
+    def test_empty_cells_in_rows_score_instead_of_crashing(self):
+        """Same crash, reached through the row path — cells go through the
+        same comparator, so an empty cell anywhere in a result set hit it."""
+        rc, out, err = self.score(
+            {"rows": [{"role": "nurse", "note": ""}]},
+            {"result": {"rows": [{"role": "nurse", "note": ""}]}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+        rc, out, err = self.score(
+            {"rows": [{"role": "nurse", "note": ""}]},
+            {"result": {"rows": [{"role": "nurse", "note": "on call"}]}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+
+
+class TestCliArgumentValidation(ScorerTest):
+    """Out-of-range numeric flags used to escape the JSON error contract as
+    tracebacks. Validation lives after parse_args() rather than in an argparse
+    `type=` callable so the error stays machine-readable on stdout."""
+
+    def rows(self):
+        return self.write_jsonl("v.jsonl", [
+            {"case_id": "a", "verdict": "pass"},
+            {"case_id": "b", "verdict": "fail"}])
+
+    def assert_error_mentions(self, needle, script, *argv):
+        """The shared error contract, plus the one thing extra these cases owe
+        the reader: the message has to name the flag or key that was rejected,
+        or a clean exit 2 is still a guessing game."""
+        out = self.assert_clean_error(script, *argv)
+        self.assertIn(needle, out["error"])
+
+    def test_alpha_at_zero_is_a_clean_error(self):
+        # Reached NormalDist().inv_cdf and exited with a StatisticsError.
+        p = self.rows()
+        self.assert_error_mentions("--alpha", "stats.py", p, p, "--alpha", 0)
+
+    def test_alpha_above_one_is_a_clean_error(self):
+        p = self.rows()
+        self.assert_error_mentions("--alpha", "stats.py", p, p, "--alpha", 1.5)
+
+    def test_bayes_threshold_out_of_range_is_a_clean_error(self):
+        p = self.rows()
+        self.assert_error_mentions("--bayes-threshold", "stats.py", p, p,
+                                   "--bayes-threshold", 1.5)
+
+    def test_repeat_threshold_below_two_is_a_clean_error(self):
+        # At 0 or 1 every single call is a "repeat loop" and any tool at all is
+        # "flailing", so a clean trajectory reported fail.
+        traj = self.write_json("t.json",
+                               {"tool_calls": [{"name": "t", "args": {}}]})
+        for bad in (0, 1):
+            self.assert_error_mentions("--repeat-threshold", "detect_loops.py",
+                                       traj, "--repeat-threshold", bad)
+
+    def test_call_budget_below_one_is_a_clean_error(self):
+        traj = self.write_json("t.json", {"tool_calls": []})
+        self.assert_error_mentions("--call-budget", "detect_loops.py", traj,
+                                   "--call-budget", 0)
+
+    def test_negative_float_tolerance_is_a_clean_error(self):
+        """The other flags in this class escaped the contract as tracebacks; a
+        negative tolerance is worse — it exits 0 with a manufactured failure.
+        `abs(e - a) <= tol` is false at tol<0 even for identical values, so a
+        correct answer scored `fail` with nothing to signal it."""
+        actual = self.write_json("a.json", {"scalar": 7})
+        expect = self.write_json("e.json", {"result": {"scalar": 7}})
+        self.assert_error_mentions("--float-tolerance", "score_execution.py",
+                                   actual, expect, "--float-tolerance", -1)
+
+    def test_negative_per_case_float_tolerance_is_a_clean_error(self):
+        actual = self.write_json("a.json", {"scalar": 7})
+        expect = self.write_json("e.json", {
+            "result": {"scalar": 7, "float_tolerance": -0.5}})
+        self.assert_error_mentions("expect.result.float_tolerance",
+                                   "score_execution.py", actual, expect)
+
+    def test_zero_and_positive_tolerance_still_pass(self):
+        # The bound must not swallow the legitimate values around it.
+        actual = self.write_json("a.json", {"scalar": 7})
+        expect = self.write_json("e.json", {"result": {"scalar": 7}})
+        for tol in ("0", "0.5"):
+            rc, out, err = run_script("score_execution.py", actual, expect,
+                                      "--float-tolerance", tol)
+            self.assertEqual(rc, 0, f"tol={tol}\n{err}")
+            self.assertEqual(out["verdict"], "pass", f"tol={tol}")
+
+    def test_non_scalar_case_id_is_a_clean_error(self):
+        # load_jsonl put the id in a set to dedupe; a list id raised TypeError
+        # straight out of the loader that exists to produce clean errors.
+        p = self.write_jsonl("u.jsonl", [{"case_id": ["a"], "verdict": "pass"}])
+        self.assert_error_mentions("case_id", "stats.py", p, p)
+
+
+class TestEncodingContract(ScorerTest):
+    """Every read passes encoding="utf-8" explicitly (PEP 597; Ruff PLW1514).
+
+    Taking the locale default corrupted verdicts two different ways, and the
+    quiet one is the dangerous one: under an ASCII locale a valid answer
+    containing "€" raised UnicodeDecodeError (traceback, exit 1 — outside the
+    exit-2 contract), while under latin-1/cp1252 it did not raise at all and
+    decoded to mojibake, so a must_contain on the euro sign FAILED a correct
+    answer. A verdict must not depend on the reviewer's locale.
+    """
+
+    # Disables PEP 540 UTF-8 mode and PEP 538 C-locale coercion, which would
+    # otherwise quietly hand the interpreter UTF-8 back and make this a no-op.
+    ASCII_LOCALE = {"LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0",
+                    "PYTHONCOERCECLOCALE": "0"}
+
+    def write_bytes(self, name, data):
+        p = self.tmp / name
+        p.write_bytes(data)
+        return p
+
+    def run_in_locale(self, env_overrides, script, *argv):
+        env = dict(os.environ, **env_overrides)
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / script), *[str(x) for x in argv]],
+            capture_output=True, text=True, env=env)
+        return proc
+
+    def test_utf8_answer_scores_the_same_under_an_ascii_locale(self):
+        answer = self.write_bytes(
+            "a.txt", "Total: €1,200 — confirmed.".encode("utf-8"))
+        expect = self.write_bytes("e.json", json.dumps(
+            {"answer": {"must_contain": ["€1,200"]}}).encode("utf-8"))
+
+        default = self.run_in_locale({}, "score_answer.py", answer, expect)
+        ascii_ = self.run_in_locale(self.ASCII_LOCALE, "score_answer.py",
+                                    answer, expect)
+
+        self.assertEqual(default.returncode, 0, default.stderr)
+        self.assertEqual(ascii_.returncode, 0, ascii_.stderr)
+        self.assertNotIn("Traceback", ascii_.stderr)
+        self.assertEqual(json.loads(ascii_.stdout)["verdict"], "pass")
+        # Byte-identical, not merely both-passing: the point is that the
+        # locale is not an input to the verdict at all.
+        self.assertEqual(default.stdout, ascii_.stdout)
+
+    def test_non_utf8_bytes_are_a_clean_error_everywhere(self):
+        """Genuinely undecodable input is still an error — just a reported one.
+        Covers every reader through every entry point: the JSON loader, the
+        JSONL loader and the plain text loader, exercised via the scorers, the
+        viewer and normalize_trace. The viewer and normalize_trace each used to
+        carry their own copy of the JSON read with the same gap in it —
+        UnicodeDecodeError is a ValueError, so the OSError arm never saw it —
+        and both now go through _common.load_json.
+
+        normalize_trace.py was the last bare open() in the package and the one
+        that mattered most: it is the FIRST script in the run pipeline, so its
+        traceback landed before any scorer ran and the run skill read a data
+        error as an infra failure. Its own -X warn_default_encoding run is the
+        mechanical version of this check; this asserts the contract."""
+        junk = b"\xff\xfe"
+        traj = self.write_bytes("t.json", b'{"tool_calls":[],"x":"' + junk + b'"}')
+        rows = self.write_bytes(
+            "v.jsonl", b'{"case_id":"a","verdict":"pass","x":"' + junk + b'"}\n')
+        answer = self.write_bytes("a.txt", junk)
+        markdown = self.write_bytes("r.md", b"# T\n\n" + junk + b"\n")
+        expect = self.write_json("e.json", {"answer": {"must_contain": ["x"]}})
+        rundir = self.tmp / "run"
+        rundir.mkdir()
+        (rundir / "c.json").write_bytes(b'{"case_id":"' + junk + b'"}')
+
+        for script, argv in (
+                ("detect_loops.py", [traj]),
+                ("score_args.py", [traj, expect]),
+                ("score_answer.py", [answer, expect]),
+                ("score_authz.py", [traj, expect]),
+                ("stats.py", [rows, rows]),
+                ("reduce_repeats.py", [rows]),
+                ("score_routing.py", [rows]),
+                ("md_to_html.py", [markdown]),
+                ("build_review_viewer.py", [rundir]),
+                ("normalize_trace.py", [traj, "--trace-id", "t1"])):
+            out = self.assert_clean_error(script, *argv)
+            self.assertIn("utf-8", out["error"], script)
+
+    def test_no_script_reads_a_file_without_an_explicit_encoding(self):
+        """The mechanical form of the rule, so a new script cannot reintroduce
+        it. PEP 597's own detector (-X warn_default_encoding) is what found the
+        one remaining bare open() in normalize_trace.py; grepping the source is
+        the cheap always-on version of the same check."""
+        offenders = []
+        for path in sorted(SCRIPTS.glob("*.py")):
+            for lineno, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if "open(" in code and "encoding=" not in code:
+                    offenders.append(f"{path.name}:{lineno}")
+        self.assertEqual(offenders, [],
+                         "open() without encoding='utf-8' (PEP 597; the "
+                         "locale default decodes to mojibake under "
+                         "latin-1/cp1252 and corrupts verdicts silently)")
+
+    def test_no_source_file_has_a_stranded_blank_line_run(self):
+        """PEP 8 tops out at two blank lines (E303). Trivial on its own, but no
+        linter runs in this package's stdlib-only setup, so the one thing that
+        would ever catch it is a test — and the shape it catches is the residue
+        of a DELETED definition (score_authz.stringify moving to _common left
+        four), which is worth noticing while the move is still fresh."""
+        offenders = []
+        for path in all_sources():
+            blanks = 0
+            for lineno, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), 1):
+                blanks = blanks + 1 if not line.strip() else 0
+                if blanks == 3:
+                    offenders.append(f"{path.name}:{lineno}")
+        self.assertEqual(offenders, [], "more than two consecutive blank lines")
+
+
+class TestExpectationShapeValidation(ScorerTest):
+    """Every list/object-valued `expect` field rejects a bare scalar.
+
+    Written as one table rather than per-scorer cases because the bug it guards
+    is a FAMILY, and the family is what kept recurring: trajectory_match.py had
+    the guard and a test, and score_authz.py / score_answer.py / score_args.py
+    each shipped the same hole because nothing checked them as a group. A new
+    expect field is now one row here, not a new blind spot.
+
+    The slip is `forbidden_tools: delete_user` instead of `[delete_user]` —
+    plausible YAML, and silent, because a string IS a sequence (of characters).
+    Both wrong-verdict directions were reachable in production code:
+    score_authz reported PASS on a trajectory that called the forbidden tool,
+    and score_answer FAILED a correct answer. See _common.require_list."""
+
+    # (dotted field name, the expect object with exactly that field slipped)
+    SLIPS = [
+        # The TOP-LEVEL containers, not just the leaves inside them. Each of
+        # these three guarded its children while leaving itself open, and every
+        # probe on the parent happened to be valid on a string: `"subset" in
+        # expect_tools` and `"scalar" not in spec` are SUBSTRING tests, and
+        # `set(acceptable)` is a set of characters. So the slip got past the
+        # gate and died deeper (TypeError/AttributeError, exit 1) or, for
+        # routing, never raised at all.
+        ("expect.tools", "trajectory_match.py", {"tools": "subset"}),
+        ("expect.result", "score_execution.py", {"result": "scalar"}),
+        ("expect.tools.subset", "trajectory_match.py",
+         {"tools": {"subset": "get_invoice"}}),
+        ("expect.tools.order", "trajectory_match.py",
+         {"tools": {"order": "get_invoice"}}),
+        ("expect.tools.forbidden", "trajectory_match.py",
+         {"tools": {"subset": ["get_invoice"], "forbidden": "delete_user"}}),
+        ("expect.authz", "score_authz.py", {"authz": "no deletes"}),
+        ("expect.authz.forbidden_tools", "score_authz.py",
+         {"authz": {"forbidden_tools": "delete_user"}}),
+        ("expect.authz.forbidden_record_ids", "score_authz.py",
+         {"authz": {"forbidden_record_ids": "INV-1"}}),
+        ("expect.authz.allowed_record_ids", "score_authz.py",
+         {"authz": {"allowed_record_ids": "INV-1"}}),
+        ("expect.answer", "score_answer.py", {"answer": "seven"}),
+        ("expect.answer.must_contain", "score_answer.py",
+         {"answer": {"must_contain": "seven nurses"}}),
+        ("expect.answer.must_not_contain", "score_answer.py",
+         {"answer": {"must_not_contain": "seven nurses"}}),
+        ("expect.format.json_schema", "score_answer.py",
+         {"format": {"json_schema": "object"}}),
+        ("expect.args", "score_args.py", {"args": "get_invoice"}),
+        ("expect.args.get_invoice", "score_args.py",
+         {"args": {"get_invoice": "invoice_id"}}),
+        ("expect.result.columns", "score_execution.py",
+         {"result": {"rows": [{"id": 1}], "columns": "id"}}),
+        ("expect.result.rows", "score_execution.py",
+         {"result": {"rows": "id"}}),
+    ]
+
+    def argv_for(self, script, expect_path):
+        """Each scorer's first positional differs; the expect object is always
+        the second."""
+        if script == "score_answer.py":
+            answer = self.tmp / "a.txt"
+            answer.write_text("The invoice total is 500 dollars.",
+                              encoding="utf-8")
+            return [answer, expect_path]
+        if script == "score_execution.py":
+            return [self.write_json("actual.json", {"rows": []}), expect_path]
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "delete_user", "args": {"id": 1}, "result": "INV-1 gone"}]})
+        return [traj, expect_path]
+
+    def test_every_expect_field_rejects_a_bare_string(self):
+        for field, script, expect in self.SLIPS:
+            with self.subTest(field=field, script=script):
+                path = self.write_json("e.json", expect)
+                out = self.assert_clean_error(script, *self.argv_for(script,
+                                                                     path))
+                # The message must name the field. "must be a list" alone
+                # sends the author hunting through the whole case file.
+                self.assertIn(field, out["error"])
+
+    def test_the_authz_slip_no_longer_passes_a_real_violation(self):
+        """The specific verdict this guard exists for. `forbidden_tools` as a
+        bare string tested 'd','e','l',... as tool names — none of them real —
+        so the gate reported PASS on a trajectory that DID call delete_user.
+        A security check that fails open on malformed input is worse than one
+        that is absent, because the run reports green (CWE-1287/CWE-636)."""
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "delete_user", "args": {"id": 1}}]})
+        slipped = self.write_json("bad.json",
+                                  {"authz": {"forbidden_tools": "delete_user"}})
+        self.assert_clean_error("score_authz.py", traj, slipped)
+
+        # Control: written correctly, the same trajectory fails — so the
+        # assertion above is about the SHAPE, not about an unreachable check.
+        ok = self.write_json("ok.json",
+                             {"authz": {"forbidden_tools": ["delete_user"]}})
+        rc, out, err = run_script("score_authz.py", traj, ok)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_the_answer_slip_no_longer_manufactures_a_failure(self):
+        """The other direction, and the one the project's own comments call
+        the outcome it must never produce. `must_not_contain: zebra` iterated
+        as characters, and 'z','e','b','r','a' appear in ordinary prose, so a
+        CORRECT answer was scored fail."""
+        answer = self.tmp / "a.txt"
+        answer.write_text("The invoice total is 500 dollars.", encoding="utf-8")
+        slipped = self.write_json("bad.json",
+                                  {"answer": {"must_not_contain": "zebra"}})
+        self.assert_clean_error("score_answer.py", answer, slipped)
+
+        ok = self.write_json("ok.json",
+                             {"answer": {"must_not_contain": ["zebra"]}})
+        rc, out, err = run_script("score_answer.py", answer, ok)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_a_malformed_args_block_errors_even_when_the_tool_was_not_called(
+            self):
+        """Shape validation must not depend on the trajectory. Validated after
+        the tool_not_called short-circuit, the same case file would error or
+        not depending on what the app happened to do — so a broken case could
+        sit green in the suite until the day the app started calling that
+        tool."""
+        traj = self.write_json("t.json", {"tool_calls": []})
+        expect = self.write_json("e.json", {"args": {"never_called": "id"}})
+        out = self.assert_clean_error("score_args.py", traj, expect)
+        self.assertIn("expect.args.never_called", out["error"])
+
+    def test_empty_and_null_expect_fields_are_still_no_ops(self):
+        """The guard rejects wrong SHAPES, not absent ones. An omitted or null
+        field means the check does not apply and must stay unscored — turning
+        that into an error would break every case that scores only one layer."""
+        traj = self.write_json("t.json", {"tool_calls": []})
+        for expect in ({}, {"authz": None}, {"authz": {}},
+                       {"authz": {"forbidden_tools": []}},
+                       {"args": None}, {"args": {}}):
+            with self.subTest(expect=expect):
+                path = self.write_json("e.json", expect)
+                for script in ("score_authz.py", "score_args.py"):
+                    rc, out, err = run_script(script, traj, path)
+                    self.assertEqual(rc, 0, f"{script} {expect}: {err}")
+                    self.assertIn(out["verdict"], ("unscored", "pass"))
+
+    def test_route_acceptable_scalar_is_an_error_not_a_mismatch(self):
+        """score_routing takes a JSONL rather than an expect object, which is
+        why it sat outside the table above and kept the hole longest — and it
+        failed in the WORST direction: silently. `set("support")` is a set of
+        characters, no real route name is ever in it, so a case whose observed
+        route was a blessed alternate scored accuracy 0.0 and landed in the
+        confusion matrix. Exit 0, a plausible-looking number, a wrong one."""
+        slipped = self.write_jsonl("bad.jsonl", [
+            {"case_id": "c1", "expected": "billing",
+             "acceptable": "support", "observed": "support"}])
+        out = self.assert_clean_error("score_routing.py", slipped)
+        self.assertIn("route_acceptable", out["error"])
+
+        # Control: written correctly, the same case PASSES as an accepted
+        # alternate — so the assertion above is about the shape, and the 0.0
+        # the slip produced really was manufactured.
+        ok = self.write_jsonl("ok.jsonl", [
+            {"case_id": "c1", "expected": "billing",
+             "acceptable": ["support"], "observed": "support"}])
+        rc, out, err = run_script("score_routing.py", ok)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["accuracy"], 1.0)
+        self.assertEqual(out["accepted_alternates"]["count"], 1)
+
+    # (dotted field name, script, expect object) — same family as SLIPS, but
+    # with a FALSY off-shape value. These slipped through a second way: the
+    # guards ran under `if value:` rather than `if value is not None`, so
+    # exactly the off-shape values that are also falsy skipped validation and
+    # were silently replaced by {}. The case then reported "unscored" — an
+    # expectation the author wrote, never evaluated, and nothing said so.
+    FALSY_SLIPS = [
+        ("expect.tools", "trajectory_match.py", {"tools": []}),
+        ("expect.result", "score_execution.py", {"result": []}),
+        ("expect.answer", "score_answer.py", {"answer": []}),
+        ("expect.format", "score_answer.py", {"format": []}),
+        ("expect.format.json_schema", "score_answer.py",
+         {"format": {"json_schema": []}}),
+        ("expect.authz", "score_authz.py", {"authz": []}),
+        ("expect.args", "score_args.py", {"args": []}),
+    ]
+
+    def test_falsy_off_shape_expect_fields_are_errors_not_silent_no_ops(self):
+        for field, script, expect in self.FALSY_SLIPS:
+            with self.subTest(field=field, script=script):
+                path = self.write_json("e.json", expect)
+                out = self.assert_clean_error(script,
+                                              *self.argv_for(script, path))
+                self.assertIn(field, out["error"])
+
+    def test_absent_and_empty_object_expect_fields_stay_no_ops(self):
+        """The companion to the test above, and the line it must not cross: an
+        ABSENT key and an empty OBJECT are both legitimate ("this layer isn't
+        scored here"), so only a wrong SHAPE may error. Getting this backwards
+        would break every case that scores a single layer."""
+        for expect in ({}, {"tools": None}, {"tools": {}},
+                       {"result": None}, {"result": {}},
+                       {"answer": None}, {"answer": {}},
+                       {"format": {}}, {"format": {"json_schema": {}}}):
+            with self.subTest(expect=expect):
+                path = self.write_json("e.json", expect)
+                for script in ("trajectory_match.py", "score_execution.py",
+                               "score_answer.py"):
+                    rc, out, err = run_script(script,
+                                              *self.argv_for(script, path))
+                    self.assertEqual(rc, 0, f"{script} {expect}: {err}")
+                    self.assertIn(out["verdict"], ("unscored", "pass"))
+
+    # Every way an expect.args entry can name a tool and assert nothing once
+    # the reserved "calls" key is peeled off. Each parses as a perfectly valid
+    # mapping, so the shape guards above all pass it.
+    EMPTY_ARG_ENTRIES = [
+        {"args": {"search": {"calls": "all"}}},
+        {"args": {"search": {}}},
+        {"args": {"search": None}},
+    ]
+
+    def test_arg_entry_asserting_nothing_is_an_input_error(self):
+        """An entry with no arg specs scored every trajectory and left NO row
+        in the output — not even tool_not_called. Alone it read "unscored",
+        which the run skill catches; beside any other tool carrying a real spec
+        the case reported a clean "pass" with the entry invisible. Same class
+        as trajectory_match.asserted_list, one layer over."""
+        for expect in self.EMPTY_ARG_ENTRIES:
+            with self.subTest(expect=expect):
+                path = self.write_json("e.json", expect)
+                out = self.assert_clean_error(
+                    "score_args.py", *self.argv_for("score_args.py", path))
+                self.assertIn("expect.args.search", out["error"])
+
+    def test_empty_arg_entry_error_does_not_depend_on_the_trajectory(self):
+        """The guard sits before the tool_not_called short-circuit on purpose:
+        a malformed expectation is an input error whether or not the agent
+        happened to call the tool, so the same case must not pass on one trace
+        and error on another."""
+        called = self.write_json("called.json", {"tool_calls": [
+            {"name": "search", "args": {"q": "invoices"}, "result": "ok"}]})
+        never = self.write_json("never.json", {"tool_calls": [
+            {"name": "other", "args": {}, "result": "ok"}]})
+        path = self.write_json("e.json", {"args": {"search": {}}})
+        for traj in (called, never):
+            with self.subTest(traj=traj):
+                self.assert_clean_error("score_args.py", traj, path)
+
+    def test_empty_arg_entry_does_not_silently_pass_beside_a_real_spec(self):
+        """The shape the bug actually took in a real case: one tool asserted
+        properly, one asserted nothing, verdict "pass" and only one check row.
+        Guards the regression at the verdict level, not just the exit code."""
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {"q": "invoices"}, "result": "ok"},
+            {"name": "fetch", "args": {"id": "INV-77"}, "result": "ok"}]})
+        path = self.write_json("e.json", {"args": {
+            "fetch": {"id": "INV-77"}, "search": {"calls": "all"}}})
+        self.assert_clean_error("score_args.py", traj, path)
+
+    def test_real_arg_specs_alongside_calls_key_still_score(self):
+        """The line the guard must not cross: "calls" beside an actual spec is
+        the documented, common form and stays scorable."""
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {"q": "invoices"}, "result": "ok"}]})
+        path = self.write_json("e.json",
+                               {"args": {"search": {"calls": "all",
+                                                    "q": "invoices"}}})
+        rc, out, err = run_script("score_args.py", traj, path)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_absent_args_block_and_empty_args_mapping_stay_no_ops(self):
+        """expect.args: {} names no tools, so it asserts nothing about any of
+        them — still a legitimate "this layer isn't scored here", unlike an
+        entry that names one. The guard is per-ENTRY, not on the container."""
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {"q": "x"}, "result": "ok"}]})
+        for expect in ({}, {"args": None}, {"args": {}}):
+            with self.subTest(expect=expect):
+                path = self.write_json("e.json", expect)
+                rc, out, err = run_script("score_args.py", traj, path)
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(out["verdict"], "unscored")
+
+    def test_allowed_record_ids_still_distinguishes_absent_from_empty(self):
+        """`allowed_record_ids: []` is a real allowlist meaning "nothing is in
+        scope"; an absent key means "no allowlist". The shape guard must not
+        collapse them — require_list returns the empty list unchanged."""
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "get", "args": {}, "result": "record INV-9"}]})
+        absent = self.write_json("absent.json",
+                                 {"authz": {"forbidden_tools": []}})
+        empty = self.write_json("empty.json",
+                                {"authz": {"allowed_record_ids": []}})
+
+        rc, out, err = run_script("score_authz.py", traj, absent)
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("allowed_record_ids",
+                         [c.get("check") for c in out["checks"]])
+
+        rc, out, err = run_script("score_authz.py", traj, empty)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("allowed_record_ids",
+                      [c.get("check") for c in out["checks"]])
+
+
+class TestEmptyAllowlistIsEnforced(ScorerTest):
+    """`allowed_record_ids: []` says nothing is in scope, so ANY id-shaped
+    token in a tool result is out of scope. The check used to need a prefix
+    from an allowed id to recognize candidates by, which an empty list cannot
+    supply — so the strictest allowlist expressible was the only one that
+    could never fail, on the gate whose stated purpose is that a permissive
+    authz check hides a wide-open endpoint."""
+
+    def expect(self, authz):
+        return self.write_json("e.json", {"authz": authz})
+
+    def traj(self, result):
+        return self.write_json("t.json", {"tool_calls": [
+            {"name": "get", "args": {}, "result": result}]})
+
+    def test_empty_allowlist_fails_on_any_returned_record(self):
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": "e_881"}]}),
+            self.expect({"allowed_record_ids": []}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        check = out["checks"][0]
+        self.assertEqual(check["status"], "fail")
+        self.assertEqual(check["leaked_ids"], ["e_881"])
+
+    def test_empty_allowlist_passes_when_no_record_came_back(self):
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [], "count": 0}),
+            self.expect({"allowed_record_ids": []}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_empty_allowlist_still_unscorable_without_captured_results(self):
+        # The no-evidence case is unchanged: absence cannot be verified from a
+        # result that was never captured, and claiming otherwise would be the
+        # manufactured verdict this scorer refuses in both directions.
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "get", "args": {}, "result": None}]})
+        rc, out, err = run_script("score_authz.py", traj,
+                                  self.expect({"allowed_record_ids": []}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"][0]["status"], "unscorable")
+
+    def test_non_id_shaped_allowlist_is_still_unscorable(self):
+        # Unchanged, and deliberately distinct from the empty case: allowed ids
+        # that are not id-shaped leave no prefix to recognize an out-of-scope
+        # id BY, and free-text scanning would flag arbitrary tokens.
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": "e_881"}]}),
+            self.expect({"allowed_record_ids": ["everything"]}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"][0]["status"], "unscorable")
+        self.assertIn("not id-shaped", out["checks"][0]["reason"])
+
+
+class TestErroredToolCalls(ScorerTest):
+    """A tool call that FAILED must not be indistinguishable from one whose
+    result simply was not captured. The GenAI convention records
+    gen_ai.tool.call.result only "if execution was successful", so absence is
+    the app's failure signal as well as the exporter's — and reading it only
+    the second way reported a broken tool as a tracing misconfiguration, while
+    the trajectory layer scored the errored call as a satisfied expectation."""
+
+    @staticmethod
+    def tool_span(span_id, tool, attrs=(), status=None):
+        s = TestNormalizeTrace.span(
+            "t1", span_id, "execute_tool", start=2,
+            extra_attrs=[{"key": "gen_ai.tool.name",
+                          "value": {"stringValue": tool}},
+                         {"key": "gen_ai.tool.call.id",
+                          "value": {"stringValue": f"call_{span_id}"}},
+                         *attrs])
+        if status is not None:
+            s["status"] = status
+        return s
+
+    def doc(self, spans):
+        return self.write_json("spans.json", {"resourceSpans": [
+            {"scopeSpans": [{"spans": spans}]}]})
+
+    def test_error_type_attribute_is_recorded_on_the_call(self):
+        spans = [self.tool_span("b", "get_invoice", attrs=[
+            {"key": "error.type", "value": {"stringValue": "500"}}])]
+        rc, out, err = run_script("normalize_trace.py", self.doc(spans),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["trajectory"]["tool_calls"][0]["error"], "500")
+        self.assertEqual(out["checks"]["tool_calls_errored"],
+                         [{"call_id": "call_b", "tool": "get_invoice",
+                           "error": "500"}])
+
+    def test_errored_call_is_not_counted_as_uncaptured_content(self):
+        # The whole point: a failed call must leave tool_calls_without_result
+        # alone, or the run blames the exporter for the app's failure.
+        spans = [self.tool_span("b", "get_invoice", attrs=[
+            {"key": "error.type", "value": {"stringValue": "timeout"}}])]
+        rc, out, _ = run_script("normalize_trace.py", self.doc(spans),
+                                "--trace-id", "t1")
+        self.assertEqual(out["checks"]["tool_calls_without_result"], [])
+
+    def test_otlp_span_status_is_the_fallback(self):
+        # Exporters set span status whether or not they populate the opt-in
+        # GenAI attribute, so the status is read too — enum name or integer.
+        for code in (2, "STATUS_CODE_ERROR"):
+            with self.subTest(code=code):
+                spans = [self.tool_span(
+                    "b", "get_invoice",
+                    status={"code": code, "message": "upstream 503"})]
+                rc, out, _ = run_script("normalize_trace.py", self.doc(spans),
+                                        "--trace-id", "t1")
+                self.assertEqual(out["trajectory"]["tool_calls"][0]["error"],
+                                 "upstream 503")
+
+    def test_successful_call_has_no_error(self):
+        spans = [self.tool_span("b", "get_invoice", attrs=[
+            {"key": "gen_ai.tool.call.result",
+             "value": {"stringValue": "ok"}}])]
+        rc, out, _ = run_script("normalize_trace.py", self.doc(spans),
+                                "--trace-id", "t1")
+        self.assertIsNone(out["trajectory"]["tool_calls"][0]["error"])
+        self.assertEqual(out["checks"]["tool_calls_errored"], [])
+
+    def test_trajectory_layer_reports_errored_calls_without_failing(self):
+        # Default stays "were these tools used": flipping it would re-score
+        # every existing dataset. But it can no longer be invisible.
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "get_invoice", "args": {}, "result": None,
+             "error": "500"}]})
+        expect = self.write_json("e.json", {"tools": {
+            "subset": ["get_invoice"]}})
+        rc, out, err = run_script("trajectory_match.py", traj, expect)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual(out["errored_calls"],
+                         [{"index": 0, "tool": "get_invoice",
+                           "error": "500"}])
+        self.assertIn("not whether they succeeded", out["warning"])
+
+    def test_trajectory_layer_can_be_gated_on_errors(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "get_invoice", "args": {}, "result": None,
+             "error": "500"}]})
+        expect = self.write_json("e.json", {"tools": {
+            "subset": ["get_invoice"]}})
+        rc, out, err = run_script("trajectory_match.py", traj, expect,
+                                  "--fail-on-errored-calls")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertNotIn("warning", out)
+
+    def test_score_args_names_the_error_not_the_exporter(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "lookup", "args": {"q": "x"}, "result": None,
+             "error": "500"},
+            {"name": "charge", "args": {"id": "INV-1042"}, "result": None}]})
+        expect = self.write_json("e.json", {"args": {
+            "charge": {"id": "from_tool_result"}}})
+        rc, out, err = run_script("score_args.py", traj, expect)
+        self.assertEqual(rc, 0, err)
+        check = out["checks"][0]
+        self.assertEqual(check["status"], "unscorable")
+        self.assertIn("errored", check["reason"])
+        self.assertNotIn("content capture", check["reason"])
+
+    def test_content_capture_diagnosis_survives_when_nothing_errored(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "lookup", "args": {"q": "x"}, "result": None},
+            {"name": "charge", "args": {"id": "INV-1042"}, "result": None}]})
+        expect = self.write_json("e.json", {"args": {
+            "charge": {"id": "from_tool_result"}}})
+        rc, out, _ = run_script("score_args.py", traj, expect)
+        self.assertIn("content capture", out["checks"][0]["reason"])
+
+
+class TestTraceIdDiagnosability(ScorerTest):
+    """Zero spans for the trace has two very different causes — the app never
+    emitted one, or --trace-id was wrong — and both used to print exactly
+    `spans_for_trace: 0` and score every case INFRA_INCOMPLETE."""
+
+    def doc(self, spans):
+        return self.write_json("spans.json", {"resourceSpans": [
+            {"scopeSpans": [{"spans": spans}]}]})
+
+    def test_wrong_trace_id_is_named_as_such(self):
+        spans = [TestNormalizeTrace.span("t1", "a", "invoke_agent")]
+        rc, out, err = run_script("normalize_trace.py", self.doc(spans),
+                                  "--trace-id", "typo")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["status"], "incomplete")
+        self.assertEqual(out["checks"]["spans_for_trace"], 0)
+        self.assertEqual(out["checks"]["spans_in_file"], 1)
+        self.assertIn("--trace-id", out["checks"]["trace_id_note"])
+
+    def test_genuinely_empty_file_gets_no_misleading_hint(self):
+        rc, out, err = run_script("normalize_trace.py", self.doc([]),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["status"], "incomplete")
+        self.assertEqual(out["checks"]["spans_in_file"], 0)
+        self.assertNotIn("trace_id_note", out["checks"])
+
+
+class TestScoreRoutingMacroSupport(ScorerTest):
+    """macro_f1 averages over TARGETS, and a prediction-only label is not a
+    target. __no_route__ (and any route name the app invented) has no expected
+    case behind it, so its F1 is a structural 0.0 that dragged the average
+    down one slot per unrouted case and then tripped the macro/micro gap
+    warning — sending the reader to hunt a weak minority target that does not
+    exist."""
+
+    def test_one_unrouted_case_does_not_crater_macro_f1(self):
+        rows = [
+            {"case_id": "c1", "expected": "billing", "observed": "billing"},
+            {"case_id": "c2", "expected": "billing", "observed": None},
+            {"case_id": "c3", "expected": "support", "observed": "support"},
+            {"case_id": "c4", "expected": "support", "observed": "support"},
+        ]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows))
+        self.assertEqual(rc, 0, err)
+        # billing: p=1.0 r=0.5 f1=0.6667; support: 1.0. __no_route__ carries a
+        # row (it is a real finding) but no support, so it is not averaged.
+        self.assertAlmostEqual(out["macro_f1"], 0.8333, places=3)
+        self.assertEqual(out["spurious_labels"]["labels"], ["__no_route__"])
+        self.assertIn("__no_route__", out["per_target"])
+        self.assertEqual(out["per_target"]["__no_route__"]["support"], 0)
+        self.assertNotIn("warning", out)
+
+    def test_a_hallucinated_route_name_is_listed_not_averaged(self):
+        rows = [
+            {"case_id": "c1", "expected": "billing", "observed": "billing"},
+            {"case_id": "c2", "expected": "billing", "observed": "wibble"},
+        ]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["spurious_labels"]["labels"], ["wibble"])
+        self.assertAlmostEqual(out["macro_f1"], 0.6667, places=3)
+
+    def test_labels_with_support_are_all_still_averaged(self):
+        rows = [
+            {"case_id": "c1", "expected": "billing", "observed": "billing"},
+            {"case_id": "c2", "expected": "support", "observed": "billing"},
+        ]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows))
+        self.assertEqual(rc, 0, err)
+        # support has support=1 (and f1 0.0): a real target that failed stays
+        # in the average — only zero-support labels leave it.
+        self.assertEqual(out["spurious_labels"]["labels"], [])
+        self.assertAlmostEqual(out["macro_f1"], 0.3333, places=3)
+
+
+class TestStatsCaseAttrition(ScorerTest):
+    """The pairing is an intersection, and what it drops is not a random
+    sample: a case the candidate crashed on is filtered upstream as infra and
+    vanishes, grading the candidate on the subset it survived. A run that lost
+    a third of its cases and one that lost none used to print identical
+    output."""
+
+    def rows(self, ids, verdict="pass"):
+        return [{"case_id": i, "verdict": verdict} for i in ids]
+
+    def test_dropped_cases_are_counted_and_named(self):
+        base = self.write_jsonl("b.jsonl", self.rows(["c1", "c2", "c3"]))
+        cand = self.write_jsonl("c.jsonl", self.rows(["c2", "c3", "c9"]))
+        rc, out, err = run_script("stats.py", base, cand)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["n"], 2)
+        self.assertEqual(out["cases_only_in_baseline"], 1)
+        self.assertEqual(out["cases_only_in_candidate"], 1)
+        self.assertEqual(out["cases_only_in_baseline_ids"], ["c1"])
+        self.assertEqual(out["cases_only_in_candidate_ids"], ["c9"])
+
+    def test_heavy_attrition_warns_about_selection_bias(self):
+        base = self.write_jsonl("b.jsonl", self.rows([f"c{i}"
+                                                      for i in range(10)]))
+        cand = self.write_jsonl("c.jsonl", self.rows([f"c{i}"
+                                                      for i in range(5)]))
+        rc, out, err = run_script("stats.py", base, cand)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("case_attrition_warning", out)
+        self.assertIn("SELECTION BIAS", out["case_attrition_warning"])
+        self.assertIn("infra", out["case_attrition_warning"])
+
+    def test_matched_case_sets_carry_no_warning(self):
+        p = self.write_jsonl("b.jsonl", self.rows([f"c{i}" for i in range(10)]))
+        rc, out, err = run_script("stats.py", p, p)
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("case_attrition_warning", out)
+        self.assertEqual(out["cases_only_in_baseline"], 0)
+        self.assertEqual(out["cases_only_in_candidate"], 0)
+
+    def test_the_decision_rule_is_unchanged_by_attrition(self):
+        # The gate still runs on the pairs it has; attrition is reported, not
+        # acted on.
+        base = self.write_jsonl("b.jsonl", [
+            {"case_id": f"c{i}", "verdict": "fail"} for i in range(6)])
+        cand = self.write_jsonl("c.jsonl", [
+            {"case_id": f"c{i}", "verdict": "pass"} for i in range(5)])
+        rc, out, err = run_script("stats.py", base, cand)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["n"], 5)
+        self.assertTrue(out["keep"])
+        self.assertIn("case_attrition_warning", out)
+
+    def test_reported_ids_are_capped(self):
+        base = self.write_jsonl("b.jsonl", self.rows(
+            ["shared"] + [f"b{i:03d}" for i in range(50)]))
+        cand = self.write_jsonl("c.jsonl", self.rows(["shared"]))
+        rc, out, err = run_script("stats.py", base, cand)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["cases_only_in_baseline"], 50)
+        self.assertEqual(len(out["cases_only_in_baseline_ids"]), 20)
+
+
+class TestScoreArgsCallScope(ScorerTest):
+    """An expectation about a tool call is not an expectation about every call
+    of that tool. An agent that searches (q=invoices) and then pages
+    (limit=10) calls the same tool twice with different arguments; scoring
+    every call against every spec manufactured a failure out of correct
+    behavior. Default scope is therefore "any"; "all" is the old semantics,
+    still available to authors who mean it."""
+
+    def two_calls(self):
+        return self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {"q": "invoices"}, "result": "ok"},
+            {"name": "search", "args": {"limit": 10}, "result": "ok"}]})
+
+    def expect(self, spec):
+        return self.write_json("e.json", {"args": {"search": spec}})
+
+    def test_default_any_passes_when_one_call_satisfies_it(self):
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"q": "invoices"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual([c["status"] for c in out["checks"]], ["pass"])
+        self.assertEqual(out["checks"][0]["call_index"], 0)
+        self.assertEqual(out["checks"][0]["calls"], "any")
+
+    def test_calls_all_preserves_the_old_strict_semantics(self):
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"q": "invoices",
+                                               "calls": "all"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual([c["status"] for c in out["checks"]],
+                         ["pass", "fail"])
+
+    def test_calls_first_checks_only_the_first_call(self):
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"q": "invoices",
+                                               "calls": "first"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual([c["call_index"] for c in out["checks"]], [0])
+
+    def test_calls_first_can_still_fail(self):
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"limit": 10,
+                                               "calls": "first"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_any_requires_one_call_to_satisfy_every_spec_together(self):
+        # Not "each spec matched by some call": the specs are evaluated per
+        # call, so "the call that searched for invoices also passed limit=10"
+        # stays expressible and stays false here.
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"q": "invoices",
+                                               "limit": 10}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual({c["call_index"] for c in out["checks"]}, {0})
+
+    def test_any_reports_one_call_not_every_call(self):
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"q": "receipts"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(len(out["checks"]), 1)
+
+    def test_a_single_call_is_unaffected_by_the_default(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {"q": "invoices"}, "result": "ok"}]})
+        rc, out, err = run_script("score_args.py", traj,
+                                  self.expect({"q": "invoices"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_an_unknown_scope_is_a_clean_error(self):
+        # Three scopes give three different verdicts on one trajectory, so a
+        # typo must never quietly pick one.
+        self.assert_clean_error("score_args.py", self.two_calls(),
+                                self.expect({"q": "x", "calls": "every"}))
+
+    def test_calls_is_not_treated_as_an_argument_name(self):
+        rc, out, err = run_script("score_args.py", self.two_calls(),
+                                  self.expect({"calls": "all",
+                                               "q": "invoices"}))
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("calls", [c.get("arg") for c in out["checks"]])
+
+
+class TestScoreExecutionLargeRowSets(ScorerTest):
+    """Result-set size is app data, not case authoring. The recursive
+    augmenting-path search recursed once per row along a path, so a large
+    identical bag exited 1 with a RecursionError traceback — outside the
+    exit-2 contract, and read by the run skill as an infra failure rather
+    than as a comparison."""
+
+    def score(self, actual, expect):
+        return run_script("score_execution.py",
+                          self.write_json("a.json", actual),
+                          self.write_json("e.json", expect))
+
+    def test_two_thousand_identical_rows_compare_without_error(self):
+        rows = [{"id": 1, "name": "same"} for _ in range(2000)]
+        rc, out, err = self.score({"rows": rows}, {"result": {"rows": rows}})
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_a_long_augmenting_chain_still_matches(self):
+        # Distinct rows in reverse order: a bag match that the greedy pass
+        # cannot settle row-by-row, exercising the iterative path itself.
+        expected = [{"id": i} for i in range(400)]
+        actual = list(reversed(expected))
+        rc, out, err = self.score({"rows": actual},
+                                  {"result": {"rows": expected}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_a_large_tolerant_match_runs_the_matching_itself(self):
+        # Cell-for-cell unequal, so the identical-bag fast path cannot settle
+        # it: this one goes through the augmenting-path search at a size that
+        # used to exhaust the interpreter's stack.
+        expected = [{"v": float(i)} for i in range(1200)]
+        actual = [{"v": i + 0.4} for i in range(1200)]
+        rc, out, err = self.score(
+            {"rows": actual},
+            {"result": {"rows": expected, "float_tolerance": 0.5}})
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_a_genuine_large_mismatch_is_still_a_fail(self):
+        expected = [{"id": i} for i in range(500)]
+        actual = [{"id": i} for i in range(1, 501)]
+        rc, out, err = self.score({"rows": actual},
+                                  {"result": {"rows": expected}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+
+
+class TestNormalizeTraceCallIdentity(ScorerTest):
+    """A tool call with no gen_ai.tool.call.id is still a tool call. Filtering
+    the missing-results diagnostic on a truthy call_id dropped exactly the
+    traces where NO call carries one, so the least instrumented trace produced
+    the most confident possible report: "every result was captured"."""
+
+    def doc(self, spans):
+        return self.write_json("spans.json", {"resourceSpans": [
+            {"scopeSpans": [{"spans": spans}]}]})
+
+    def tool_span(self, span_id, tool, attrs=()):
+        return TestNormalizeTrace.span(
+            "t1", span_id, "execute_tool", start=2,
+            extra_attrs=[{"key": "gen_ai.tool.name",
+                          "value": {"stringValue": tool}}, *attrs])
+
+    def test_calls_without_ids_still_appear_in_the_diagnostic(self):
+        spans = [self.tool_span("b", "get_invoice"),
+                 self.tool_span("c", "get_customer")]
+        rc, out, err = run_script("normalize_trace.py", self.doc(spans),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"]["tool_calls_without_result"],
+                         ["index:0", "index:1"])
+
+    def test_a_present_call_id_is_still_preferred(self):
+        spans = [self.tool_span("b", "get_invoice", attrs=[
+            {"key": "gen_ai.tool.call.id",
+             "value": {"stringValue": "call_1"}}]),
+            self.tool_span("c", "get_customer")]
+        rc, out, err = run_script("normalize_trace.py", self.doc(spans),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"]["tool_calls_without_result"],
+                         ["call_1", "index:1"])
+
+    def test_a_captured_result_still_stays_out_of_the_list(self):
+        spans = [self.tool_span("b", "get_invoice", attrs=[
+            {"key": "gen_ai.tool.call.result",
+             "value": {"stringValue": "ok"}}])]
+        rc, out, err = run_script("normalize_trace.py", self.doc(spans),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"]["tool_calls_without_result"], [])
+
+
+class TestScoreAnswerHonestVerdict(ScorerTest):
+    """Two ways a verdict overstated what was measured: a "pass" sitting on
+    top of checks that never ran, and an enum satisfied by bool/int
+    confusion (True == 1 in Python, the same trap the type check already
+    refuses)."""
+
+    def score(self, answer, expect):
+        return run_script("score_answer.py",
+                          self.write_text("a.txt", answer),
+                          self.write_json("e.json", expect))
+
+    def write_text(self, name, text):
+        p = self.tmp / name
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def test_pass_with_unscorable_checks_is_flagged(self):
+        rc, out, err = self.score("the total is 42", {"answer": {
+            "must_contain": ["42", "/(a+)+++/"]}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual(out["unscorable"], 1)
+        self.assertTrue(out["partially_unscored"])
+
+    def test_a_fully_scored_pass_is_not_flagged(self):
+        rc, out, err = self.score("the total is 42",
+                                  {"answer": {"must_contain": ["42"]}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertFalse(out["partially_unscored"])
+
+    def test_a_fail_is_never_flagged_partially_unscored(self):
+        rc, out, err = self.score("the total is 42", {"answer": {
+            "must_contain": ["99", "/(a+)+++/"]}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertFalse(out["partially_unscored"])
+
+    def test_true_does_not_satisfy_an_integer_enum(self):
+        rc, out, err = self.score('{"v": true}', {"format": {"json_schema": {
+            "properties": {"v": {"enum": [1]}}}}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertIn("not in enum", out["checks"][0]["reason"])
+
+    def test_one_does_not_satisfy_a_boolean_enum(self):
+        rc, out, err = self.score('{"v": 1}', {"format": {"json_schema": {
+            "properties": {"v": {"enum": [True]}}}}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_matching_enum_values_still_pass(self):
+        for answer, allowed in (('{"v": 1}', [1]),
+                                ('{"v": true}', [True]),
+                                ('{"v": "a"}', ["a", "b"])):
+            with self.subTest(answer=answer):
+                rc, out, err = self.score(answer, {"format": {"json_schema": {
+                    "properties": {"v": {"enum": allowed}}}}})
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(out["verdict"], "pass")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+RUN_SKILL = SCRIPTS.parent / "skills" / "run" / "SKILL.md"
+
+
+class TestRunArtifactContract(ScorerTest):
+    """run/SKILL.md requires every run to write BOTH `verdicts.jsonl` (the full
+    per-case record) and `verdicts_for_stats.jsonl` (pass/fail rows only), and
+    names the latter as the paired input for a baseline diff. Nothing checked
+    that the two-file split was actually necessary, or that the reduced file
+    is what stats.py accepts — and a spec whose only enforcement is a failed
+    diff months later is the kind that quietly rots.
+
+    The row shapes below are copied from the field-test run's real artifacts,
+    not invented, so this pins the shape runs actually emit."""
+
+    FULL_ROW = {"case_id": "units-happy", "set": "smoke", "category": "happy",
+                "gating": True, "http_status": 200, "latency_s": 9.54,
+                "layers": {"http_contract": "pass", "routing_proxy": "pass"},
+                "verdict": "pass"}
+    INFRA_ROW = {"case_id": "units-flaky", "set": "smoke", "category": "happy",
+                 "gating": True, "layers": {"http_contract": "infra_error"},
+                 "verdict": "infra_error"}
+
+    def test_the_unreduced_record_is_rejected_not_silently_counted(self):
+        """Why two files rather than one. Pointing stats.py at verdicts.jsonl
+        is a hard error the moment it holds an infra row — exactly the design
+        that keeps a crashed case from being scored as a failure."""
+        p = self.write_jsonl("verdicts.jsonl", [self.FULL_ROW, self.INFRA_ROW])
+        out = self.assert_clean_error("stats.py", p, p)
+        self.assertIn("infra_error", out["error"])
+
+    def test_the_reduced_row_shape_is_what_stats_pairs(self):
+        rows = [{"case_id": "units-happy", "verdict": "pass"},
+                {"case_id": "units-edge", "verdict": "fail"}]
+        p = self.write_jsonl("verdicts_for_stats.jsonl", rows)
+        rc, out, err = run_script("stats.py", p, p)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["n"], 2)
+
+    def test_reduction_is_a_row_filter_not_a_key_strip(self):
+        """The reduced file may carry the full row's extra keys — dropping
+        infra/unscored ROWS is the whole of the reduction. Asserted so nobody
+        "fixes" the writer to emit only two keys and calls the richer file
+        non-conforming."""
+        p = self.write_jsonl("reduced.jsonl", [self.FULL_ROW])
+        rc, out, err = run_script("stats.py", p, p)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["n"], 1)
+
+    def test_the_run_skill_still_requires_both_artifacts(self):
+        spec = RUN_SKILL.read_text(encoding="utf-8")
+        for name in ("verdicts.jsonl", "verdicts_for_stats.jsonl"):
+            self.assertIn(name, spec,
+                          f"run/SKILL.md no longer names {name}; stats.py's "
+                          f"paired input would have no documented source")

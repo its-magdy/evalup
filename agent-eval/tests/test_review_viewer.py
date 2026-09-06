@@ -29,6 +29,7 @@ rendered `detail_html` fragment, which is what actually reaches the DOM.
 """
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -71,11 +72,16 @@ class ViewerTest(unittest.TestCase):
         self.assertEqual(rc, 0, f"exit {rc}: {err}")
         return out
 
-    def data_block(self, page, block_id="trace-data"):
-        """The parsed contents of one embedded JSON <script> block."""
+    def raw_block(self, page, block_id="trace-data"):
+        """The verbatim text of one embedded JSON <script> block — what the
+        HTML tokenizer sees, before json.loads normalizes the escaping away."""
         marker = f'id="{block_id}">'
         start = page.index(marker) + len(marker)
-        return json.loads(page[start:page.index("</script>", start)])
+        return page[start:page.index("</script>", start)]
+
+    def data_block(self, page, block_id="trace-data"):
+        """The parsed contents of one embedded JSON <script> block."""
+        return json.loads(self.raw_block(page, block_id))
 
     def rendered(self, records, idx=0):
         """The detail_html fragment for one record — the markup that actually
@@ -186,12 +192,98 @@ class TestJsonScriptBlockEscaping(ViewerTest):
         self.assertEqual(page.count("</script>"), self.legit_closers())
 
     def test_embedded_json_still_parses_after_escaping(self):
-        # The guard must not corrupt the data it protects: <\/ is a valid JSON
-        # escape, so the block still round-trips to the original text.
+        # The guard must not corrupt the data it protects: < is a valid
+        # JSON escape, so the block still round-trips to the original text.
         payload = 'result: </script> and </div>'
         page = self.page([{"case_id": "c1", "answer": {"actual": payload}}])
         parsed = self.data_block(page)
         self.assertEqual(parsed["records"][0]["answer"]["actual"], payload)
+
+    def test_html_comment_before_script_cannot_swallow_the_block(self):
+        # Escaping only "</" is the half-measure. "<!--" moves the tokenizer to
+        # script data escaped state and a following "<script" to script data
+        # DOUBLE escaped state, where "</script>" stops closing the element —
+        # so this record's answer used to swallow the annotation-data block and
+        # the viewer's own <script>, leaving a blank inert page. Verified
+        # against a spec-compliant parser, which saw no annotation-data element.
+        page = self.page([{"case_id": "c1",
+                           "answer": {"actual": "<!--<script>foo"}}])
+        # Assert on what the TOKENIZER sees, not on the page bytes: with the old
+        # "</"-only escaping the annotation-data text was still present in the
+        # file — it just stopped being an element, which a substring check
+        # cannot tell apart from a working page.
+        self.assertNotIn("<!--", self.raw_block(page))
+        self.assertEqual(page.count("</script>"), self.legit_closers())
+        self.assertEqual(
+            self.data_block(page)["records"][0]["answer"]["actual"],
+            "<!--<script>foo")
+
+    def test_no_raw_angle_bracket_survives_in_either_json_block(self):
+        # The invariant behind the fix: both dangerous tokenizer transitions
+        # start with "<", so no "<" may reach either embedded block at all.
+        # Asserting the invariant rather than the two known payloads is what
+        # stops the next variant of this bug.
+        recs = self.write_json("run.json", [
+            {"case_id": "c1", "trace_id": "t1",
+             "answer": {"actual": "<!--<script> </script> <img> <b>"}}])
+        anns = self.write_jsonl("a.jsonl", [
+            {"trace_id": "t1", "label": "fail", "critique": "<!--<script>"}])
+        rc, page, err = run_viewer(recs, "-a", anns)
+        self.assertEqual(rc, 0, err)
+        for block_id in ("trace-data", "annotation-data"):
+            self.assertNotIn("<", self.raw_block(page, block_id),
+                             f"raw '<' reached the {block_id} block")
+
+
+class TestOffShapeRecords(ViewerTest):
+    """A record is evidence to render, not a schema to enforce (module
+    docstring). `x or {}` guarded against null but not against the wrong type,
+    so a drifted field took the whole page down with an AttributeError — which
+    is neither the promised {"error": ...} contract nor a rendered page."""
+
+    OFF_SHAPE = [
+        ("answer", "just a string"),
+        ("route", "billing"),
+        ("result", ["not", "an", "object"]),
+        ("layers", ["routing"]),
+        ("stage_costs", ["router"]),
+        ("tool_calls", ["get_invoice"]),
+        ("tool_calls", "get_invoice"),
+    ]
+
+    def test_off_shape_fields_still_render_a_page(self):
+        for field, value in self.OFF_SHAPE:
+            with self.subTest(field=field, value=value):
+                out = self.page([{"case_id": "c1", "verdict": "fail",
+                                  field: value}])
+                self.assertIn('id="trace-data"', out)
+
+    def test_off_shape_fields_are_flagged_not_silently_skipped(self):
+        # Same principle as the synthesized-id flag: a reviewer who cannot see
+        # that evidence was dropped reads the page as complete.
+        html = self.rendered([{"case_id": "c1", "answer": "just a string",
+                               "layers": ["routing"]}])
+        self.assertIn("Ignored off-shape field(s)", html)
+        self.assertIn("answer", html)
+        self.assertIn("layers", html)
+
+    def test_the_raw_value_is_still_exported(self):
+        # Flagging it must not delete it — the export is the reviewer's evidence.
+        rec = self.data_block(self.page(
+            [{"case_id": "c1", "answer": "just a string"}]))["records"][0]
+        self.assertEqual(rec["answer"], "just a string")
+
+    def test_well_shaped_records_carry_no_flag(self):
+        html = self.rendered([{"case_id": "c1", "verdict": "pass",
+                               "layers": {"routing": "pass"},
+                               "answer": {"expected": "a", "actual": "a"}}])
+        self.assertNotIn("off-shape", html)
+
+    def test_a_non_object_entry_inside_a_good_list_is_dropped_and_flagged(self):
+        html = self.rendered([{"case_id": "c1", "tool_calls": [
+            {"name": "get_invoice"}, "bare string"]}])
+        self.assertIn("get_invoice", html)
+        self.assertIn("Ignored off-shape field(s)", html)
 
 
 class TestSelfContained(ViewerTest):
@@ -251,6 +343,434 @@ class TestLoadingContract(ViewerTest):
                                   "-o", out_path)
         self.assertEqual(rc, 0, err)
         self.assertIn("c1", out_path.read_text(encoding="utf-8"))
+
+
+class TestIdBackfillWithExplicitNulls(ViewerTest):
+    """Absent and null are different, and the backfill has to treat them the
+    same way. `setdefault` cannot: it tests key EXISTENCE, so a record written
+    as {"trace_id": null} — what a harness emits in the trace-less mode the
+    span tree explicitly supports — kept the null and never got an id."""
+
+    def records_from(self, records):
+        return self.data_block(self.page(records))["records"]
+
+    def test_explicit_null_ids_are_backfilled_like_absent_ones(self):
+        recs = self.records_from([{"case_id": None, "trace_id": None,
+                                   "verdict": "fail"}])
+        self.assertEqual(recs[0]["case_id"], "case-0")
+        self.assertEqual(recs[0]["trace_id"], "case-0")
+
+    def test_null_ids_do_not_collide_into_one_annotation_key(self):
+        """The bug this actually caused. The viewer keys annotations by
+        trace_id (latest[r.trace_id]), and JS coerces a null key to the single
+        string "null" — so every trace-less record shared ONE entry: annotating
+        one marked them all annotated, and the "unannotated only" filter hid
+        the rest. Reviewed work silently disappearing is worse than a crash."""
+        recs = self.records_from([{"trace_id": None, "verdict": "fail"},
+                                  {"trace_id": None, "verdict": "pass"},
+                                  {"trace_id": None, "verdict": "fail"}])
+        ids = [r["trace_id"] for r in recs]
+        self.assertEqual(len(set(ids)), 3, f"annotation keys collide: {ids}")
+        self.assertNotIn(None, ids)
+
+    def test_a_null_id_still_renders_the_synthesized_flag(self):
+        html = self.data_block(self.page(
+            [{"case_id": None, "verdict": "fail"}]))["records"][0]["detail_html"]
+        self.assertIn("synthesized id", html)
+
+    def test_one_real_id_still_backfills_the_other(self):
+        recs = self.records_from([{"case_id": "c1", "trace_id": None}])
+        self.assertEqual(recs[0]["case_id"], "c1")
+        self.assertEqual(recs[0]["trace_id"], "c1")
+
+
+class TestDirectoryScan(ViewerTest):
+    """A directory scan matches on filename, which says nothing about content.
+
+    Pointed at a real run root, the scan swept up manifest.json and a canary
+    response and rendered them as two synthesized-id "cases" — a page with zero
+    real cases, exit 0, and nothing to tell the reviewer the run was not there.
+    Meanwhile the actual records sat one level down and the correct path
+    reported "no *.json files found — check the path"."""
+
+    def run_dir(self, files):
+        d = self.tmp / "run"
+        d.mkdir(exist_ok=True)
+        for name, doc in files.items():
+            path = d / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(doc), encoding="utf-8")
+        return d
+
+    MANIFEST = {"run_id": "r1", "dataset_version": "3", "cases": ["a", "b"]}
+    CANARY = {"message": "ok"}
+
+    def test_run_artifacts_are_not_rendered_as_cases(self):
+        d = self.run_dir({"manifest.json": self.MANIFEST,
+                          "canary_response.json": self.CANARY,
+                          "c1.json": {"case_id": "c1", "verdict": "fail"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        ids = [r["case_id"] for r in self.data_block(out)["records"]]
+        self.assertEqual(ids, ["c1"])
+
+    def test_skipped_files_are_reported_not_silent(self):
+        """Dropped evidence is always reported — the same rule offshape_fields
+        follows. On stderr, so a page piped to stdout stays valid HTML."""
+        d = self.run_dir({"manifest.json": self.MANIFEST,
+                          "c1.json": {"case_id": "c1"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("manifest.json", err)
+        self.assertIn("skipped", err)
+        self.assertTrue(out.lstrip().startswith("<!doctype html"))
+
+    def test_a_directory_of_only_artifacts_errors_and_names_the_fix(self):
+        """Not "nothing to review": that page means a run legitimately produced
+        no cases, and printing it here would read as a finished, empty run when
+        the truth is the path is one level off."""
+        d = self.run_dir({"manifest.json": self.MANIFEST,
+                          "canary_response.json": self.CANARY})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 2)
+        error = json.loads(out)["error"]
+        self.assertIn("manifest.json", error)
+        self.assertIn("--glob", error)
+
+    def test_glob_reaches_a_nested_run_layout(self):
+        """The layout `run` actually writes: reports/<id>/cases/<case-id>/*.json.
+        Previously unreachable — the run root rendered artifacts and the cases
+        directory reported no *.json files, because it holds directories."""
+        d = self.run_dir({
+            "manifest.json": self.MANIFEST,
+            "cases/units-happy/verdict.json": {"case_id": "units-happy",
+                                               "verdict": "pass"},
+            "cases/units-happy/response.json": {"case_id": "units-happy",
+                                                "body": "raw"},
+            "cases/oos-refusal/verdict.json": {"case_id": "oos-refusal",
+                                               "verdict": "fail"},
+        })
+        rc, out, err = run_viewer(d, "--glob", "cases/*/verdict.json")
+        self.assertEqual(rc, 0, err)
+        recs = self.data_block(out)["records"]
+        self.assertEqual(sorted(r["case_id"] for r in recs),
+                         ["oos-refusal", "units-happy"])
+        # response.json carries a case_id too, so only the glob keeps the raw
+        # responses from doubling every case.
+        self.assertEqual(len(recs), 2)
+
+    def test_an_unmatched_glob_says_so_without_guessing(self):
+        d = self.run_dir({"c1.json": {"case_id": "c1"}})
+        rc, out, err = run_viewer(d, "--glob", "cases/*/verdict.json")
+        self.assertEqual(rc, 2)
+        self.assertIn("cases/*/verdict.json", json.loads(out)["error"])
+
+    def test_duplicate_case_ids_get_distinct_trace_ids(self):
+        """trace_id is the viewer's primary key — the latest[] map, the
+        already-annotated dot, the "unannotated only" filter and every
+        exported annotation are keyed by it. Two records sharing one is the
+        same defect the explicit-null backfill fixed, one level up:
+        annotating either marked both done and hid the other."""
+        d = self.run_dir({"a.json": {"case_id": "billing-1", "verdict": "fail"},
+                          "b.json": {"case_id": "billing-1", "verdict": "pass"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        records = self.data_block(out)["records"]
+        self.assertEqual(len(records), 2)
+        ids = [r["trace_id"] for r in records]
+        self.assertEqual(len(set(ids)), 2, ids)
+        # The case_id is left alone: only the viewer's own key is suffixed.
+        self.assertEqual([r["case_id"] for r in records],
+                         ["billing-1", "billing-1"])
+
+    def test_duplicate_id_is_flagged_in_the_rendered_page(self):
+        # Same rule as the synthesized-id flag: a reviewer who cannot see that
+        # an id was rewritten reads it as the dataset's own.
+        d = self.run_dir({"a.json": {"case_id": "dup", "verdict": "fail"},
+                          "b.json": {"case_id": "dup", "verdict": "pass"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        second = self.data_block(out)["records"][1]
+        self.assertEqual(second["duplicate_trace_id"], "dup")
+        self.assertIn("Duplicate id", second["detail_html"])
+
+    def test_the_export_carries_the_original_id_not_only_the_suffixed_one(self):
+        """The suffix is the VIEWER's ("dup#1"), but the export is appended to
+        the user's tracked annotations JSONL, so on its own it leaks upstream as
+        an id present in no dataset — and it is not stable either, being the
+        record's position under whatever --glob built the page.
+
+        A source-level check: there is no JS runtime here, so this asserts the
+        export path reads the field the record carries. The record half is
+        covered by test_duplicate_id_is_flagged_in_the_rendered_page."""
+        d = self.run_dir({"a.json": {"case_id": "dup", "verdict": "fail"},
+                          "b.json": {"case_id": "dup", "verdict": "pass"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("entry.duplicate_trace_id = r.duplicate_trace_id", out)
+
+    def test_distinct_ids_are_never_rewritten(self):
+        d = self.run_dir({"a.json": {"case_id": "a", "verdict": "pass"},
+                          "b.json": {"case_id": "b", "verdict": "fail"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        for r in self.data_block(out)["records"]:
+            self.assertNotIn("#", r["trace_id"])
+            self.assertNotIn("duplicate_trace_id", r)
+
+    def test_errored_tool_call_is_not_shown_as_uncaptured(self):
+        """The convention records a tool result only on success, so an errored
+        call has none — and "(no result captured)" told the reviewer that
+        tracing was misconfigured on exactly the records where the app had
+        failed."""
+        rec = {"case_id": "c1", "verdict": "fail", "tool_calls": [
+            {"name": "get_invoice", "args": {"id": 1}, "result": None,
+             "error": "500"}]}
+        rc, out, err = run_viewer(self.write_json("r.json", [rec]))
+        self.assertEqual(rc, 0, err)
+        detail = self.data_block(out)["records"][0]["detail_html"]
+        self.assertIn("errored: 500", detail)
+        self.assertNotIn("(no result captured)", detail)
+
+    def test_array_shaped_run_artifacts_are_skipped_too(self):
+        """The is_record filter guarded only the dict branch, so a run artifact
+        that happens to be a top-level ARRAY walked past it and rendered as
+        synthesized-id "cases" — the exact failure RECORD_KEYS exists to stop,
+        one shape over."""
+        d = self.run_dir({"stages.json": [{"stage": "route", "cost_usd": 0.01},
+                                          {"stage": "answer", "cost_usd": 0.2}],
+                          "c1.json": {"case_id": "c1", "verdict": "pass"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual([r["case_id"] for r in self.data_block(out)["records"]],
+                         ["c1"])
+        self.assertIn("stages.json", err)
+
+    def test_an_array_of_real_records_is_still_read(self):
+        # The filter must not cost the legitimate array-of-cases layout.
+        d = self.run_dir({"all.json": [{"case_id": "a", "verdict": "pass"},
+                                       {"case_id": "b", "verdict": "fail"}]})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual([r["case_id"] for r in self.data_block(out)["records"]],
+                         ["a", "b"])
+        self.assertEqual(err, "")
+
+    def test_a_rejected_glob_keeps_the_error_contract(self):
+        """Path.glob RAISES on an absolute or empty pattern, which is exit 1 and
+        a traceback — the flag added to make this script easier to point at a
+        run was the one input that escaped the exit-2 JSON contract."""
+        d = self.run_dir({"c1.json": {"case_id": "c1"}})
+        for pattern in ("/abs/*.json", ""):
+            rc, out, err = run_viewer(d, "--glob", pattern)
+            self.assertEqual(rc, 2, f"{pattern!r}: {err}")
+            error = json.loads(out)["error"]
+            self.assertIn("--glob", error)
+            self.assertNotIn("Traceback", err)
+
+    def test_each_rejected_glob_names_the_fix_that_fits_it(self):
+        """One shared message described only the absolute-path cause, so
+        `--glob ''` was told it was "not an absolute path" — advice that does not
+        apply and cannot be acted on. The two causes have different fixes."""
+        d = self.run_dir({"c1.json": {"case_id": "c1"}})
+        rc, out, _ = run_viewer(d, "--glob", "")
+        self.assertNotIn("absolute", json.loads(out)["error"])
+        rc, out, _ = run_viewer(d, "--glob", "/abs/*.json")
+        self.assertIn("absolute", json.loads(out)["error"])
+
+    def test_flat_directory_default_is_unchanged(self):
+        d = self.run_dir({"a.json": {"case_id": "a", "verdict": "pass"},
+                          "b.json": {"case_id": "b", "verdict": "fail"}})
+        rc, out, err = run_viewer(d)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(self.data_block(out)["records"]), 2)
+        self.assertEqual(err, "")
+
+
+NODE = shutil.which("node")
+
+# Boots the page's own JS against a stub DOM and reports which records the
+# viewer considers annotated. Asserting on a reimplementation of the join would
+# prove nothing — the bug being guarded is in the shipped JS, so the shipped JS
+# is what runs. The observable is the one the reviewer sees: the "done" dot on
+# each list row, plus the "N annotated" counter.
+HARNESS = r"""
+const fs = require('fs');
+const page = fs.readFileSync(process.argv[1], 'utf8');
+function block(id) {
+  const m = page.match(new RegExp('id="' + id + '">([\\s\\S]*?)</script>'));
+  return m[1];
+}
+const rows = [];
+function el(id) {
+  return { id: id, value: '', textContent: '', innerHTML: '',
+           style: {}, focus() {}, select() {}, addEventListener() {},
+           appendChild(c) { if (id === 'trace-list') rows.push(c.innerHTML); },
+           setAttribute() {}, click() {} };
+}
+const stats = el('stats');
+const nodes = { 'trace-data': { textContent: block('trace-data') },
+                'annotation-data': { textContent: block('annotation-data') },
+                'stats': stats };
+global.document = {
+  getElementById: (id) => nodes[id] || (nodes[id] = el(id)),
+  createElement: (t) => el(t),
+  addEventListener() {},
+  body: el('body'),
+};
+global.localStorage = { getItem: () => null, setItem() {} };
+global.window = global;
+const js = page.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/)[1];
+new Function(js)();
+const done = rows.filter((h) => h.indexOf('dot done') !== -1)
+                 .map((h) => h.match(/<b>([^<]*)<\/b>/)[1]);
+console.log(JSON.stringify({ done: done, stats: stats.textContent }));
+"""
+
+
+class BootedPage(ViewerTest):
+    """Base for the tests that actually RUN the page's JS under node."""
+
+    def boot(self, records, annotations):
+        page = self.tmp / "page.html"
+        rc, out, err = run_viewer(self.write_json("run.json", records),
+                                  "-a", self.write_jsonl("a.jsonl",
+                                                         annotations),
+                                  "-o", page)
+        self.assertEqual(rc, 0, err)
+        proc = subprocess.run([NODE, "-e", HARNESS, str(page)],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def annotation(self, case_id, trace_id, **extra):
+        return dict({"trace_id": trace_id, "case_id": case_id, "label": "fail",
+                     "category": "hallucinated-count", "reviewer": "priya",
+                     "ts": "2026-08-02T14:03:00Z"}, **extra)
+
+
+@unittest.skipUnless(NODE, "node is required to boot the page's JS")
+class TestPrototypeNamedIds(BootedPage):
+    """case_id, trace_id and category are all AUTHORED strings, and on a plain
+    {} they collide with Object.prototype.
+
+    Same failure the case_id join exists to prevent, reached through the
+    lookup instead of the key: byCase['toString'] is the inherited FUNCTION, so
+    the guard read as "this annotation matches a record", annotationKey took
+    .trace_id off it (undefined), and every such annotation collapsed onto
+    latest[undefined]. On the read side latest['constructor'] is truthy on an
+    EMPTY map, so an unreviewed trace rendered a done dot and dropped out of
+    the "unannotated" filter — work the reviewer never did, reported as done.
+    Hence Object.create(null) for byCase/latest/counts, and the
+    Object.prototype.hasOwnProperty.call form those maps then require (MDN:
+    null-prototype objects have no .hasOwnProperty of their own)."""
+
+    NAMES = ("toString", "constructor", "valueOf", "__proto__",
+             "hasOwnProperty")
+
+    def test_a_prototype_named_case_id_is_not_born_annotated(self):
+        recs = [{"case_id": n, "trace_id": "t" + str(i), "verdict": "pass"}
+                for i, n in enumerate(self.NAMES)]
+        out = self.boot(recs, [])
+        self.assertEqual(out["done"], [])
+        self.assertIn("0 annotated", out["stats"])
+
+    def test_a_prototype_named_trace_id_is_not_born_annotated(self):
+        recs = [{"case_id": "c" + str(i), "trace_id": n, "verdict": "pass"}
+                for i, n in enumerate(self.NAMES)]
+        out = self.boot(recs, [])
+        self.assertEqual(out["done"], [])
+        self.assertIn("0 annotated", out["stats"])
+
+    def test_a_prototype_named_case_id_still_joins_its_own_annotation(self):
+        # The fix must not cost the join it sits inside: these ids are legal
+        # case names, not merely hazards to neutralize.
+        recs = [{"case_id": "toString", "trace_id": "t1"},
+                {"case_id": "plain", "trace_id": "t2"}]
+        out = self.boot(recs, [self.annotation("toString", "t1")])
+        self.assertEqual(out["done"], ["toString"])
+        self.assertIn("1 annotated", out["stats"])
+
+    def test_an_unmatched_prototype_named_annotation_lands_on_nothing(self):
+        # No record has this case_id, so the annotation belongs to no row —
+        # and must not mark an unrelated one done.
+        recs = [{"case_id": "plain", "trace_id": "t1"}]
+        out = self.boot(recs, [self.annotation("valueOf", "gone")])
+        self.assertEqual(out["done"], [])
+
+    def test_duplicate_hasownproperty_case_ids_do_not_crash_the_page(self):
+        # byCase.hasOwnProperty was the collision guard AND a writable key: the
+        # first record replaced the method with a record object, so the second
+        # threw "is not a function" and the whole viewer script died at load —
+        # a blank page, not a degraded one.
+        recs = [{"case_id": "hasOwnProperty", "trace_id": "t1"},
+                {"case_id": "hasOwnProperty", "trace_id": "t2"}]
+        self.assertEqual(self.boot(recs, [])["done"], [])
+
+    def test_a_proto_case_id_is_still_seen_as_a_collision(self):
+        # `byCase['__proto__'] = r` never creates an OWN property (the setter
+        # swallows it), so the duplicate guard could never fire for that id.
+        recs = [{"case_id": "__proto__", "trace_id": "t1"},
+                {"case_id": "__proto__", "trace_id": "t2"}]
+        out = self.boot(recs, [self.annotation("__proto__", "t2")])
+        # Ambiguous case_id -> fall back to trace_id, which annotates t2 only.
+        self.assertEqual(out["done"], ["__proto__"])
+        self.assertIn("1 annotated", out["stats"])
+
+
+@unittest.skipUnless(NODE, "node is required to boot the page's JS")
+class TestAnnotationJoinOnLoad(BootedPage):
+    """Loading an annotations JSONL has to land each annotation on the record
+    it belongs to, and trace_id alone cannot do that.
+
+    Two records sharing a trace_id get the later one suffixed to "abc#1", where
+    the number is that record's POSITION under whatever --glob built the page.
+    Export already carries the original id and case_id for exactly this reason
+    (annotation-ux.md: "case_id is never suffixed — join on those, not on the
+    #N id"), but the load path keyed straight off trace_id — so one case added
+    ahead of the duplicate renumbered it, and a previously-reviewed record came
+    back with no dot, back inside the "unannotated only" filter, and missing
+    from the taxonomy counts. Silent, and it looks like work you never did."""
+
+    DUPES = [{"case_id": "c1", "trace_id": "abc", "verdict": "fail"},
+             {"case_id": "c2", "trace_id": "abc", "verdict": "pass"}]
+
+    def test_a_suffixed_record_keeps_its_annotation_when_the_order_shifts(self):
+        # The regression: annotated when c2 was record 1 and got "abc#1", then
+        # one case lands ahead of it and it renumbers to "abc#2".
+        prior = self.annotation("c2", "abc#1", duplicate_trace_id="abc")
+        shifted = [{"case_id": "c0", "trace_id": "zzz"}] + self.DUPES
+        self.assertEqual(self.boot(shifted, [prior])["done"], ["c2"])
+
+    def test_the_stable_case_still_matches(self):
+        prior = self.annotation("c2", "abc#1", duplicate_trace_id="abc")
+        self.assertEqual(self.boot(self.DUPES, [prior])["done"], ["c2"])
+
+    def test_an_annotation_without_case_id_still_matches_on_trace_id(self):
+        # Lines written before case_id was exported, and hand-written ones.
+        # The join is a fallback chain, not a re-key: dropping trace_id
+        # matching would strand every such line as unannotated.
+        prior = {"trace_id": "abc", "label": "pass"}
+        self.assertEqual(self.boot(self.DUPES, [prior])["done"], ["c1"])
+
+    def test_an_ambiguous_case_id_does_not_move_an_annotation(self):
+        # Two records can also share a case_id; then case_id identifies no
+        # single record and guessing one would attach a reviewer's verdict to
+        # a trace they never read. Fall back to trace_id, which at least is
+        # unique on the page.
+        recs = [{"case_id": "same", "trace_id": "t1"},
+                {"case_id": "same", "trace_id": "t2"}]
+        prior = self.annotation("same", "t2")
+        self.assertEqual(self.boot(recs, [prior])["done"], ["same"])
+        self.assertIn("1 annotated", self.boot(recs, [prior])["stats"])
+
+    def test_taxonomy_counts_one_record_once(self):
+        # latest[] is keyed per record; a join that mapped two annotations onto
+        # the same key must collapse them, not double the category count.
+        out = self.boot(self.DUPES, [
+            self.annotation("c2", "abc#1", duplicate_trace_id="abc"),
+            self.annotation("c2", "abc#2", duplicate_trace_id="abc")])
+        self.assertIn("1 annotated", out["stats"])
 
 
 if __name__ == "__main__":

@@ -5,15 +5,16 @@ A rubric is a **decomposed-binary DAG**, not a holistic score. It is the thing
 references by id in its `answer.rubric` field (see
 `skills/generate/references/case-format.md`). This doc is the concrete spec:
 node types, authoring procedure, file shape, and the calibration workflow.
-Design rationale lives in `EVAL-DESIGN-RECOMMENDATION.md` §9/§15/§18b — this
-doc is the "how to actually write one," not a re-argument of "why."
+The rationale for decomposed-binary over holistic scoring is argued below;
+this doc is the "how to actually write one," not a re-argument of "why."
 
 ## Why decomposed, not holistic
 
 A single "is this good?" LLM call is the weakest judge shape there is.
 Agent-as-a-Judge (an evaluator that can inspect intermediate artifacts —
-files, traces, DB state — not just a pasted transcript) measures ~88–90%
-alignment with human consensus vs ~60–65% for a plain holistic judge call.
+files, traces, DB state — not just a pasted transcript) measures ~90%
+alignment with human consensus vs ~60–84% for a plain holistic judge call,
+depending on setting (arXiv:2410.10934).
 Two changes get most of that gap, independent of each other:
 
 - **Decompose** the fuzzy question into narrow binary sub-questions. Each one
@@ -26,11 +27,13 @@ Two changes get most of that gap, independent of each other:
 
 Self-preference bias (a same-family judge favoring its own app's outputs) is
 measured as almost entirely a **pairwise, holistic "which is better"**
-phenomenon. It largely vanishes in this pointwise, decomposed,
-reference-guided mode — which is *why* same-family judging (Claude judging
-Claude) is an accepted degraded mode here rather than a disqualifier, subject
-to `judge.same_family_accepted: true` being set consciously (see
-`agents/judge.md`).
+phenomenon. It is substantially reduced — not eliminated — in this pointwise,
+decomposed, reference-guided mode (arXiv:2506.02592, arXiv:2604.22891), which
+is *why* same-family judging (Claude judging Claude) is an accepted degraded
+mode here rather than a disqualifier, subject to
+`judge.same_family_accepted: true` being set consciously *and* to the
+periodic cross-family spot-check audit described in `agents/judge.md` — a
+required part of same-family mode, not an optional extra.
 
 ## The three node kinds
 
@@ -93,7 +96,7 @@ Encode this explicitly:
 ## Business-rule vs judged split
 
 Before adding a node to a rubric DAG, ask: **can a deterministic script check
-this instead?** Roughly 74% of real business policies are ("never quote a
+this instead?** A large majority of real business policies are ("never quote a
 price not present in a tool result," "never promise a refund exceeding order
 total") — those belong in `profile.yaml`'s business-rule oracles and are
 scored by `score_answer.py`'s `answer.rules` (see case-format.md), evaluated
@@ -272,11 +275,10 @@ friends:
    context.
 2. **`PlanAdherence` silently auto-passes (`score: 1`) if no plan is found.**
    Never wire a `PlanAdherence`-style node into a gating path — plan/step
-   quality nodes are diagnostic-only in this harness (see BUILD-PLAN.md's
-   "DO NOT build" list: reasoning/thinking-trace quality gating is
-   explicitly out of the pass/fail path for the same reason — judges can't
-   reliably localize reasoning errors, and an auto-pass-on-absence metric
-   makes that worse, not better).
+   quality nodes are diagnostic-only in this harness, by the same rule that
+   keeps reasoning/thinking-trace quality gating out of the pass/fail path
+   entirely: judges can't reliably localize reasoning errors, and an
+   auto-pass-on-absence metric makes that worse, not better.
 
 ## Cross-references
 

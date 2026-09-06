@@ -22,8 +22,12 @@ make gains real instead of overfit.
    worse app; this is non-negotiable.
 2. Usable case count ≥ ~100 for judged objectives (deterministic-only
    objectives may proceed at ≥ ~50 with Bayesian gating).
-3. `stage:` ≥ stable. 4. White-box prompt access (gray-box → recommendations
-   only, written to findings). 5. A budget (`--budget` or ask).
+3. `stage:` ≥ stable (set by `discover` §6) — below that, route-target and
+   tool boundaries are still moving, so a measured gain is indistinguishable
+   from drift.
+4. White-box prompt access (gray-box → recommendations only, written to
+   findings).
+5. A budget (`--budget` or ask).
 
 ## The loop (one iteration per session unless told otherwise)
 1. **Ground first, edit never-first**: read the latest `analyze --cluster`
@@ -41,10 +45,16 @@ make gains real instead of overfit.
 3. **Propose ONE candidate** (one surface, one coherent change). Write it to
    `candidates/<id>/` with: the diff, the reflection (why this failure ←
    this cause ← this fix), predicted affected cases.
-4. **Measure**: apply to a working copy, run the training split (full minus
-   holdout) under a new manifest. Compare paired per-case vs current champion.
+4. **Measure**: apply to a working copy and run the training split — that is
+   `/agent-eval:run --regression` (whose selection is `datasets/full/`, i.e.
+   full minus the sealed holdout), or `--targeted --tag <component>` when the
+   edit is scoped to one surface and you want the faster loop — under a new
+   manifest. Compare paired per-case vs current champion.
 5. **Gate on holdout**: only if training looks positive, run the sealed
-   holdout (aggregate). `stats.py` decides on one rule at every n: exact
+   holdout (aggregate) via `/agent-eval:run --holdout`. That run spends one of
+   the N=5 looks and records itself in the holdout-look ledger (see
+   `skills/run/SKILL.md` §4) — which is why step 4's training measurement is a
+   precondition, not a formality. `stats.py` decides on one rule at every n: exact
    Bayesian P(improvement) ≥ 0.8 (`--bayes-threshold`) and delta > 0, with an
    exact one-sided sign test reported alongside. When a keep rides on the
    posterior bar while the sign test is not significant, `stats.py` emits a

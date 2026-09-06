@@ -33,7 +33,7 @@ class MdToHtmlTest(unittest.TestCase):
 
     def write_md(self, text, name="in.md"):
         p = self.tmp / name
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
         return p
 
     def render(self, text):
@@ -163,7 +163,7 @@ class TestOutputFile(MdToHtmlTest):
         self.assertEqual(rc, 0, err)
         self.assertEqual(out, "")  # silent success when writing to a file
         self.assertTrue(dest.exists())
-        self.assertIn("<h1>Written</h1>", dest.read_text())
+        self.assertIn("<h1>Written</h1>", dest.read_text(encoding="utf-8"))
 
 
 class TestR4Regressions(MdToHtmlTest):
@@ -195,6 +195,20 @@ class TestR4Regressions(MdToHtmlTest):
         out = self.render("| A | B |\n| --- | --- |\n| `a|b` | x |\n")
         self.assertIn("<code>a|b</code>", out)       # pipe stayed inside the code
         self.assertEqual(out.count("<td"), 2)        # 2 cells, not 3
+
+    def test_code_span_sentinel_in_the_input_does_not_crash(self):
+        # The code-span stash wraps its index in private-use codepoints because
+        # real Markdown does not contain them — but "does not" is an assumption
+        # about input, and this converter's input is model output. A document
+        # carrying the sentinel itself indexed past the stash list and took the
+        # converter down with an IndexError; it must render instead.
+        # Written as escapes: the literal codepoints are invisible in an
+        # editor, so a pasted-in copy of this test would silently stop
+        # testing anything.
+        sentinel = "\ue000" + "7" + "\ue001"
+        out = self.render(f"Report {sentinel} and `real code` here.")
+        self.assertIn("<code>real code</code>", out)
+        self.assertIn("Report", out)
 
 
 class TestErrorContract(MdToHtmlTest):
@@ -239,6 +253,65 @@ class TestCleanCli(MdToHtmlTest):
         rc, out, err = run_script()
         self.assertNotEqual(rc, 0)
         self.assertNotIn("Traceback", err)
+
+
+class TestEmphasisFlanking(MdToHtmlTest):
+    """CommonMark 0.31.2 §6.2: a single `*` can open emphasis only as part of
+    a LEFT-flanking delimiter run ("not followed by Unicode whitespace", rule
+    1) and close one only as part of a RIGHT-flanking run ("not preceded by
+    Unicode whitespace", rule 3). Without those, any two asterisks on a line
+    paired up — and these reports are full of arithmetic and glob patterns, so
+    ordinary prose came out mangled in a way that looked deliberate."""
+
+    def test_spaced_asterisks_in_prose_are_literal(self):
+        out = self.render("Total: 5 * 3 * 2 items")
+        self.assertNotIn("<em>", out)
+        self.assertIn("5 * 3 * 2 items", out)
+
+    def test_glob_patterns_survive(self):
+        # `*` followed by punctuation and preceded by whitespace IS
+        # left-flanking (clause 2b), so it may open — but the closing `*` is
+        # preceded by whitespace and so cannot close. Net: literal text.
+        out = self.render("pass --glob *.json and *.md to the scanner")
+        self.assertNotIn("<em>", out)
+        self.assertIn("*.json", out)
+        self.assertIn("*.md", out)
+
+    def test_a_later_real_emphasis_does_not_capture_an_earlier_glob(self):
+        """The flanking lookarounds alone are not enough. CommonMark pairs a
+        closer with the NEAREST preceding opener; a lazy `(.+?)` pairs it with
+        the FIRST, so a legal-but-unmatched opener earlier in the line (the
+        `*` of `*.json`, left-flanking by clause 2b) swallowed everything up
+        to the first real emphasis. cmark emphasizes only "real" here."""
+        out = self.render("globs *.json and *.md, plus *real* emphasis.")
+        self.assertIn("<em>real</em>", out)
+        self.assertEqual(out.count("<em>"), 1)
+        self.assertIn("*.json", out)
+        self.assertIn("*.md", out)
+
+    def test_adjacent_spans_pair_independently(self):
+        out = self.render("see *foo* and *bar*")
+        self.assertIn("<em>foo</em>", out)
+        self.assertIn("<em>bar</em>", out)
+
+    def test_real_emphasis_still_renders(self):
+        self.assertIn("<em>emphasised</em>",
+                      self.render("an *emphasised* word"))
+        self.assertIn("<em>multi word span</em>",
+                      self.render("a *multi word span* here"))
+
+    def test_real_bold_still_renders(self):
+        self.assertIn("<strong>bold</strong>", self.render("a **bold** word"))
+        self.assertIn("<strong>two words</strong>",
+                      self.render("a **two words** phrase"))
+
+    def test_bold_with_spaced_delimiters_is_literal(self):
+        out = self.render("a ** b ** c")
+        self.assertNotIn("<strong>", out)
+
+    def test_underscore_identifiers_are_untouched(self):
+        out = self.render("the snake_case_name field and _leading too")
+        self.assertNotIn("<em>", out)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 # Annotation UX — Open Coding, Axial Coding, Calibration, the Flywheel
 
-Why this exists: the operating-economics finding (EVAL-DESIGN-RECOMMENDATION
-§14) is that **the error-analysis session, not the harness, is the adoption
+Why this exists: the operating-economics finding is that **the error-analysis session, not the harness, is the adoption
 hook** — teams that spend 30 minutes reading real traces get a ranked failure
 taxonomy before any judge or CI exists; teams that build infra first get a
 pipeline nobody trusts. What makes that session ~10x faster (Hamel Husain):
@@ -13,14 +12,27 @@ doc is the workflow it exists to serve.
 ## The tool
 
 `${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py <run-path> [-a
-annotations.jsonl] [-o out.html]` renders a run's case records (a directory
-of `runs/<run-id>/**/*.json`, or a single JSON file) plus an optional
+annotations.jsonl] [-o out.html] [--glob 'cases/*/verdict.json']` renders a
+run's case records (a directory of per-case JSON files, or a single JSON file)
+plus an optional
 existing annotations JSONL into one self-contained static HTML file: a trace
 list + live taxonomy sidebar on the left, the selected trace's span tree
 (router decision → tool call+args → result → final answer), expected-vs-actual
 word diff, and per-stage latency/cost on the right, and a pass/fail +
 critique bar pinned at the bottom. See the script's own docstring for the
 exact record shape it reads.
+
+**Which files it reads.** A directory scan defaults to `*.json` at the top
+level and keeps only files carrying at least one case-record field, so a run
+root's `results.json` and canary artifacts are skipped — the skip is reported
+on stderr, never silently (`manifest.yaml` is not matched by the scan at all). When `run` nests records one level down
+(`reports/<run-id>/cases/<case-id>/verdict.json`), pass `--glob
+'cases/*/verdict.json'`; without it the top-level scan finds only run
+artifacts and exits 2 naming that fix. The glob is explicit rather than
+recursive-by-default because `cases/<case-id>/` also holds `response.json`,
+which carries the same `case_id` and would otherwise double every case. This
+paragraph and the script's docstring are the contract: if `run` changes where
+it writes records, change it here too.
 
 ## Storage format — plain JSONL, one line per annotation event
 
@@ -39,6 +51,24 @@ merge conflict on an unrelated row. Re-reviewing a trace **appends** a new
 line rather than overwriting; the viewer treats the JSONL as an append-only
 log and shows only the latest entry per `trace_id` for badges/counts, so
 annotation history is never destroyed by a second look.
+
+**When `trace_id` carries a `#N` suffix.** Two records in one run can share a
+`trace_id` (a case re-run into the same directory, a `--glob` sweeping two run
+dirs, or two trace-less records sharing a `case_id`). Since `trace_id` is the
+viewer's primary key, it suffixes the later one — `billing-1#3` — and says so
+on the record. That suffix is **the viewer's, not the dataset's**, and it is
+not stable: `N` is the record's position under whatever `--glob` built the
+page. Such an annotation is exported with the original id alongside it as
+`duplicate_trace_id`, and `case_id` is never suffixed — join on those, not on
+the `#N` id. The viewer joins that way when it **loads** an annotations file
+too: an annotation carrying a `case_id` lands on that record whatever its
+`trace_id` now is, so a suffix that renumbered between sessions does not
+resurrect an already-reviewed record as unannotated. A line with no `case_id`
+(hand-written, or written before it was exported) still matches on `trace_id`,
+and a `case_id` shared by two records on the page identifies neither, so it
+falls back to `trace_id` rather than guessing which trace the reviewer read.
+If you see suffixes at all, the run directory holds duplicate
+records; fixing that upstream is better than annotating around it.
 
 Store it under the state location, e.g. `.agent-eval/annotations/<name>.jsonl`
 — pick a name per review pass (`calibration-2026-08.jsonl`,
@@ -86,9 +116,8 @@ reading the same critiques a human would), and assign each trace one
 `category` going forward. The sidebar's taxonomy panel counts categories
 live as you (re-)annotate, so a session doing axial coding sees its own
 clustering forming in real time — the same feedback loop that makes a spot
-check surface "3 issues = 60% of problems" (the NurtureBoss pattern
-`EVAL-DESIGN-RECOMMENDATION.md` §14 cites) instead of 40 one-off notes nobody
-can act on.
+check surface "3 issues = 60% of problems" (the NurtureBoss pattern) instead
+of 40 one-off notes nobody can act on.
 
 Order by frequency × severity, same discipline as `analyze --cluster`'s
 failure-cluster ordering — this viewer's taxonomy sidebar and that skill

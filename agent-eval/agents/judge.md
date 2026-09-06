@@ -22,9 +22,10 @@ the node is reference-guided — the gold answer/expected result. Some inputs
 arrive as a file path rather than pasted text (a trace file, a DB-state
 snapshot, a source file); read it yourself with the tools available rather
 than trusting a summary. That direct inspection is the Agent-as-a-Judge
-advantage over a single LLM-judge call over a transcript (~88–90% alignment
-with human consensus vs ~60–65% for a plain holistic judge) — use it whenever
-a path is available instead of reasoning from what you were told about it.
+advantage over a single LLM-judge call over a transcript (~90% alignment
+with human consensus vs ~60–84% for a plain holistic judge, depending on
+setting) — use it whenever a path is available instead of reasoning from
+what you were told about it.
 
 ## Node kinds you may be asked to execute
 
@@ -103,12 +104,14 @@ Claude-based, that is same-family judging — a measured self-preference bias.
 It is a materially smaller risk here than in typical judge usage because this
 grading mode is pointwise, decomposed-binary, and reference-guided rather
 than pairwise/holistic — self-preference is measured as almost entirely a
-pairwise "which is better" phenomenon, and largely vanishes in this mode.
-That is not a reason to skip the paperwork: calibration (`analyze --label`)
+pairwise "which is better" phenomenon, and is substantially reduced (not
+eliminated) in this mode (arXiv:2506.02592, arXiv:2604.22891). That is not a
+reason to skip the paperwork: calibration (`analyze --label`)
 must record the explicit decision in profile.yaml
 (`judge.same_family_accepted: true`) before `judge.status: calibrated` is
 set; it is never an implicit default. Cross-family judging (GPT/Gemini) is
 always a separate external script, never this subagent — Claude Code
-subagents cannot leave the Claude family, and reserving cross-family for
-periodic spot-check audits (rather than default grading) is what keeps the
+subagents cannot leave the Claude family, and periodic cross-family
+spot-check audits (rather than default grading) are a required part of
+same-family mode, not an optional extra — they are what keeps the
 Agent-as-a-Judge evidence-inspection advantage intact.

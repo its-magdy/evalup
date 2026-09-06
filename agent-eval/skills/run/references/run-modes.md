@@ -61,10 +61,14 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `targeted`
 
-- **Selection**: filter the case set by **component tag** — the `unit`
-  segment of the case id (`<unit>-<category>-<hash8>`, e.g. `billing-*`; see
-  `skills/generate/references/case-format.md`) or, equivalently, `expect.route`
-  — to the surface you just touched. `--tag <component>` is required for this
+- **Selection**: filter the case set by **component tag** — each case's
+  `unit` field (the route target: domain / node / sub-agent; see
+  `skills/generate/references/case-format.md`) or, equivalently,
+  `expect.route` — to the surface you just touched. Match on the field, never
+  on the id: case ids are opaque `c-<hash8>` and deliberately encode neither
+  unit nor category (`skills/generate/SKILL.md` §4), because both are mutable
+  classifications and a glob like `billing-*` would silently select nothing
+  the day a case is reclassified. `--tag <component>` is required for this
   mode; it has no default "everything" behavior (that is what `regression`/
   `full` are for).
 - **`--filter-failing`**: add this to further restrict the (already

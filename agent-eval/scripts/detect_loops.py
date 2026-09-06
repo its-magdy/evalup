@@ -18,7 +18,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 
-from _common import add_version_flag, load_trajectory
+from _common import add_version_flag, load_trajectory, require_range
 
 
 def args_hash(args):
@@ -42,6 +42,11 @@ def main():
                     help="total calls above which the budget is exceeded "
                          "(default: 15)")
     a = ap.parse_args()
+    # At --repeat-threshold 0 or 1 every single call is "a repeat loop" and any
+    # tool at all is "flailing", so a clean trajectory reports fail.
+    require_range("--repeat-threshold", a.repeat_threshold, lo=2,
+                  note=" (2 = strict, flag the first retry)")
+    require_range("--call-budget", a.call_budget, lo=1)
 
     calls = load_trajectory(a.trajectory)
 

@@ -3,8 +3,14 @@
 
 Paired comparison of two runs over the SAME cases (matched by case id). All
 statistics below are computed from the discordant pairs (b01 = fixed by the
-candidate, b10 = broken by it) and all are EXACT at every n (no chi-square/
-normal approximation anywhere in this file):
+candidate, b10 = broken by it) and all are EXACT at every n — no chi-square or
+normal approximation is used in any DECISION or reported test. (The power
+figures below the decision — min_detectable_effect and the "cases you need"
+advice — are the exception, and are approximations by construction: they use
+NormalDist z-quantiles, so read them as planning estimates, never as exact
+bounds.)
+
+The exact pieces:
 
   keep decision - exact posterior P(candidate better) = P(p > 0.5) for
                   p ~ Beta(1+b01, 1+b10), in closed form. One rule at all n.
@@ -49,9 +55,14 @@ import json
 import math
 from statistics import NormalDist
 
-from _common import add_version_flag, die, load_jsonl
+from _common import add_version_flag, die, load_jsonl, require_range
 
 VERDICTS = ("pass", "fail")
+# Enough ids to start debugging the mismatch by hand, not so many that a run
+# with two disjoint datasets buries the statistics under a case list.
+MAX_REPORTED_IDS = 20
+# Attrition above this fraction of either side is called out in the output.
+ATTRITION_WARN_FRACTION = 0.1
 
 
 def load(path):
@@ -125,9 +136,12 @@ def z_sum(alpha, power):
 
 
 def min_detectable_effect(n, p_disc, alpha=0.05, power=0.8):
-    """MDE for paired binary outcomes: z * sqrt(p_disc / n), where p_disc is
-    the observed discordant fraction (floored at 1/n so an all-concordant run
-    doesn't claim an MDE of zero)."""
+    """APPROXIMATE MDE for paired binary outcomes — the one normal-theory
+    figure in this file, and it gates nothing: z * sqrt(p_disc / n), where
+    p_disc is the observed discordant fraction (floored at 1/n so an
+    all-concordant run doesn't claim an MDE of zero). Normal-approximation
+    based, so it is a planning estimate, not an exact bound like the tests
+    above."""
     if n == 0:
         return 1.0
     p_disc = max(p_disc, 1.0 / n)
@@ -153,11 +167,27 @@ def main():
                          "~0.95 for frequentist-strength evidence "
                          "(default: 0.8)")
     a = ap.parse_args()
+    # Out of range, --alpha reached NormalDist().inv_cdf and exited with a
+    # StatisticsError traceback (see _common.require_range for why this is not
+    # an argparse `type=` callable).
+    require_range("--alpha", a.alpha, 0, 1, exclusive=True)
+    require_range("--bayes-threshold", a.bayes_threshold, 0, 1,
+                  note=" (it is a probability)")
 
     base, cand = load(a.baseline), load(a.candidate)
     common = sorted(set(base) & set(cand))
     if not common:
         die("no common case ids - runs not comparable (check dataset_version)")
+    # Attrition is REPORTED, never silently absorbed. The pairing above is an
+    # intersection, and the cases it drops are not a random sample: a case the
+    # candidate crashed on is filtered upstream as infra and simply vanishes
+    # from the comparison, so the candidate is graded on the subset it survived.
+    # A run that dropped a third of the dataset and one that dropped nothing
+    # used to print byte-identical output. The decision rule is unchanged — the
+    # gate still runs on the pairs it has — but the reader is told what is
+    # missing.
+    base_only = sorted(set(base) - set(cand))
+    cand_only = sorted(set(cand) - set(base))
 
     b01 = sum(1 for c in common if not base[c] and cand[c])  # candidate fixed
     b10 = sum(1 for c in common if base[c] and not cand[c])  # candidate broke
@@ -175,15 +205,36 @@ def main():
         "delta": round(delta, 4),
         "fixed_by_candidate": b01,
         "broken_by_candidate": b10,
+        "cases_only_in_baseline": len(base_only),
+        "cases_only_in_candidate": len(cand_only),
+        "cases_only_in_baseline_ids": base_only[:MAX_REPORTED_IDS],
+        "cases_only_in_candidate_ids": cand_only[:MAX_REPORTED_IDS],
         "min_detectable_effect_at_this_n": round(mde, 3),
         "min_detectable_effect_explained": (
-            f"at n={n} (alpha={a.alpha}, 80% power), only a true pass-rate "
+            f"at n={n} (alpha={a.alpha}, 80% power) — a normal-approximation "
+            "planning estimate, not an exact bound like the tests below; "
+            "only a true pass-rate "
             f"swing of about {mde:.0%} or larger is reliably distinguishable "
             "from noise here; an observed delta smaller than that may be "
             "real but this dataset is too small to tell it apart from "
             "chance - treat a sub-MDE 'keep' as not proven, not as no "
             "effect."),
     }
+
+    base_drop = len(base_only) / len(base)
+    cand_drop = len(cand_only) / len(cand)
+    if max(base_drop, cand_drop) > ATTRITION_WARN_FRACTION:
+        out["case_attrition_warning"] = (
+            f"SELECTION BIAS RISK: {len(base_only)} of {len(base)} baseline "
+            f"case(s) ({base_drop:.0%}) and {len(cand_only)} of {len(cand)} "
+            f"candidate case(s) ({cand_drop:.0%}) are missing from the other "
+            f"run, so this comparison covers only {n} paired case(s). The "
+            "dropped cases are not a random sample: a case the candidate "
+            "crashed or timed out on is filtered upstream as an infra "
+            "verdict and disappears from the gate entirely, which grades the "
+            "candidate on the subset it survived and biases the result toward "
+            "keep. Reconcile the two case sets (check dataset_version and the "
+            "upstream infra filter) before trusting this decision.")
 
     prob = posterior_prob_improvement(b01, b10)
     sign_p = binom_one_sided_p(b01, b01 + b10)

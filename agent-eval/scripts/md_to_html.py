@@ -29,22 +29,49 @@ stdout and exit 2; otherwise exit 0.
 import argparse
 import html
 import re
-import sys
 
-from _common import add_version_flag, die
+from _common import add_version_flag, load_text, write_output
 
 # --- inline formatting -------------------------------------------------
 
 CODE_SPAN_RE = re.compile(r"`([^`]+)`")
 LINK_RE = re.compile(r'\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
-BOLD_RE = re.compile(r"\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)")
-ITALIC_RE = re.compile(r"\*(.+?)\*|(?<!\w)_(.+?)_(?!\w)")
+# CommonMark's flanking rules, clause (1). A `*` can open emphasis only as part
+# of a LEFT-flanking delimiter run ("not followed by Unicode whitespace") and
+# close it only as part of a RIGHT-flanking one ("not preceded by Unicode
+# whitespace") — spec 0.31.2 §6.2, rules 1 and 3. Without the two lookarounds,
+# any two asterisks on a line paired up, so ordinary report prose came out
+# mangled and looking deliberate: "Total: 5 * 3 * 2" rendered as "5 <em> 3 </em>
+# 2", and a sentence naming two globs ("*.json and *.md") swallowed the text
+# between them. Reports here routinely contain both arithmetic and glob
+# patterns. Clauses (2a)/(2b), the punctuation cases, are still not implemented
+# — this converter renders a documented subset, and the docstring's rule is that
+# what it does not handle must come out as literal text rather than as a guess.
+#
+# The delimiter itself is also excluded from the span content. CommonMark pairs
+# each closer with the NEAREST preceding opener (its delimiter-stack algorithm);
+# a lazy `(.+?)` instead pairs the FIRST opener with that closer, which is a
+# different string whenever an unmatched delimiter sits between them. In
+# "globs *.json and *.md, plus *real* emphasis" the leading `*` of `*.json` is a
+# legal opener (clause 2b: preceded by whitespace, followed by punctuation), so
+# the lazy form ran it all the way to the closer after "real" and emphasized the
+# sentence — while cmark emphasizes only "real". Excluding the delimiter from
+# the content makes the leftmost candidate fail and the engine advance, which
+# reproduces nearest-opener pairing for the single-delimiter spans this subset
+# renders. Verified against the commonmark reference implementation.
+_OPEN, _CLOSE = r"(?!\s)", r"(?<!\s)"
+BOLD_RE = re.compile(
+    rf"\*\*{_OPEN}((?:[^*]|\*(?!\*))+?){_CLOSE}\*\*"
+    rf"|(?<!\w)__{_OPEN}((?:[^_]|_(?!_))+?){_CLOSE}__(?!\w)")
+ITALIC_RE = re.compile(
+    rf"\*{_OPEN}([^*]+?){_CLOSE}\*|(?<!\w)_{_OPEN}([^_]+?){_CLOSE}_(?!\w)")
 _DANGEROUS_SCHEME = re.compile(r"^\s*(javascript|data|vbscript):", re.IGNORECASE)
 # A private-use codepoint, never present in real Markdown/HTML input, used to
 # stash code-span HTML so later link/bold/italic substitutions cannot reach
 # inside it (a `**` inside inline code must stay literal, not become <strong>).
 _STASH = "{}"
 _STASH_RE = re.compile("(\\d+)")
+_STASH_CHARS = re.compile("[]")
 
 
 def safe_href(url):
@@ -70,6 +97,14 @@ def render_inline(text):
     """Escape then apply inline spans, in an order where code spans are
     protected from every later substitution (the code-quoted characters are
     data, not markup, however much they look like markup)."""
+    # "A codepoint never present in real input" is an assumption about input,
+    # and input here is model output — so make it true at the boundary rather
+    # than defending it downstream. A document carrying the sentinel itself
+    # either indexed past the stash list (IndexError, converter down) or, worse
+    # and silently, landed in range and substituted an unrelated code span's
+    # HTML into the document. Dropping stray sentinels up front means every
+    # placeholder the unstash below sees is one this function put there.
+    text = _STASH_CHARS.sub("", text)
     text = html.escape(text, quote=False)
     stashed = []
 
@@ -360,25 +395,12 @@ def main():
                          "rendered document to stdout)")
     a = ap.parse_args()
 
-    try:
-        with open(a.input, encoding="utf-8") as f:
-            text = f.read()
-    except OSError as e:
-        die(f"bad input: {e}")
-    except UnicodeDecodeError as e:
-        die(f"bad input: {a.input}: not valid utf-8 text: {e}")
+    text = load_text(a.input)
 
     fallback_title = re.sub(r"\.md$", "", a.input.rsplit("/", 1)[-1]) or "Report"
     page = convert(text, fallback_title)
 
-    if a.output:
-        try:
-            with open(a.output, "w", encoding="utf-8") as f:
-                f.write(page)
-        except OSError as e:
-            die(f"cannot write output: {e}")
-    else:
-        sys.stdout.write(page)
+    write_output(a.output, page)
 
 
 if __name__ == "__main__":

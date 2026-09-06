@@ -40,9 +40,10 @@ need Claude Code: datasets are YAML, reports are HTML/Markdown.
   "improved / worsened / within noise at this n," never a bare percentage.
 - Weekly-ish: `analyze --cluster` on failures; fix the top cluster or feed it
   to `optimize`. Add cases from anything exploratory testing finds.
-- When judge dimensions matter: `analyze --label` — 15-minute sessions until
-  ~30 labels and >90% agreement (TPR **and** TNR). Rubric edits mid-labeling
-  are expected, not failure.
+- When judge dimensions matter: `analyze --label` — 15-minute sessions,
+  repeated: ~30 labels to discover the criteria, then a stratified 100–200 to
+  measure them, until ≥90% agreement (TPR **and** TNR, plus Cohen's κ — never
+  raw accuracy). Rubric edits mid-labeling are expected, not failure.
 
 ## After a refactor (route targets/tools changed)
 

@@ -52,7 +52,7 @@ You cannot judge your way to factual correctness; ground truth is
    Also the only safe way to eval side-effectful tools.
 2. **Mocked/recorded tools**: scripted returns make answers computable and
    runs deterministic.
-3. **Business rules** (cheapest, ~74% of real policies are deterministically
+3. **Business rules** (cheapest — most real policies are deterministically
    checkable): "never quote a price not in a tool result" fails any violating
    answer with no per-case label.
 4. **Golden labels** for the rest.
@@ -72,10 +72,12 @@ matching fails correct agents and teaches people to ignore the suite.
 
 - One strong judge, one rubric dimension per call, binary verdicts,
   reasoning first, "unknown" allowed.
-- **Calibrated against a human**: ~30 labeled cases, agreement measured as
-  TPR and TNR (never raw accuracy — imbalanced data makes an always-pass
-  judge look accurate). Until then every judged number is PROVISIONAL and the
-  optimizer refuses to target it.
+- **Calibrated against a human** in two passes: ~30 labeled cases to discover
+  the rubric's criteria, then ~100–200 stratified cases (oversampling the rare
+  failing class) to measure agreement as TPR, TNR and Cohen's κ — never raw
+  accuracy, since imbalanced data makes an always-pass judge look accurate.
+  Until then every judged number is PROVISIONAL and the optimizer refuses to
+  target it.
 - Different model family than the app where possible (self-preference bias is
   measured and real); same-family is a consciously accepted degraded mode.
 - Canary cases (known-good + known-bad) run in every scored run — a canary
@@ -90,7 +92,12 @@ usually noise. Paired comparisons on identical cases; the keep decision is an
 exact Bayesian P(improvement) at every n (an exact one-sided sign test is
 reported alongside), so growing the dataset never flips a decision by
 crossing a method boundary; every diff states what effect size was detectable
-at its n. Comparability requires the same dataset version AND
+at its n (that detectable-effect figure is a normal-approximation planning
+estimate — the decision statistics themselves are exact). A comparison also
+reports how many cases it *couldn't* pair: cases present in only one of the
+two runs are counted, and losing more than 10% raises a warning, because
+crashed cases are filtered upstream as infra and would otherwise silently
+leave the comparison to be measured on the survivors. Comparability requires the same dataset version AND
 the same harness version — a scorer change alters what a number means just
 like a dataset change does, so a harness upgrade means pinning a fresh
 baseline. pass^k (all k repeats succeed) is the reliability

@@ -4,7 +4,8 @@ description: >-
   Explain the agent-eval plugin: what it is, which command to use next, how the
   workflow goes, and who does what (developer, QA, domain expert). Use when the
   user asks what agent-eval is, how to use it, where to start, which command
-  fits their situation, or why a feature is locked.
+  fits their situation, who needs to be involved, what the numbers can and
+  cannot claim, or why a feature is locked or shows as PROVISIONAL.
 ---
 
 # agent-eval — Help
@@ -36,6 +37,7 @@ simply does not apply to it; everything else still does.
 |---|---|
 | New here / not sure | `/agent-eval:start` — the wizard. Always safe; it detects state and routes you. |
 | Point it at an app for the first time | `/agent-eval:discover <path-or-url>` |
+| The app changed (route targets/tools renamed) | `/agent-eval:discover --diff` — before any run, so stale cases don't read as regressions |
 | Need (more) test cases | `/agent-eval:generate` |
 | Score the app now / before a merge | `/agent-eval:run` — modes: `--smoke` (fast subset, every edit), `--regression`/default (full, k≥3, pass^k, pre-merge), `--targeted` (rerun only what a change touched), `--holdout` (the optimizer's sealed decision set), `--full` (everything incl. judged, release) |
 | Understand failures, label cases, mine traces | `/agent-eval:analyze` — clusters failures, drives judge calibration, and builds a hotkey-driven trace/annotation viewer for open→axial error analysis |
@@ -61,14 +63,18 @@ enough, `optimize` proposes evidence-backed improvements.
 
 The plugin matches its demands to the app's maturity. If the app's route
 targets and tools are still changing week to week, only invariant checks run
-(crash rate,
-format, loops, refusals) — trajectory assertions would just rot. Trajectory
-evals unlock when boundaries are stable; LLM-judged layers unlock after judge
-calibration (~30 human-labeled cases); `optimize` unlocks only with a
-calibrated judge AND enough cases (~100+) for its statistical gate to mean
-anything. `discover` tells the user which stage they are in and what unlocks
-next. Never encourage skipping a gate — each one exists because skipping it
-produces confidently wrong numbers.
+(crash rate, format, loops, refusals) — trajectory assertions would just rot.
+Trajectory evals unlock when boundaries are stable; LLM-judged layers unlock
+after judge calibration — two labeling passes, ~30 cases to discover the
+rubric's criteria and then ~100–200 stratified cases to measure agreement
+(TPR, TNR and Cohen's κ, never raw accuracy); `optimize` unlocks at
+`stage: stable` with enough cases for its statistical gate to mean anything —
+~100+ when any objective is judge-scored (and then only with a calibrated
+judge, since optimizing against an uncalibrated one just fits its blind
+spots), or ~50+ for deterministic-only objectives, which need no judge at all.
+`discover` tells the user which stage they are in and what unlocks next. Never
+encourage skipping a gate — each one exists because skipping it produces
+confidently wrong numbers.
 
 ## Who does what
 
@@ -80,18 +86,21 @@ Three roles, even if one person wears all hats (common at the start):
   testing, owns release-run sign-off. Never needs Claude Code: datasets are
   plain YAML, reports are HTML/markdown.
 - **Domain arbiter** — the ONE person who is the final word on answer quality:
-  labels the ~30 judge-calibration cases, approves rubrics, states business
-  rules ("never quote a price not in the catalog"). ~1–2 h/week. This role
-  cannot be automated and is the most common silent failure point when
-  skipped — judge numbers stay watermarked PROVISIONAL until this happens.
+  labels the judge-calibration cases (~30 to discover the criteria, then the
+  ~100–200 stratified pass that measures agreement), approves rubrics,
+  states business rules ("never quote a price not in the catalog").
+  ~1–2 h/week. This role cannot be automated and is the most common silent
+  failure point when skipped — judge numbers stay watermarked PROVISIONAL
+  until this happens.
 
 ## Where things live
 
 - Plugin (this directory): reusable methodology, scorers, agents, docs.
 - The state location (default `<app-repo>/.agent-eval/`, or the adapter's
   `state_location`): everything app-specific — `adapter.yaml`,
-  `profile.yaml`, `datasets/` (smoke/full/holdout), `reports/`,
-  `candidates/`, and optionally `scripts/` (e.g. `smoke.sh` for
+  `profile.yaml`, `datasets/` (`full/` plus its `smoke/` and `canary/`
+  subsets and the sealed `holdout/`), `reports/`, `candidates/`, and
+  optionally `scripts/` (e.g. `smoke.sh` for
   the edit-hook, created from the plugin's `docs/smoke.sh.example`, or a
   `traces.mapping_shim`).
   Everything a run writes lives under `reports/<run-id>/`: `manifest.yaml`,

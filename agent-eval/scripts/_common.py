@@ -7,7 +7,9 @@ trace as an empty one) and lenient about wrapping (normalize_trace.py's full
 output and a bare trajectory both work).
 """
 import json
+import re
 import sys
+from collections.abc import Hashable
 
 # The comparability key. run/SKILL.md refuses a baseline diff across differing
 # harness versions (a scorer change alters what a number means), so the value
@@ -45,12 +47,179 @@ def die(message):
     sys.exit(2)
 
 
-def load_json(path):
+def require_range(flag, value, lo=None, hi=None, exclusive=False, note=""):
+    """Bounds-check a numeric CLI flag, dying through the shared error contract.
+
+    Validated here rather than via an argparse `type=` callable on purpose:
+    argparse reports its own errors as usage text on STDERR and exits 2 without
+    a payload, which breaks the machine-readable-JSON-on-stdout contract every
+    scorer shares (see die). Out of range, these values reached the arithmetic
+    and exited with a traceback instead.
+
+    `note` appends the reason the bound exists, so the message says what to do
+    rather than only what was rejected."""
+    cmp = (lambda a, b: a < b) if exclusive else (lambda a, b: a <= b)
+    if (lo is None or cmp(lo, value)) and (hi is None or cmp(value, hi)):
+        return value
+    if lo is not None and hi is not None:
+        bound = (f"between {lo} and {hi}"
+                 f"{' (exclusive)' if exclusive else ''}")
+    elif lo is not None:
+        bound = f"{'>' if exclusive else '>='} {lo}"
+    else:
+        bound = f"{'<' if exclusive else '<='} {hi}"
+    die(f"{flag} must be {bound}{note}, got {value}")
+
+
+def require_list(field, value, item="entry", plural=None, of_strings=True):
+    """An expectation field that must be a list IS a list, or it is an input
+    error — never coerced, never iterated as-is.
+
+    A bare string is the plausible YAML slip (`forbidden_tools: delete_user`
+    instead of `[delete_user]`), and a string IS a sequence — of CHARACTERS.
+    Every consumer of these fields iterates them, so the slip does not raise;
+    it silently scores a different, meaningless assertion. Both directions are
+    reachable and both are unacceptable:
+
+      - `expect.authz.forbidden_tools: delete_user` tested 'd','e','l',... as
+        tool names against the call log. None is a real tool, so the authz
+        gate reported PASS on a trajectory that DID call delete_user — the
+        gate silently passing exactly what it exists to catch.
+      - `expect.answer.must_not_contain: zebra` FAILED a correct answer,
+        because some of 'z','e','b','r','a' appear in almost any prose — a
+        manufactured failure, the one outcome this harness must never produce.
+
+    So an off-shape expectation is an input error, not a mode. Same rule
+    score_execution.py applies to expect.result.columns, written once here so
+    the scorers cannot drift apart on it.
+
+    `item` names the noun the message uses ("tool name", "record id", "route
+    name"); it defaults to the domain-neutral "entry" so a caller that forgets
+    it reports a vague message rather than a wrong one.
+
+    `of_strings=False` for entry lists whose elements are legitimately not all
+    strings (expect.answer.must_contain accepts an unquoted number and reports
+    a bool as unscorable — see score_answer.normalize_entry, which owns the
+    per-entry rule). This function validates the CONTAINER; the container is
+    the level the slip happens at."""
+    if not isinstance(value, list):
+        leaf = field.rsplit(".", 1)[-1]
+        hint = (f"; write `{leaf}: [{value}]` if you meant a single {item}"
+                if isinstance(value, str) else "")
+        die(f"{field} must be a list of {plural or item + 's'}, got "
+            f"{type(value).__name__}{hint}")
+    if of_strings:
+        for i, entry in enumerate(value):
+            if not isinstance(entry, str):
+                die(f"{field}[{i}] must be a {item} (string), got "
+                    f"{type(entry).__name__}")
+    return value
+
+
+def require_mapping(field, value):
+    """The object-valued sibling of require_list. A non-object here reached
+    .items() and raised AttributeError — a traceback and exit 1, which is
+    neither the {"error": ...} payload this module promises nor the exit 2 the
+    run skill branches on."""
+    if not isinstance(value, dict):
+        die(f"{field} must be an object, got {type(value).__name__}")
+    return value
+
+
+def optional_mapping(field, value):
+    """An expectation block that may be absent: None is "nothing to score",
+    anything else must be an object.
+
+    Written once here because every scorer needs it and each one that
+    re-derived it got it wrong the same way: `x or {}` tests TRUTHINESS, so a
+    present-but-off-shape falsy value (`answer: []`, `args: []`) was silently
+    dropped and the case reported "unscored" — an expectation the author wrote
+    was never evaluated and nothing said so. Only ABSENCE may default."""
+    return {} if value is None else require_mapping(field, value)
+
+
+def optional_list(field, value, **kwargs):
+    """The list-valued sibling of optional_mapping: absent means the check does
+    not apply (empty list), a present but off-shape value is an input error.
+    See require_list for why an off-shape list is never coerced."""
+    return [] if value is None else require_list(field, value, **kwargs)
+
+
+def stringify(value):
+    """A tool-call result (or any JSON value) as text, for substring/provenance
+    matching. One serialization for every scorer that searches results: drift
+    here would make two scorers disagree about what a result "contains"."""
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def found_in(needle, haystacks):
+    """Is `needle` present in any haystack as a whole token?
+
+    Token-bounded: the needle must not continue into a longer identifier-like
+    token on either side (letters, digits, '.', '-'), so INV-1 does not match
+    inside INV-10. Written once here because two gates depend on it and they
+    must not drift: score_args reads it as provenance for an argument value,
+    score_authz reads it as evidence that a forbidden record leaked. A looser
+    boundary in one of them turns a leak into a pass."""
+    pattern = r"(?<![\w.\-])" + re.escape(needle) + r"(?![\w.\-])"
+    return any(re.search(pattern, h) for h in haystacks)
+
+
+def load_text(path, on_error=None):
+    """Read a whole text file through the shared error contract.
+
+    Every read in this harness passes encoding="utf-8" explicitly rather than
+    taking the locale default (PEP 597; Ruff PLW1514). The default is not
+    UTF-8 everywhere, and both of its failure modes corrupt a verdict: under
+    an ASCII locale a valid answer containing "€" or an em-dash raised
+    UnicodeDecodeError — a traceback and exit 1, outside the exit-2 contract
+    entirely — and under latin-1/cp1252 it did not raise at all, silently
+    decoding to mojibake so a must_contain check on the euro sign FAILED a
+    correct answer. A verdict must not depend on the reviewer's locale.
+
+    UnicodeDecodeError is caught separately because it is a ValueError, not an
+    OSError, so the OSError arm below never saw it.
+
+    `on_error` overrides the exit path for scripts whose error payload carries
+    extra keys (normalize_trace.py's {"status": "error", ...}); see die. Every
+    other reader in this module goes through this one, so the encoding contract
+    above is stated once rather than re-derived per format."""
+    fail = on_error or die
     try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        die(f"bad input: {e}")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError as e:
+        fail(f"bad input: {path}: not valid utf-8 text: {e}")
+    except OSError as e:
+        fail(f"bad input: {e}")
+
+
+def write_output(path, text, on_error=None):
+    """Write `text` to `path`, or to stdout when `path` is falsy.
+
+    The mirror of load_text, and utf-8-explicit for the same reason: the write
+    side of a report has the same locale-dependent failure the read side does,
+    and an OSError here (unwritable directory, full disk) must land in the
+    {"error": ...}/exit-2 contract rather than as a traceback."""
+    if not path:
+        sys.stdout.write(text)
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError as e:
+        (on_error or die)(f"cannot write output: {e}")
+
+
+def load_json(path, on_error=None):
+    fail = on_error or die
+    try:
+        return json.loads(load_text(path, on_error=fail))
+    except json.JSONDecodeError as e:
+        # The path, not just the exception: JSONDecodeError carries no filename,
+        # so a directory scan reported "Expecting value: line 1 column 1"
+        # without naming which of its files was bad.
+        fail(f"bad input: {path}: {e}")
 
 
 def load_object(path):
@@ -74,36 +243,46 @@ def load_trajectory(path):
                                                    list):
         die(f"{path}: expected an object with a 'tool_calls' list "
             "(normalize_trace.py output or a bare trajectory)")
+    # The ELEMENTS, not just the container. Every consumer reads a call with
+    # c.get(...), so a non-object entry — the shape a miswritten adapter
+    # mapping_shim emits — raised AttributeError in all four of them: a
+    # traceback and exit 1, which is neither the {"error": ...} payload this
+    # module promises nor the exit 2 the run skill branches on. Validated once
+    # here so the four consumers cannot drift on it.
+    for i, call in enumerate(doc["tool_calls"]):
+        if not isinstance(call, dict):
+            die(f"{path}: tool_calls[{i}] must be an object, got "
+                f"{type(call).__name__}")
     return doc["tool_calls"]
 
 
 def load_jsonl(path, unique_key=None, required_keys=()):
     rows = []
     seen = set()
-    try:
-        with open(path) as f:
-            for lineno, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError as e:
-                    die(f"{path}:{lineno}: {e}")
-                if not isinstance(row, dict):
-                    die(f"{path}:{lineno}: expected a JSON object, got "
-                        f"{type(row).__name__}")
-                for required in required_keys:
-                    if required not in row:
-                        die(f"{path}:{lineno}: missing required key "
-                            f"{required!r}")
-                if unique_key is not None:
-                    dedupe_key = row.get(unique_key)
-                    if dedupe_key in seen:
-                        die(f"{path}:{lineno}: duplicate {unique_key} "
-                            f"{dedupe_key!r}")
-                    seen.add(dedupe_key)
-                rows.append(row)
-    except OSError as e:
-        die(f"bad input: {e}")
+    for lineno, line in enumerate(load_text(path).splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as e:
+            die(f"{path}:{lineno}: {e}")
+        if not isinstance(row, dict):
+            die(f"{path}:{lineno}: expected a JSON object, got "
+                f"{type(row).__name__}")
+        for required in required_keys:
+            if required not in row:
+                die(f"{path}:{lineno}: missing required key {required!r}")
+        if unique_key is not None:
+            dedupe_key = row.get(unique_key)
+            # A list/dict id would raise TypeError out of the set, which is the
+            # one shape of bad input this loader let escape its own error
+            # contract.
+            if not isinstance(dedupe_key, Hashable):
+                die(f"{path}:{lineno}: {unique_key!r} must be a scalar id, got "
+                    f"{type(dedupe_key).__name__}")
+            if dedupe_key in seen:
+                die(f"{path}:{lineno}: duplicate {unique_key} {dedupe_key!r}")
+            seen.add(dedupe_key)
+        rows.append(row)
     return rows

@@ -90,6 +90,11 @@ Record every **optimizable surface** (prompt/tool-description locations) and
 every **tool's side-effect class**: `safe-live` (read-only), `needs-mock`
 (writes to shared state), `never-live` (external side effects: email, payments,
 tickets).
+Also record `record_id_pattern`: the regex matching the app's own record
+identifiers (order ids, invoice ids, primary keys). The authz scorer's default
+recognizer only sees `letters[-_]digits` tokens, so an app with UUID or
+integer ids needs its own pattern here or its `allowed_record_ids` checks come
+back unscorable at run time.
 
 Also detect the app's **data-access layer** for ground truth: which DB/ORM
 (Postgres/MySQL/SQL Server + Entity Framework/SQLAlchemy/Prisma/etc.), where
@@ -205,9 +210,15 @@ conversational + adapter supports sessions) · cost/latency (traces exist) ·
 **execution** (an `oracle` is configured — see step 5 — and at least one case
 carries a `reference_query`/seeded fixture; blocked otherwise, and the
 connection mechanics live in adapter-contract.md, not here) · **authz** (an
-identity/persona config exists for the app and the adapter captures tool-result
-content, not just the chat text — blocked otherwise, since `expect.authz` is
-scored against the tool-call log and returned record IDs, never a prose read)
+identity/persona config exists for the app — blocked otherwise, since
+`expect.authz` is scored against the tool-call log and returned record IDs,
+never a prose read. Tool-result content capture is a *partial* precondition,
+not a blocking one: without it `forbidden_tools` still scores — which tools
+fired is structural — while the record-id checks report `unscorable`. Record
+the app's record-id regex as `record_id_pattern` in profile.yaml during code
+archaeology; run passes it to `score_authz.py --id-pattern`, without which an
+app whose ids are UUIDs or integer keys scores `expect.authz.allowed_record_ids`
+unscorable — `forbidden_record_ids` is a literal search and needs no pattern)
 · judged layers (judge calibrated) — each with its blocking precondition named.
 
 The topology enum from step 2 drives this table mechanically, not just by

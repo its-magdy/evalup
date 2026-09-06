@@ -17,7 +17,10 @@ observed is in acceptable (expected is always implicitly acceptable), or
 (clarify_ok and clarified).
 
 Outputs: accuracy, per-target precision/recall/F1, macro & micro F1,
-confusion matrix, OOS precision/recall. Cases that pass via the acceptable
+confusion matrix, OOS precision/recall. macro_f1 averages over labels with
+support > 0 only; prediction-only labels (__no_route__, hallucinated route
+names) keep their per_target row but are listed under spurious_labels and
+excluded from the average. Cases that pass via the acceptable
 set or the clarify path (observed != expected) are excluded from the
 confusion matrix and P/R/F1 and counted as accepted_alternates — they are
 not mismatches. Accuracy still counts them as passes.
@@ -27,7 +30,7 @@ import argparse
 import json
 from collections import defaultdict
 
-from _common import add_version_flag, die, load_jsonl
+from _common import add_version_flag, die, load_jsonl, require_list
 
 ALIASES = {"route": "expected", "route_acceptable": "acceptable"}
 
@@ -47,10 +50,36 @@ def normalize_rows(rows, oos_route):
         if "observed" not in r:
             die(f"row {i} (case_id {r.get('case_id')!r}): missing "
                 "'observed' key (null is allowed: no route produced)")
+        # The bare-string slip (`route_acceptable: billing` instead of
+        # `[billing]`), and the one place in this harness it stayed silent:
+        # main() below builds `set(acceptable)`, so a string became a set of its
+        # CHARACTERS. No real route name is ever in that set, so a case whose
+        # observed route was a blessed alternate scored a mismatch — accuracy
+        # 0.0, a confusion-matrix entry, and exit 0. A manufactured failure, the
+        # one outcome this harness must never produce. The rule lives in
+        # _common.require_list, which every sibling scorer already shares; the
+        # field name is spelled as the case-format key the human actually wrote,
+        # and trails the row context so require_list's `[...]` hint still reads
+        # cleanly when a case_id itself contains a dot.
+        if r.get("acceptable") is not None:
+            require_list(
+                f"row {i} (case_id {r.get('case_id')!r}): "
+                "expect.route_acceptable",
+                r["acceptable"], item="route name")
         if oos_route:
             for k in ("expected", "observed"):
                 if r[k] == oos_route:
                     r[k] = "__oos__"
+            # The acceptable set is label-bearing too, and canonicalizing only
+            # SOME label fields is worse than canonicalizing none: a case whose
+            # acceptable set blesses the OOS route (refusing is a fine answer
+            # for an ambiguous in-scope query) had its observed route rewritten
+            # to __oos__ while its acceptable list still said "refuse", so the
+            # membership test missed and a passing case was scored a mismatch.
+            # --oos-route only RENAMES labels, so it must be verdict-invariant.
+            if isinstance(r.get("acceptable"), list):
+                r["acceptable"] = ["__oos__" if v == oos_route else v
+                                   for v in r["acceptable"]]
         if r["observed"] is None:
             r["observed"] = "__no_route__"
 
@@ -117,8 +146,20 @@ def main():
             "support": tp + fn,
         }
 
-    macro_f1 = (sum(d["f1"] for d in per_target.values()) / len(per_target)
-                if per_target else 0.0)
+    # Macro averages run over labels with SUPPORT only. Prediction-only labels
+    # — __no_route__, or a route name the app hallucinated — have no expected
+    # case behind them, so their recall is 0/0 and their F1 is a structural
+    # 0.0, not a measurement. Averaging those in dragged macro_f1 down by one
+    # slot per unrouted case (4 cases, 3 correct, 1 null observed: 0.5 instead
+    # of 0.833) and then tripped the macro/micro gap warning below, which sent
+    # the reader hunting for an underperforming minority target that does not
+    # exist. The rows stay visible, under spurious_labels, because a
+    # hallucinated route name is itself a finding — it just is not a target the
+    # macro average is defined over.
+    supported = {lab: d for lab, d in per_target.items() if d["support"]}
+    spurious = sorted(lab for lab in per_target if lab not in supported)
+    macro_f1 = (sum(d["f1"] for d in supported.values()) / len(supported)
+                if supported else 0.0)
     micro_p = tp_total / (tp_total + fp_total) if (tp_total + fp_total) else 0
     micro_r = tp_total / (tp_total + fn_total) if (tp_total + fn_total) else 0
 
@@ -129,6 +170,14 @@ def main():
         "macro_f1": round(macro_f1, 4),
         "micro_f1": round(f1(micro_p, micro_r), 4),
         "per_target": per_target,
+        "spurious_labels": {
+            "labels": spurious,
+            "note": "prediction-only labels (no expected case has this "
+                    "target): __no_route__ or a route name the app produced "
+                    "that no case asks for. Their per_target rows are "
+                    "reported above but excluded from macro_f1, which is "
+                    "averaged over labels with support > 0 only.",
+        },
         "confusion_matrix": confusion,
         "accepted_alternates": {
             "count": accepted_alternates,
@@ -159,7 +208,8 @@ def main():
                 "support": per_target["__oos__"]["support"],
                 "oos_cases": oos_expected,
                 "excluded_accepted_alternates": excluded,
-                "note": "recall<1.0 means out-of-scope queries leaked into route targets"
+                "note": "recall<1.0 means out-of-scope queries leaked into "
+                        "route targets"
                         + ("" if not excluded else
                            f" — measured over {per_target['__oos__']['support']} of "
                            f"{oos_expected} OOS case(s); {excluded} passed via the "

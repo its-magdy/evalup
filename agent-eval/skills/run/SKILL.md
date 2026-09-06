@@ -98,9 +98,15 @@ suite, hard gate).
   retries, then recorded); crash on `noise`/`adversarial` categories also
   increments the **crash-rate metric** (a first-class number, especially
   pre-launch). Infra verdicts never enter pass/fail denominators.
-- **Canaries every run**: ~10% of the run, minimum 1 known-good + 1 known-bad
-  canned case, run first. A canary scoring wrong → abort and flag harness/judge
-  drift; nothing else from this run is trustworthy.
+- **Canaries every run**: the `datasets/canary/` split (`skills/generate/
+  SKILL.md` §4 — ~10% of the full set, floor 2, stable versioned expected
+  answers), minimum 1 known-good + 1 known-bad, run first. They are ordinary
+  cases with ordinary ids, so they get ordinary `cases/<case-id>/` folders —
+  but mark them `canary: true` in `verdict.json` and keep them out of the
+  pass/fail denominators the report quotes: a canary measures the harness, not
+  the app, and folding it into the app's score moves the number for the wrong
+  reason. A canary scoring wrong → abort and flag harness/judge drift; nothing
+  else from this run is trustworthy.
 
 ## 3. Score (cheap → expensive)
 1. `normalize_trace.py` — raw spans → trajectory (+ transport conservation
@@ -135,52 +141,25 @@ suite, hard gate).
    (if seeded) have no generic script — you evaluate them against the
    profile's rule definitions and the environment's snapshot scripts, and
    record per-rule verdicts in the run output.
-3. **Execution layer** — for every case carrying `expect.result`, invoke
-   `score_execution.py` (see `scripts/score_execution.py`; do not edit it,
-   only call it). You produce both sides, the scorer only compares them:
-   extract `actual` from the trace/tool-result/structured response per the
-   adapter's result-extraction contract (see
-   `skills/discover/references/adapter-contract.md`) — no extractable result
-   → pass `{"missing": true, "reason": "<why>"}` and it scores `unscored`/
-   unscorable, never `fail`; compute `expected` offline by running the
-   case's `reference_query` (see `skills/generate/references/case-format.md`
-   `expect.result`) against the seeded fixture / read-only oracle — never
-   hand-typed, never recomputed by the scorer. Report `execution` as its own
-   layer in the per-case verdict and the run report, alongside routing/args/
-   trajectory — do not fold it into `answer`.
-4. **Authz layer** — for every case carrying `expect.authz`, invoke
-   `score_authz.py <trajectory.json> <case_expect.json> [--answer FILE]
-   [--id-pattern REGEX]`
-   (see `scripts/score_authz.py`; call it, do not implement scoring logic
-   here). Feed it `normalize_trace.py`'s output (or `{"tool_calls": [...]}`)
-   as `trajectory.json` and the case's `expect` object as `case_expect.json`;
-   the optional `--answer FILE` (final answer text) is accepted only as
-   *secondary* evidence for a forbidden id leaking into the prose — it never
-   decides `expect_refusal`. It grades the tool-call log and the record IDs
-   actually returned against `expect.authz`'s `allowed_record_ids` /
-   `forbidden_record_ids` / `forbidden_tools` / `expect_refusal` — **never an
-   LLM read of the chat text** (a prompt-only "I can't share that" can hide
-   an open endpoint underneath; the log and the IDs are the ground truth).
-   Missing tool-result content → the record-id checks report `unscorable`
-   (never `fail`); `forbidden_tools` has no unscorable state (which tools
-   were invoked is structural, independent of content capture). An `--answer`
-   file that is empty or whitespace-only counts as no evidence, exactly like
-   passing no `--answer` at all — it can never turn an unscorable check into
-   a pass. **`--id-pattern`**: the default id recognizer only sees
-   `letters[-_]digits` tokens (`INV-1042`, `e_881`), so an app whose records
-   are integer primary keys, UUIDs, or separator-less ids scores every
-   record-id check `unscorable`. Pass the app's own id regex — from
-   profile.yaml — to make those cases scorable; if you see record-id checks
-   coming back uniformly unscorable on an app that clearly returns ids, this
-   is the reason. Gate: if the
-   case's `category` is `adversarial-*` and the adapter's
-   `environment.safe_to_attack` is not true (§1 pre-flight), skip the case
-   for this layer and report it `skipped` (with the reason), the same
-   never-invoke-an-uncleared-probe discipline as any other red-team check —
-   do not silently fail it and do not run it anyway. Non-adversarial
-   `expect.authz` cases (ordinary permission-scoped answers) run regardless.
-   Report `authz` as its own layer, same shape as every other scorer:
-   `{"layer": "authz", "verdict": ..., "checks": [...]}`.
+3. **Execution layer** — every case carrying `expect.result` goes through
+   `score_execution.py`: you produce both `actual` (extracted from the trace
+   per the adapter's result-extraction contract) and `expected` (computed
+   offline from the case's `reference_query` against the seeded fixture), and
+   the scorer only compares them. No extractable result → `unscored`, never
+   `fail`.
+4. **Authz layer** — every case carrying `expect.authz` goes through
+   `score_authz.py`, which grades the tool-call log and the record IDs
+   actually returned — never an LLM read of the chat text, since a prompt-only
+   "I can't share that" can hide an open endpoint underneath. Adversarial
+   cases run only when `environment.safe_to_attack` is true (§1); otherwise
+   `skipped` with the reason, never silently failed.
+
+   Invocation mechanics for both — argument shapes, the unscorable states,
+   `--id-pattern` for apps whose record ids aren't `letters[-_]digits`, and
+   how each is reported: `references/scoring-layers.md`. Read it before
+   calling either scorer; both are reported as their own layer in the
+   per-case verdict and the run report, never folded into `answer` or
+   `trajectory`.
 5. Judged layers ONLY if `judge.status: calibrated` — via the `judge` agent,
    launched with the profile's `judge.model` as an explicit model override
    (the agent frontmatter is only the fallback default); record the model
@@ -284,7 +263,14 @@ suite, hard gate).
   but their `request.json`/`response.json` content is never surfaced in
   `report.md`/`.html` **or in `results.json`'s per-case rows** — both are
   aggregate-only for holdout ids, matching the "no per-case trace excerpts"
-  seal). `--baseline` pins this run as the new baseline.
+  seal). **A run whose selection included holdout ids (`--holdout`, `--full`)
+  spends one holdout look**: append it — run id, date, mode, reason — to the
+  same dataset-metadata ledger `analyze --unseal` writes to, and print the
+  running count. That ledger is the only record behind the N=5 reseal trigger
+  `skills/analyze/SKILL.md` §`--unseal` and `skills/optimize/SKILL.md`
+  ("Candidate pool") both enforce, and this is its only writer besides
+  `--unseal` itself — an uncounted holdout run makes the seal a number nobody
+  is keeping. `--baseline` pins this run as the new baseline.
   You write the `.md`; produce the `.html` from it with
   `${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
   reports/<run-id>/report.html` — do not hand-write HTML. It emits one

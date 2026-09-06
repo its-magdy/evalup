@@ -35,7 +35,7 @@ import argparse
 import json
 import math
 
-from _common import add_version_flag, die, load_jsonl
+from _common import add_version_flag, die, load_jsonl, require_range
 
 VERDICTS = ("pass", "fail")
 
@@ -101,8 +101,7 @@ def main():
 
     ns = {cid: len(v) for cid, v in groups.items()}
     k = a.k if a.k is not None else min(ns.values())
-    if k < 1:
-        die(f"--k must be >= 1, got {k}")
+    require_range("--k", k, lo=1)
     short = {cid: n for cid, n in ns.items() if n < k}
     if short:
         worst = sorted(short)[0]

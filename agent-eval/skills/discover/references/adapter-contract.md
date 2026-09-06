@@ -4,6 +4,12 @@ The adapter is the ONLY thing the harness knows about an app. Everything else
 derives from it. Secrets are env-var references — the schema rejects inline
 literals; validation must fail loudly on any credential-looking string.
 
+**Path resolution.** Every path below is relative to one of two roots, and each
+field says which: the **state location** (this file's own directory), or the
+**app root** (`app.repo`, itself resolved against the state location). Paths
+never resolve against the plugin's own `scripts/` — those are the harness's
+files, not the app's.
+
 ```yaml
 adapter_version: 1
 app:
@@ -66,13 +72,15 @@ tools:                          # side-effect classification — from discover, 
 
 environment:
   kind: seeded-staging | mocked | live-readonly
-  # seeded-staging unlocks state-diff ground truth and simulated users:
-  seed: "scripts/seed_test_db.py"     # per-case seeding
-  reset: "scripts/reset_test_db.py"   # between cases
-  snapshot_state: "scripts/dump_state.py"  # for end-state assertions
+  # seeded-staging unlocks state-diff ground truth and simulated users.
+  # These are YOUR app's scripts, relative to the app root:
+  seed: "tools/seed_test_db.py"            # per-case seeding
+  reset: "tools/reset_test_db.py"          # between cases
+  snapshot_state: "tools/dump_state.py"    # for end-state assertions
   safe_to_attack: false        # red-team/chaos refuse to run unless true
 
-prompts:                        # optimizable surfaces (white-box only)
+prompts:                        # optimizable surfaces (white-box only);
+                                # paths relative to the app root
   - { id: router_system, path: prompts/router.md }
   - { id: tools_schemas, path: app/tools.py, kind: tool-descriptions }
 
@@ -199,8 +207,7 @@ handoff:
   `verdict: unscored` with `unscorable: 1` — an unread result must never be
   scored as a mismatch (that manufactures a failure). This is the same
   `unscorable` discipline used everywhere else in the taxonomy
-  (`pass | fail | unscored | infra_error | infra_incomplete` — see
-  `BUILD-PLAN.md`).
+  (`pass | fail | unscored | infra_error | infra_incomplete`).
 
 ---
 

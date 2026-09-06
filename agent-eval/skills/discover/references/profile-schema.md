@@ -61,6 +61,13 @@ tools:
 
 conversation: { multi_turn: true, streaming: sse }
 
+record_id_pattern: "INV-[0-9]+"  # regex for the app's own record identifiers.
+                                 # Passed by run to `score_authz.py --id-pattern`.
+                                 # Omit only if the default `letters[-_]digits`
+                                 # recognizer already matches; UUID/integer-keyed
+                                 # apps MUST set it or their authz
+                                 # `allowed_record_ids` checks score `unscorable`.
+
 oracle:                           # ground-truth capability for the execution layer
   available: true | false
   provenance: seeded-fixture | live-db-dual | api-endpoint | none
@@ -88,7 +95,7 @@ capability_matrix:               # which eval layers apply and what blocks them
   multi_turn:      { enabled: false, blocked_by: "no session contract in adapter" }
   cost_latency:    { enabled: true }
   execution:       { enabled: false, blocked_by: "no oracle configured (see oracle: above) + no case carries expect.result (scalar/rows)" }
-  authz:           { enabled: false, blocked_by: "no identity/persona config; the id-leak checks also need tool-result capture (forbidden_tools alone does not)" }
+  authz:           { enabled: false, blocked_by: "no identity/persona config; the id-leak checks additionally need tool-result capture and a matching record_id_pattern (forbidden_tools scores without either)" }
                                        # expect.authz is scored against the tool-call
                                        # log + returned record IDs, never a prose read.
                                        # forbidden_tools is structural (which tools fired)

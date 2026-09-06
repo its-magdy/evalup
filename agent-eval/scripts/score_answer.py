@@ -27,14 +27,24 @@ Judged dimensions (expect.answer.rubric) belong to the judge agent.
 
 Usage: score_answer.py <answer.txt> <case_expect.json>
 Verdict: pass (>=1 check passed, none failed) | fail (any check failed) |
-unscored (nothing scorable). Exit 0 always; exit 2 on malformed input.
+unscored (nothing scorable). A "pass" that still has unscorable checks also
+carries "partially_unscored": true — the verdict is a pass on the checks that
+RAN, and a consumer reading only the verdict must not mistake that for a case
+where everything was evaluated. Exit 0 always; exit 2 on malformed input.
 """
 import argparse
 import json
 import re
 import signal
 
-from _common import add_version_flag, die, load_object
+from _common import (
+    add_version_flag,
+    load_object,
+    load_text,
+    optional_mapping,
+    require_list,
+    require_mapping,
+)
 
 SCHEMA_TYPES = {"object": dict, "array": list, "string": str,
                 "integer": int, "number": (int, float), "boolean": bool,
@@ -106,6 +116,9 @@ def search_bounded(pattern, text):
         signal.signal(signal.SIGALRM, previous)
 
 
+FLAG_SUFFIX_RE = re.compile(r"^/(.*)/([aiLmsux]{1,4})$", re.DOTALL)
+
+
 def entry_matches(entry, text):
     """True/False, or None if the entry is an invalid or non-terminating
     regex (both reported "unscorable" — see content_check)."""
@@ -116,6 +129,16 @@ def entry_matches(entry, text):
             return None
         except RegexTimeout:
             return "timeout"
+    if FLAG_SUFFIX_RE.match(entry):
+        # /pattern/i (Perl/JS-style trailing flags) is not this convention:
+        # /.../ with no suffix is the whole marker, so /pattern/i falls
+        # through unmatched above and — before this check existed — was
+        # silently read as a literal substring of the ENTIRE string
+        # (backslashes and all), which can never occur in real answer text.
+        # A must_contain entry written this way always failed; a
+        # must_not_contain entry always vacuously passed, catching nothing.
+        # Refuse to guess and say so, rather than repeat either silently.
+        return "bad_flag_suffix"
     return entry in text
 
 
@@ -137,7 +160,14 @@ def validate_schema(value, schema, path="$"):
         if not any(type_ok(x) for x in allowed):
             return [f"{path}: expected type {t}, "
                     f"got {type(value).__name__}"]
-    if "enum" in schema and value not in schema["enum"]:
+    # `value not in enum` is an == test, and bool is a subclass of int in
+    # Python: True == 1, so an answer holding `true` satisfied an enum of
+    # [1] (and 1 satisfied [true]) — the same bool/int confusion the type
+    # check above refuses, arriving through the other keyword. Membership is
+    # therefore matched on type as well as value.
+    if "enum" in schema and not any(
+            v == value and isinstance(v, bool) == isinstance(value, bool)
+            for v in schema["enum"]):
         errors.append(f"{path}: {value!r} not in enum")
     if isinstance(value, dict):
         for key in schema.get("required", []):
@@ -178,6 +208,11 @@ def content_check(kind, entry, answer):
                 "reason": f"regex did not terminate within "
                           f"{REGEX_TIMEOUT_S:g}s (catastrophic backtracking): "
                           "simplify the pattern"}
+    if matched == "bad_flag_suffix":
+        return {"check": kind, "entry": entry, "status": "unscorable",
+                "reason": "trailing /flag suffix (e.g. /i) is not supported by "
+                          "this convention and was NOT applied — move the "
+                          "flag inline as (?i:...) inside the slashes"}
     wanted = (kind == "must_contain")
     if matched == wanted:
         return {"check": kind, "entry": entry, "status": "pass"}
@@ -195,18 +230,37 @@ def main():
     ap.add_argument("answer", help="file holding the app's final answer text")
     ap.add_argument("expect", help="case 'expect' object JSON")
     a = ap.parse_args()
-    try:
-        with open(a.answer) as f:
-            answer = f.read()
-    except OSError as e:
-        die(f"bad input: {e}")
+    answer = load_text(a.answer)
     expect = load_object(a.expect)
-    answer_expect = expect.get("answer") or {}
-    json_schema = (expect.get("format") or {}).get("json_schema")
+    # `is not None`, not truthiness: the truthy test conflated "key absent"
+    # (nothing to score, correct) with "key present but off-shape AND falsy" —
+    # `answer: []` was silently dropped and the case reported "unscored", so an
+    # expectation the author wrote was never evaluated and nothing said so. Only
+    # absence may default; a present value must be the right shape.
+    answer_expect = optional_mapping("expect.answer", expect.get("answer"))
+    fmt = optional_mapping("expect.format", expect.get("format"))
+    json_schema = fmt.get("json_schema")
+    if json_schema is not None:
+        # Shape-checked on presence; the checks below still gate on truthiness,
+        # so an empty `json_schema: {}` stays the no-op it has always been.
+        require_mapping("expect.format.json_schema", json_schema)
 
     checks = []
     for kind in ("must_contain", "must_not_contain"):
-        for entry in (answer_expect.get(kind) or []):
+        entries = answer_expect.get(kind)
+        if entries is None:
+            continue
+        # The CONTAINER is validated here; normalize_entry owns the per-entry
+        # rule (hence of_strings=False — an unquoted number legitimately
+        # coerces, a bool is legitimately unscorable). The container is the
+        # level the YAML slip actually happens at, and both directions of it
+        # produced a wrong verdict rather than an error: a bare-string
+        # must_contain PASSED an answer lacking the phrase, and a bare-string
+        # must_not_contain FAILED an answer that was correct. See
+        # _common.require_list.
+        for entry in require_list(f"expect.answer.{kind}", entries,
+                                  item="entry", plural="entries",
+                                  of_strings=False):
             checks.append(content_check(kind, entry, answer))
 
     if json_schema:
@@ -236,11 +290,20 @@ def main():
         verdict = "pass"
     else:
         verdict = "unscored"
+    unscorable = sum(s == "unscorable" for s in statuses)
     print(json.dumps({
         "layer": "answer",
+        # A "pass" carrying unscorable checks is a pass on the checks that
+        # RAN, and the count beside it has always said so — but every
+        # consumer reads the verdict, and a case whose one real assertion was
+        # an invalid regex read identically to a case that passed everything.
+        # Flagged rather than downgraded: consumers key on the verdict string,
+        # so turning such a case into "unscored" would re-score every existing
+        # dataset. The flag is the honest middle.
         "verdict": verdict,
+        "partially_unscored": bool(verdict == "pass" and unscorable),
         "checks": checks,
-        "unscorable": sum(s == "unscorable" for s in statuses),
+        "unscorable": unscorable,
     }, indent=2))
 
 

@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """Generate a self-contained static HTML trace/annotation viewer.
 
-Implements the annotation UX in EVAL-DESIGN-RECOMMENDATION.md §22: everything
-on one screen (span tree, expected-vs-actual diff, per-stage latency/cost,
-the implicated prompt/surface), one-keystroke binary pass/fail with a
-free-text critique box beside it, hotkey navigation, and a live
-taxonomy (category -> count) sidebar for axial coding. See
-skills/analyze/references/annotation-ux.md for the full workflow this
-viewer supports and the write-path decision (documented manual-edit flow,
-not a localhost sidecar — see that doc's "Why manual-edit, not a sidecar"
-section).
+Implements the annotation UX: everything on one screen (span tree,
+expected-vs-actual diff, per-stage latency/cost, the implicated
+prompt/surface), one-keystroke binary pass/fail with a free-text critique box
+beside it, hotkey navigation, and a live taxonomy (category -> count) sidebar
+for axial coding. See skills/analyze/references/annotation-ux.md for the full
+workflow this viewer supports and the write-path decision (documented
+manual-edit flow, not a localhost sidecar — see that doc's "Why manual-edit,
+not a sidecar" section).
 
 INPUT (run traces): a JSON file containing a list of case records, a JSON
 file shaped {"cases": [...]} / {"results": [...]}, or a directory of `*.json`
-files (one record per file — e.g. runs/<run-id>/cases/*.json). Every field on
+files (one record per file). A directory scan keeps only files carrying at
+least one case-record field (see RECORD_KEYS) — a run root also holds
+results.json and canary artifacts, which are not cases (its manifest.yaml the
+`*.json` scan never matches at all) — and `--glob` selects
+a nested layout without this script guessing at the depth, e.g. `--glob
+'cases/*/verdict.json'`. Every field on
 a record is optional except that each record should carry a `case_id` and/or
 `trace_id` (one is synthesized from position if both are absent, and that is
 reported, not hidden). Recognized shape (extra keys are ignored, not an
@@ -44,11 +48,15 @@ file itself (see the docstring above) — it renders an export box the
 reviewer copies/downloads and appends to this same file by hand.
 
 Usage: build_review_viewer.py <run-path> [-a annotations.jsonl] [-o out.html]
+                              [--glob 'cases/*/verdict.json']
 Error contract: on unreadable/malformed input print {"error": "..."} to
-stdout and exit 2; otherwise exit 0. An input that parses fine but contains
+stdout and exit 2; otherwise exit 0. A *file* that parses fine but contains
 zero case records is NOT an error (a fresh run can legitimately have nothing
 to review yet) — the viewer renders a "nothing to review" page instead of
-guessing at content that was never there.
+guessing at content that was never there. A *directory* is held to a stricter
+rule: matching no files, or matching only run artifacts (manifest, canary),
+means the path or --glob depth is wrong, not that the run is empty, and is
+reported as an error naming the likely fix. See load_records.
 """
 import argparse
 import difflib
@@ -57,60 +65,125 @@ import json
 import pathlib
 import sys
 
-from _common import add_version_flag, die, load_jsonl
+from _common import add_version_flag, die, load_json, load_jsonl, write_output
 
-TRUNCATE_AT = 4000  # tool-result/answer text beyond this is elided in the
-                    # span tree — the raw record is still exported in full
-                    # via the embedded JSON, only the rendered HTML is capped
-                    # so one giant blob can't make the page unusable.
+# Tool-result/answer text beyond this is elided in the span tree — the raw
+# record is still exported in full via the embedded JSON, only the rendered
+# HTML is capped, so one giant blob can't make the page unusable.
+TRUNCATE_AT = 4000
 
 
 # --- loading --------------------------------------------------------------
 
-def _read_json_file(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except OSError as e:
-        die(f"bad input: {e}")
-    except json.JSONDecodeError as e:
-        die(f"bad input: {path}: {e}")
+# A directory scan matches files by name, which says nothing about what is in
+# them: pointed at a run root, the scan swept up results.json and
+# canary_response.json and rendered them as two synthesized-id "cases" — a page
+# with zero real cases and exit 0. A record is recognized by carrying at least
+# one field this viewer actually renders. Deliberately permissive (any one key
+# is enough, since every field is optional), and deliberately not a schema:
+# it separates a case record from a run artifact, nothing more.
+#
+# Only the identity fields are listed here; the rendered fields come from
+# RECORD_SHAPE below, so adding a field to the renderer cannot leave
+# recognition behind (which would silently drop the file from a directory
+# scan).
+RECORD_KEYS = ("case_id", "trace_id", "verdict", "prompt_surface")
 
 
-def load_records(run_path):
+def is_record(doc):
+    return isinstance(doc, dict) and any(
+        k in doc for k in (*RECORD_KEYS, *RECORD_SHAPE))
+
+
+def load_records(run_path, pattern="*.json"):
     """Return (records, source_note). Distinguishes a structurally bad input
-    (wrong path, unreadable JSON, a directory with no *.json files at all —
-    likely a typo) from a valid input that simply contains zero records
-    (a legitimately empty run) — only the former is an error."""
+    (wrong path, unreadable JSON, a directory whose matched files hold no case
+    records at all — likely the wrong depth) from a valid input that simply
+    contains zero records (a legitimately empty run) — only the former is an
+    error.
+
+    `pattern` is a glob relative to the directory, so a run layout that keeps
+    records one level down (reports/<id>/cases/<case-id>/verdict.json) is
+    addressable without this script guessing at the depth: --glob
+    'cases/*/verdict.json'. The default stays a flat *.json scan."""
     p = pathlib.Path(run_path)
     if not p.exists():
         die(f"bad input: {run_path}: no such file or directory")
-
     if p.is_dir():
-        files = sorted(p.glob("*.json"))
-        if not files:
-            die(f"bad input: {run_path}: no *.json files found in this "
-                f"directory — check the path")
-        records = []
-        for f in files:
-            doc = _read_json_file(f)
-            if isinstance(doc, dict):
-                records.append(doc)
-            elif isinstance(doc, list):
-                records.extend(x for x in doc if isinstance(x, dict))
-            else:
-                die(f"bad input: {f}: expected a JSON object or array of "
-                    f"objects, got {type(doc).__name__}")
-        return records, f"{len(files)} file(s) under {run_path}"
+        return _load_dir(p, run_path, pattern)
+    return _load_file(p, run_path)
 
-    doc = _read_json_file(p)
+
+def _load_dir(p, run_path, pattern):
+    # Path.glob rejects some patterns outright — an absolute one
+    # ("Non-relative patterns are unsupported") and an empty one
+    # ("Unacceptable pattern") — by RAISING, which is exit 1 and a
+    # traceback: the flag added to make this script easier to point at a
+    # run was the one input that escaped the exit-2 JSON contract the rest
+    # of it keeps. Name the fix rather than only the rejection — but the
+    # fix differs by cause, and one shared arm described only the absolute
+    # case, so `--glob ''` was told it was "not an absolute path".
+    try:
+        files = sorted(p.glob(pattern))
+    except (ValueError, NotImplementedError) as e:
+        fix = ("omit --glob for the default flat scan, or name a pattern"
+               if not pattern else
+               f"the pattern is relative to {run_path} "
+               f"(e.g. 'cases/*/verdict.json'), not an absolute path")
+        die(f"bad input: --glob {pattern!r}: {e} — {fix}")
+    if not files:
+        die(f"bad input: {run_path}: no files match {pattern!r} in this "
+            f"directory — check the path, or pass --glob if the run keeps "
+            f"records one level down (e.g. --glob 'cases/*/verdict.json')")
+    records, skipped = [], []
+    for f in files:
+        doc = load_json(f)
+        # One is_record filter for both shapes. It used to guard only the
+        # dict branch, so a run artifact that happens to be a top-level
+        # JSON array — a manifest holding a list of stage entries — walked
+        # straight past the check and rendered as synthesized-id "cases",
+        # which is the exact failure RECORD_KEYS was added to stop, one
+        # shape over. Normalizing to a list first leaves the policy in one
+        # place, so the next tweak to it cannot be made in only one branch.
+        if isinstance(doc, dict):
+            doc = [doc]
+        elif not isinstance(doc, list):
+            die(f"bad input: {f}: expected a JSON object or array of "
+                f"objects, got {type(doc).__name__}")
+        found = [d for d in doc if is_record(d)]
+        records.extend(found)
+        if not found:
+            skipped.append(f.name)
+    skipped_names = ", ".join(sorted(skipped)[:4])
+    if skipped and not records:
+        # Every matched file was a run artifact, so the path is one level
+        # off rather than empty. Naming the files and the likely fix beats
+        # rendering them as cases (what this used to do) and beats a bare
+        # "nothing to review" page (which would read as a finished run).
+        die(f"bad input: {run_path}: {len(files)} file(s) matched "
+            f"{pattern!r} but none is a case record "
+            f"({skipped_names}) — if this is a run root, "
+            f"the records are usually one level down: "
+            f"--glob 'cases/*/verdict.json'")
+    note = f"{len(files)} file(s) under {run_path}"
+    if skipped:
+        # Dropped evidence is reported, never silent — same rule as
+        # offshape_fields. stderr, not stdout: stdout may be the page.
+        note += f" ({len(skipped)} non-record file(s) skipped)"
+        print(f"note: skipped {len(skipped)} file(s) matching {pattern!r} "
+              f"that carry no case-record field: {skipped_names}",
+              file=sys.stderr)
+    return records, note
+
+
+def _load_file(p, run_path):
+    doc = load_json(p)
     if isinstance(doc, list):
-        return [x for x in doc if isinstance(x, dict)], str(run_path)
+        return as_dicts(doc), str(run_path)
     if isinstance(doc, dict):
         for key in ("cases", "results", "traces", "records"):
             if isinstance(doc.get(key), list):
-                return ([x for x in doc[key] if isinstance(x, dict)],
-                        str(run_path))
+                return as_dicts(doc[key]), str(run_path)
         # A single bare record is also accepted (a one-case run).
         return [doc], str(run_path)
     die(f"bad input: {run_path}: expected a JSON array or object, got "
@@ -121,6 +194,44 @@ def load_records(run_path):
 
 def esc(x):
     return html.escape(str(x), quote=True)
+
+
+def as_dict(value):
+    """A record field that should be an object, or {} when it isn't.
+
+    Records are written by a run harness and are explicitly NOT schema-validated
+    here (see the module docstring: "a record is evidence to render, not a strict
+    schema to enforce"). A drifted field must therefore degrade to "nothing to
+    render" — `x or {}` guards against null but not against a string, and
+    `"answer": "some text"` used to take the whole page down with an
+    AttributeError, which is neither the promised {"error": ...} contract nor a
+    rendered page. Off-shape fields are surfaced by offshape_note, not hidden."""
+    return value if isinstance(value, dict) else {}
+
+
+def as_dicts(value):
+    """The list-of-objects sibling of as_dict; non-object entries are dropped."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, dict)]
+
+
+# The shape every rendered field is coerced to, and the only place that mapping
+# is written down: the renderers coerce through as_dict/as_dicts and the
+# off-shape flag is derived from the same coercers, so a field cannot be
+# silently dropped by one and reported clean by the other.
+RECORD_SHAPE = {"route": as_dict, "answer": as_dict, "result": as_dict,
+                "layers": as_dict, "tool_calls": as_dicts,
+                "stage_costs": as_dicts}
+
+
+def offshape_fields(rec):
+    """Fields present on the record but not in the shape this viewer renders —
+    i.e. fields the coercion above had to change. Reported rather than silently
+    skipped, on the same principle as the synthesized-id flag: a reviewer who
+    cannot see that evidence was dropped reads the page as complete."""
+    return sorted(f for f, coerce in RECORD_SHAPE.items()
+                  if rec.get(f) is not None and coerce(rec[f]) != rec[f])
 
 
 def as_text(value):
@@ -174,7 +285,8 @@ def badge(text, cls=None):
 
 def render_span_tree(rec):
     parts = ['<div class="span-tree">']
-    route = rec.get("route") or {}
+    route = as_dict(rec.get("route"))
+    tool_calls = as_dicts(rec.get("tool_calls"))
     if route:
         exp, act = route.get("expected"), route.get("actual")
         # Three states: a missing observation is NOT a match — showing it green
@@ -191,30 +303,39 @@ def render_span_tree(rec):
             f'expected <b>{esc(exp)}</b> &rarr; actual '
             f'<b class="{cls}">{act_text}</b></div>')
 
-    for tc in (rec.get("tool_calls") or []):
+    for tc in tool_calls:
         name = tc.get("name", "?")
         dur = tc.get("duration_ms")
         dur_txt = f'{dur} ms' if dur is not None else "duration n/a"
         args_txt = esc(truncate(as_text(tc.get("args")) or "(none)"))
-        result_txt = esc(truncate(as_text(tc.get("result")) or "(no result "
-                                  "captured)"))
+        # An errored call has no result BY SPEC (the convention records one
+        # only on success), so "(no result captured)" was the viewer telling
+        # the reviewer that tracing was misconfigured on precisely the records
+        # where the app had in fact failed.
+        err = tc.get("error")
+        result_txt = esc(truncate(
+            as_text(tc.get("result"))
+            or (f"(call errored: {err}; no result recorded)" if err
+                else "(no result captured)")))
+        err_html = (f'<span class="tool-error">errored: {esc(err)}</span>'
+                    if err else "")
         parts.append(
-            f'<div class="span span-tool">'
+            f'<div class="span span-tool{" span-error" if err else ""}">'
             f'<div class="span-label">Tool call: <code>{esc(name)}</code> '
-            f'<span class="dur">{esc(dur_txt)}</span></div>'
+            f'<span class="dur">{esc(dur_txt)}</span> {err_html}</div>'
             f'<div class="tool-block"><span class="tool-block-label">args'
             f'</span><pre>{args_txt}</pre></div>'
             f'<div class="tool-block"><span class="tool-block-label">result'
             f'</span><pre>{result_txt}</pre></div></div>')
 
-    answer = rec.get("answer") or {}
+    answer = as_dict(rec.get("answer"))
     actual_answer = answer.get("actual")
     if actual_answer is not None:
         parts.append(
             f'<div class="span span-answer">'
             f'<div class="span-label">Final answer</div>'
             f'<pre>{esc(truncate(as_text(actual_answer)))}</pre></div>')
-    elif not route and not rec.get("tool_calls"):
+    elif not route and not tool_calls:
         parts.append('<p class="empty">No trajectory data on this record — '
                      'answer-only case, or traces unavailable '
                      '(trace-less mode).</p>')
@@ -229,7 +350,7 @@ def render_diff_section(rec):
     truth when both are present."""
     for key, label in (("result", "Result (execution accuracy)"),
                        ("answer", "Answer")):
-        block = rec.get(key) or {}
+        block = as_dict(rec.get(key))
         exp_text, act_text = as_text(block.get("expected")), as_text(
             block.get("actual"))
         if exp_text is None and act_text is None:
@@ -250,7 +371,7 @@ def render_diff_section(rec):
 
 
 def render_cost_table(rec):
-    stages = rec.get("stage_costs")
+    stages = as_dicts(rec.get("stage_costs"))
     if stages:
         rows = "".join(
             f'<tr><td>{esc(s.get("stage", "?"))}</td>'
@@ -278,12 +399,17 @@ def render_record(rec, idx):
             "this record carried no case_id or trace_id\">(synthesized id)</span>" \
         if not (rec.get("case_id") or rec.get("trace_id")) else ""
     verdict = rec.get("verdict", "unscored")
-    layers = rec.get("layers") or {}
+    layers = as_dict(rec.get("layers"))
     layer_badges = " ".join(
         f'{esc(name)}: {badge(v)}' for name, v in layers.items())
     surface = rec.get("prompt_surface") or rec.get("surface")
     surface_html = (f'<div class="callout">Implicated surface: '
                     f'<b>{esc(surface)}</b></div>' if surface else "")
+    offshape = offshape_fields(rec)
+    offshape_html = (f'<div class="callout">Ignored off-shape field(s): '
+                     f'<b>{esc(", ".join(offshape))}</b> — not the object/array '
+                     f'shape this viewer renders. The raw value is still in the '
+                     f'exported record below.</div>' if offshape else "")
 
     return f"""
 <article class="detail">
@@ -292,6 +418,7 @@ def render_record(rec, idx):
     <div class="badges">{badge(verdict)} {layer_badges}</div>
   </header>
   {surface_html}
+  {offshape_html}
   <section>
     <h3>Span tree</h3>
     {render_span_tree(rec)}
@@ -348,6 +475,8 @@ main { flex:1; overflow-y:auto; padding:1.2em 1.6em; }
 .span-tree .span { border-left:3px solid #8886; margin:.5em 0; padding:.35em .8em; }
 .span-route { border-color:#5b8dee; } .span-tool { border-color:#c98a2b; }
 .span-answer { border-color:#1a7f37; }
+.span-tool.span-error { border-color:var(--fail); }
+.tool-error { color:var(--fail); font-weight:600; font-size:.85em; }
 .span-label { font-weight:600; font-size:.85em; opacity:.85; margin-bottom:.2em; }
 .tool-block { margin-top:.3em; } .tool-block-label { font-size:.75em; opacity:.7; }
 pre { background:#8882; padding:.6em .8em; border-radius:.4em; overflow-x:auto;
@@ -400,9 +529,37 @@ JS = r"""
   // Latest-wins map (trace_id -> annotation) for badges/taxonomy; the
   // append-only log below is what actually gets exported, so re-reviewing a
   // trace never loses the earlier note.
-  var latest = {};
+  // Null-prototype because every key here is authored data — a trace_id, a
+  // case_id, a reviewer-typed category. On a plain {} those inherit
+  // Object.prototype, so `latest['constructor']` is truthy on an EMPTY map: the
+  // trace renders a done dot, drops out of the "unannotated" filter, and the
+  // reviewer never sees it — the same silently-skipped-work failure the
+  // case_id join below exists to fix, reached by a different door. Object.keys
+  // is unaffected; only `x.hasOwnProperty(k)` breaks, hence the .call form.
+  var latest = Object.create(null);
   var log = initialAnnotations.slice();
-  log.forEach(function (a) { latest[a.trace_id] = a; });
+
+  // Resolve a loaded annotation onto THIS page's records before keying it.
+  // A record whose trace_id collided was suffixed to "abc#3", and that suffix
+  // is the record's position under whatever --glob built the page — so an
+  // annotation exported from an earlier page stops matching the moment the
+  // record order shifts (one case added ahead of it is enough). It then reads
+  // as unannotated: no dot, back into the "unannotated only" filter, out of
+  // the taxonomy counts. annotation-ux.md already names the fix on the write
+  // side ("case_id is never suffixed — join on those, not on the #N id"); the
+  // export honored it and the load path did not. case_id is only usable as a
+  // key where it is unique on this page, and old lines may predate it, hence
+  // the fallback to trace_id rather than a straight re-key.
+  var byCase = Object.create(null);
+  records.forEach(function (r) {
+    byCase[r.case_id] =
+        Object.prototype.hasOwnProperty.call(byCase, r.case_id) ? null : r;
+  });
+  function annotationKey(a) {
+    var r = a.case_id ? byCase[a.case_id] : null;
+    return r ? r.trace_id : a.trace_id;
+  }
+  log.forEach(function (a) { latest[annotationKey(a)] = a; });
 
   var reviewer = localStorage.getItem('agent_eval_reviewer') || '';
   var filterMode = 'all';
@@ -417,14 +574,22 @@ JS = r"""
   var exportEl = document.getElementById('export-text');
   reviewerEl.value = reviewer;
 
+  // Memoized: one annotation keystroke used to re-run this filter three times
+  // over every record (save -> render -> renderList), each pass allocating a
+  // fresh array, on the hottest interaction in the tool. The only inputs are
+  // filterMode and latest, so the cache is dropped exactly where those change.
+  var visCache = null;
+  function invalidateVisible() { visCache = null; }
   function visible() {
-    return records.filter(function (r) {
+    if (visCache) return visCache;
+    visCache = records.filter(function (r) {
       if (filterMode === 'all') return true;
       if (filterMode === 'unannotated') return !latest[r.trace_id];
       if (filterMode === 'fail') return r.verdict === 'fail';
       if (filterMode === 'pass') return r.verdict === 'pass';
       return true;
     });
+    return visCache;
   }
 
   function renderList() {
@@ -447,7 +612,10 @@ JS = r"""
   }
 
   function renderTaxonomy() {
-    var counts = {};
+    // Keyed by free text the reviewer typed, the least trustworthy key in the
+    // file: on a plain {} a category of "toString" made (counts[c] || 0) + 1
+    // concatenate onto a native function and sort into the table as a string.
+    var counts = Object.create(null);
     Object.keys(latest).forEach(function (tid) {
       var c = (latest[tid].category || '').trim();
       if (!c) return;
@@ -492,7 +660,6 @@ JS = r"""
     renderTaxonomy();
     if (!vis.length) {
       mainEl.innerHTML = '<p class="empty">No traces match this filter.</p>';
-      updateExport();
       return;
     }
     var r = vis[cur];
@@ -501,7 +668,6 @@ JS = r"""
     document.getElementById('critique').value = existing ? existing.critique || '' : '';
     document.getElementById('category').value = existing ? existing.category || '' : '';
     wireAnnobar(r);
-    updateExport();
   }
 
   function buildAnnobar(r) {
@@ -534,13 +700,35 @@ JS = r"""
     var entry = { trace_id: r.trace_id, case_id: r.case_id, label: label,
       category: category, critique: critique, reviewer: reviewer,
       ts: new Date().toISOString() };
+    // A disambiguated id is this VIEWER's ("abc#3", suffixed because two
+    // records shared "abc"), and the export is appended to the user's tracked
+    // annotations JSONL — so without this the suffix leaks upstream as an id
+    // that exists in no dataset, and the "#3" is not even stable, since it is
+    // the record's position under whatever --glob produced this page. Carry
+    // the real id alongside it so the annotation stays traceable to the run;
+    // case_id is never suffixed and remains the reliable join key.
+    if (r.duplicate_trace_id) { entry.duplicate_trace_id = r.duplicate_trace_id; }
     latest[r.trace_id] = entry;
     log.push(entry);
-    updateExport();
-    goNext();
+    invalidateVisible();  // the 'unannotated' filter reads latest
+    // Appended, not re-serialized: the export box holds the whole loaded
+    // annotations file, so rebuilding it from `log` on every save (and, before,
+    // on every navigation) grew with the session for one new line of output.
+    exportEl.value += (exportEl.value ? '\n' : '') + JSON.stringify(entry);
+    // Under a filter that this annotation just excluded the record FROM
+    // ("unannotated only"), the list has already shifted: cur now points at the
+    // next trace, so advancing again steps over it. That walked every other
+    // trace on the way down and picked up the missed ones in reverse off the
+    // end-of-list clamp (A,C,E,G,H,F,D,B for eight traces) — nothing was lost,
+    // but a time-boxed session ended up with a strided sample instead of a
+    // prefix, which is a poor base for error analysis. Only advance when the
+    // record is still there.
+    if (visible().indexOf(r) === -1) { render(); } else { goNext(); }
   }
 
-  function updateExport() {
+  // Seeds the box from the annotations file loaded into the page; every later
+  // write appends its one line in save().
+  function seedExport() {
     exportEl.value = log.map(function (e) { return JSON.stringify(e); }).join('\n');
   }
 
@@ -563,7 +751,7 @@ JS = r"""
   }
 
   filterEl.addEventListener('change', function () {
-    filterMode = filterEl.value; cur = 0; render();
+    filterMode = filterEl.value; invalidateVisible(); cur = 0; render();
   });
 
   document.getElementById('copy-btn').addEventListener('click', function () {
@@ -601,6 +789,7 @@ JS = r"""
     }
   });
 
+  seedExport();
   render();
 })();
 """
@@ -674,16 +863,45 @@ build_review_viewer.py once the run has produced cases.</p>
 """
 
 
+# Escaping only "</" is the well-known half-measure. HTML has a SECOND way into
+# trouble: "<!--" puts the tokenizer in script data escaped state and a following
+# "<script" in script data double escaped state, where "</script>" no longer
+# closes the element (html.spec.whatwg.org/multipage/parsing.html). A record
+# whose answer quotes "<!--<script>" therefore swallowed the annotation-data
+# block AND the viewer's own <script>, leaving an inert blank page — verified
+# with a spec-compliant parser, which saw no annotation-data element at all.
+# Both routes start with "<", so escape the character itself. This is exactly
+# Django's _json_script_escapes, for the same <script type="application/json">
+# + textContent + JSON.parse pattern this page uses.
+_JSON_SCRIPT_TABLE = str.maketrans({"<": "\\u003C", ">": "\\u003E",
+                                    "&": "\\u0026"})
+
+
 def _no_script_break(s):
-    """A trace's tool result could legitimately contain the literal text
-    "</script>" (e.g. an app answer that quotes HTML) — escape the slash so
-    the embedded JSON <script> block can't be terminated early by data."""
-    return s.replace("</", "<\\/")
+    """Neutralize every character that can steer the HTML tokenizer out of the
+    embedded JSON <script> block. The escapes are JSON string escapes, so the
+    block still parses back to the original text."""
+    # One pass, not one per character: the input is the whole run serialized to
+    # JSON (every record's pre-rendered detail_html included), so three chained
+    # str.replace calls meant three full scans and three full-size copies of a
+    # multi-megabyte string on the hottest line of the build.
+    return s.translate(_JSON_SCRIPT_TABLE)
 
 
 def build_page(records, annotations, title, source):
     if not records:
         return EMPTY_PAGE.format(title=esc(title), source=esc(source))
+    # trace_id is the viewer's primary key: the JS latest[] map, the "already
+    # annotated" dot, the "unannotated only" filter and every exported
+    # annotation are all keyed by it. Two records sharing one is therefore the
+    # same defect the backfill below was written to fix, one level up —
+    # annotating either marks both done and hides the other under the filter.
+    # Records legitimately collide (a case re-run in the same directory, a
+    # --glob sweeping two run dirs, or two records that both lack a trace_id
+    # and share a case_id), so disambiguate rather than reject, and flag it in
+    # the page for the same reason a synthesized id is flagged: a suffixed id
+    # no longer correlates back to the dataset cleanly.
+    taken = set()
     for i, r in enumerate(records):
         # Render BEFORE backfilling the ids. render_record flags a synthesized
         # id by checking that neither case_id nor trace_id was present, and
@@ -693,8 +911,31 @@ def build_page(records, annotations, title, source):
         # does not correlate back to the dataset, so hiding it sends the
         # reviewer looking for a case that does not exist.
         r["detail_html"] = render_record(r, i)
-        r.setdefault("case_id", r.get("trace_id") or f"case-{i}")
-        r.setdefault("trace_id", r.get("case_id"))
+        # Not setdefault: it tests key EXISTENCE, not usefulness, so an
+        # explicit "trace_id": null — what a harness writes in the trace-less
+        # mode render_span_tree supports — survived it untouched. Every such
+        # record then collided on the single JS key "null" in the viewer's
+        # latest[] map, so annotating one marked them ALL annotated, hid the
+        # rest under the "unannotated only" filter, and printed "null" in the
+        # sidebar while the detail pane correctly showed the synthesized id.
+        if not r.get("case_id"):
+            r["case_id"] = r.get("trace_id") or f"case-{i}"
+        if not r.get("trace_id"):
+            r["trace_id"] = r["case_id"]
+        if r["trace_id"] in taken:
+            original = r["trace_id"]
+            r["trace_id"] = f"{original}#{i}"
+            r["duplicate_trace_id"] = original
+            # Appended rather than rendered inside render_record: the id is not
+            # known to be a duplicate until the ids before it have been seen,
+            # which is after that record was rendered.
+            r["detail_html"] += (
+                f'<div class="callout">Duplicate id <b>{esc(original)}</b> — '
+                f'another record in this run carries it too. Annotations are '
+                f'keyed per record, so this one was disambiguated to '
+                f'<b>{esc(r["trace_id"])}</b>; that suffix is this viewer\'s, '
+                f'not the dataset\'s.</div>')
+        taken.add(r["trace_id"])
     trace_data = _no_script_break(json.dumps({"records": records}))
     annotation_data = _no_script_break(json.dumps(annotations))
     return PAGE.format(title=esc(title), css=CSS, js=JS,
@@ -721,9 +962,14 @@ def main():
                     help="destination .html path (default: print to stdout)")
     ap.add_argument("--title", default=None,
                     help="page title (default: derived from run_path)")
+    ap.add_argument("--glob", default="*.json", dest="glob_pattern",
+                    help="when run_path is a directory, which files hold case "
+                         "records (default: %(default)s). Use this for a run "
+                         "layout that nests them, e.g. "
+                         "'cases/*/verdict.json'")
     a = ap.parse_args()
 
-    records, source = load_records(a.run_path)
+    records, source = load_records(a.run_path, a.glob_pattern)
     annotations = []
     if a.annotations:
         annotations = load_jsonl(a.annotations, required_keys=("trace_id",))
@@ -731,14 +977,7 @@ def main():
     title = a.title or f"Review — {pathlib.Path(a.run_path).name}"
     page = build_page(records, annotations, title, source)
 
-    if a.output:
-        try:
-            with open(a.output, "w", encoding="utf-8") as f:
-                f.write(page)
-        except OSError as e:
-            die(f"cannot write output: {e}")
-    else:
-        sys.stdout.write(page)
+    write_output(a.output, page)
 
 
 if __name__ == "__main__":

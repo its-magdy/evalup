@@ -1,0 +1,45 @@
+# Lint config for the agent-eval plugin.
+#
+# target-version is the load-bearing line: README.md claims a Python 3.9 floor
+# and the scorers are stdlib-only, so the thing most likely to break that claim
+# is a 3.10+ idiom nobody notices on a newer interpreter. Pinning py39 here
+# makes the floor a checked claim at lint time, alongside the test run.
+target-version = "py39"
+line-length = 88
+
+# PLW1514 (explicit encoding=) is preview-gated. It is cited BY NAME in
+# _common.load_text's docstring, alongside PEP 597, as the reason every read in
+# this harness passes encoding="utf-8" -- so it is enabled rather than left as
+# folklore a future edit can quietly drop.
+preview = true
+
+[lint]
+# A deliberately small set, not a wide sweep: every rule below either catches a
+# real defect class or is one the code already argues for in a comment.
+#   E,W,F   - pycodestyle/pyflakes baseline (unused imports, undefined names)
+#   I       - import order, so the block shape stops drifting per file
+#   UP      - pyupgrade, bounded by target-version so it never suggests a 3.10+ form
+#   B       - bugbear: mutable defaults, loop-variable capture
+#   SIM     - the simplifications reviews keep flagging by hand
+#   PLW1514 - see the preview note above
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "PLW1514"]
+
+[lint.per-file-ignores]
+# The viewer embeds its CSS and JS as string literals. Those are assets, not
+# Python, and wrapping them to a Python line limit hurts the thing being read.
+"scripts/build_review_viewer.py" = ["E501"]
+
+# normalize_trace's all-zero-id branches each carry an inline comment naming
+# the encoding they cover ("all-zero hex", "all-zero bytes, base64"); collapsing
+# them into one boolean return would drop the comments, which are the point.
+"scripts/normalize_trace.py" = ["SIM103"]
+
+# score_execution's augmenting-path loop returns early with a comment
+# explaining WHY an unpairable row means "not a perfect match". all() would be
+# terser and less clear at the exact spot the reader needs help.
+"scripts/score_execution.py" = ["SIM110"]
+
+# Tests: the explicit .encode("utf-8") in the locale tests is the subject under
+# test, not redundancy (UP012), and a lambda fixture builder reads better inline
+# than a nested def (E731).
+"tests/*.py" = ["UP012", "E731"]

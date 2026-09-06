@@ -5,29 +5,93 @@ One file per case. Conversation content uses the OpenAI-schema message array
 case; everything a human reviews is readable without tooling.
 
 ```yaml
-id: billing-happy-3f9a2c1d          # <unit>-<category>-<hash8>, stable forever.
-                                    # unit = route target (domain/node/sub-agent),
-                                    # or the primary tool / "app" for single-LLM.
+id: c-3f9a2c1d                      # OPAQUE and stable forever: c-<hash8>.
+                                    # Do NOT encode unit or category in the id.
+                                    # Both are mutable classifications, and an id
+                                    # declared "stable forever" that spells one of
+                                    # them WILL eventually lie: reclassify a case
+                                    # from happy to oos and the id still claims
+                                    # happy; rename a domain and every id spelling
+                                    # the old name is stranded. Keep them as the
+                                    # fields below, where a reclassification is a
+                                    # normal edit. (Braintrust's id-upsert model:
+                                    # the id identifies, it does not describe.)
+unit: billing                       # route target (domain/node/sub-agent), or the
+                                    # primary tool for a tool_agent, or "app".
+                                    # A FIELD now — see the id note above.
+split: [full, smoke]                # which splits this case belongs to. A FIELD,
+                                    # not a directory copy. run-modes.md already
+                                    # calls smoke membership "a durable tag"; this
+                                    # makes it literally one. Copying the file into
+                                    # smoke/ and canary/ creates two files with the
+                                    # same id and no single source of truth — an
+                                    # in-place rewrite updates one and silently
+                                    # leaves the other stale. `holdout` stays
+                                    # mutually exclusive with `full` (enforced by
+                                    # the field, not by which folder the bytes are
+                                    # in), so a sealed case is never also in full.
 dataset_version_added: 3
 category: happy | multistep | edge | ambiguous | oos | adversarial-refusal | noise
+                                    # Input flavor. Sub-divides MFT; these all share
+                                    # one oracle, which is why they are a field and
+                                    # not the grid's column axis.
+test_type: MFT                      # MFT | INV | DIR — the ORACLE type, and the
+                                    # grid's real column axis (CheckList,
+                                    # arXiv:2005.04118: capabilities x test types).
+                                    # MFT = a direct case with its own expectation.
+                                    # INV = perturbed input, expectation must NOT
+                                    #       change (pair with metamorphic_parent);
+                                    #       inherits the parent's labels, so it is
+                                    #       the cheapest coverage in the grid.
+                                    # DIR = perturbed input, expectation moves in a
+                                    #       KNOWN direction (narrower filter must not
+                                    #       increase row count; a permission removed
+                                    #       must not add rows).
 difficulty: medium                  # easy | medium | hard. HIDDEN from the agent — never
                                      # copy this into input.messages or any prompt text; it
                                      # exists only for stratified reporting (GAIA-style: report
                                      # pass rate per difficulty band, never blended). Canonical
-                                     # schema field, EVAL-DESIGN-RECOMMENDATION.md §19.
-template_id: null                   # optional: id shared by every instantiation of one
+                                     # schema field.
+template_id: shift_count_by_role    # REQUIRED unless this is a declared one-off.
+                                    # id shared by every instantiation of one
                                      # authored case template (e.g. "shift_count_by_role").
                                      # Groups variants for consistency scoring — does the app
-                                     # behave the same across instances of the same template
-                                     # (AppWorld "SGC"). Omit for one-off cases.
-instantiation_params: {}            # optional, paired with template_id: the PUBLIC params
-                                     # that vary per instance (e.g. {role: nurse, week:
-                                     # "2026-W05"}) — safe to reflect in the instruction text.
+                                     # behave the same across instances of the same template.
+                                     # Per-template consistency reporting, an idea borrowed
+                                     # from AppWorld's scenario-level goal-completion (SGC)
+                                     # metric rather than a direct equivalent of it — AppWorld
+                                     # doesn't itself define a template-consistency metric.
+                                     # ALSO what makes the suite's clustering computable:
+                                     # cases sharing a template are not independent samples,
+                                     # so a pass rate over them needs CLUSTERED standard
+                                     # errors ("Adding Error Bars to Evals", Miller 2024).
+                                     # Set to null ONLY for a declared one-off case.
+instantiation_params: {role: nurse} # REQUIRED whenever template_id is set: the tuple this
+                                     # case was realized from — the PUBLIC params that vary
+                                     # per instance (e.g. {role: nurse, week: "2026-W05"}),
+                                     # safe to reflect in the instruction text.
                                      # Never put the gold answer here; that stays under `expect`
                                      # so the oracle can never leak into the prompt.
+                                     # template_id without params, or params without
+                                     # template_id, is a hard error — it means the two-phase
+                                     # generation flow (generate/SKILL.md §2a) was short-
+                                     # circuited and the case was written straight to prose.
 origin: synthetic | real-trace:<trace_id> | exploratory | mutation-gap
-review: { status: accepted | pending | quarantined, by: <name>, at: <date> }
-metamorphic_parent: null            # or a case id — expectation: same behavior
+review: { status: pending, by: null, at: null }
+                                     # status: accepted | pending | quarantined.
+                                     # `accepted` MAY ONLY BE SET BY A HUMAN, and `by` must
+                                     # be that person's name. A generator writing
+                                     # "accepted, by: generate-review" records that nobody
+                                     # looked — strictly worse than `pending`, which is at
+                                     # least visibly unreviewed. validate_cases.py warns
+                                     # (machine_accepted) on an automated-looking `by`.
+filter:                              # provenance from the §2b mechanical filter pass, so a
+                                     # reviewer can see what was screened and tune it.
+  self_contained: 0.91               # quality score; below threshold -> dropped, not kept
+  answerable: true                   # could the expectation be derived from the oracle?
+  nearest_neighbour: { id: c-2b8d4401, rouge_l: 0.34 }   # near-duplicate gate (< 0.7)
+metamorphic_parent: null             # or a case id — the parent this INV/DIR case perturbs.
+                                     # Required when test_type is INV or DIR.
 
 input:
   messages:                          # OpenAI-schema; single- or multi-turn
@@ -84,7 +148,7 @@ expect:
                                      # unrecognized mode is a hard error, never a
                                      # silent fallback to the loosest mode.
     forbidden: [update_ticket]       # policy: must NOT be called
-  args:                              # scored by score_args.py per observed call:
+  args:                              # scored by score_args.py:
     get_invoice: { invoice_id: from_tool_result }  # value | from_tool_result | present
                                      # from_tool_result needs content capture —
                                      # without it the check is "unscorable", not fail.
@@ -94,9 +158,29 @@ expect:
                                      # under 3 chars are "unscorable".
                                      # A never-called tool is a trajectory finding,
                                      # not an args fail.
-                                     # NOTE: "present" and "from_tool_result" are
-                                     # reserved — you cannot assert those two as
-                                     # literal expected VALUES.
+    # search: { calls: any, q: invoices }   # CALL SCOPE. A tool may legitimately be
+                                     # called several times with different arguments
+                                     # (page, refine, retry), so an expectation about
+                                     # one call is not an assertion about all of them.
+                                     # any   — DEFAULT: passes if AT LEAST ONE call
+                                     #         satisfies every spec in the entry. Specs
+                                     #         are evaluated together per call, so
+                                     #         "the call that did X also did Y" stays
+                                     #         expressible.
+                                     # all   — every observed call must satisfy them.
+                                     # first — only the tool's first call is checked.
+                                     # An unrecognized scope is a hard error, never a
+                                     # silent fallback (same discipline as order_mode).
+                                     # NOTE ON RESERVED WORDS: "present" and
+                                     # "from_tool_result" are reserved VALUES (you
+                                     # cannot assert them as literal expected values);
+                                     # "calls" is a reserved KEY (a tool argument
+                                     # actually named `calls` cannot be asserted on).
+                                     # An entry that asserts nothing once `calls` is
+                                     # removed (`search: {calls: all}`, `search: {}`,
+                                     # `search:`) is a HARD ERROR — it would score every
+                                     # trajectory and leave no row saying so. To assert
+                                     # only that a tool was called, use expect.tools.
   state:                             # end-state assertion (needs seed_state + snapshot)
     null
   authz:                             # PERMISSION/SCOPE cases — scored by score_authz.py
@@ -158,6 +242,14 @@ expect:
                                      # outer slashes to match it literally.
                                      # A regex that cannot finish in 2s is reported
                                      # "unscorable"; it never hangs the run.
+                                     # NO TRAILING /flag SUFFIX: "/pattern/i" (Perl/
+                                     # JS-style) is NOT this convention — only bare
+                                     # /pattern/ is recognized. Case-insensitivity
+                                     # goes INLINE: "/(?i:pattern)/". A trailing /i
+                                     # is caught and reported "unscorable" (found
+                                     # live: 6 cases shipped with /i and the check
+                                     # either always failed or vacuously always
+                                     # passed before this was caught).
     rules: [no-uncatalogued-prices]  # business-rule oracle ids from profile.yaml —
                                      # evaluated by the run skill against the
                                      # profile's rule definitions, not by a script
@@ -171,17 +263,40 @@ expect:
                                      # score_answer.py (minimal stdlib validator:
                                      # type/required/properties/items/enum)
 
-no_op_expectation: fail              # pass | fail. Sanity check (AppWorld no_op_pass/no_op_fail):
-                                     # if an agent calls no tools and gives no real answer, does
+no_op_expectation: fail              # pass | fail. Sanity check: if an agent calls no tools
+                                     # and gives no real answer, does
                                      # this case correctly FAIL? Almost always `fail` — a case
                                      # that resolves to `pass` for a do-nothing agent is usually
                                      # vacuous (reconsider it rather than accepting `pass` as the
-                                     # default). Not itself scored by a runner flag; it's a
-                                     # generation-time and review-time sanity label.
+                                     # default). Not scored by a runner flag; it's a
+                                     # generation-time and review-time sanity label — but
+                                     # validate_cases.py DOES check it (warning: no_op_pass),
+                                     # so it is no longer advisory-only prose.
+no_op_justification: null            # REQUIRED when no_op_expectation is `pass`: one line on
+                                     # why this case is the exception. Without it the `pass`
+                                     # is just an assertion that the case need not work, and
+                                     # a suite quietly accumulates them (a quarter of a real
+                                     # 31-case suite carried `pass` before this check existed).
+                                     # Writing the reason down is the whole gate — it forces
+                                     # the author to notice they are exempting a case.
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
 gating: true                         # false = tracked-not-gating (e.g. noise cases pre-launch)
 notes: ""                            # reviewer's one-liner: why this case exists
 ```
+
+Validation: run `scripts/validate_cases.py --cases <suite.json> --capabilities
+<capability_matrix.json>` before handing a dataset over. It is the load-time
+schema check this format previously lacked — the "hard error, never a silent
+fallback" rules below (`order_mode`, args `calls` scope, empty `columns`) were
+enforced only inside individual scorers at RUN time, which is long after a
+suite is authored and reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
+
+The check that matters most is `no_graded_layer`: a case must assert at least
+one layer that is ENABLED in the capability matrix. `expect.http` alone never
+counts — it is a liveness check, not a behavioral assertion. This is what
+prevents a suite of `gating: true` cases whose expectations all sit in disabled
+layers: such cases run, pass, and cannot fail, inflating the pass rate while
+measuring nothing.
 
 Scoring semantics:
 - Layers score independently; a case reports per-layer verdicts, not one blob.
@@ -196,3 +311,8 @@ Scoring semantics:
 - `difficulty` never appears in `input.messages` or any text sent to the agent; it
   exists purely so reports can be segmented per band instead of blended into one
   average (a blended pass rate hides a band that's actually broken).
+- A layer with zero failing checks but one or more `unscorable` ones reports
+  `verdict: pass` **plus** a top-level `partially_unscored: true`. The verdict stays
+  `pass` because consumers key on it, but a pass resting partly on checks that could
+  not be evaluated is not the same as a fully-evidenced one — report the flag rather
+  than letting the distinction vanish.

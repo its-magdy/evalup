@@ -10,7 +10,16 @@ for the trace, or orphaned parent references -> status "incomplete" so the
 runner scores the case INFRA_INCOMPLETE instead of manufacturing failures.
 Missing result CONTENT (content capture off) is reported in checks and gates
 only content-dependent scoring (args from_tool_result, faithfulness) — it does
-not mark an otherwise intact trace incomplete.
+not mark an otherwise intact trace incomplete. Zero matching spans is reported
+alongside the file's total span count, so a mistyped --trace-id is
+distinguishable from a trace the app never emitted.
+
+A tool call that FAILED is a third thing, distinct from both: the convention
+records gen_ai.tool.call.result only "if execution was successful", so a
+failure otherwise looks exactly like content capture being off. error.type
+(stable, conditionally required) and the OTLP span status are read onto each
+call as "error" and summarized in checks.tool_calls_errored, so the scoring
+layers can tell "the tool was called" from "the tool worked".
 
 Attribute values follow OTLP AnyValue: scalars, arrays, and kv-lists are all
 converted to native Python — a structured tool result is data, not None. A
@@ -27,7 +36,7 @@ import argparse
 import json
 import sys
 
-from _common import add_version_flag
+from _common import add_version_flag, load_json
 
 
 def any_value(v):
@@ -128,6 +137,35 @@ def has_parent(span):
     return True
 
 
+def span_error(span, at):
+    """The error a span ended with, or None.
+
+    Reads `error.type` — STABLE and Conditionally Required in the OTel
+    semantic conventions "if the operation ended in an error" — and falls back
+    to the OTLP span status (code 2 = STATUS_CODE_ERROR, spelled either as the
+    enum name or its integer), which every exporter sets whether or not it
+    populates the GenAI attribute.
+
+    Without this, a tool call that returned HTTP 500 was indistinguishable from
+    a successful one: the spec records `gen_ai.tool.call.result` only "if
+    execution was successful", so the failure showed up solely as a MISSING
+    result — the same signal the opt-in content-capture flags use. The failure
+    was then laundered into "content capture is off", which pointed every
+    downstream diagnosis at exporter config instead of the broken tool, and a
+    trajectory whose only tool call errored still scored a clean pass."""
+    error_type = at.get("error.type")
+    if isinstance(error_type, str) and error_type.strip():
+        return error_type
+    status = span.get("status")
+    if isinstance(status, dict):
+        code = status.get("code")
+        if code in (2, "2", "STATUS_CODE_ERROR"):
+            message = status.get("message")
+            return message if isinstance(message, str) and message.strip() \
+                else "STATUS_CODE_ERROR"
+    return None
+
+
 def int_or_zero(v):
     try:
         return int(v or 0)
@@ -149,18 +187,26 @@ def main():
                          "ignored")
     a = ap.parse_args()
 
-    try:
-        with open(a.spans_file) as f:
-            raw = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        print(json.dumps({"status": "error", "error": str(e)}))
+    def fail(message):
+        """This script's error shape. Every one of its outputs carries a
+        status ("ok"/"incomplete"/"error"), so a consumer switching on that
+        field sees a coherent tri-state — the documented exception to the
+        plain {"error": ...} payload in _common.die."""
+        print(json.dumps({"status": "error", "error": message}))
         sys.exit(2)
 
+    # Through the shared reader, with this script's error shape: the encoding
+    # contract _common.load_text spells out at length is asserted in ONE place
+    # rather than re-derived here, which is how this script came to be the one
+    # bare open() left in the package (PEP 597 / Ruff PLW1514). Its quiet
+    # failure mode is the dangerous one — under latin-1/cp1252 a non-ASCII tool
+    # name decodes to mojibake without raising, so every downstream scorer
+    # compares against garbage.
+    raw = load_json(a.spans_file, on_error=fail)
+
     def bad_input(detail):
-        print(json.dumps({"status": "error", "error": (
-            f"{a.spans_file}: expected OTLP TracesData, a list of them, or a "
-            f"span list; {detail}")}))
-        sys.exit(2)
+        fail(f"{a.spans_file}: expected OTLP TracesData, a list of them, or a "
+             f"span list; {detail}")
 
     # A shape this script cannot read is a DATA error, reported loudly. It is
     # deliberately not degraded to an empty span list: "zero spans" already
@@ -209,6 +255,7 @@ def main():
                 "call_id": at.get("gen_ai.tool.call.id"),
                 "args": args,
                 "result": at.get("gen_ai.tool.call.result"),
+                "error": span_error(s, at),
                 "duration_ms": duration_ms(s),
             })
         elif op in ("chat", "text_completion", "generate_content"):
@@ -233,11 +280,37 @@ def main():
                     break
                 parent = by_id[parent].get("parentSpanId")
 
-    missing_results = [t["call_id"] for t in tool_calls
-                       if t["result"] is None and t["call_id"]]
+    # An errored call is NOT an uncaptured one. The spec records a tool result
+    # only on success, so lumping the two together reported a broken tool as
+    # "content capture off" — a true statement about the wrong subsystem, and
+    # the reason a failing tool could look like a tracing misconfiguration.
+    errored = [{"call_id": t["call_id"], "tool": t["name"],
+                "error": t["error"]}
+               for t in tool_calls if t["error"] is not None]
+    # Identified positionally when the exporter set no gen_ai.tool.call.id.
+    # Filtering on a truthy call_id dropped exactly the traces where NO call
+    # carries an id, so the list came back empty and the run read
+    # "every tool result was captured" — the most confident possible report of
+    # the least instrumented possible trace, on the check whose job is to say
+    # that content capture is off.
+    missing_results = [t["call_id"] or f"index:{i}"
+                       for i, t in enumerate(tool_calls)
+                       if t["result"] is None and t["error"] is None]
     checks = {
         "spans_for_trace": len(spans),
+        # Beside it, so the two ways to get zero stay distinguishable: a trace
+        # that produced nothing, and a --trace-id that matched nothing in a
+        # file full of spans (a typo, or the wrong run). Both used to report
+        # exactly `spans_for_trace: 0` and score every case INFRA_INCOMPLETE,
+        # which reads as "the app's tracing is broken" for what is a mistyped
+        # argument.
+        "spans_in_file": len(all_spans),
         "orphaned_parents": orphans,
+        # Tool calls the app itself reported as failed (error.type / span
+        # status). Informational here — whether a failed call fails the CASE is
+        # the scoring layers' decision, not the normalizer's — but it must
+        # never again be silently indistinguishable from success.
+        "tool_calls_errored": errored,
         # Informational: gates content-dependent scoring only (args
         # from_tool_result, faithfulness), never completeness. The two
         # capture flags are separate on purpose — an exporter can record
@@ -251,6 +324,17 @@ def main():
         "spans_missing_duration": [s.get("spanId") for s in spans
                                    if duration_ms(s) is None],
     }
+    if not spans and all_spans:
+        # Spell the likely cause out rather than leaving the reader to compare
+        # two counts. This is the difference between "the run under test never
+        # emitted a trace" (a real infra finding) and "you passed the wrong
+        # id" (a typo), and only one of them is worth investigating.
+        checks["trace_id_note"] = (
+            f"no span carries trace_id {a.trace_id!r}, but the file holds "
+            f"{len(all_spans)} span(s) across "
+            f"{len({s.get('traceId') for s in all_spans})} other trace id(s) "
+            "— check --trace-id (a mistyped or wrong-run id looks exactly "
+            "like an empty trace here)")
     incomplete = (not spans) or bool(orphans)
 
     print(json.dumps({
