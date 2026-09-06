@@ -77,34 +77,18 @@ Each step is sized for a single low-usage session. Mark done as you go.
       rationale for *not* using directories. 399 tests OK, ruff clean.
 
 - [x] **Step 2 — One path convention.**
-      **DONE 2026-09-07 — `05804ef`.** 18 files, +434/-388. Applied the rule
-      exactly as stated: `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or
-      read cross-skill (scripts, `docs/`, `agents/`, another skill's `SKILL.md`
-      or `references/`), relative markdown links for a `SKILL.md` pointing into
-      its own `references/`. All 7 `@references/...` uses (discover ×4,
-      generate ×2, optimize ×1) became relative markdown links. The convention
-      is now written down in `README.md` §"Path convention" — previously it
-      existed only in the audit.
-      **The audit's offender list was wrong in both directions again.** It
-      named 6 files; the real count is 17 plugin files. Missed entirely:
-      `docs/rubric-format.md` (×8), `docs/workflow.md`, `docs/migrate-run-layout.md`,
-      `run/references/run-modes.md` (×13), `run/references/scoring-layers.md` (×6),
-      `discover/references/profile-schema.md`, `annotation-ux.md`, `help/SKILL.md`,
-      `start/SKILL.md`, `optimize/SKILL.md`, plus `generate/SKILL.md:62`
-      (`discover/SKILL.md` + `discover/references/profile-schema.md`, bare) and
-      `analyze/SKILL.md:179` (invokes `build_review_viewer.py` with no path at
-      all). Listed but clean: `agents/trace-analyzer.md` has **zero** path
-      references. Grep, do not read the list.
-      Three deliberate non-conversions, all app-relative not plugin-relative:
-      `help/SKILL.md`'s state-location `scripts/` (reworded to "its own
-      `scripts/`" so it can't be misread), `templates/<template_id>.yaml` in
-      generate + test-generator, and `datasets/`/`reports/`/`candidates/`.
-      `README.md` and the scripts' docstrings stay repo-relative on purpose —
-      they are read by a human at the plugin root, which README now says.
-      Prose was rewrapped to 79 cols only for the items that got longer;
-      verified word-for-word identical to HEAD apart from the path tokens.
-      Every `${CLAUDE_PLUGIN_ROOT}` target and every relative link checked to
-      resolve to a real file. 399 tests OK, ruff clean.
+      **DONE 2026-09-07 — `05804ef`.** 18 files, +434/-388. The rule as
+      planned: `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or read
+      cross-skill; relative markdown links for a `SKILL.md` pointing into its
+      own `references/`. All 7 `@references/...` uses converted. App/state
+      paths (`datasets/`, `reports/`, `templates/`, the state dir's own
+      `scripts/`) stay bare on purpose; `README.md` and script docstrings stay
+      repo-relative, and README §"Path convention" now says all of this.
+      **The audit's offender list was wrong in both directions again:** it
+      named 6 files, 17 needed changes, and one it named
+      (`agents/trace-analyzer.md`) has zero path references. Full accounting
+      in the commit message. Grep; do not work down the list.
+      399 tests OK, ruff clean.
 
 - [ ] **Step 3 — The three scorer bugs, each with a regression test.**
       (a) `stats.py`: emit `sub_mde_keep` when `keep and abs(delta) < mde`, and
