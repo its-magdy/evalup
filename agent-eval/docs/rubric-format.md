@@ -1,12 +1,13 @@
 # Rubric Format (`rubrics/*.md`, under the state location)
 
 A rubric is a **decomposed-binary DAG**, not a holistic score. It is the thing
-`agents/judge.md` executes one node of at a time, and the thing a case
-references by id in its `answer.rubric` field (see
-`skills/generate/references/case-format.md`). This doc is the concrete spec:
-node types, authoring procedure, file shape, and the calibration workflow.
-The rationale for decomposed-binary over holistic scoring is argued below;
-this doc is the "how to actually write one," not a re-argument of "why."
+`${CLAUDE_PLUGIN_ROOT}/agents/judge.md` executes one node of at a time, and the
+thing a case references by id in its `answer.rubric` field (see
+`${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md`). This doc is
+the concrete spec: node types, authoring procedure, file shape, and the
+calibration workflow. The rationale for decomposed-binary over holistic scoring
+is argued below; this doc is the "how to actually write one," not a re-argument
+of "why."
 
 ## Why decomposed, not holistic
 
@@ -31,9 +32,10 @@ phenomenon. It is substantially reduced — not eliminated — in this pointwise
 decomposed, reference-guided mode (arXiv:2506.02592, arXiv:2604.22891), which
 is *why* same-family judging (Claude judging Claude) is an accepted degraded
 mode here rather than a disqualifier, subject to
-`judge.same_family_accepted: true` being set consciously *and* to the
-periodic cross-family spot-check audit described in `agents/judge.md` — a
-required part of same-family mode, not an optional extra.
+`judge.same_family_accepted: true` being set consciously *and* to the periodic
+cross-family spot-check audit described in
+`${CLAUDE_PLUGIN_ROOT}/agents/judge.md` — a required part of same-family mode,
+not an optional extra.
 
 ## The three node kinds
 
@@ -176,7 +178,8 @@ this doc when the two are reconciled.)
 
 ## Calibration workflow
 
-Same discipline as `skills/analyze/SKILL.md --label`, applied per rubric:
+Same discipline as `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md --label`,
+applied per rubric:
 
 1. **Discovery pass, ~30 cases.** Expert makes a binary pass/fail per node by
    hand + a written critique detailed enough to reuse later as a few-shot
@@ -201,7 +204,8 @@ Same discipline as `skills/analyze/SKILL.md --label`, applied per rubric:
    immediately if a canary case starts failing.
 5. Until a rubric's `status.calibrated` is `true`, every verdict it produces
    is watermarked `PROVISIONAL` and the optimizer refuses to target it
-   (`skills/optimize`'s gate, not this doc's to restate in full).
+   (`${CLAUDE_PLUGIN_ROOT}/skills/optimize`'s gate, not this doc's to restate
+   in full).
 
 ## Worked template: license-expiry DAG
 
@@ -282,14 +286,16 @@ friends:
 
 ## Cross-references
 
-- `agents/judge.md` — executes one node at a time; owns the runtime contract
-  (reasoning-before-verdict, evidence quoting, unknown, temperature 0).
-- `skills/generate/references/case-format.md` — the case's `answer.rubric`
-  field and the `answer.rules` split this doc's "business-rule vs judged"
-  section refers to. (Not owned here — reference by path only.)
-- `skills/analyze/SKILL.md`'s `--label` flow — the operational calibration
-  loop this doc's workflow section describes the target numbers for. (Not
-  owned here — reference by path only.)
-- `skills/discover/references/profile-schema.md`'s `judge:` block — the
-  global calibration/status record this doc's per-rubric `status` block
-  feeds. (Not owned here — reference by path only.)
+- `${CLAUDE_PLUGIN_ROOT}/agents/judge.md` — executes one node at a time; owns
+  the runtime contract (reasoning-before-verdict, evidence quoting, unknown,
+  temperature 0).
+- `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md` — the
+  case's `answer.rubric` field and the `answer.rules` split this doc's
+  "business-rule vs judged" section refers to. (Not owned here — reference by
+  path only.)
+- `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md`'s `--label` flow — the
+  operational calibration loop this doc's workflow section describes the target
+  numbers for. (Not owned here — reference by path only.)
+- `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/profile-schema.md`'s
+  `judge:` block — the global calibration/status record this doc's per-rubric
+  `status` block feeds. (Not owned here — reference by path only.)

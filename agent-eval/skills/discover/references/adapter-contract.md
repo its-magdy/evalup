@@ -7,8 +7,8 @@ literals; validation must fail loudly on any credential-looking string.
 **Path resolution.** Every path below is relative to one of two roots, and each
 field says which: the **state location** (this file's own directory), or the
 **app root** (`app.repo`, itself resolved against the state location). Paths
-never resolve against the plugin's own `scripts/` — those are the harness's
-files, not the app's.
+never resolve against the plugin's own `${CLAUDE_PLUGIN_ROOT}/scripts/` —
+those are the harness's files, not the app's.
 
 ```yaml
 adapter_version: 1

@@ -140,19 +140,20 @@ traces has told you what it has to tell you.
 
 ## Calibration UX
 
-When the judge has a provisional rubric, use the same viewer (or `analyze
---label`'s one-at-a-time flow, which walks the identical steps
-conversationally) to run the calibration pass: for 25–50 examples, the
-judge's provisional per-dimension verdict sits beside a blank human column;
-the reviewer marks agree / disagree / edit-rubric, with a critique on every
-disagreement. Track **TPR and TNR live, never raw accuracy** — a 90%-pass
-app makes an always-pass judge look 90% "accurate" while catching 0% of real
-failures, exactly the trap `docs/rubric-format.md`'s calibration workflow and
-`analyze --label` both guard against. **EvalGen's rule applies here too:**
-the rubric-edit control sits right next to the grading action, because
-editing the rubric mid-session is not a distraction from labeling — criteria
-drift is what grading real cases discovers, and pretending the rubric was
-final before you'd seen 30 examples is how a rubric ships broken.
+When the judge has a provisional rubric, use the same viewer (or
+`analyze --label`'s one-at-a-time flow, which walks the identical steps
+conversationally) to run the calibration pass: for 25–50 examples, the judge's
+provisional per-dimension verdict sits beside a blank human column; the
+reviewer marks agree / disagree / edit-rubric, with a critique on every
+disagreement. Track **TPR and TNR live, never raw accuracy** — a 90%-pass app
+makes an always-pass judge look 90% "accurate" while catching 0% of real
+failures, exactly the trap `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md`'s
+calibration workflow and `analyze --label` both guard against. **EvalGen's rule
+applies here too:** the rubric-edit control sits right next to the grading
+action, because editing the rubric mid-session is not a distraction from
+labeling — criteria drift is what grading real cases discovers, and pretending
+the rubric was final before you'd seen 30 examples is how a rubric ships
+broken.
 
 ## The flywheel — critiques become the next asset, every time
 

@@ -13,8 +13,10 @@ argument-hint: "[path-or-url] [--diff]"
 
 Output artifacts, written to the state location (default `<app>/.agent-eval/`,
 or the adapter's `state_location` — any external path is fine for read-only repos):
-`profile.yaml` (what the app is; schema in @references/profile-schema.md),
-`adapter.yaml` (how to talk to it; contract in @references/adapter-contract.md),
+`profile.yaml` (what the app is; schema in
+[references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`
+(how to talk to it; contract in
+[references/adapter-contract.md](references/adapter-contract.md)),
 and `findings.md` (design gaps found — often week one's most valuable output).
 
 ## Procedure
@@ -29,8 +31,9 @@ and `findings.md` (design gaps found — often week one's most valuable output).
 ### 2. Topology detection — an explicit enum, not a vibe
 Set `architecture.kind` to exactly one of `single_llm | tool_agent |
 router_executor | multi_agent | workflow` (schema in
-@references/profile-schema.md). This enum **mechanically drives which eval
-layers turn on** (recorded in `capability_matrix`, see bottom of this file):
+[references/profile-schema.md](references/profile-schema.md)). This enum
+**mechanically drives which eval layers turn on** (recorded in
+`capability_matrix`, see bottom of this file):
 `single_llm` → no trajectory/routing (asserting a trajectory over one bare
 call is noise, not rigor); `tool_agent` → full trajectory (tool selection +
 args + loop termination) applies; `router_executor` → routing is scored **as
@@ -134,11 +137,13 @@ edit; a "no" is fine — see Read-only mode below):
   read-only oracle connection (`SELECT`-only DB role or read replica, never
   the app's write connection) so the execution layer can compute `expected`
   from a reference query against known state. The connection/seed/reset
-  mechanics are the adapter's job — see adapter-contract.md's `environment:`
-  block for the contract this wires into. This step only decides **whether**
+  mechanics are the adapter's job — see
+  [references/adapter-contract.md](references/adapter-contract.md)'s
+  `environment:` block for the contract this wires into. This step only decides **whether**
   one exists and records it as `oracle:` in profile.yaml (schema in
-  @references/profile-schema.md), which is what `capability_matrix.execution`
-  checks as its precondition. Declining is normal — see Read-only mode below;
+  [references/profile-schema.md](references/profile-schema.md)), which is
+  what `capability_matrix.execution` checks as its precondition. Declining is
+  normal — see Read-only mode below;
   record `oracle: { available: false }` plus the declined-patch entry and the
   copy-paste fixture/role-grant script in findings.md.
 After each patch, re-verify with one live request.

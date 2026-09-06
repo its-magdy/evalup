@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-07 (Step 1 done — splits are now a field everywhere)
+**Last updated:** 2026-09-07 (Step 2 done — one path convention everywhere)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -76,14 +76,35 @@ Each step is sized for a single low-usage session. Mark done as you go.
       rewrite). Only `datasets/*/` mentions left are in generate's own
       rationale for *not* using directories. 399 tests OK, ruff clean.
 
-- [ ] **Step 2 — One path convention.** Three coexist; the bare relative ones
-      are broken (they resolve against the *user's app CWD*, not the plugin).
-      Rule to apply: `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or read
-      cross-skill; relative markdown links for same-skill `references/`.
-      Worst offenders: `analyze/SKILL.md` (×8), `run/SKILL.md` (×6),
-      `generate/SKILL.md:356` and `case-format.md:287` (both invoke
-      `scripts/validate_cases.py` with a bare path), `agents/judge.md`,
-      `agents/trace-analyzer.md`.
+- [x] **Step 2 — One path convention.**
+      **DONE 2026-09-07 — `<SHA>`.** 18 files, +434/-388. Applied the rule
+      exactly as stated: `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or
+      read cross-skill (scripts, `docs/`, `agents/`, another skill's `SKILL.md`
+      or `references/`), relative markdown links for a `SKILL.md` pointing into
+      its own `references/`. All 7 `@references/...` uses (discover ×4,
+      generate ×2, optimize ×1) became relative markdown links. The convention
+      is now written down in `README.md` §"Path convention" — previously it
+      existed only in the audit.
+      **The audit's offender list was wrong in both directions again.** It
+      named 6 files; the real count is 17 plugin files. Missed entirely:
+      `docs/rubric-format.md` (×8), `docs/workflow.md`, `docs/migrate-run-layout.md`,
+      `run/references/run-modes.md` (×13), `run/references/scoring-layers.md` (×6),
+      `discover/references/profile-schema.md`, `annotation-ux.md`, `help/SKILL.md`,
+      `start/SKILL.md`, `optimize/SKILL.md`, plus `generate/SKILL.md:62`
+      (`discover/SKILL.md` + `discover/references/profile-schema.md`, bare) and
+      `analyze/SKILL.md:179` (invokes `build_review_viewer.py` with no path at
+      all). Listed but clean: `agents/trace-analyzer.md` has **zero** path
+      references. Grep, do not read the list.
+      Three deliberate non-conversions, all app-relative not plugin-relative:
+      `help/SKILL.md`'s state-location `scripts/` (reworded to "its own
+      `scripts/`" so it can't be misread), `templates/<template_id>.yaml` in
+      generate + test-generator, and `datasets/`/`reports/`/`candidates/`.
+      `README.md` and the scripts' docstrings stay repo-relative on purpose —
+      they are read by a human at the plugin root, which README now says.
+      Prose was rewrapped to 79 cols only for the items that got longer;
+      verified word-for-word identical to HEAD apart from the path tokens.
+      Every `${CLAUDE_PLUGIN_ROOT}` target and every relative link checked to
+      resolve to a real file. 399 tests OK, ruff clean.
 
 - [ ] **Step 3 — The three scorer bugs, each with a regression test.**
       (a) `stats.py`: emit `sub_mde_keep` when `keep and abs(delta) < mde`, and

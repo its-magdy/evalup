@@ -258,7 +258,7 @@ expect:
                                      # file's `rubric_id`/`version` fields (a version PIN, so
                                      # a run records which rubric revision graded it). The
                                      # rubric itself is a decomposed-binary DAG — see
-                                     # docs/rubric-format.md.
+                                     # ${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md.
   format: { json_schema: null }      # structured-output compliance — scored by
                                      # score_answer.py (minimal stdlib validator:
                                      # type/required/properties/items/enum)
@@ -284,12 +284,13 @@ gating: true                         # false = tracked-not-gating (e.g. noise ca
 notes: ""                            # reviewer's one-liner: why this case exists
 ```
 
-Validation: run `scripts/validate_cases.py --cases <suite.json> --capabilities
-<capability_matrix.json>` before handing a dataset over. It is the load-time
-schema check this format previously lacked — the "hard error, never a silent
-fallback" rules below (`order_mode`, args `calls` scope, empty `columns`) were
-enforced only inside individual scorers at RUN time, which is long after a
-suite is authored and reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
+Validation: run
+`${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json>`
+before handing a dataset over. It is the load-time schema check this format
+previously lacked — the "hard error, never a silent fallback" rules below
+(`order_mode`, args `calls` scope, empty `columns`) were enforced only inside
+individual scorers at RUN time, which is long after a suite is authored and
+reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
 
 The check that matters most is `no_graded_layer`: a case must assert at least
 one layer that is ENABLED in the capability matrix. `expect.http` alone never

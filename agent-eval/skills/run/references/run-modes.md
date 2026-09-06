@@ -20,40 +20,42 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `smoke`
 
-- **Selection**: every case whose `split` field contains `smoke` — a
-  **durable tag** written once by
-  `/agent-eval:generate` (see `skills/generate/SKILL.md` §4 Splits:
-  diversity-selected, about a third of the full set, min 5) — never
-  recomputed per run. Recomputing membership on the fly would make the smoke
-  subset a moving target and the run non-diffable across edits; the whole
-  point of a fixed tag is that "smoke got worse" means the app changed, not
-  that the sample changed.
+- **Selection**: every case whose `split` field contains `smoke` — a **durable
+  tag** written once by `/agent-eval:generate` (see
+  `${CLAUDE_PLUGIN_ROOT}/skills/generate/SKILL.md` §4 Splits:
+  diversity-selected, about a third of the full set, min 5) — never recomputed
+  per run. Recomputing membership on the fly would make the smoke subset a
+  moving target and the run non-diffable across edits; the whole point of a
+  fixed tag is that "smoke got worse" means the app changed, not that the
+  sample changed.
 - **k**: fixed at 1. `--k` is ignored under `--smoke` (reliability isn't what
   this cadence buys you — speed is); pass `--regression --k N` instead if you
   want repeats.
 - **Gate**: soft. The caller (a human, or the debounced PostToolUse hook —
-  `docs/hooks-example.json` + `docs/smoke.sh.example`) proceeds regardless of
-  the verdict; the run is advisory, meant to be looked at, not to block
-  anything by itself.
+  `${CLAUDE_PLUGIN_ROOT}/docs/hooks-example.json` +
+  `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example`) proceeds regardless of the
+  verdict; the run is advisory, meant to be looked at, not to block anything by
+  itself.
 - **Judged layers**: skipped outright, even if `judge.status: calibrated` —
   report `unjudged (mode: smoke)`. This is deliberately a different string
   from the uncalibrated-judge banner: "no judged score this run" has two
   distinct causes (mode chose to skip it for cost/speed vs. the judge isn't
   trustworthy yet) and conflating them would hide a calibration gap behind a
   cadence choice.
-- **Cost**: sub-dollar, minutes — see `docs/workflow.md` "Steady state."
+- **Cost**: sub-dollar, minutes — see `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md`
+  "Steady state."
 
 ## `regression`
 
 - **Selection**: every case whose `split` field contains `full` — everything
   reviewed (see
-  `skills/generate/SKILL.md` §4).
+  `${CLAUDE_PLUGIN_ROOT}/skills/generate/SKILL.md` §4).
 - **k**: ≥3 by default so `pass^k` (all k repeats succeed — the reliability
   number; a single-run pass rate hides flakiness) is meaningful; computed by
-  `scripts/reduce_repeats.py` over the per-case repeated verdicts (also emits
-  pass@k and the pass@k−pass^k flakiness gap). `--k` may override, but `--k` < 3
-  under `--regression` prints a warning that pass^k loses meaning below that, it
-  does not refuse.
+  `${CLAUDE_PLUGIN_ROOT}/scripts/reduce_repeats.py` over the per-case repeated
+  verdicts (also emits pass@k and the pass@k−pass^k flakiness gap). `--k` may
+  override, but `--k` < 3 under `--regression` prints a warning that pass^k
+  loses meaning below that, it does not refuse.
 - **Gate**: hard. Nonzero exit on gating failures — this is the mode CI runs
   pre-merge/nightly (§5 Headless/CI gate in SKILL.md).
 - **Judged layers**: included if `judge.status: calibrated`, `unjudged` with
@@ -63,16 +65,17 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `targeted`
 
-- **Selection**: filter the case set by **component tag** — each case's
-  `unit` field (the route target: domain / node / sub-agent; see
-  `skills/generate/references/case-format.md`) or, equivalently,
-  `expect.route` — to the surface you just touched. Match on the field, never
-  on the id: case ids are opaque `c-<hash8>` and deliberately encode neither
-  unit nor category (`skills/generate/SKILL.md` §4), because both are mutable
-  classifications and a glob like `billing-*` would silently select nothing
-  the day a case is reclassified. `--tag <component>` is required for this
-  mode; it has no default "everything" behavior (that is what `regression`/
-  `full` are for).
+- **Selection**: filter the case set by **component tag** — each case's `unit`
+  field (the route target: domain / node / sub-agent; see
+  `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md`) or,
+  equivalently, `expect.route` — to the surface you just touched. Match on the
+  field, never on the id: case ids are opaque `c-<hash8>` and deliberately
+  encode neither unit nor category
+  (`${CLAUDE_PLUGIN_ROOT}/skills/generate/SKILL.md` §4), because both are
+  mutable classifications and a glob like `billing-*` would silently select
+  nothing the day a case is reclassified. `--tag <component>` is required for
+  this mode; it has no default "everything" behavior (that is what
+  `regression`/ `full` are for).
 - **`--filter-failing`**: add this to further restrict the (already
   tag-filtered) set to cases that scored `fail` on the most recent
   *comparable* prior run for that tag (same `dataset_version` AND same
@@ -86,25 +89,26 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 - **Gate**: soft. This is a developer feedback loop ("did my tool-description
   edit fix what I think it fixed?"), not a merge gate.
 - **When**: immediately after `optimize` (or a manual edit) touches one
-  prompt/tool description/route — see `skills/optimize/SKILL.md` step 4
-  ("Measure"), which runs the training split under a fresh manifest; a
-  developer sanity-checking the same edit outside the optimize loop reaches
-  for `--targeted` instead of paying for the full suite.
+  prompt/tool description/route — see
+  `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` step 4 ("Measure"), which
+  runs the training split under a fresh manifest; a developer sanity-checking
+  the same edit outside the optimize loop reaches for `--targeted` instead of
+  paying for the full suite.
 
 ## `holdout`
 
 - **Selection**: every case whose `split` field contains `holdout` — sealed
-  (see
-  `skills/generate/SKILL.md` §4: written once, listed only by id+hash in
-  reports, never displayed case-by-case; unsealing for human inspection is
-  `analyze --unseal`, a deliberately inconvenient, logged, counted action —
-  see `skills/analyze/SKILL.md` §"`--unseal`").
+  (see `${CLAUDE_PLUGIN_ROOT}/skills/generate/SKILL.md` §4: written once,
+  listed only by id+hash in reports, never displayed case-by-case; unsealing
+  for human inspection is `analyze --unseal`, a deliberately inconvenient,
+  logged, counted action — see `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md`
+  §"`--unseal`").
 - **k**: per-case, unchanged.
 - **Gate**: **decision**, not pass/fail against a fixed floor. `stats.py`'s
   output on the aggregate paired verdicts (exact Bayesian P(improvement) +
   exact one-sided sign test) **is** the keep/revert call that
-  `skills/optimize/SKILL.md` step 5 ("Gate on holdout") consumes — there is
-  no separate hard threshold beyond that statistical test.
+  `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` step 5 ("Gate on holdout")
+  consumes — there is no separate hard threshold beyond that statistical test.
 - **Reporting**: aggregate only, always — no per-case trace excerpts, no
   page-one failure clusters (per SKILL.md §4's zero-failure/holdout
   reporting rule). This is the one place in the harness where "less detail in
@@ -114,10 +118,10 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   is never pulled into `report.md`/`.html` or `results.json`'s per-case rows;
   only the aggregate stats cross the seal.
 - **Holdout-look budget**: running `--holdout` counts as one look toward the
-  N=5 reseal trigger (`skills/optimize/SKILL.md` "Candidate pool": "Holdout
-  looks are counted; after 5, analyze forces a reseal"), the same as an
-  `analyze --unseal`. Don't run `--holdout` speculatively — it spends the
-  same budget as unsealing.
+  N=5 reseal trigger (`${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md`
+  "Candidate pool": "Holdout looks are counted; after 5, analyze forces a
+  reseal"), the same as an `analyze --unseal`. Don't run `--holdout`
+  speculatively — it spends the same budget as unsealing.
 - **Who invokes it**: normally `optimize`, internally, once training looks
   positive — not a mode a developer reaches for directly in the everyday
   loop.
@@ -144,7 +148,7 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 - **When**: release validation, before staged rigor moves an app toward
   `traffic`/`production` — a
   monitoring-window release habit sits on top of this, not instead of it
-  (`docs/workflow.md` "Production era").
+  (`${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` "Production era").
 
 ---
 

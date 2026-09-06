@@ -122,7 +122,7 @@ judge:
                                  # DERIVED, not set by hand: `calibrated` only when
                                  # EVERY active rubric is individually calibrated. Each
                                  # rubric carries its own status.calibrated + tpr/tnr/kappa
-                                 # in its rubric file (see docs/rubric-format.md); a
+                                 # in its rubric file (see ${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md); a
                                  # harness can hold several rubrics at different maturity,
                                  # and one uncalibrated active rubric keeps this global
                                  # status `uncalibrated` (the optimizer refuses judged

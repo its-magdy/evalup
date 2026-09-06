@@ -33,8 +33,9 @@ need Claude Code: datasets are YAML, reports are HTML/Markdown.
 ## Steady state — the loop you actually live in
 
 - Edit a prompt → `run --smoke` (sub-dollar, minutes; optionally wired to a
-  debounced PostToolUse hook — see `docs/hooks-example.json`, and create the
-  hook's target from `docs/smoke.sh.example` first; it is not created
+  debounced PostToolUse hook — see
+  `${CLAUDE_PLUGIN_ROOT}/docs/hooks-example.json`, and create the hook's target
+  from `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example` first; it is not created
   automatically).
 - Before merging: `run` (full) → baseline diff with significance verdicts —
   "improved / worsened / within noise at this n," never a bare percentage.

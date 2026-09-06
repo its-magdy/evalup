@@ -13,7 +13,8 @@ argument-hint: "[--surface <prompt-id|tool>] [--budget $N]"
 
 Methodology = GEPA's discipline implemented natively: natural-language
 reflection on trajectories, a candidate pool with per-case scores, a sealed
-holdout, a hard budget. See @references/loop-discipline.md for the rules that
+holdout, a hard budget. See
+[references/loop-discipline.md](references/loop-discipline.md) for the rules that
 make gains real instead of overfit.
 
 ## Preconditions — check, and refuse with the unlock path if unmet
@@ -54,16 +55,17 @@ make gains real instead of overfit.
 5. **Gate on holdout**: only if training looks positive, run the sealed
    holdout (aggregate) via `/agent-eval:run --holdout`. That run spends one of
    the N=5 looks and records itself in the holdout-look ledger (see
-   `skills/run/SKILL.md` §4) — which is why step 4's training measurement is a
-   precondition, not a formality. `stats.py` decides on one rule at every n: exact
-   Bayesian P(improvement) ≥ 0.8 (`--bayes-threshold`) and delta > 0, with an
-   exact one-sided sign test reported alongside. When a keep rides on the
-   posterior bar while the sign test is not significant, `stats.py` emits a
-   `gate_note` — surface it rather than reporting a bare "kept". Pass → keep (apply for
-   real, pin the keeper run as the new baseline by overwriting
-   `reports/baseline.json`, log candidate as champion). Fail → revert, keep the
-   reflection (it prunes the next hypothesis). Always report regressions on
-   any layer, not just the target metric.
+   `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4) — which is why step 4's
+   training measurement is a precondition, not a formality. `stats.py` decides
+   on one rule at every n: exact Bayesian P(improvement) ≥ 0.8
+   (`--bayes-threshold`) and delta > 0, with an exact one-sided sign test
+   reported alongside. When a keep rides on the posterior bar while the sign
+   test is not significant, `stats.py` emits a `gate_note` — surface it rather
+   than reporting a bare "kept". Pass → keep (apply for real, pin the keeper
+   run as the new baseline by overwriting `reports/baseline.json`, log
+   candidate as champion). Fail → revert, keep the reflection (it prunes the
+   next hypothesis). Always report regressions on any layer, not just the
+   target metric.
 6. **Stop conditions**: budget spent; two consecutive candidates rejected on
    the same cluster (→ the lever is probably wrong — escalate to a code/
    architecture proposal); or the honest message "these route targets are

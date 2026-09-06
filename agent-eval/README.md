@@ -89,13 +89,32 @@ teammates who never open Claude Code.
 - `docs/workflow.md` — day 1 → steady state → production, and who does what
 - `docs/concepts.md` — eval layers, staged rigor, ground truth, the judge
 - `skills/discover/references/adapter-contract.md` — the language-agnostic adapter
-  spec (the seam that keeps the tool general); `references/adapters/dotnet.md` is
+  spec (the seam that keeps the tool general);
+  `skills/discover/references/adapters/dotnet.md` is
   the first reference adapter (any other stack implements the same contract)
 - `docs/rubric-format.md` — the decomposed-binary DAG judge rubric + calibration
 - `skills/analyze/references/annotation-ux.md` — the open→axial error-analysis workflow
 - `docs/migrate-run-layout.md` — moving a pre-`reports/<run-id>` state dir onto
   the per-run layout (and what `run` does when it finds the old one)
 - `docs/research.md` — pointer to the research behind the design decisions
+
+### Path convention
+
+Skills, references, and agents run with the CWD set to the **user's app**, not
+to the plugin, so a bare `scripts/x.py` or `docs/x.md` inside them resolves to
+the wrong place. One rule, applied throughout:
+
+- Anything executed, or read across skills — a script, a `docs/` page, an
+  `agents/*.md`, another skill's `SKILL.md` or `references/` — is written
+  `${CLAUDE_PLUGIN_ROOT}/...`.
+- A `SKILL.md` pointing into its own `references/` uses a relative markdown
+  link, e.g. `[references/run-modes.md](references/run-modes.md)`.
+- Paths that belong to the app or its state location (`datasets/`,
+  `reports/`, the state dir's own `scripts/smoke.sh`) stay bare and relative
+  — they are deliberately *not* plugin paths.
+
+The paths listed in this README and in the scripts' own docstrings are
+repo-relative, for a human reading the source at the plugin root.
 
 ## Requirements
 

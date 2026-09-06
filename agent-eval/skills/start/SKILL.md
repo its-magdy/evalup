@@ -32,14 +32,15 @@ work on them at once.
    that matches. The order is what makes the diagnosis correct: a state dir can
    satisfy several rows at once, and the cheap "nothing here yet" readings are
    the ones most likely to be wrong, so the checks that can *disprove* them run
-   first. This is the same precedence `skills/run/SKILL.md` §4 uses when it
-   decides whether a run is a first run.
+   first. This is the same precedence
+   `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4 uses when it decides whether
+   a run is a first run.
 
    | # | Check | Action if it matches |
    |---|---|---|
    | 1 | No state location at all | Step 1: run the `discover` skill now (load it and follow it). |
    | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Don't promise the user it will be preserved — offer to back it up first if they care about it. |
-   | 3 | `reports/baseline.json` absent, but a sibling `baselines/` or `runs/` directory exists | **Pre-per-run layout: this dir DOES have a baseline.** Say so and point at `docs/migrate-run-layout.md`. Never report it as "no baseline run yet" — that is the misdiagnosis this ordering exists to prevent, and acting on it would abandon real eval history. |
+   | 3 | `reports/baseline.json` absent, but a sibling `baselines/` or `runs/` directory exists | **Pre-per-run layout: this dir DOES have a baseline.** Say so and point at `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`. Never report it as "no baseline run yet" — that is the misdiagnosis this ordering exists to prevent, and acting on it would abandon real eval history. |
    | 4 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). Read the scores from that run's `reports/<run-id>/results.json` — the pointer file itself holds no verdict data. If that directory is missing, say the pinned baseline's run was deleted and offer to pin a fresh one, rather than silently reading some other run. Also compare the pointer's `dataset_version`/`harness_version` against the current dataset and harness: if they differ, say the baseline's scores are not comparable to a run today and a fresh pin is needed — `run` §4 will refuse the diff anyway, so surfacing it here saves the user a wasted run. |
    | 5 | Datasets exist, no baseline (and check 3 did not match) | Step 3: run `run` to establish the baseline. |
    | 6 | `profile.yaml` exists, no datasets | Step 2: run `generate`. |

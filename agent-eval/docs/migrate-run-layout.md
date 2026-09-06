@@ -58,8 +58,9 @@ rmdir "runs/$RUN_ID" runs 2>/dev/null; rm -rf baselines
 - `candidates/` — still a sibling of `reports/`. An `optimize` candidate is a
   proposed change, not a run's output; the runs that measure it land in
   `reports/` like any other run.
-- Hook scratch state (`.last-smoke`, `smoke-hook.log`) — `docs/smoke.sh.example`
-  keeps it in `.hook-state/`, since `reports/` holds only run directories.
+- Hook scratch state (`.last-smoke`, `smoke-hook.log`) —
+  `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example` keeps it in `.hook-state/`,
+  since `reports/` holds only run directories.
 
 ## Not migrating
 

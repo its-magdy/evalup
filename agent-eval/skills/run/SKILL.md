@@ -5,7 +5,7 @@ description: >-
   including execution accuracy and authorization. Produces per-case verdicts,
   a run manifest, a baseline diff with statistical honesty, and a report
   headlined by failure clusters. Five modes — smoke, regression, targeted,
-  holdout, full (see references/run-modes.md) — cover everyday edits through
+  holdout, full (see [references/run-modes.md](references/run-modes.md)) — cover everyday edits through
   release validation, plus a tokenless CI gate.
 argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--baseline]"
 ---
@@ -19,7 +19,7 @@ orchestrate; you do not eyeball-score anything a script can score.
 
 Five modes select a case subset and a gate policy over the same execution
 engine (§§1–4 below never change). Full mechanics, flags, and worked examples:
-`references/run-modes.md`. Summary:
+[references/run-modes.md](references/run-modes.md). Summary:
 
 | Mode | Selection | k | Gate | When |
 |---|---|---|---|---|
@@ -34,11 +34,11 @@ flags mapped onto the same taxonomy. No
 mode flag given → behave as `regression` (the old unqualified default: full
 suite, hard gate).
 
-**Selection is by the case's `split` field**, never by directory — splits are
-a list on each case (`split: [full, smoke]`); one case is one file. See
-`skills/generate/references/case-format.md` for the field, which owns this
-rule. `full` and `holdout` are mutually exclusive, so the seal is a property
-of the case, not of where its bytes live.
+**Selection is by the case's `split` field**, never by directory — splits are a
+list on each case (`split: [full, smoke]`); one case is one file. See
+`${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md` for the
+field, which owns this rule. `full` and `holdout` are mutually exclusive, so
+the seal is a property of the case, not of where its bytes live.
 
 ## 1. Pre-flight (before any spend)
 - Resolve adapter env vars; fail loudly if missing.
@@ -104,8 +104,9 @@ of the case, not of where its bytes live.
   retries, then recorded); crash on `noise`/`adversarial` categories also
   increments the **crash-rate metric** (a first-class number, especially
   pre-launch). Infra verdicts never enter pass/fail denominators.
-- **Canaries every run**: the `canary` split (`skills/generate/
-  SKILL.md` §4 — ~10% of the full set, floor 2, stable versioned expected
+- **Canaries every run**: the `canary` split
+  (`${CLAUDE_PLUGIN_ROOT}/skills/generate/SKILL.md` §4 — ~10% of the full set,
+  floor 2, stable versioned expected
   answers), minimum 1 known-good + 1 known-bad, run first. They are ordinary
   cases with ordinary ids, so they get ordinary `cases/<case-id>/` folders —
   but mark them `canary: true` in `verdict.json` and keep them out of the
@@ -139,7 +140,7 @@ of the case, not of where its bytes live.
    `score_args.py` (value/present/from_tool_result assertions; unscorable
    without content capture — reported, never failed; each tool's expectation
    is scoped by its `calls` key — `any` (default) / `all` / `first`, see
-   `skills/generate/references/case-format.md`),
+   `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md`),
    `detect_loops.py` (repeated tool+args-hash),
    `score_answer.py` (must_contain/must_not_contain — plain string or
    `/regex/` — and `format.json_schema`), latency/tokens per stage from the
@@ -162,7 +163,7 @@ of the case, not of where its bytes live.
 
    Invocation mechanics for both — argument shapes, the unscorable states,
    `--id-pattern` for apps whose record ids aren't `letters[-_]digits`, and
-   how each is reported: `references/scoring-layers.md`. Read it before
+   how each is reported: [references/scoring-layers.md](references/scoring-layers.md). Read it before
    calling either scorer; both are reported as their own layer in the
    per-case verdict and the run report, never folded into `answer` or
    `trajectory`.
@@ -194,14 +195,14 @@ of the case, not of where its bytes live.
   run's directory leaves the pointer aimed at nothing and silently costs every
   future diff. If it is already gone, say so and pin a fresh baseline rather
   than quietly falling back to another run.
-- **Old-layout check, before the first-run branch**: if `reports/baseline.json`
-  is absent but a sibling `baselines/` or `runs/` directory exists, this state
-  dir predates the per-run layout and *does* have a baseline. Stop and say so
-  — "state dir uses the pre-`reports/<run-id>` layout; migrate with
-  `docs/migrate-run-layout.md`, or pass `--baseline` to deliberately pin this
-  run and abandon the old one" — rather than falling through. Treating it as a
-  first run would silently discard a real baseline and report "baseline
-  established" over the top of it.
+- **Old-layout check, before the first-run branch**: if
+  `reports/baseline.json` is absent but a sibling `baselines/` or `runs/`
+  directory exists, this state dir predates the per-run layout and *does* have
+  a baseline. Stop and say so — "state dir uses the pre-`reports/<run-id>`
+  layout; migrate with `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`, or
+  pass `--baseline` to deliberately pin this run and abandon the old one" —
+  rather than falling through. Treating it as a first run would silently
+  discard a real baseline and report "baseline established" over the top of it.
 - **First-run branch** (`reports/baseline.json` doesn't exist yet, and no old
   layout was detected above): this is a branch, not an error — skip the diff,
   write `reports/baseline.json`
@@ -230,8 +231,9 @@ of the case, not of where its bytes live.
   Report deltas as
   "improved / worsened / within noise (n=52 can only detect ~14pp)" — never a
   bare percentage.
-- pass^k alongside pass@k when k>1 (`scripts/reduce_repeats.py` over the per-case
-  repeated verdicts — pass@k = can-succeed, pass^k = all-k-succeed reliability, and
+- pass^k alongside pass@k when k>1
+  (`${CLAUDE_PLUGIN_ROOT}/scripts/reduce_repeats.py` over the per-case repeated
+  verdicts — pass@k = can-succeed, pass^k = all-k-succeed reliability, and
   their gap is the flakiness signal); flakiness ledger updated per case
   (newly-broken vs known-flaky distinguished in the diff).
 - **Zero-failure branch**: 0 gating failures is a valid, reportable outcome,
@@ -243,45 +245,47 @@ of the case, not of where its bytes live.
 - Report, written to `reports/<run-id>/` alongside the `cases/` material from
   §2 and the `manifest.yaml` from §1: `report.md` + `report.html`, and
   **required alongside them, `results.json`** — the machine-readable summary
-  (`run_id`, `harness_version`, `dataset_version` — echoed from the manifest
-  so a gate script never has to open two files to check they match — plus
-  per-case verdict rows and `summary.gating_failures`/`summary.infra_rate`)
-  that §5's headless CI gate reads; it is not optional scaffolding, the gate
-  has nothing else to read.
-  **Also required: `verdicts.jsonl`** — one row per case (`case_id`, `set`,
-  `category`, `gating`, per-layer `layers`, top-level `verdict`), the run's
-  durable verdict record; and **`verdicts_for_stats.jsonl`** — the same cases
-  reduced to `{"case_id", "verdict"}` with `infra_*`/`unscored` rows dropped,
-  which is exactly the input `stats.py` pairs. Two files rather than one
-  because `stats.py` treats a non-`pass`/`fail` verdict as a hard error
-  instead of filtering silently: the filtering stays a visible step here, and
-  the unfiltered record survives beside it. Both sit directly at
+  (`run_id`, `harness_version`, `dataset_version` — echoed from the manifest so
+  a gate script never has to open two files to check they match — plus per-case
+  verdict rows and `summary.gating_failures`/`summary.infra_rate`) that §5's
+  headless CI gate reads; it is not optional scaffolding, the gate has nothing
+  else to read. **Also required: `verdicts.jsonl`** — one row per case
+  (`case_id`, `set`, `category`, `gating`, per-layer `layers`, top-level
+  `verdict`), the run's durable verdict record; and
+  **`verdicts_for_stats.jsonl`** — the same cases reduced to
+  `{"case_id", "verdict"}` with `infra_*`/`unscored` rows dropped, which is
+  exactly the input `stats.py` pairs. Two files rather than one because
+  `stats.py` treats a non-`pass`/`fail` verdict as a hard error instead of
+  filtering silently: the filtering stays a visible step here, and the
+  unfiltered record survives beside it. Both sit directly at
   `reports/<run-id>/`, not under `cases/`, so they still commit when
-  `reports/.gitignore` excludes raw per-case material.
-  **Page one = top-3 failure clusters** (or the zero-failure line above), each
-  with 1–2 expected-vs-actual trace examples and the implicated surface
-  (router prompt / tool description X / missing OOS route) + effort tag.
-  Metrics tables and the confusion matrix follow, including the `execution`
-  and `authz` layers as their own rows/sections — never merged into `answer`
-  or `trajectory`. Holdout-split cases appear as aggregate only, whichever
-  mode's selection happened to include them (see references/run-modes.md
-  `holdout` — same rule covers their `cases/` folders: they exist, per §2,
-  but their `request.json`/`response.json` content is never surfaced in
+  `reports/.gitignore` excludes raw per-case material. **Page one = top-3
+  failure clusters** (or the zero-failure line above), each with 1–2
+  expected-vs-actual trace examples and the implicated surface (router prompt /
+  tool description X / missing OOS route) + effort tag. Metrics tables and the
+  confusion matrix follow, including the `execution` and `authz` layers as
+  their own rows/sections — never merged into `answer` or `trajectory`.
+  Holdout-split cases appear as aggregate only, whichever mode's selection
+  happened to include them (see
+  [references/run-modes.md](references/run-modes.md) `holdout` — same rule
+  covers their `cases/` folders: they exist, per §2, but their
+  `request.json`/`response.json` content is never surfaced in
   `report.md`/`.html` **or in `results.json`'s per-case rows** — both are
   aggregate-only for holdout ids, matching the "no per-case trace excerpts"
   seal). **A run whose selection included holdout ids (`--holdout`, `--full`)
   spends one holdout look**: append it — run id, date, mode, reason — to the
   same dataset-metadata ledger `analyze --unseal` writes to, and print the
   running count. That ledger is the only record behind the N=5 reseal trigger
-  `skills/analyze/SKILL.md` §`--unseal` and `skills/optimize/SKILL.md`
-  ("Candidate pool") both enforce, and this is its only writer besides
-  `--unseal` itself — an uncounted holdout run makes the seal a number nobody
-  is keeping. `--baseline` pins this run as the new baseline.
-  You write the `.md`; produce the `.html` from it with
-  `${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
-  reports/<run-id>/report.html` — do not hand-write HTML. It emits one
-  self-contained file (no external assets), which is what makes a report
-  shareable with teammates who never open Claude Code.
+  `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md` §`--unseal` and
+  `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` ("Candidate pool") both
+  enforce, and this is its only writer besides `--unseal` itself — an uncounted
+  holdout run makes the seal a number nobody is keeping. `--baseline` pins this
+  run as the new baseline. You write the `.md`; produce the `.html` from it
+  with
+  `${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md reports/<run-id>/report.html`
+  — do not hand-write HTML. It emits one self-contained file (no external
+  assets), which is what makes a report shareable with teammates who never open
+  Claude Code.
 
 ## 5. Headless / CI gate
 The hard-gated modes (`regression`, `full`) run unattended in CI. The LLM is
@@ -305,7 +309,7 @@ claude -p "/agent-eval:run --regression" --output-format json --bare --permissio
   `infra_error`/`infra_incomplete` above the agreed threshold) and sets the
   process exit code accordingly — this script, not Claude, is what actually
   gates the merge. Full example and the `results.json` shape:
-  `references/run-modes.md`.
+  [references/run-modes.md](references/run-modes.md).
 
 Full flag reference, selection mechanics, and worked examples for all five
-modes: `references/run-modes.md`.
+modes: [references/run-modes.md](references/run-modes.md).

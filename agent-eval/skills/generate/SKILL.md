@@ -12,7 +12,8 @@ argument-hint: "[--layer routing|tools|answer] [--count N]"
 # Generate — Build the Dataset
 
 Precondition: `profile.yaml` exists with verified core entries. If not, stop
-and route to discover. Case format: @references/case-format.md.
+and route to discover. Case format:
+[references/case-format.md](references/case-format.md).
 Delegate bulk generation to the `test-generator` agent; this skill owns the
 plan, the review pass, and the splits.
 Size the suite to the budget: ~30 cases is a good default, ~12 is a legitimate
@@ -51,7 +52,8 @@ must be grounded in system state or an oracle rather than model opinion (§2).
 Note the same-family generation in the dataset metadata as a caveat.
 
 The one place this IS a hard rule is the judge, which is a measured effect —
-see agents/judge.md. Do not silently borrow that rule's force for this one.
+see `${CLAUDE_PLUGIN_ROOT}/agents/judge.md`. Do not silently borrow that rule's
+force for this one.
 
 ## 1. Build the coverage grid
 The grid's ROW axis is the app's **unit of dispatch** — whatever the app
@@ -59,7 +61,8 @@ chooses between before acting — read from `architecture.kind` in the profile.
 It is NOT always "domain"; domain is only the router-executor case.
 
 `architecture.kind` holds exactly one of five values, and their definitions
-live in discover/SKILL.md §2 (schema in discover/references/profile-schema.md)
+live in `${CLAUDE_PLUGIN_ROOT}/skills/discover/SKILL.md` §2 (schema in
+`${CLAUDE_PLUGIN_ROOT}/skills/discover/references/profile-schema.md`)
 — read that if you need to know what a kind *means*. Spell them the same way
 here, underscores included, or the branch silently matches nothing. What
 GENERATE does differently per topology:
@@ -145,7 +148,7 @@ any delta under ~15–20 pp, is not. Use Wilson or Clopper-Pearson intervals (no
 Wald), McNemar's exact variant, and clustered standard errors — cases sharing a
 `template_id` are not independent, which is one more reason `template_id` is
 required (§2a). Derivations, the n/CI table, and sourcing:
-@references/suite-sizing.md.
+[references/suite-sizing.md](references/suite-sizing.md).
 
 ## 2. Generation rules (pass to test-generator)
 
@@ -353,8 +356,9 @@ remains genuinely disjoint (a case is in holdout or in full, never both), but
 that is enforced by the field, not by which folder the bytes live in.
 
 ### Validate before handing the dataset over
-Run `scripts/validate_cases.py --cases <suite.json> --capabilities
-<profile.capability_matrix.json> --manifest <dataset.yaml-fields.json>`. It
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json>
+--capabilities <profile.capability_matrix.json> --manifest
+<dataset.yaml-fields.json>`. It
 fails the generate step on structural errors and warns on the vacuity
 patterns. The check that matters most is `no_graded_layer`: **a case must
 assert at least one layer that is currently ENABLED in the capability
