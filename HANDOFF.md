@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-07 (Step 2 done — one path convention everywhere)
+**Last updated:** 2026-09-08 (Step 3 done — the three scorer bugs + siblings)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -20,8 +20,8 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Working tree is CLEAN** as of Step 0. The whole prior review wave is
   committed as the baseline `6c7d286`; every later diff is now readable
   against it.
-- **Health:** 399 tests pass, ruff clean, all 14 scripts `--help` rc=0,
-  Python 3.9 compatible. Verified 2026-09-06.
+- **Health:** 438 tests pass, ruff clean, all 13 CLI scripts `--help` rc=0,
+  Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-08.
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -47,7 +47,8 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 
 **Do NOT rewrite the scorers.** They audited clean (statistics verified
 correct, HTML escaping hardened, multiset trajectory semantics, regex
-watchdog, authz honest-degradation). Only the three named bugs in step 3.
+watchdog, authz honest-degradation). Step 3 touched only the three named bugs
+and their siblings — hold that line.
 
 ---
 
@@ -90,19 +91,22 @@ Each step is sized for a single low-usage session. Mark done as you go.
       in the commit message. Grep; do not work down the list.
       399 tests OK, ruff clean.
 
-- [ ] **Step 3 — The three scorer bugs, each with a regression test.**
-      (a) `stats.py`: emit `sub_mde_keep` when `keep and abs(delta) < mde`, and
-          surface it in `optimize/SKILL.md` §5 next to `gate_note`.
-          Repro: baseline 90/100, candidate 95/100 → keep:true, delta .05,
-          MDE .056, **no note at all**.
-      (b) `score_answer.py`: `unicodedata.normalize("NFC", ...)` on both sides
-          for plain-string entries; normalize the haystack for regex entries and
-          say so in the output. Repro: `must_contain` "café" in NFD vs an NFC
-          answer → `fail`.
-      (c) `score_routing.py`: exit 2 when `--oos-route X` matches no label
-          present in the input, listing the labels that are present. Repro:
-          `--oos-route TOTAL_NONSENSE_XYZ` → exit 0 + a null OOS block whose
-          note falsely claims "0 OOS case(s) in this run".
+- [x] **Step 3 — The three scorer bugs, each with a regression test.**
+      **DONE 2026-09-08 — `0d2aa91`.** 13 files, +837/-49. All three audit
+      repros re-ran failing before the fix and clean after. Each was a class
+      with siblings, and the sibling hunt again found more than the audit
+      named: (a) `sub_mde_keep` in `stats.py`, surfaced in `optimize` §5 —
+      no siblings, it is the only script that decides keep/revert. (b) NFC
+      normalization in **six** scorers, not one (`score_answer`, `_args`,
+      `_authz`, `_execution`, `_routing`, `trajectory_match`) via a new shared
+      `_common.nfc`; regex stays asymmetric on purpose (haystack yes, pattern
+      never) and every regex check now says so. Found en route: `stringify`
+      used `ensure_ascii=True`, so provenance could never match a non-ASCII
+      value. (c) `--oos-route` exits 2 listing the labels present; its sibling
+      is `score_authz --id-pattern`, silent in the same two directions. The
+      other 22 CLI args were swept — `--trace-id`, `--glob` and `--k` already
+      validate. Full accounting in the commit message. 438 tests pass
+      (39 new), ruff clean, 3.9 floor re-verified.
 
 - [ ] **Step 4 — Tighten `validate_cases.py`.** Its most valuable checks are
       opt-in or absent: make `--capabilities` required (or warn loudly when
