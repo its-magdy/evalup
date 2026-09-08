@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-08 (Step 3 done — the three scorer bugs + siblings)
+**Last updated:** 2026-09-08 (Step 4 done — validate_cases.py tightened)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -20,7 +20,7 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Working tree is CLEAN** as of Step 0. The whole prior review wave is
   committed as the baseline `6c7d286`; every later diff is now readable
   against it.
-- **Health:** 438 tests pass, ruff clean, all 13 CLI scripts `--help` rc=0,
+- **Health:** 449 tests pass, ruff clean, all 13 CLI scripts `--help` rc=0,
   Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-08.
 
 ### Documents, in the order a newcomer should read them
@@ -108,13 +108,24 @@ Each step is sized for a single low-usage session. Mark done as you go.
       validate. Full accounting in the commit message. 438 tests pass
       (39 new), ruff clean, 3.9 floor re-verified.
 
-- [ ] **Step 4 — Tighten `validate_cases.py`.** Its most valuable checks are
-      opt-in or absent: make `--capabilities` required (or warn loudly when
-      absent); make a missing `split` an error, not a silent pass; enforce
-      `template_id`/`instantiation_params` as the "required" pair generate
-      claims they are; add an INV/DIR coverage floor. Also: wire the validator
-      into `analyze/SKILL.md`, which performs exactly the case edits that
-      require re-validation but never mentions it.
+- [x] **Step 4 — Tighten `validate_cases.py`.**
+      **DONE 2026-09-08 — `201aa2a`.** 5 files, +390/-42. The severity line,
+      written into the module docstring and case-format.md so it can't be
+      re-created one level up: **ERROR = a claim nothing backs; WARN = a suite
+      thinner than the guidance recommends.** New ERRORs: `missing_split`,
+      `missing_test_type`, `missing_template_id` (checks the KEY'S PRESENCE —
+      absent = nobody decided, `null` = declared one-off) and
+      `missing_metamorphic_parent`, without which `test_type: INV` on an
+      ordinary case would buy the new floor's credit for free. New WARNs:
+      `no_metamorphic_coverage` and `all_one_off`. `--capabilities` is now
+      required, with an explicit `--no-capabilities` that emits
+      `capabilities_unchecked` and is therefore refused under `--strict`.
+      **Re-validated the shipped 12-case field test:** before exit 0 / 0
+      errors, after exit 1 / 36 — all true positives of the pre-2026-08 layout
+      (no `split` field at all); a mechanically migrated copy validates
+      **clean**, so no rule turns a good case red. Also wired the validator
+      into `analyze/SKILL.md`, whose three branches all edit cases.
+      449 tests (11 new), ruff clean, 3.9 floor re-verified.
 
 - [ ] **Step 5a — Spec `run_cases.py`** (design only, no code). Write
       `agent-eval/docs/runner-contract.md`: inputs (adapter config + case list
@@ -153,7 +164,8 @@ Each step is sized for a single low-usage session. Mark done as you go.
 - [ ] **Step 8 — Housekeeping.** Regenerate the worked example in
       `field-test-qa/.agent-eval/` (it violates three current rules: ids encode
       unit+category, splits are directories, every case is
-      `review.by: test-generator`) or label it "pre-2026-08 layout, kept for
+      `review.by: test-generator`, and since Step 4 it fails validation with
+      36 errors — the migration is mechanical, see `201aa2a`) or label it "pre-2026-08 layout, kept for
       the migration doc". Add CI + `pyproject.toml` (`REVIEW-2026-08-08.md` §3,
       still open). Reconcile `.tool-versions` (pins 3.11) against the claimed
       3.9 floor. Drop or relabel `micro_f1` (≡ matrix accuracy).
