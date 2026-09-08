@@ -11,6 +11,7 @@ import ast
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -1905,12 +1906,18 @@ class TestEncodingContract(ScorerTest):
         it. PEP 597's own detector (-X warn_default_encoding) is what found the
         one remaining bare open() in normalize_trace.py; grepping the source is
         the cheap always-on version of the same check."""
+        # The builtin only: a preceding identifier character or dot means this
+        # is something else entirely. urllib.request.urlopen() was the case
+        # that made this matter -- it takes no encoding, cannot, and matched a
+        # bare "open(" substring search, so run_cases.py failed a rule it does
+        # not break.
+        builtin_open = re.compile(r"(?<![\w.])open\(")
         offenders = []
         for path in sorted(SCRIPTS.glob("*.py")):
             for lineno, line in enumerate(
                     path.read_text(encoding="utf-8").splitlines(), 1):
                 code = line.split("#", 1)[0]
-                if "open(" in code and "encoding=" not in code:
+                if builtin_open.search(code) and "encoding=" not in code:
                     offenders.append(f"{path.name}:{lineno}")
         self.assertEqual(offenders, [],
                          "open() without encoding='utf-8' (PEP 597; the "

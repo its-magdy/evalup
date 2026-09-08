@@ -1,7 +1,15 @@
 # `run_cases.py` — Runner Contract
 
-**Status:** design, awaiting review. No code exists yet. This document is the
-input to Step 5b (implement) and Step 5c (rewire `run/SKILL.md`).
+**Status:** the nine open decisions below were **confirmed 2026-09-08**; this
+document has been rewritten to match them, and §§1–4, 6–8 and 11 are implemented
+by `scripts/run_cases.py` (Step 5b-i; tests in `tests/test_run_cases.py`).
+Step 5b-ii adds §5's layer table, the run-level scorers, `--baseline-verdicts`,
+`--verify`, and the `REQUIRED_IF` half of §9's check — until then every layer
+records `unscored`, `reason: "scoring not wired yet (5b-ii)"`. Step 5c rewires
+`run/SKILL.md` around the result.
+
+This document is the spec: where it and the code disagree, **this file is
+right** and the code is the bug.
 
 **What this is.** `run/SKILL.md` §2 "Execute" is currently hand-orchestrated by
 the LLM on every run. That is the audit's first conclusion: not reproducible,
@@ -39,6 +47,7 @@ other section exists so §9 has something well-defined to check.
 
 ```
 run_cases.py --plan <plan.json|-> --out <reports/<run-id>> [--resume] [--dry-run]
+                             [--baseline-verdicts <prev>/verdicts_for_stats.jsonl]
 run_cases.py --verify <reports/<run-id>>
 ```
 
@@ -48,7 +57,8 @@ run_cases.py --verify <reports/<run-id>>
 | `--out DIR` | the run directory to write. Must equal `<state>/reports/<run_id>` where `run_id` is the plan's. Required except with `--verify`. |
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
-| `--dry-run` | pre-flight (§4) + plan validation + print the resolved case list and cost inputs; write nothing, call the app zero times. |
+| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.4) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var, an old-layout state dir, or a malformed body template. |
+| `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
 | `--version` | `agent-eval harness <HARNESS_VERSION>`, via `_common.add_version_flag`, same string as every scorer. |
 
 There are no other flags. Mode, k, filters, and selection are **already
@@ -126,13 +136,25 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
 }
 ```
 
+**Required vs. defaulted.** `plan_version`, `run_id`, `mode`, `k`, `gate`,
+`selecting_split`, `paths`, `adapter`, `capability_matrix` and `cases` are
+required. `scoring`, `execution` and `manifest_extra` may be omitted and are
+filled from the defaults shown above. `capability_matrix` is **not** in that
+second list, for the same reason `validate_cases.py` made `--capabilities`
+required: absent, every layer counts as enabled and the run records a matrix
+nobody chose.
+
 **Validation, all before any spend, all exit 2 with `{"error": ...}` on stdout:**
-unknown top-level key; `plan_version != 1`; `run_id` not matching
+unknown top-level key; unknown key inside `scoring` or `execution`;
+`plan_version != 1`; `run_id` not matching
 `^[a-z]+-\d{8}T\d{6}Z$`; `--out` basename != `run_id`; `k < 1`; empty `cases`;
 duplicate case `id`; a case whose `split` does not contain `selecting_split`
 (the skill selected wrong — the runner refuses to run a set it cannot label);
-`backoff_s` length mismatch; `scripts_dir` missing any of the nine scorer
-scripts §5 names.
+`backoff_s` length mismatch; `infra_rate_abort` outside `(0, 1]`;
+`scripts_dir` missing any of the nine scorer
+scripts §5 names; a holdout-touching mode with `holdout_ledger: null`, or one
+whose path is not `.jsonl` (§6); and
+**`adapter.invocation.max_concurrency > 1`** (decision **D5**).
 
 The runner does **not** re-lint the suite. `validate_cases.py` owns that, the
 skill runs it, and duplicating its rules here would create a second definition
@@ -167,18 +189,44 @@ In order. Any failure here is exit 3 and **zero app calls have been billed**
 beyond the health check.
 
 1. Plan validation (§2) and env resolution (§3).
-2. `invocation.mode`: `http` is implemented. `function` and `cli` exit 3 with
-   `runner v1 implements invocation.mode: http only (got: function)` — see
-   Open decision D6.
+2. `invocation.mode`: `http` and `function` are implemented (decision **D6** —
+   `adapter-contract.md` calls `function` the *preferred* mode when auth or
+   HTTP is in the way, so v1 honours the contract it advertises). `cli` exits 3
+   with `runner v1 implements invocation.mode: http and function only (got:
+   cli)`.
+   **`function` mode does not enforce `execution.timeout_s`**: an in-process
+   call cannot be interrupted from the stdlib without leaving the thread
+   running behind it, and reporting "timeout" while the callable kept executing
+   would be a lie about the state of the world. The callable owns its own
+   timeout; `manifest.invocation.timeout_enforced` records `false` so no reader
+   has to infer it.
 3. **Old-layout check.** If `<state>/reports/baseline.json` is absent but a
    sibling `baselines/` or `runs/` exists, exit 3 with the migration message
    from `run/SKILL.md` §4. This check lives here, not in the skill, because it
    must fire before spend. (The field-test state dir is exactly this case.)
-4. **Health check**: one trivial request through the adapter. Non-2xx/timeout →
-   exit 3.
-5. **Trace branch**, off `adapter.traces`:
+4. **Health check**: one trivial request through the adapter. With no declared
+   `invocation.health_check`, this is a `GET` of `base_url` and **any** response
+   counts as reachable — including a 404. The question here is "is the host
+   up", and inventing a plausible API call instead would both spend money and
+   guess at a shape the adapter never declared. A transport failure or timeout
+   is exit 3. An adapter that wants a real check declares
+   `invocation.health_check: {method, path, expect_status: [...]}`, and a
+   status outside `expect_status` is exit 3. In `function` mode the health
+   check is the entrypoint import, which is also why an unimportable entrypoint
+   is exit 3 with nothing billed rather than N identical infra errors.
+5. **Trace branch**, off `adapter.traces`. The queryable set in v1 is
+   **`otlp-file` only**; `jaeger`, `tempo` and `clickhouse` each need their own
+   client and exit 3 with
+   `runner v1 queries traces.source: otlp-file only (got: 'jaeger'); declare
+   view-only to run trace-less instead`. Refusing loudly matters more here than
+   elsewhere: silently treating an unimplemented store as "no trace" would
+   downgrade a fully instrumented app to trace-less scoring and report the
+   result as normal.
    - `source` in the queryable set **and** `correlation` explicit → verify a
-     trace arrives and joins on the health-check call. No join → exit 3.
+     trace arrives and joins on the health-check call. No join → exit 3. That
+     verification needs a real app call to join *on*, so it requires a declared
+     `invocation.health_check`; without one the runner exits 3 asking for it
+     rather than recording an unverified join as verified.
    - `source: view-only|none`, **or** `correlation: none`, **or**
      `convention != gen_ai` with no `mapping_shim` → **trace-less mode** for the
      whole run. Record `traces.collected: false` plus `disabled_layers` in the
@@ -276,14 +324,29 @@ least one selected case carries that route label — otherwise the scorer exits 
 and lists the labels present (Step 3 made it do that). The runner performs that
 check itself rather than discovering it from an exit code.
 
-**Trace-less routing.** With no trace there is no observed route. The runner
-does **not** infer one from the HTTP status. The shipped run did infer it
-(`"route inferred from HTTP status only (200=Units/answered, 400=none)"`), which
-is a defensible run-specific judgement and exactly the kind of judgement a
-runner must not make silently across every app. Instead: `layers.routing` is
-`unscored`, `reason: "no trace; observed route unavailable"`, and the case is
-excluded from `routing_results.jsonl`. An app that wants status-derived routing
-declares it in the adapter — see Open decision **D4**.
+**Trace-less routing.** With no trace there is no observed route, and the
+runner never *infers* one. The shipped run did infer it (`"route inferred from
+HTTP status only (200=Units/answered, 400=none)"`), which is a defensible
+run-specific judgement and exactly the kind of judgement a runner must not make
+silently across every app.
+
+Decision **D2** (confirmed 2026-09-08) makes that judgement **declared and
+per-app** instead of universal and implicit: an adapter may carry
+
+```yaml
+invocation:
+  route_from_status: {200: "<answered>", 400: "__oos__", 403: "denied"}
+```
+
+and when it does, the runner maps the observed status through it and scores
+routing normally, recording `layers.routing.observed_from: "status"` so no
+reader mistakes it for a trace-derived route. Statuses absent from the map
+yield no observed route. Without the block, `layers.routing` is `unscored`,
+`reason: "no trace; observed route unavailable"`, and the case is excluded from
+`routing_results.jsonl`.
+
+The alternative — leaving it unscored in v1 — would take the field-test app's
+only interesting layer dark, since status *is* its sole routing observable.
 
 ### 5.3 `actual.json` for the execution layer
 
@@ -312,6 +375,27 @@ The **case-level** verdict for k>1 is `pass^k`: pass only if every repeat
 passed. Rationale: the hard-gated modes that use k>1 are asking for reliability,
 and a case that passes 2 of 3 is not a case that passes. The gap is reported,
 never hidden.
+
+### 5.6 The baseline comparison (decision D3)
+
+`--baseline-verdicts PATH` shells out to `stats.py` after scoring, pairing this
+run's `verdicts_for_stats.jsonl` against the given one, and writes
+`<out>/comparison.json`. Without the flag the runner emits
+`verdicts_for_stats.jsonl` and stops.
+
+It is folded in rather than left to the skill because the diff has **rules** —
+same `dataset_version` *and* same `harness_version`, attrition warnings, the
+"within noise" phrasing — and rules that decide whether a change ships are the
+category of thing this whole step exists to take out of LLM hands. The runner
+refuses the comparison (exit 2) when either version differs, or when the two
+runs used a different `k` (decision **D7**): a baseline at k=1 and a candidate
+at k=3 pair `pass^k` verdicts computed over different numbers of trials, so
+they are not comparable even at the same dataset and harness version. The
+k-mismatch check lives here, in the runner, for the same reason the rest of the
+diff does — the manifest recording `k` is only useful if something checks it.
+
+Choosing the baseline (`reports/baseline.json`) stays a skill decision (§13);
+the runner only ever compares the two files it is handed.
 
 ---
 
@@ -359,6 +443,11 @@ reports/
 - `verdict.json` is written last, via temp-then-rename. **A case directory
   containing `verdict.json` is complete, by definition.** Resume (§8) and the
   completeness check (§9) both key off exactly this fact.
+- A **skipped** case (§7's safety gates) still writes `request.json` and
+  `response.json`, marked `"sent": false` / `"sent_at": null`. `REQUIRED_PER_CASE`
+  has no exceptions on purpose — an exception is how a required file rots — and
+  the request the runner *would* have sent is the useful thing to read when
+  arguing about whether the refusal was right.
 - Every write in this tree is `write to <name>.tmp.<pid> → os.replace()`. Never
   a partial file visible mid-write, never a batch at run end.
 - `trace.json` absent is never ambiguous: when it is absent, `verdict.json`'s
@@ -368,21 +457,39 @@ reports/
 - Canary cases get ordinary directories too, with `canary: true` in
   `verdict.json`, and are excluded from every denominator in `results.json`.
 
-**Holdout ledger.** When `selecting_split` is `holdout` or `full`, the runner
-appends one line — `{run_id, date, mode, reason: "run"}` — to
-`paths.holdout_ledger` and prints the running count. The runner does this, not
-the skill: it is the only component that knows for certain the selection touched
-sealed ids, and an uncounted holdout run makes the N=5 reseal trigger a number
-nobody is keeping. `holdout_ledger: null` with a holdout-touching mode is exit 2
-at plan validation.
+**Holdout ledger** (decision **D8**). When `selecting_split` or `mode` is
+`holdout` or `full`, the runner appends one line —
+`{run_id, date, mode, reason: "run"}` — to `paths.holdout_ledger` and writes the
+running count to **stderr** (stdout carries the machine-readable `{"error": …}`
+payload, and a caller parsing one shape must not find prose there; the count is
+also in `results.json`'s `summary.holdout.looks_recorded`). The runner does
+this, not the skill: it is the only component that knows for certain the
+selection touched sealed ids, and an uncounted holdout run makes the N=5 reseal
+trigger a number nobody is keeping. `holdout_ledger: null` with a
+holdout-touching mode is exit 2 at plan validation.
+
+**The ledger is a `.jsonl` file**, and a path that is not is exit 2. The
+harness's dataset metadata is YAML, but this runner is stdlib-only: appending a
+JSON line to a YAML mapping corrupts the document it is meant to append to. A
+JSONL sidecar is also what makes the second writer (`analyze --unseal`) safe
+without a lock file, since a single short `O_APPEND` line write is atomic on
+POSIX, and it is what lets a reader take the running total by counting lines.
+`run/SKILL.md` §4 and `analyze/SKILL.md` §`--unseal` still describe the ledger
+as "the dataset metadata"; pointing both at the sidecar is Step 5c/6 work.
+
+The append happens once, at pre-flight, before the first case — the *look* is
+the spend, so a run that aborts halfway has still spent it. `--resume` does not
+append again.
 
 ---
 
 ## 7. Execution semantics and the infra taxonomy
 
 **Serial.** One case at a time, in the plan's case order, canaries first.
-`adapter.invocation.max_concurrency > 1` is **ignored with a logged warning** in
-v1 — see Open decision **D5**.
+`adapter.invocation.max_concurrency > 1` is **refused at plan validation with
+exit 2** (decision **D5**), not warned about and downgraded: a warning scrolls
+past and leaves the adapter field looking supported while every run is serial.
+Exit 2 makes the gap loud at the one moment someone can act on it.
 
 **Verdict vocabulary**, unchanged from the rest of the harness:
 `pass | fail | unscored | skipped | infra_error | infra_incomplete`.
@@ -540,6 +647,8 @@ the shipped run already does. See Open decision **D1**.
   "environment_kind": "live-readonly", "safe_to_attack": false,
   "temperature": "…",
   "identity_headers": {"names": ["X-User-Id", "X-Role-Id"], "source": "env"},  // names only, never values
+  "invocation": {"mode": "http", "url": "https://…/api/chat/ask",
+                 "timeout_s": 120, "timeout_enforced": true},   // false in function mode (§4.2)
   "traces": {"source": "otlp-file", "correlation": "none", "collected": false,
              "disabled_layers": ["trajectory", "tool_selection", "loops", "cost_latency"]},
   "capability_matrix": { … },
@@ -555,14 +664,16 @@ the shipped run already does. See Open decision **D1**.
  "headers_sent": {"Content-Type": "application/json", "X-User-Id": "<redacted>"},
  "url": "https://…/api/chat/ask", "method": "POST",
  "body": { … },                       // the literal request body sent
- "sent_at": "2026-08-18T18:40:02Z"}
+ "sent_at": "2026-08-18T18:40:02Z", "sent": true}   // false on a skipped case (§6)
 ```
 
 ### `cases/<id>/response.json`
 
 ```jsonc
 {"case_id": "…", "repeat": 1, "status": 200, "latency_s": 6.68,
- "attempts": 1, "retry_count": 0,
+ "attempts": 1, "retry_count": 0, "crashed": false,   // a DROPPED connection, not a timeout: it
+                                                      // feeds summary.crash_rate, and it has to
+                                                      // live on disk or a --resume loses the count
  "body": { … },                       // raw parsed body, or {"raw": "<text>"} if not JSON
  "answer": "…",                       // the extracted final answer text (also written to answer.txt)
  "trace_id": null}
@@ -575,6 +686,8 @@ the shipped run already does. See Open decision **D1**.
  "holdout": false, "gating": true,
  "verdict": "pass",
  "k": 1,
+ "latency_s": 6.68,                   // the representative repeat's, so a resumed run rebuilds
+                                      // results.json's latency column from verdicts alone (§8)
  "layers": { "http":   {"layer": "http", "verdict": "pass", "status": 200},
              "answer": { …verbatim score_answer.py output… },
              "trajectory": {"layer": "trajectory", "verdict": "unscorable",
@@ -642,7 +755,7 @@ record, not the shareable summary) does carry it, since a paired diff needs it.
 | 0 | Ran to completion; §9's completeness check passed. Says **nothing** about pass/fail. | complete |
 | 1 | Unhandled internal error. Traceback to stderr, `{"error": …}` to stdout. | whatever completed |
 | 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest mismatch on resume. | none written |
-| 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining, old-layout state dir, unimplemented `invocation.mode`. | manifest only, or nothing |
+| 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, old-layout state dir, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
 | 4 | Canary failed — harness/judge drift; run stopped. | complete for cases finished |
 | 5 | Infra rate exceeded `infra_rate_abort`; run stopped. | complete for cases finished |
 | 6 | **Completeness check failed** — a required artifact is missing or inconsistent. `summary.missing_artifacts` names them. | incomplete, by definition |
@@ -679,90 +792,30 @@ Named here so 5b does not grow them, and so 5c knows what stays in the skill:
   `md_to_html.py`. The runner produces every number those documents quote, but
   a failure-cluster narrative is a judgement call, which is the one thing the
   LLM in this loop is actually for.
-- **The baseline comparison.** The runner emits `verdicts_for_stats.jsonl`; the
-  skill reads `reports/baseline.json`, checks dataset/harness version equality,
-  and runs `stats.py`. (See Open decision **D3**.)
+- **Choosing** the baseline. The skill reads `reports/baseline.json` and decides
+  *which* run to diff against; running the diff itself moved into the runner
+  with decision **D3** (§5.6), because the diff's rules — version equality, the
+  k-match, attrition, "within noise" — decide whether a change ships.
 - **Judged layers, business rules, state-diff.** §5.4.
 - **Pinning `reports/baseline.json`.** A skill decision, not an execution step.
 
 ---
 
-## Open decisions
+## Decisions — confirmed 2026-09-08
 
-These are the choices I made where a different one is defensible. I would like
-each confirmed (or overridden) before 5b writes code, since several change the
-shape of the tests as much as the shape of the runner.
+The nine choices below were open when this contract was written; each is now
+answered, and the sections above have been rewritten to match. Kept as a record
+of *why*, so a later reader does not reopen a settled question without the
+trade-off in front of them.
 
-**D1 — `manifest.yaml` holds JSON bytes.** *Chosen:* keep the filename
-`manifest.yaml` (named by `run/SKILL.md` §1/§5, the CI example's
-`yq -r '.run_id'`, and the shipped run) and write JSON into it, since JSON is
-valid YAML 1.2 and stdlib cannot emit YAML. *Trade-off:* a file whose extension
-lies a little; anyone opening it expecting block YAML is briefly confused.
-*Alternative:* rename to `manifest.json` and update ~6 references across
-`run/SKILL.md`, `run-modes.md`, `migrate-run-layout.md`. **Confirm: keep the
-name, or rename?**
-
-**D2 — Trace-less runs score no routing layer.** *Chosen:* refuse to infer a
-route from the HTTP status. *Trade-off:* the field-test app is trace-less and
-status *is* its only routing observable, so this makes its most interesting
-layer unscorable — a real regression against what the shipped run reported by
-hand. *Alternative:* an adapter block, e.g.
-`invocation.route_from_status: {200: "<answered>", 400: "__oos__", 403: "denied"}`,
-which makes the inference declared and per-app rather than universal and
-implicit. I lean toward adding it, but it is an adapter-contract change and
-therefore not free. **Confirm: unscored in v1, or add the adapter block now?**
-
-**D3 — The runner does not run `stats.py`.** *Chosen:* it emits
-`verdicts_for_stats.jsonl` and stops. *Trade-off:* the baseline diff — a thing
-with real rules (same dataset_version *and* harness_version, attrition warnings,
-"within noise" phrasing) — stays in LLM hands, which is the category of thing
-this whole step exists to take out of LLM hands. *Alternative:* a
-`--baseline-verdicts PATH` flag that shells out to `stats.py` and writes
-`comparison.json`. That is maybe 30 lines and closes the loop. **Confirm: leave
-comparison to the skill, or fold it in?**
-
-**D4 — Seven exit codes.** *Chosen:* distinct codes for pre-flight (3), canary
-(4), infra (5), incompleteness (6), and scorer errors (7). *Trade-off:* more
-surface than a 0/1/2 contract, and a CI script that only checks `!= 0` gains
-nothing. *Why anyway:* 6 is the one that makes the shipped run's failure
-mode nameable, and once 6 exists the others cost nothing to distinguish.
-**Confirm, or collapse 4/5/7 into 1?**
-
-**D5 — Concurrency is ignored, not honored, in v1.** *Chosen:* always serial;
-`max_concurrency > 1` logs a warning and proceeds serially. *Trade-off:* a
-50-case regression run against a slow app is slow, and the adapter field looks
-supported when it is not. *Alternative:* exit 2 on `max_concurrency > 1` so the
-gap is loud rather than quiet. **Confirm: warn-and-serialize, or refuse?**
-
-**D6 — HTTP-only invocation in v1.** *Chosen:* `function` and `cli` modes exit 3
-with a clear message. *Trade-off:* `adapter-contract.md` advertises all three,
-and `function` mode is described there as *preferred* when auth/HTTP is in the
-way — so v1 does not implement the recommended path. *Mitigation:* `function`
-mode is a `runpy`/`importlib` call and is genuinely small; it could go in 5b if
-you want the contract honored on day one. **Confirm: HTTP-only, or HTTP +
-function?**
-
-**D7 — `k > 1` rolls up as pass^k at case level.** *Chosen:* strict — a case
-passes only if all k repeats pass; pass@k is reported alongside via
-`reduce_repeats.py`. *Trade-off:* `verdicts_for_stats.jsonl` then pairs pass^k
-verdicts, so a baseline run at k=1 and a candidate at k=3 are not comparable
-even at the same dataset and harness version. Should the runner refuse that
-comparison outright, or is recording `k` in the manifest enough for the skill to
-catch it? **Confirm: pass^k rollup, and where the k-mismatch check lives.**
-
-**D8 — The runner appends to the holdout ledger.** *Chosen:* the runner writes
-it, since it is the only component that knows the selection touched sealed ids.
-*Trade-off:* the runner now writes outside its own `--out` directory, which
-breaks the otherwise-clean "a run directory is self-contained" property and adds
-a second writer to a file `analyze --unseal` also appends to (no locking; two
-concurrent writers could interleave). **Confirm: runner writes the ledger, or
-runner reports `holdout_look: true` in `results.json` and the skill appends?**
-
-**D9 — `answer.txt` and `expect.json` are required per-case artifacts.** *Chosen:*
-keep the scorer input files in the case directory rather than in a temp dir, so
-any run can be re-scored without re-invoking the app — which is also how a
-scorer bug fix gets applied to historical runs. *Trade-off:* `expect.json`
-duplicates the case file's content into every run directory, and the two can
-drift if someone edits the case afterward (mitigated: `manifest.cases[].sha256`
-records what was actually run). The shipped run already wrote both files.
-**Confirm.**
+| # | Question | Answer |
+|---|---|---|
+| **D1** | `manifest.yaml` holds JSON bytes, or rename to `manifest.json`? | **Keep the name.** JSON is valid YAML 1.2, so `yq -r '.run_id'` in the CI example reads it unchanged and the stdlib (which has no YAML writer) can still produce it. Renaming costs ~6 references across `run/SKILL.md`, `run-modes.md` and `migrate-run-layout.md` for a cosmetic gain. The extension lies a little; the alternative churns three documents. |
+| **D2** | Trace-less runs score no routing layer, or add a status→route adapter block? | **Add the block now** (§5.2). Refusing outright takes the field-test app's only interesting layer dark — status *is* its sole routing observable — and a real regression against what the shipped run reported by hand. `invocation.route_from_status` makes the inference **declared and per-app** rather than universal and implicit, which was the actual objection. |
+| **D3** | Does the runner run `stats.py`? | **Fold it in** as `--baseline-verdicts` (§5.6). The diff has real rules and they decide whether a change ships; leaving them in LLM hands is the category of thing this step exists to end. ~30 lines, and it closes the loop. |
+| **D4** | Seven exit codes, or collapse 4/5/7 into 1? | **Keep seven.** 6 is the one that makes the shipped run's failure mode nameable, and once 6 exists the rest cost nothing to distinguish. A CI script that only checks `!= 0` loses nothing. |
+| **D5** | `max_concurrency > 1`: warn and serialize, or refuse? | **Refuse, exit 2** (§7). A warning scrolls past and leaves the adapter field looking supported while every run is serial. |
+| **D6** | HTTP-only in v1, or HTTP + function? | **HTTP + function** (§4.2). `adapter-contract.md` calls `function` *preferred* when auth or HTTP is in the way, so shipping without it would mean v1 does not implement its own recommended path. `cli` still exits 3. |
+| **D7** | `pass^k` rollup, and where does the k-mismatch check live? | **Keep `pass^k`; the check lives in the runner** (§5.6), alongside the rest of the comparison it guards. Recording `k` in the manifest is only useful if something reads it. |
+| **D8** | Who appends to the holdout ledger? | **The runner** (§6). It is the only component that knows for certain the selection touched sealed ids. The self-contained-run-directory property does take a dent; the ledger is now a `.jsonl` sidecar so the append is atomic and stdlib-safe. |
+| **D9** | Are `answer.txt` and `expect.json` required per-case artifacts? | **Yes.** Keeping the scorer inputs in the case directory is what lets a run be re-scored without re-invoking the app — which is also how a scorer bug fix reaches historical runs. `expect.json` can drift from an edited case file; `manifest.cases[].sha256` records what was actually run.

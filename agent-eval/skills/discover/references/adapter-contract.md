@@ -36,8 +36,50 @@ invocation:
   #                    X-User-Permissions: ${TEST_PERMS} } }
   # auth: { type: cookie, cookie_env: APP_TEST_COOKIE }
   # auth: { type: none }
+
+  # --- http mode: how a request is BUILT and a response is READ ---
+  # These are TEMPLATES the runner substitutes into, not examples. The runner
+  # never guesses an app's request shape or hunts a response for "the longest
+  # string that looks like an answer" -- a heuristic that works on four cases
+  # and silently picks the wrong field on the fifth. Declared here, once.
+  endpoint: "POST /api/chat/ask"          # <METHOD> /<path>, appended to base_url
+  request_body: '{"sessionId": "<uuid>", "message": "<user turn>"}'
+  response_body: '{"message": "<answer>"}'
+  # Request placeholders: <user turn> (the case's last user message), <uuid>
+  # (a fresh session id per repeat), <persona>, <case id>. A string that IS a
+  # placeholder becomes the typed value; one that merely CONTAINS one gets
+  # textual substitution.
+  # Response placeholders: <answer> (REQUIRED -- which field carries the final
+  # text) and optionally <trace id>.
+
+  identity_map:                           # case `identity` -> headers. REQUIRED for
+    permissions: X-User-Permissions       # authz cases: without it the runner SKIPS
+    role: X-Role-Id                       # them rather than running them under the
+    user: X-User-Id                       # adapter's default identity, which would
+                                          # score the wrong persona and report the
+                                          # number as if it meant something.
+
+  health_check:                           # optional. Pre-flight's one trivial call.
+    method: GET                           # Undeclared -> GET base_url, and ANY response
+    path: /healthz                        # (including 404) counts as "the host is up";
+    expect_status: [200]                  # inventing an API call would spend money on a
+                                          # shape you never declared. REQUIRED when
+                                          # traces are queryable, since the trace-join
+                                          # check needs a real call to join on.
+
+  route_from_status:                      # optional, trace-less apps only. Makes
+    200: "<answered>"                     # status-derived routing DECLARED and per-app
+    400: "__oos__"                        # instead of a runner-wide heuristic. Without
+    403: "denied"                         # it, a trace-less run scores no routing layer.
+
   # function mode (preferred when auth/HTTP is in the way)
-  entrypoint: "app.chat:handle_message"   # module:callable
+  entrypoint: "app.chat:handle_message"   # module:callable, importable from app.repo.
+                                          # Called with the rendered request_body;
+                                          # returns the answer string, or
+                                          # {text, status, trace_id, ...}.
+                                          # NOTE: timeout_s is NOT enforced in this mode
+                                          # (an in-process call cannot be interrupted from
+                                          # the stdlib) -- the callable owns its timeout.
   # session contract — REQUIRED for multi-turn evals; without it, single-turn only
   session:
     start: {...}               # how to open a conversation (endpoint/args)
@@ -45,7 +87,10 @@ invocation:
     end: {...}
   streaming: none | sse | websocket   # how to detect "response complete"; capture TTFT
   timeout_s: 60
-  max_concurrency: 1           # serial by default; raise only if state-safe
+  max_concurrency: 1           # serial by default. > 1 is REFUSED (exit 2) by
+                               # run_cases.py rather than silently serialized:
+                               # a field that looks supported and is not is
+                               # worse than one that says no.
 
 traces:
   source: otlp-file | jaeger | tempo | clickhouse | view-only | none
@@ -92,7 +137,9 @@ data:
 ## Hard rules the runner enforces
 1. No heuristic trace correlation — `correlation` must be explicit or trajectory
    layers are disabled for the run (scored layers must never silently use the
-   wrong trace).
+   wrong trace). `run_cases.py` v1 can query `traces.source: otlp-file`; the
+   other queryable stores exit 3 rather than being treated as trace-less, which
+   would downgrade a fully instrumented app without saying so.
 2. `never-live` tools present + `environment.kind: live-*` → run refuses
    categories that could trigger them.
 3. Missing `session` contract → multi-turn cases skipped and reported as
