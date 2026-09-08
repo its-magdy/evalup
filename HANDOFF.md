@@ -36,11 +36,14 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 
 ## 2. The two conclusions that drive everything else
 
-1. **There is no execution engine.** Every script in `scripts/` is a pure
-   JSON-in/JSON-out scorer. `run/SKILL.md` §2 "Execute" is hand-orchestrated by
-   the LLM every run → not reproducible, expensive, and it silently drops
-   required outputs (proof: the last shipped run is missing `verdicts.jsonl`
-   and `verdicts_for_stats.jsonl`). Fix = build `run_cases.py`.
+1. **There was no execution engine** — `run/SKILL.md` §2 "Execute" was
+   hand-orchestrated by the LLM every run: not reproducible, expensive, and it
+   silently dropped required outputs (proof: the last shipped run is missing
+   `verdicts.jsonl` and `verdicts_for_stats.jsonl`). **Being fixed now**:
+   `docs/runner-contract.md` is the spec, `scripts/run_cases.py` is the engine.
+   Step 5b-i shipped everything but scoring; 5b-ii wires the scorers and closes
+   the loop. Until 5b-ii lands the runner is not usable for a real run, and
+   `run/SKILL.md` still describes the hand-orchestrated flow (that is 5c).
 2. **7 skills is the right count; ~33.9k tokens of skill prose at 22–29
    words/sentence is the problem.** Move rationale to `references/`, keep
    procedure in `SKILL.md`.
@@ -189,13 +192,25 @@ Each step is sized for a single low-usage session. Mark done as you go.
 ## 4. Gotchas a new session will otherwise rediscover the hard way
 
 - **Commands** (run from `agent-eval/`):
-  - `python3 -m unittest discover -s tests` — 399 tests, ~32s. This is the
-    blessed command.
+  - `python3 -m unittest discover -s tests` — 513 tests, ~2min. This is the
+    blessed command. (`tests/test_run_cases.py` is most of the new time: it
+    starts a real HTTP server per test and one test kills a runner mid-run.)
   - `ruff check --config ruff.toml .`
   - `uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q`
     — the only conclusive 3.9 floor check. Run before any release.
 - **`validate_cases.py` takes JSON, not YAML**, deliberately — read its
   docstring before "fixing" that. Convert with the caller's own YAML parser.
+  **`run_cases.py` takes JSON for the same reason** (`--plan`), and the skill
+  doing the YAML→JSON conversion *is* the run's parse, not a second opinion.
+- **The runner's spec is `agent-eval/docs/runner-contract.md` and it wins.**
+  Its nine design decisions were confirmed 2026-09-08 and the section that used
+  to hold them is now a record of the answers with the trade-offs — do not
+  reopen one without reading it. Where the code and that file disagree, the
+  file is right.
+- **The holdout ledger is a `.jsonl` sidecar**, not the YAML dataset metadata:
+  a stdlib-only runner cannot append a JSON line to a YAML mapping without
+  corrupting it. `run/SKILL.md` §4 and `analyze/SKILL.md` `--unseal` still say
+  "dataset metadata" and need pointing at the sidecar in 5c/Step 6.
 - **`__oos__` is `score_routing.py`'s canonical internal OOS label**, not a
   data value. `--oos-route <name>` maps the profile's OOS route name onto it.
   (I initially misread the shipped report as inconsistent; it is not.)
