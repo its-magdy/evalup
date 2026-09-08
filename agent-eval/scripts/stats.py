@@ -40,7 +40,9 @@ minimum-detectable-effect calculation. It does NOT gate keep; tighten
 --bayes-threshold for that.
 
 Also answers "what n do I need": minimum detectable effect at the current n,
-stated in plain language alongside the number.
+stated in plain language alongside the number — and when a KEEP lands under
+that number, says so in `sub_mde_keep` rather than leaving the caller to
+compare two fields (optimize/SKILL.md §5 surfaces it beside `gate_note`).
 
 Usage: stats.py <baseline.jsonl> <candidate.jsonl> [--alpha 0.05]
                 [--bayes-threshold 0.8]
@@ -266,6 +268,30 @@ def main():
             "permissive product bar for iterative optimization — raise "
             "--bayes-threshold (e.g. 0.95) if you want frequentist-strength "
             "evidence before keeping a change.")
+
+    # The gate's own MDE text ends "treat a sub-MDE 'keep' as not proven, not
+    # as no effect" — and nothing used to tell the caller which runs those
+    # were. Both existing guards miss this shape: gate_note fires only when the
+    # sign test is NOT significant (a 5-for-0 discordant split is significant,
+    # p=0.031), and `advice` below is gated behind `not keep`. So the one
+    # decision where the reader most needs the caveat — keep, on an observed
+    # effect smaller than the smallest this dataset can resolve — was the one
+    # that printed no caveat at all, and optimize §5 pinned it as the new
+    # baseline reporting a bare "kept".
+    #
+    # Emitted BESIDE keep, never instead of it. The decision rule is unchanged
+    # (the posterior is exact and does not depend on the MDE, which is a
+    # normal-approximation planning figure); what changes is that the run says
+    # out loud that its evidence is thinner than its own resolution.
+    if out["keep"] and abs(delta) < mde:
+        out["sub_mde_keep"] = (
+            f"KEPT BUT NOT PROVEN: the observed delta {delta:+.1%} is smaller "
+            f"than the ~{mde:.0%} minimum detectable effect at n={n}, so this "
+            "dataset cannot distinguish it from noise. The posterior bar it "
+            "was kept on is a real signal about DIRECTION "
+            f"(P(candidate better)={prob:.3f}), not proof of SIZE: do not "
+            "quote the delta as a measured improvement, and grow the dataset "
+            "(agent-eval:generate) before treating it as one.")
 
     if abs(delta) < mde and not out["keep"]:
         if delta == 0:

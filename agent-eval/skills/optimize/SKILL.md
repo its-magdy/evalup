@@ -59,9 +59,12 @@ make gains real instead of overfit.
    training measurement is a precondition, not a formality. `stats.py` decides
    on one rule at every n: exact Bayesian P(improvement) ≥ 0.8
    (`--bayes-threshold`) and delta > 0, with an exact one-sided sign test
-   reported alongside. When a keep rides on the posterior bar while the sign
-   test is not significant, `stats.py` emits a `gate_note` — surface it rather
-   than reporting a bare "kept". Pass → keep (apply for real, pin the keeper
+   reported alongside. Two caveat keys ride beside that decision and both must
+   be surfaced rather than reported as a bare "kept": `gate_note` (kept on the
+   posterior bar while the sign test is not significant) and `sub_mde_keep`
+   (the observed delta is smaller than the run's own minimum detectable
+   effect — the direction is evidenced, the SIZE is not, so do not quote the
+   delta as a measured improvement). Pass → keep (apply for real, pin the keeper
    run as the new baseline by overwriting `reports/baseline.json`, log
    candidate as champion). Fail → revert, keep the reflection (it prunes the
    next hypothesis). Always report regressions on any layer, not just the

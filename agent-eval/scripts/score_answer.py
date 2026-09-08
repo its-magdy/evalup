@@ -14,6 +14,14 @@ convention's edge: a path-like literal ("/usr/local/") is read as the REGEX
 and trailing slash. A regex that is invalid, or that fails to terminate
 within REGEX_TIMEOUT_S, is "unscorable" rather than a hang or a crash.
 
+Both sides of a plain-string check are NFC-normalized before comparing (see
+_common.nfc), so an entry authored in one Unicode form matches an answer
+written in the other. Regex entries get the ANSWER normalized but never the
+PATTERN — normalizing a pattern would rewrite regex source the author chose,
+and inside a character class it would silently change what the class means.
+Write patterns in NFC (the form every editor produces by default) or match the
+combining mark explicitly; every regex check carries a note saying so.
+
 format.json_schema uses a minimal stdlib validator supporting: type,
 required, properties, items, enum. Unsupported keywords are ignored and
 listed in the check's note — passing this check is not full JSON Schema
@@ -41,6 +49,7 @@ from _common import (
     add_version_flag,
     load_object,
     load_text,
+    nfc,
     optional_mapping,
     require_list,
     require_mapping,
@@ -119,10 +128,23 @@ def search_bounded(pattern, text):
 FLAG_SUFFIX_RE = re.compile(r"^/(.*)/([aiLmsux]{1,4})$", re.DOTALL)
 
 
+def is_regex_entry(entry):
+    """The /pattern/ marker, named once: content_check must know whether an
+    entry took the regex path in order to report the asymmetric normalization
+    below, and re-deriving the test there is how the note and the behaviour
+    would drift apart."""
+    return len(entry) > 2 and entry.startswith("/") and entry.endswith("/")
+
+
 def entry_matches(entry, text):
     """True/False, or None if the entry is an invalid or non-terminating
-    regex (both reported "unscorable" — see content_check)."""
-    if len(entry) > 2 and entry.startswith("/") and entry.endswith("/"):
+    regex (both reported "unscorable" — see content_check).
+
+    `text` is already NFC (main normalizes the answer once). For a plain
+    substring the ENTRY is normalized here too, so the two sides are compared
+    in the same Unicode form. A regex pattern is deliberately left as the
+    author wrote it — see the module docstring."""
+    if is_regex_entry(entry):
         try:
             return search_bounded(entry[1:-1], text) is not None
         except re.error:
@@ -139,7 +161,7 @@ def entry_matches(entry, text):
         # must_not_contain entry always vacuously passed, catching nothing.
         # Refuse to guess and say so, rather than repeat either silently.
         return "bad_flag_suffix"
-    return entry in text
+    return nfc(entry) in text
 
 
 def validate_schema(value, schema, path="$"):
@@ -165,17 +187,23 @@ def validate_schema(value, schema, path="$"):
     # [1] (and 1 satisfied [true]) — the same bool/int confusion the type
     # check above refuses, arriving through the other keyword. Membership is
     # therefore matched on type as well as value.
+    # `nfc(v)`, not `v`: the ANSWER side is already normalized (main normalizes
+    # the whole answer text before parsing it), so only the schema's own
+    # literals still need it. nfc passes non-strings through, so the bool/int
+    # discipline above is untouched.
     if "enum" in schema and not any(
-            v == value and isinstance(v, bool) == isinstance(value, bool)
+            nfc(v) == value and isinstance(v, bool) == isinstance(value, bool)
             for v in schema["enum"]):
         errors.append(f"{path}: {value!r} not in enum")
     if isinstance(value, dict):
+        # Key names are text too, and a key that IS present reported "required
+        # key missing" when the case spelled it in the other Unicode form.
         for key in schema.get("required", []):
-            if key not in value:
+            if nfc(key) not in value:
                 errors.append(f"{path}.{key}: required key missing")
         for key, sub in (schema.get("properties") or {}).items():
-            if key in value and isinstance(sub, dict):
-                errors.extend(validate_schema(value[key], sub,
+            if nfc(key) in value and isinstance(sub, dict):
+                errors.extend(validate_schema(value[nfc(key)], sub,
                                               f"{path}.{key}"))
     if isinstance(value, list) and isinstance(schema.get("items"), dict):
         for i, item in enumerate(value):
@@ -193,12 +221,40 @@ def unsupported_keywords(schema, acc):
         unsupported_keywords(schema["items"], acc)
 
 
+# Said in the OUTPUT, not only in the docstring: the normalization is
+# asymmetric on this path (answer yes, pattern no), and a reader looking at a
+# regex that "should" have matched has no other way to learn that the text it
+# ran against is not byte-for-byte the text the app produced.
+REGEX_NFC_NOTE = ("the answer was NFC-normalized before matching; the pattern "
+                  "was not (normalizing regex source could change what a "
+                  "character class means) — author patterns in NFC")
+REGEX_NOT_NFC_NOTE = (
+    " — WARNING: this pattern is not in NFC form (it contains decomposed "
+    "characters, e.g. 'e' + a combining accent). It cannot match those "
+    "characters in the normalized answer: rewrite it in NFC")
+
+
+def regex_note(pattern):
+    """The note every regex check carries, sharpened when the pattern itself
+    is decomposed — that is the one case where the asymmetry above turns a
+    correct expectation into a fail, so it must not read as boilerplate."""
+    return REGEX_NFC_NOTE + (REGEX_NOT_NFC_NOTE if nfc(pattern) != pattern
+                             else "")
+
+
 def content_check(kind, entry, answer):
     normalized = normalize_entry(entry)
     if normalized is None:
         return {"check": kind, "entry": entry, "status": "unscorable",
                 "reason": f"entry must be a string or number, got "
                           f"{type(entry).__name__}: quote it in the case YAML"}
+    check = scored_entry(kind, entry, normalized, answer)
+    if is_regex_entry(normalized):
+        check["note"] = regex_note(normalized[1:-1])
+    return check
+
+
+def scored_entry(kind, entry, normalized, answer):
     matched = entry_matches(normalized, answer)
     if matched is None:
         return {"check": kind, "entry": entry, "status": "unscorable",
@@ -230,7 +286,12 @@ def main():
     ap.add_argument("answer", help="file holding the app's final answer text")
     ap.add_argument("expect", help="case 'expect' object JSON")
     a = ap.parse_args()
-    answer = load_text(a.answer)
+    # Normalized ONCE, here, rather than per check: every comparison below
+    # (substring, regex, and the JSON parsed out of this same text) then runs
+    # in one Unicode form, and no future check can be added that forgets to.
+    # See _common.nfc for why an unnormalized comparison is a manufactured
+    # failure rather than a cosmetic one.
+    answer = nfc(load_text(a.answer))
     expect = load_object(a.expect)
     # `is not None`, not truthiness: the truthy test conflated "key absent"
     # (nothing to score, correct) with "key present but off-shape AND falsy" —

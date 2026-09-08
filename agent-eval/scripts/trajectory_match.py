@@ -8,6 +8,8 @@ Modes (per case, not global):
   exact              - exactly these calls, in this order, nothing else
   any_order          - exactly these calls, any order
 
+Tool names are compared in NFC on both sides (see _common.nfc).
+
 This layer scores which tools were CALLED, not whether they succeeded. Calls
 that reported an error are always listed in "errored_calls" (with a warning),
 and --fail-on-errored-calls gates the verdict on them; the default is off so
@@ -32,6 +34,7 @@ from _common import (
     die,
     load_object,
     load_trajectory,
+    nfc,
     optional_list,
     optional_mapping,
     require_list,
@@ -61,7 +64,12 @@ def asserted_list(field, value):
     if not entries:
         die(f"{field} is present but empty; an empty list asserts nothing and "
             f"passes every trajectory — remove the key instead")
-    return entries
+    # NFC, matching the observed names in main (see _common.nfc). Tool names
+    # are usually ASCII identifiers, but normalize_trace's own docstring warns
+    # that a non-ASCII tool name is a shape this harness has to survive — and
+    # here the failure is total: the expected tool is reported missing from a
+    # trajectory that called it, spelled the other way.
+    return [nfc(e) for e in entries]
 
 
 def match(observed_names, expect_tools):
@@ -138,7 +146,11 @@ def main():
                          "would re-score every existing dataset)")
     a = ap.parse_args()
     calls = load_trajectory(a.trajectory)
-    observed = [c.get("name") for c in calls]
+    # Normalized once, here, so every consumer below (the mode match, the
+    # forbidden set, precision/recall) compares the same form. errored_calls
+    # keeps the raw name on purpose: it is evidence quoted from the trace, not
+    # a comparison.
+    observed = [nfc(c.get("name")) for c in calls]
     # A tool that was CALLED and a tool that WORKED are different claims, and
     # this layer only ever checked the first. With no record of the error at
     # all (normalize_trace dropped it until recently), a trajectory whose only
@@ -163,9 +175,10 @@ def main():
     # "delete_user"` becomes the character set {'d','e','l',...}, so no real tool
     # name is ever in it and the gate silently passes everything it exists to
     # catch. A too-permissive authz check is the worse direction to fail in.
-    forbidden = set(optional_list("expect.tools.forbidden",
-                                  expect_tools.get("forbidden"),
-                                  item="tool name"))
+    forbidden = {nfc(t) for t in
+                 optional_list("expect.tools.forbidden",
+                               expect_tools.get("forbidden"),
+                               item="tool name")}
     violations = [t for t in observed if t in forbidden]
     if violations:
         passed = False

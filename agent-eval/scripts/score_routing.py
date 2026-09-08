@@ -12,7 +12,10 @@ the "__no_route__" label, a fail that appears in the confusion matrix.
 Out-of-scope cases use the "__oos__" label. Pass --oos-route <name> (the
 app's concrete OOS/refusal route from profile oos_handling) and the scorer
 maps that route name to "__oos__" in both expected and observed — without
-the mapping the OOS precision/recall block cannot appear. A case passes if
+the mapping the OOS precision/recall block cannot appear. The name must match
+a label the data carries or it is an input error (exit 2), listing the labels
+that are present; see require_oos_route_present. All labels are compared in
+NFC (see _common.nfc). A case passes if
 observed is in acceptable (expected is always implicitly acceptable), or
 (clarify_ok and clarified).
 
@@ -30,13 +33,63 @@ import argparse
 import json
 from collections import defaultdict
 
-from _common import add_version_flag, die, load_jsonl, require_list
+from _common import add_version_flag, die, load_jsonl, nfc, require_list
 
 ALIASES = {"route": "expected", "route_acceptable": "acceptable"}
 
 
 def f1(p, r):
     return 0.0 if (p + r) == 0 else 2 * p * r / (p + r)
+
+
+def label_universe(rows):
+    """Every route label the data actually carries, in NFC, across all three
+    label-bearing fields.
+
+    Read BEFORE normalize_rows, because it is what --oos-route is validated
+    against and normalize_rows is where the rename happens — so it reads the
+    case-format ALIASES too (route/route_acceptable). Reading only the
+    canonical names here would reject every correctly-spelled --oos-route on
+    the alias spelling of the input, turning one silent wrong answer into a
+    loud wrong error."""
+    labels = set()
+    for r in rows:
+        for k in ("expected", "route", "observed"):
+            if isinstance(r.get(k), str):
+                labels.add(nfc(r[k]))
+        for k in ("acceptable", "route_acceptable"):
+            if isinstance(r.get(k), list):
+                labels.update(nfc(v) for v in r[k] if isinstance(v, str))
+    return labels
+
+
+def require_oos_route_present(rows, oos_route):
+    """--oos-route must name a label the data contains, or it is an input
+    error.
+
+    The flag only RENAMES a route to the __oos__ sentinel, so a name that
+    matches nothing renames nothing — and every downstream consequence of that
+    was silent. The OOS precision/recall block, a security-adjacent number,
+    reported precision/recall null with the note "0 OOS case(s) in this run"
+    over data holding two of them: not merely missing, but affirmatively wrong
+    about the run, at exit 0. The value is LLM-supplied (the run skill fills it
+    from the profile's oos_handling), so a typo or a stale profile is the
+    expected way to get here, and the report gives the reader no way to tell
+    this run from one that genuinely has no out-of-scope cases.
+
+    Listing the labels PRESENT is most of the fix: with them in the message the
+    correct value is usually obvious ("refuse" vs "refusal") and the second
+    cause — a run whose cases contain no OOS at all — is equally visible, which
+    is why the message names both."""
+    present = label_universe(rows)
+    if oos_route in present:
+        return
+    die(f"--oos-route {oos_route!r} matches no label in the data (labels "
+        f"present: {sorted(present)}). It renames one of those to the "
+        "__oos__ sentinel, so an unmatched name silently disables the OOS "
+        "leakage metric: check the spelling against the profile's "
+        "oos_handling route, or omit --oos-route entirely if this run has no "
+        "out-of-scope cases.")
 
 
 def normalize_rows(rows, oos_route):
@@ -66,6 +119,16 @@ def normalize_rows(rows, oos_route):
                 f"row {i} (case_id {r.get('case_id')!r}): "
                 "expect.route_acceptable",
                 r["acceptable"], item="route name")
+        # Route labels are text that crosses a boundary: `expected` and
+        # `acceptable` are authored in the case file, `observed` comes back
+        # from the app. NFC on all three (see _common.nfc) so the same route
+        # name written in two Unicode forms is one label — otherwise a correct
+        # route scores a mismatch AND splits the confusion matrix into two rows
+        # that print identically.
+        for k in ("expected", "observed"):
+            r[k] = nfc(r[k])
+        if isinstance(r.get("acceptable"), list):
+            r["acceptable"] = [nfc(v) for v in r["acceptable"]]
         if oos_route:
             for k in ("expected", "observed"):
                 if r[k] == oos_route:
@@ -101,7 +164,11 @@ def main():
                       required_keys=("case_id",))
     if not rows:
         die("no rows")
-    normalize_rows(rows, a.oos_route)
+    # Before normalize_rows: the check reads the labels as the data spells
+    # them, and the rename it guards happens in there.
+    if a.oos_route:
+        require_oos_route_present(rows, nfc(a.oos_route))
+    normalize_rows(rows, nfc(a.oos_route) if a.oos_route else a.oos_route)
 
     confusion = defaultdict(lambda: defaultdict(int))
     passes = 0

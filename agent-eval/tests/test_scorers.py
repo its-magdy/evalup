@@ -2802,6 +2802,363 @@ class TestScoreAnswerHonestVerdict(ScorerTest):
                 self.assertEqual(out["verdict"], "pass")
 
 
+class TestStatsSubMdeKeep(ScorerTest):
+    """A keep whose observed delta is below the run's own minimum detectable
+    effect must SAY so. Neither existing guard covers it: `gate_note` fires
+    only when the sign test is not significant, and `advice` is gated behind
+    `not keep` — so the audit's shape (90/100 -> 95/100, b01=5, b10=0) was
+    kept, significant at p=0.031, delta 0.05 against an MDE of 0.056, and
+    printed no caveat at all."""
+
+    def paired(self, base_pass, cand_pass, n):
+        base = [{"case_id": f"c{i:03d}",
+                 "verdict": "pass" if i < base_pass else "fail"}
+                for i in range(n)]
+        cand = [{"case_id": f"c{i:03d}",
+                 "verdict": "pass" if i < cand_pass else "fail"}
+                for i in range(n)]
+        return (self.write_jsonl("b.jsonl", base),
+                self.write_jsonl("c.jsonl", cand))
+
+    def test_the_audit_repro_now_carries_the_caveat(self):
+        b, c = self.paired(90, 95, 100)
+        rc, out, err = run_script("stats.py", b, c)
+        self.assertEqual(rc, 0, err)
+        # The exact shape from AUDIT-2026-09-06.md 9b(1), asserted so a future
+        # change to the MDE or the posterior cannot quietly move this run out
+        # of the sub-MDE band and leave the test passing vacuously.
+        self.assertTrue(out["keep"])
+        self.assertEqual(out["delta"], 0.05)
+        self.assertEqual(out["min_detectable_effect_at_this_n"], 0.056)
+        self.assertTrue(out["sign_test_significant_at_alpha"])
+        self.assertNotIn("gate_note", out)
+        self.assertNotIn("advice", out)
+        self.assertIn("sub_mde_keep", out)
+        self.assertIn("not proven", out["sub_mde_keep"].lower())
+
+    def test_a_keep_above_the_mde_carries_no_caveat(self):
+        # 60/100 -> 95/100: the effect is far larger than anything this n
+        # cannot resolve, so the note must not fire on every keep.
+        b, c = self.paired(60, 95, 100)
+        rc, out, err = run_script("stats.py", b, c)
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(out["keep"])
+        self.assertGreater(abs(out["delta"]),
+                           out["min_detectable_effect_at_this_n"])
+        self.assertNotIn("sub_mde_keep", out)
+
+    def test_a_sub_mde_reject_gets_advice_not_the_keep_caveat(self):
+        # The other side of the same band: not kept, so `advice` owns it and
+        # the two keys never both fire.
+        b, c = self.paired(90, 91, 100)
+        rc, out, err = run_script("stats.py", b, c)
+        self.assertEqual(rc, 0, err)
+        self.assertFalse(out["keep"])
+        self.assertIn("advice", out)
+        self.assertNotIn("sub_mde_keep", out)
+
+    def test_the_caveat_never_changes_the_decision(self):
+        # Emitted BESIDE keep, never instead of it: the gate is the exact
+        # posterior, which the MDE (a normal-approximation planning figure)
+        # does not enter.
+        b, c = self.paired(90, 95, 100)
+        rc, out, _ = run_script("stats.py", b, c)
+        self.assertTrue(out["keep"])
+        self.assertGreaterEqual(out["p_candidate_better"], out["threshold"])
+
+    def test_optimize_skill_surfaces_it(self):
+        # The number is only useful if the skill that reads stats.py reports
+        # it; the audit's finding was as much about the silent report as the
+        # missing key.
+        spec = (pathlib.Path(__file__).resolve().parent.parent /
+                "skills" / "optimize" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("sub_mde_keep", spec)
+        self.assertIn("gate_note", spec)
+
+
+class TestUnicodeNormalization(ScorerTest):
+    """NFD vs NFC: two spellings of the same characters, identical on screen,
+    unequal as code points. Every scorer that compares a case-authored string
+    against app-produced text has to normalize, or it manufactures a failure
+    whose own evidence shows the two sides as the same text (and, on the authz
+    gate, manufactures a PASS). macOS emits NFD, most web input is NFC, so no
+    exotic data is needed to hit this.
+
+    NFD is written explicitly here rather than pasted, because a decomposed
+    literal is invisible in a diff and any editor may silently recompose it.
+    """
+
+    NFC = "caf\u00e9"          # e-acute as one code point
+    NFD = "cafe\u0301"         # e + combining acute
+    ARABIC_NFC = "\u0623\u062d\u0645\u062f"       # alef-with-hamza + hmd
+    ARABIC_NFD = "\u0627\u0654\u062d\u0645\u062f"  # alef + combining hamza
+
+    def test_the_two_spellings_really_are_different_strings(self):
+        # The premise of every assertion below. If this ever fails the rest
+        # are testing nothing.
+        self.assertNotEqual(self.NFC, self.NFD)
+        self.assertNotEqual(self.ARABIC_NFC, self.ARABIC_NFD)
+
+    # --- score_answer.py: the scorer the audit found it in -----------------
+
+    def answer_case(self, answer, expect):
+        a = self.tmp / "a.txt"
+        a.write_text(answer, encoding="utf-8")
+        return run_script("score_answer.py", a, self.write_json("e.json",
+                                                                expect))
+
+    def test_must_contain_nfd_matches_an_nfc_answer(self):
+        # AUDIT-2026-09-06.md 9b(2), verbatim: this returned `fail`.
+        rc, out, err = self.answer_case(
+            f"We visited the {self.NFC} downtown.",
+            {"answer": {"must_contain": [self.NFD]}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_must_contain_nfc_matches_an_nfd_answer(self):
+        # The mirror direction — which side is decomposed is an accident of
+        # whose editor wrote it.
+        rc, out, err = self.answer_case(
+            f"We visited the {self.NFD} downtown.",
+            {"answer": {"must_contain": [self.NFC]}})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_must_not_contain_still_catches_the_other_spelling(self):
+        # The permissive direction: a forbidden phrase must not hide behind a
+        # Unicode form.
+        rc, out, err = self.answer_case(
+            f"The password is {self.NFD}.",
+            {"answer": {"must_not_contain": [self.NFC]}})
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_arabic_hamza_form_matches(self):
+        # The field-test app is Gulf-market; alef forms are the common case
+        # and are far more frequent than the accent example.
+        rc, out, err = self.answer_case(
+            f"\u0627\u0644\u0639\u0645\u064a\u0644 {self.ARABIC_NFC}",
+            {"answer": {"must_contain": [self.ARABIC_NFD]}})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_regex_entry_matches_a_decomposed_answer_and_says_so(self):
+        # The haystack is normalized; the PATTERN deliberately is not, so the
+        # check has to declare the asymmetry.
+        rc, out, err = self.answer_case(
+            f"visited {self.NFD} today",
+            {"answer": {"must_contain": [f"/{self.NFC}/"]}})
+        self.assertEqual(out["verdict"], "pass")
+        self.assertIn("NFC-normalized", out["checks"][0]["note"])
+
+    def test_a_decomposed_pattern_is_warned_about_by_name(self):
+        # This one legitimately cannot match, and the note is the only place
+        # the reader can learn why — "not found in answer" is true and
+        # useless.
+        rc, out, err = self.answer_case(
+            f"visited {self.NFC} today",
+            {"answer": {"must_contain": [f"/{self.NFD}/"]}})
+        self.assertEqual(out["verdict"], "fail")
+        self.assertIn("not in NFC form", out["checks"][0]["note"])
+
+    def test_an_ascii_regex_still_gets_the_plain_note(self):
+        rc, out, err = self.answer_case(
+            "total: 42 units", {"answer": {"must_contain": ["/\\d+ units/"]}})
+        self.assertEqual(out["verdict"], "pass")
+        self.assertNotIn("WARNING", out["checks"][0]["note"])
+
+    def test_json_schema_enum_and_required_key_normalize(self):
+        rc, out, err = self.answer_case(
+            json.dumps({self.NFC: self.NFC}, ensure_ascii=False),
+            {"format": {"json_schema": {
+                "type": "object", "required": [self.NFD],
+                "properties": {self.NFD: {"enum": [self.NFD]}}}}})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    # --- score_args.py ----------------------------------------------------
+
+    def test_literal_arg_expectation_normalizes(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {"q": self.NFC}}]})
+        rc, out, err = run_script(
+            "score_args.py", traj,
+            self.write_json("e.json", {"args": {"search": {"q": self.NFD}}}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    def test_arg_name_normalizes(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "search", "args": {self.NFC: "x"}}]})
+        rc, out, err = run_script(
+            "score_args.py", traj,
+            self.write_json("e.json",
+                            {"args": {"search": {self.NFD: "present"}}}))
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    def test_tool_name_normalizes(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": f"get_{self.NFC}", "args": {"id": "INV-1"}}]})
+        rc, out, err = run_script(
+            "score_args.py", traj,
+            self.write_json("e.json",
+                            {"args": {f"get_{self.NFD}": {"id": "INV-1"}}}))
+        self.assertNotEqual(out["checks"][0]["status"], "tool_not_called")
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_provenance_finds_a_non_ascii_value_in_a_json_result(self):
+        # Not an NFC bug: json.dumps defaults to ensure_ascii=True, so the
+        # haystack held the escape "caf\u00e9" and an argument the app copied
+        # verbatim out of that result was reported "possible hallucinated arg".
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "lookup", "args": {}, "result": {"name": self.NFC}},
+            {"name": "book", "args": {"name": self.NFC}}]})
+        rc, out, err = run_script(
+            "score_args.py", traj,
+            self.write_json("e.json",
+                            {"args": {"book": {"name": "from_tool_result"}}}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    def test_provenance_normalizes_across_the_two_forms(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": "lookup", "args": {}, "result": {"name": self.NFD}},
+            {"name": "book", "args": {"name": self.NFC}}]})
+        rc, out, err = run_script(
+            "score_args.py", traj,
+            self.write_json("e.json",
+                            {"args": {"book": {"name": "from_tool_result"}}}))
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    # --- score_execution.py -----------------------------------------------
+
+    def test_scalar_execution_answer_normalizes(self):
+        # casefold does not compose, so this scorer's existing quasi-exact
+        # normalization was not enough on its own.
+        rc, out, err = run_script(
+            "score_execution.py",
+            self.write_json("a.json", {"scalar": self.NFC.upper()}),
+            self.write_json("e.json", {"result": {"scalar": self.NFD}}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    def test_row_cells_normalize(self):
+        rc, out, err = run_script(
+            "score_execution.py",
+            self.write_json("a.json", {"rows": [{"city": self.NFC}]}),
+            self.write_json("e.json",
+                            {"result": {"rows": [{"city": self.NFD}]}}))
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+    # --- score_routing.py -------------------------------------------------
+
+    def test_route_labels_normalize(self):
+        rows = [{"case_id": "c1", "expected": self.NFD, "observed": self.NFC}]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["accuracy"], 1.0)
+        # And one label, not two rows of the confusion matrix that print the
+        # same.
+        self.assertEqual(len(out["per_target"]), 1)
+
+    # --- trajectory_match.py ----------------------------------------------
+
+    def test_expected_tool_names_normalize(self):
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": f"get_{self.NFC}"}]})
+        rc, out, err = run_script(
+            "trajectory_match.py", traj,
+            self.write_json("e.json",
+                            {"tools": {"subset": [f"get_{self.NFD}"]}}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual(out["recall"], 1.0)
+
+    def test_forbidden_tool_names_normalize(self):
+        # The permissive direction again: a forbidden tool that DID fire.
+        traj = self.write_json("t.json", {"tool_calls": [
+            {"name": f"delete_{self.NFD}"}]})
+        rc, out, err = run_script(
+            "trajectory_match.py", traj,
+            self.write_json("e.json",
+                            {"tools": {"forbidden": [f"delete_{self.NFC}"]}}))
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(len(out["forbidden_violations"]), 1)
+
+
+class TestOosRouteValidation(ScorerTest):
+    """--oos-route is LLM-supplied from profile.yaml's oos_handling, and a
+    name that matches nothing renamed nothing: the OOS leakage block reported
+    precision/recall null and a note claiming "0 OOS case(s) in this run" over
+    data holding two. Exit 0, a security-adjacent metric silently off, and a
+    report factually wrong about its own input (AUDIT-2026-09-06.md 6)."""
+
+    ROWS = [{"case_id": "r1", "expected": "billing", "observed": "billing"},
+            {"case_id": "r2", "expected": "support", "observed": "support"},
+            {"case_id": "r3", "expected": "none", "observed": "none"},
+            {"case_id": "r4", "expected": "none", "observed": "none"}]
+
+    def test_an_unmatched_route_is_a_clean_error_listing_the_labels(self):
+        out = self.assert_clean_error(
+            "score_routing.py", self.write_jsonl("r.jsonl", self.ROWS),
+            "--oos-route", "TOTAL_NONSENSE_XYZ")
+        self.assertIn("--oos-route", out["error"])
+        # The labels present are the fix: with them in the message the correct
+        # value is usually obvious.
+        for label in ("billing", "support", "none"):
+            self.assertIn(label, out["error"])
+
+    def test_the_correct_route_still_measures_the_metric(self):
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", self.ROWS),
+                                  "--oos-route", "none")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["oos"]["precision"], 1.0)
+        self.assertEqual(out["oos"]["recall"], 1.0)
+        self.assertEqual(out["oos"]["support"], 2)
+
+    def test_a_label_present_only_as_observed_is_accepted(self):
+        # The app routed there even though no case expects it — a real run
+        # (and a finding), not a typo.
+        rows = [{"case_id": "r1", "expected": "billing", "observed": "refuse"}]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows),
+                                  "--oos-route", "refuse")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["oos"]["support"], 0)
+
+    def test_a_label_present_only_in_the_acceptable_set_is_accepted(self):
+        rows = [{"case_id": "r1", "expected": "billing",
+                 "acceptable": ["billing", "refuse"], "observed": "billing"}]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows),
+                                  "--oos-route", "refuse")
+        self.assertEqual(rc, 0, err)
+
+    def test_the_case_format_aliases_are_recognized(self):
+        # `route`/`route_acceptable` are accepted as input aliases, so the
+        # check has to read them too — otherwise a correctly spelled route is
+        # rejected on the alias spelling of the file.
+        rows = [{"case_id": "r1", "route": "billing", "observed": "billing"},
+                {"case_id": "r2", "route": "none", "observed": "none"}]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows),
+                                  "--oos-route", "none")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["oos"]["support"], 1)
+
+    def test_the_route_is_matched_in_nfc(self):
+        rows = [{"case_id": "r1", "expected": "caf\u00e9", "observed": "caf\u00e9"}]
+        rc, out, err = run_script("score_routing.py",
+                                  self.write_jsonl("r.jsonl", rows),
+                                  "--oos-route", "cafe\u0301")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["oos"]["support"], 1)
+
+    def test_the_run_skill_documents_the_precondition(self):
+        spec = RUN_SKILL.read_text(encoding="utf-8")
+        self.assertIn("--oos-route", spec)
+        self.assertIn("exits 2", spec)
+
+
 if __name__ == "__main__":
     unittest.main()
 

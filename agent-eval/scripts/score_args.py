@@ -11,10 +11,13 @@ normalized trajectory. Expectation kinds (see case-format.md):
 
 from_tool_result matching is token-bounded (the value must not be a fragment
 of a longer token: INV-1 does not match inside INV-10) and non-string results
-are matched against their JSON serialization. On the trajectory's FIRST tool
-call the check FAILS — no earlier result exists to source the value from, so
-provenance is impossible regardless of content capture. Values shorter than
-3 characters carry no provenance signal and are "unscorable".
+are matched against their JSON serialization. Every comparison here — literal
+values, argument names, and provenance needles/haystacks — runs on
+NFC-normalized text (see _common.nfc and _common.stringify). On the
+trajectory's FIRST tool call the check FAILS — no earlier result exists to
+source the value from, so provenance is impossible regardless of content
+capture. Values shorter than 3 characters carry no provenance signal and are
+"unscorable".
 
 Call scope. A tool is routinely called more than once in a trajectory (search
 q=invoices, then search limit=10 to page), and an expectation written about
@@ -64,6 +67,7 @@ from _common import (
     found_in,
     load_object,
     load_trajectory,
+    nfc,
     optional_mapping,
     stringify,
 )
@@ -73,7 +77,15 @@ CALLS_KEY = "calls"
 
 
 def value_matches(observed, expected):
-    return observed == expected or str(observed) == str(expected)
+    """The literal-expectation comparison. Both sides NFC-normalized (see
+    _common.nfc): the expectation is authored in a case file and the observed
+    value comes back from the app, so the two arrive through different editors
+    and input methods, and an unnormalized comparison reported `expected 'café',
+    observed 'café'` — a fail whose own evidence shows the two as identical.
+    nfc passes non-strings through, so numbers and containers compare exactly as
+    before."""
+    observed, expected = nfc(observed), nfc(expected)
+    return observed == expected or nfc(str(observed)) == nfc(str(expected))
 
 
 def check_call(idx, call, arg_name, expectation, results,
@@ -85,6 +97,12 @@ def check_call(idx, call, arg_name, expectation, results,
     args = call.get("args")
     if not isinstance(args, dict) or args.get("_unparsed"):
         return ("unscorable", "call arguments not captured/parseable")
+    # Arg NAMES are compared in NFC too, on both sides. Rare — parameter names
+    # are usually ASCII identifiers — but the failure it prevents is the loudest
+    # one this scorer has: "arg 'X' absent from call #0" for an argument that is
+    # right there in the call, spelled the other way.
+    args = {nfc(k): v for k, v in args.items()}
+    arg_name = nfc(arg_name)
     if arg_name not in args:
         return ("fail", f"arg {arg_name!r} absent from call #{idx}")
     val = args[arg_name]
@@ -251,8 +269,11 @@ def main():
         # traceback and exit 1, outside the exit-2 contract this scorer shares.
         assertions = optional_mapping(f"expect.args.{tool}", assertions)
         scope, specs = split_scope(tool, assertions)
+        # NFC on both sides (see _common.nfc): the key is written in the case
+        # file, the name comes back from the app. Mismatched forms report
+        # "tool_not_called" for a tool the trajectory clearly contains.
         indexed = [(i, c) for i, c in enumerate(calls)
-                   if c.get("name") == tool]
+                   if nfc(c.get("name")) == nfc(tool)]
         if not indexed:
             checks.append({"tool": tool, "status": "tool_not_called",
                            "note": "missing tool is a trajectory-layer "

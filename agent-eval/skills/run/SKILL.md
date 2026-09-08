@@ -127,7 +127,10 @@ the seal is a property of the case, not of where its bytes live.
    handling — build its JSONL rows by mapping case fields `route`→`expected`
    and `route_acceptable`→`acceptable` (both accepted as aliases), plus
    `observed`/`clarified` from the run; pass `--oos-route <name>` with the
-   profile's `oos_handling` route so OOS metrics appear; a null `observed`
+   profile's `oos_handling` route so OOS metrics appear — the name must be a
+   route label the selected cases actually carry, or the scorer exits 2 and
+   lists the labels present, so omit the flag on a split with no out-of-scope
+   cases; a null `observed`
    is scored as `__no_route__`, a fail, never a crash. `macro_f1` averages
    only over labels the dataset actually asks for; prediction-only labels
    the app invented — `__no_route__`, a hallucinated route name — are

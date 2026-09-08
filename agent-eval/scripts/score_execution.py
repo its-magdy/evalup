@@ -25,11 +25,13 @@ Two shapes, exactly one per case (see case-format.md):
 - scalar: a single value answer ("how many nurses on nights?" -> 7). Compared
   with type-aware normalization: 7 == "7" == "7.0", "1,200" == 1200, "$5" == 5,
   1200 == "1200 hrs" (a unit/currency/percent on ONE side is presentation, not
-  content), strings casefold+trim. Numbers use --float-tolerance (default
-  exact). bool is never coerced to a number. A unit on BOTH sides must agree:
-  "12 hours" != "12 days". Units are compared literally, so an expected value
-  written with a unit demands that unit back — write the bare number instead if
-  the unit is not part of the answer.
+  content), strings NFC+casefold+trim (see _common.nfc; the numeric path needs
+  no normalization — digits and the ASCII unit shape have no decomposed
+  spelling). Numbers use --float-tolerance (default exact). bool is never
+  coerced to a number. A unit on BOTH sides must agree: "12 hours" !=
+  "12 days". Units are compared literally, so an expected value written with a
+  unit demands that unit back — write the bare number instead if the unit is
+  not part of the answer.
   Read the one-sided rule as strictly as it is written: a BARE expected number
   accepts ANY unit back, because this scorer cannot tell a presentational unit
   from a wrong one without a second unit to compare against — 5 == "5 apples"
@@ -62,6 +64,7 @@ from _common import (
     add_version_flag,
     die,
     load_object,
+    nfc,
     optional_mapping,
     require_list,
     require_range,
@@ -136,8 +139,15 @@ def as_number(value):
 
 
 def norm_string(value):
-    """Casefold + collapse whitespace, for the non-numeric scalar path."""
-    return re.sub(r"\s+", " ", str(value).strip()).casefold()
+    """NFC + casefold + collapse whitespace, for the non-numeric scalar path.
+
+    NFC first (see _common.nfc): casefold does not compose, so "Café" and
+    "CAFE\u0301" casefold to two still-unequal strings and a correct answer
+    compared unequal to a ground truth that renders identically to it. This
+    scorer's whole premise is quasi-exact match — presentation differences are
+    not content — and which Unicode form an editor saved is the purest
+    presentation difference there is."""
+    return re.sub(r"\s+", " ", nfc(str(value)).strip()).casefold()
 
 
 _MISMATCH = "answer value does not match ground truth"

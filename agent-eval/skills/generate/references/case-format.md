@@ -250,6 +250,12 @@ expect:
                                      # live: 6 cases shipped with /i and the check
                                      # either always failed or vacuously always
                                      # passed before this was caught).
+                                     # UNICODE: entry and answer are compared in
+                                     # NFC, so an accented or Arabic string matches
+                                     # whichever form the app produced. A REGEX
+                                     # pattern is NOT normalized (that would rewrite
+                                     # your pattern) — write patterns in NFC; the
+                                     # check's note warns when one is not.
     rules: [no-uncatalogued-prices]  # business-rule oracle ids from profile.yaml —
                                      # evaluated by the run skill against the
                                      # profile's rule definitions, not by a script

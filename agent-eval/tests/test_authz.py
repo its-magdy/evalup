@@ -394,5 +394,120 @@ class TestIdPatternFlag(ScorerTest):
         self.assertNotIn("Traceback", err)
 
 
+class TestIdPatternIsCheckedAgainstTheCase(ScorerTest):
+    """--id-pattern is the same class of bug as score_routing's --oos-route: a
+    CLI value naming something the data must contain, taken on faith. The scan
+    compares extracted tokens against allowed_record_ids by exact equality, so
+    a pattern that cannot extract those ids fails silently in both directions —
+    every in-scope record reported as a leak, or nothing extracted at all and a
+    clean "pass" over a scan that looked at no tokens."""
+
+    def traj(self, result):
+        return self.write_json("t.json", {"tool_calls": [
+            {"name": "get", "args": {}, "result": result}]})
+
+    def expect(self, authz):
+        return self.write_json("e.json", {"authz": authz})
+
+    def test_a_pattern_that_extracts_a_fragment_is_an_error(self):
+        # Integer-PK pattern on an app whose ids are INV-1042: it pulls "1042"
+        # out of every allowed id, which is in no allowlist, so every in-scope
+        # record was reported as an out-of-scope leak.
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": "INV-1042"}]}),
+            self.expect({"allowed_record_ids": ["INV-1042"]}),
+            "--id-pattern", r"\b\d{1,12}\b")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("--id-pattern", out["error"])
+        self.assertIn("INV-1042", out["error"])
+        self.assertNotIn("Traceback", err)
+
+    def test_a_pattern_that_matches_nothing_is_an_error(self):
+        # The false-all-clear direction: the scan finds no tokens and reports
+        # "pass" on the gate whose whole point is that a permissive verdict
+        # hides a wide-open endpoint.
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": "e_881"}]}),
+            self.expect({"allowed_record_ids": ["e_412"]}),
+            "--id-pattern", r"\bZZZ-\d+\b")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("--id-pattern", out["error"])
+
+    def test_a_pattern_that_does_recognize_them_is_accepted(self):
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": 4471}]}),
+            self.expect({"allowed_record_ids": ["1201"]}),
+            "--id-pattern", r"\b\d{4}\b")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"][0]["leaked_ids"], ["4471"])
+
+    def test_the_empty_allowlist_has_nothing_to_check_against(self):
+        # "nothing is in scope" declares no id shape, so there is no id for
+        # the pattern to be validated against — and the strictest allowlist
+        # must not become the one that cannot be used.
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": 4471}]}),
+            self.expect({"allowed_record_ids": []}),
+            "--id-pattern", r"\b\d{4}\b")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(out["checks"][0]["leaked_ids"], ["4471"])
+
+    def test_the_default_pattern_is_not_second_guessed(self):
+        # Without the flag the built-in shape already reports "unscorable"
+        # when it cannot recognize the allowed ids; that honest degradation
+        # stays, rather than becoming an exit 2.
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"records": [{"id": 4471}]}),
+            self.expect({"allowed_record_ids": ["1201"]}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["checks"][0]["status"], "unscorable")
+
+
+class TestAuthzUnicodeNormalization(ScorerTest):
+    """The authz gate is where an unnormalized comparison fails in the
+    PERMISSIVE direction: a forbidden tool that fired, or a forbidden record
+    that leaked, spelled in the other Unicode form, matched nothing and the
+    gate reported "pass" — exactly what it exists to catch. See
+    tests/test_scorers.py TestUnicodeNormalization for the rest of the
+    scorers."""
+
+    NFC = "caf\u00e9"
+    NFD = "cafe\u0301"
+
+    def traj(self, calls):
+        return self.write_json("t.json", {"tool_calls": calls})
+
+    def expect(self, authz):
+        return self.write_json("e.json", {"authz": authz})
+
+    def test_a_forbidden_tool_cannot_hide_behind_a_unicode_form(self):
+        rc, out, err = run_script(
+            "score_authz.py",
+            self.traj([{"name": f"delete_{self.NFD}", "args": {}}]),
+            self.expect({"forbidden_tools": [f"delete_{self.NFC}"]}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_a_forbidden_record_id_cannot_either(self):
+        rc, out, err = run_script(
+            "score_authz.py",
+            self.traj([{"name": "get", "args": {},
+                        "result": {"customer": self.NFD}}]),
+            self.expect({"forbidden_record_ids": [self.NFC]}))
+        self.assertEqual(out["verdict"], "fail")
+
+    def test_an_in_scope_id_is_not_reported_as_a_leak(self):
+        # And the restrictive direction on the same gate: the app's own
+        # allowed record, returned in the other form, is not a scope leak.
+        rc, out, err = run_script(
+            "score_authz.py",
+            self.traj([{"name": "get", "args": {},
+                        "result": {"id": f"e_881 {self.NFD}"}}]),
+            self.expect({"allowed_record_ids": ["e_881"]}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["verdict"], "pass", out["checks"])
+
+
 if __name__ == "__main__":
     unittest.main()

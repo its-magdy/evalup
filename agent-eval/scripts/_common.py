@@ -1,14 +1,19 @@
 """Shared input loading for the agent-eval scorers.
 
 One error contract for every scorer: on bad input print {"error": "<message>"}
-to stdout and exit 2. Loaders are strict about presence (a missing required
-key is an error, never an empty default — defaulting would score an unread
-trace as an empty one) and lenient about wrapping (normalize_trace.py's full
-output and a bare trajectory both work).
+to stdout and exit 2. One TEXT contract too: every string comparison in this
+package runs on NFC-normalized text (see nfc), so a case authored in one
+Unicode form still matches an app that answers in the other.
+
+Loaders are strict about presence (a missing required key is an error, never
+an empty default — defaulting would score an unread trace as an empty one) and
+lenient about wrapping (normalize_trace.py's full output and a bare trajectory
+both work).
 """
 import json
 import re
 import sys
+import unicodedata
 from collections.abc import Hashable
 
 # The comparability key. run/SKILL.md refuses a baseline diff across differing
@@ -145,11 +150,51 @@ def optional_list(field, value, **kwargs):
     return [] if value is None else require_list(field, value, **kwargs)
 
 
+def nfc(value):
+    """Unicode NFC, the harness's one canonical form for text comparison.
+
+    Every string check in this package compares a HUMAN-AUTHORED expectation
+    against APP-PRODUCED text, and those two strings reach the scorer through
+    different keyboards, editors and filesystems. "cafe\u0301" (NFD) and
+    "caf\u00e9" (NFC) render identically in every terminal and reviewer's eye,
+    and compared as code points they are simply unequal — so a correct answer
+    scored `fail` and a case author reading the report saw the expected and
+    observed values print the SAME. A manufactured failure that is invisible in
+    its own evidence is the worst shape this harness can produce.
+
+    macOS filesystems and editors emit NFD while most web input arrives NFC, so
+    the mismatch needs no exotic data to appear; `generate` lists language as a
+    generation dimension, and scripts with heavy combining-mark use (Arabic
+    diacritics, Vietnamese, Hebrew niqqud) hit it constantly.
+
+    NFC rather than NFD or a casefold: NFC is the composed form the web,
+    JSON and virtually every corpus already use, so it is the least surprising
+    canonical form and the cheapest to reach from real inputs. This is a
+    NORMALIZATION, never a fuzzy match — it makes two spellings of the SAME
+    character compare equal and changes nothing else (it does not fold case,
+    strip accents, or touch whitespace; those are each scorer's own business).
+
+    Non-strings pass through untouched so call sites can normalize a cell, an
+    argument value or a label without first testing its type."""
+    return unicodedata.normalize("NFC", value) if isinstance(value, str) \
+        else value
+
+
 def stringify(value):
     """A tool-call result (or any JSON value) as text, for substring/provenance
     matching. One serialization for every scorer that searches results: drift
-    here would make two scorers disagree about what a result "contains"."""
-    return value if isinstance(value, str) else json.dumps(value)
+    here would make two scorers disagree about what a result "contains".
+
+    NFC-normalized (see nfc) and serialized with ensure_ascii=False. The
+    default ensure_ascii=True escapes every non-ASCII character, so a result
+    holding {"customer": "Al Mu\u2018tasim"} became the literal text
+    "Al Mu\\u2018tasim" — and a from_tool_result provenance check on an
+    argument the app copied verbatim OUT of that result could never find it,
+    reporting "possible hallucinated arg" for a value whose provenance was
+    perfect. Normalizing would not have helped: the two sides were not in
+    different Unicode forms, one of them was not Unicode text at all."""
+    return nfc(value if isinstance(value, str)
+               else json.dumps(value, ensure_ascii=False))
 
 
 def found_in(needle, haystacks):
@@ -160,9 +205,14 @@ def found_in(needle, haystacks):
     inside INV-10. Written once here because two gates depend on it and they
     must not drift: score_args reads it as provenance for an argument value,
     score_authz reads it as evidence that a forbidden record leaked. A looser
-    boundary in one of them turns a leak into a pass."""
-    pattern = r"(?<![\w.\-])" + re.escape(needle) + r"(?![\w.\-])"
-    return any(re.search(pattern, h) for h in haystacks)
+    boundary in one of them turns a leak into a pass.
+
+    Both sides are NFC-normalized (see nfc) — including the haystacks, which
+    usually arrive through stringify already but not always (score_authz adds
+    the raw answer text), so the guarantee is stated here rather than assumed
+    of every caller."""
+    pattern = r"(?<![\w.\-])" + re.escape(nfc(needle)) + r"(?![\w.\-])"
+    return any(re.search(pattern, nfc(h)) for h in haystacks)
 
 
 def load_text(path, on_error=None):
