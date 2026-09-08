@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-08 (Step 4 done — validate_cases.py tightened)
+**Last updated:** 2026-09-08 (Step 5a done — runner contract specced)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -127,13 +127,16 @@ Each step is sized for a single low-usage session. Mark done as you go.
       into `analyze/SKILL.md`, whose three branches all edit cases.
       449 tests (11 new), ruff clean, 3.9 floor re-verified.
 
-- [ ] **Step 5a — Spec `run_cases.py`** (design only, no code). Write
-      `agent-eval/docs/runner-contract.md`: inputs (adapter config + case list
-      **as JSON**, using the same "the caller converts YAML" argument
-      `validate_cases.py` already makes in its docstring, so stdlib-only
-      survives), execution semantics (serial default, k repeats, bounded
-      retries, infra taxonomy, resume-from-last-complete-case), the exact
-      output tree, and the exit-code contract. Get this reviewed before coding.
+- [x] **Step 5a — Spec `run_cases.py`** (design only, no code).
+      **DONE 2026-09-08 — `77d3778`.** `agent-eval/docs/runner-contract.md`: one
+      JSON `plan.json` in (§2), the output tree (§6), every file's shape (§10),
+      7 exit codes (§11), what stays in the skill (§13). The
+      missing-`verdicts.jsonl` failure is closed structurally (§9) — both jsonl
+      files are **regenerated from the case dirs after every case**, a declared
+      `REQUIRED_*` table names every artifact, and a finalize check exits 6
+      instead of writing `status: "ok"`; `--verify` re-asserts it on any old run
+      dir. **Read the 9 Open decisions before 5b** — D2 (trace-less routing) and
+      D3 (who runs `stats.py`) change scope. No code, `run/SKILL.md` untouched.
 
 - [ ] **Step 5b — Implement `run_cases.py`** + tests. It must emit, per
       `run/SKILL.md` §2/§4: `cases/<case-id>/{request,response,verdict}.json`
