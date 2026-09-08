@@ -80,40 +80,27 @@ Each step is sized for a single low-usage session. Mark done as you go.
       Grep; do not work down the list.
 
 - [x] **Step 3 — The three scorer bugs, each with a regression test.**
-      **DONE 2026-09-08 — `0d2aa91`.** 13 files, +837/-49. All three audit
-      repros re-ran failing before the fix and clean after. Each was a class
-      with siblings, and the sibling hunt again found more than the audit
-      named: (a) `sub_mde_keep` in `stats.py`, surfaced in `optimize` §5 —
-      no siblings, it is the only script that decides keep/revert. (b) NFC
-      normalization in **six** scorers, not one (`score_answer`, `_args`,
-      `_authz`, `_execution`, `_routing`, `trajectory_match`) via a new shared
-      `_common.nfc`; regex stays asymmetric on purpose (haystack yes, pattern
-      never) and every regex check now says so. Found en route: `stringify`
-      used `ensure_ascii=True`, so provenance could never match a non-ASCII
-      value. (c) `--oos-route` exits 2 listing the labels present; its sibling
-      is `score_authz --id-pattern`, silent in the same two directions. The
-      other 22 CLI args were swept — `--trace-id`, `--glob` and `--k` already
-      validate. Full accounting in the commit message. 438 tests pass
-      (39 new), ruff clean, 3.9 floor re-verified.
+      **DONE 2026-09-08 — `0d2aa91`.** All three audit repros re-ran failing
+      before and clean after. Each was a class with siblings and the hunt found
+      more than the audit named: `sub_mde_keep` in `stats.py` (no siblings — it
+      is the only script that decides keep/revert); NFC normalization in **six**
+      scorers, not one, via a new shared `_common.nfc` (regex stays asymmetric
+      on purpose: haystack yes, pattern never); `--oos-route` and its silent
+      sibling `score_authz --id-pattern`. Found en route: `stringify` used
+      `ensure_ascii=True`, so provenance could never match a non-ASCII value.
 
 - [x] **Step 4 — Tighten `validate_cases.py`.**
-      **DONE 2026-09-08 — `201aa2a`.** 5 files, +390/-42. The severity line,
-      written into the module docstring and case-format.md so it can't be
-      re-created one level up: **ERROR = a claim nothing backs; WARN = a suite
-      thinner than the guidance recommends.** New ERRORs: `missing_split`,
-      `missing_test_type`, `missing_template_id` (checks the KEY'S PRESENCE —
-      absent = nobody decided, `null` = declared one-off) and
-      `missing_metamorphic_parent`, without which `test_type: INV` on an
-      ordinary case would buy the new floor's credit for free. New WARNs:
-      `no_metamorphic_coverage` and `all_one_off`. `--capabilities` is now
-      required, with an explicit `--no-capabilities` that emits
-      `capabilities_unchecked` and is therefore refused under `--strict`.
-      **Re-validated the shipped 12-case field test:** before exit 0 / 0
-      errors, after exit 1 / 36 — all true positives of the pre-2026-08 layout
-      (no `split` field at all); a mechanically migrated copy validates
-      **clean**, so no rule turns a good case red. Also wired the validator
-      into `analyze/SKILL.md`, whose three branches all edit cases.
-      449 tests (11 new), ruff clean, 3.9 floor re-verified.
+      **DONE 2026-09-08 — `201aa2a`.** The severity line, written into the
+      module docstring and case-format.md so it can't be re-created one level
+      up: **ERROR = a claim nothing backs; WARN = a suite thinner than the
+      guidance recommends.** New ERRORs: `missing_split`, `missing_test_type`,
+      `missing_template_id` (checks the KEY'S PRESENCE — absent = nobody
+      decided, `null` = declared one-off), `missing_metamorphic_parent`.
+      `--capabilities` is now required, with an explicit `--no-capabilities`
+      that is refused under `--strict`. **Re-validated the shipped 12-case
+      field test:** 0 errors before, 36 after — all true positives of the
+      pre-2026-08 layout; a mechanically migrated copy validates clean, so no
+      rule turns a good case red.
 
 - [x] **Step 5a — Spec `run_cases.py`** (design only, no code).
       **DONE 2026-09-08 — `77d3778`.** `agent-eval/docs/runner-contract.md`: one
