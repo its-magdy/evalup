@@ -57,39 +57,24 @@ and their siblings — hold that line.
 Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **Step 0 — Commit the current dirty tree** as a readable baseline.
-      **DONE 2026-09-07 — `6c7d286`.** Single commit, 54 paths, +4547/-632.
-      Re-verified the tree before committing: 399 tests OK (~36s), ruff clean.
-      The shipped field-test run went in without its per-case dirs, since
-      `field-test-qa/.agent-eval/reports/.gitignore` ignores `*/cases/`.
-      Nothing else changed.
+      **DONE 2026-09-07 — `6c7d286`.** 54 paths, +4547/-632. The shipped field
+      test went in without its per-case dirs: `reports/.gitignore` ignores
+      `*/cases/`.
 
 - [x] **Step 1 — Fix the splits field-vs-directory break.**
-      **DONE 2026-09-07 — `f03c960`.** Picked the field (`split: [full, smoke]`,
-      generate's newer decision, already enforced by `validate_cases.py`
-      including the holdout/full mutual exclusion) and rewrote every consumer
-      that selected by directory. 5 files, +38/-25:
-      `run/references/run-modes.md` (mode table + all four `**Selection**`
-      bullets), `run/SKILL.md` (mode table, canary bullet, plus a new
-      three-sentence rule in §0 naming `case-format.md` as the owning doc),
-      `optimize/SKILL.md` step 4, `help/SKILL.md` "Where things live",
-      `analyze/SKILL.md` (the viewer-staging filter and the `--unseal` reseal
-      procedure, which said "move viewed cases into full/" — now a `split`
-      rewrite). Only `datasets/*/` mentions left are in generate's own
-      rationale for *not* using directories. 399 tests OK, ruff clean.
+      **DONE 2026-09-07 — `f03c960`.** Picked the field (`split: [full, smoke]`)
+      and rewrote all five consumers that selected by directory. The only
+      `datasets/*/` mentions left are generate's rationale for NOT using
+      directories.
 
 - [x] **Step 2 — One path convention.**
-      **DONE 2026-09-07 — `05804ef`.** 18 files, +434/-388. The rule as
-      planned: `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or read
-      cross-skill; relative markdown links for a `SKILL.md` pointing into its
-      own `references/`. All 7 `@references/...` uses converted. App/state
-      paths (`datasets/`, `reports/`, `templates/`, the state dir's own
-      `scripts/`) stay bare on purpose; `README.md` and script docstrings stay
-      repo-relative, and README §"Path convention" now says all of this.
-      **The audit's offender list was wrong in both directions again:** it
-      named 6 files, 17 needed changes, and one it named
-      (`agents/trace-analyzer.md`) has zero path references. Full accounting
-      in the commit message. Grep; do not work down the list.
-      399 tests OK, ruff clean.
+      **DONE 2026-09-07 — `05804ef`.** 18 files, +434/-388.
+      `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or read cross-skill;
+      relative links for a `SKILL.md` into its own `references/`. App/state
+      paths stay bare on purpose and README §"Path convention" says so.
+      **The audit's offender list was wrong in both directions:** it named 6
+      files, 17 needed changes, and one it named has zero path references.
+      Grep; do not work down the list.
 
 - [x] **Step 3 — The three scorer bugs, each with a regression test.**
       **DONE 2026-09-08 — `0d2aa91`.** 13 files, +837/-49. All three audit
