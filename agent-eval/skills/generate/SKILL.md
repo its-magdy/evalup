@@ -195,8 +195,11 @@ so treat it as a promising technique rather than a proven one here.
 
 Every realized case therefore carries `template_id` + `instantiation_params`
 (the tuple it came from). These are **required**, not optional: a case with no
-template is a one-off that must say so explicitly, and `validate_cases.py`
-errors on `instantiation_params` without `template_id` and vice versa.
+template is a one-off that must say so explicitly — write `template_id: null`,
+don't omit the key. `validate_cases.py` errors on a MISSING key
+(`missing_template_id`), on `instantiation_params` without `template_id`, and
+vice versa; a suite where every case declares itself a one-off warns
+(`all_one_off`), because that is the tuple phase never having happened.
 
 ### 2b. Filter before review — assume half the goldens are junk
 An unfiltered generator produces roughly half-unusable cases, and the damage
@@ -360,7 +363,16 @@ Run `${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json>
 --capabilities <profile.capability_matrix.json> --manifest
 <dataset.yaml-fields.json>`. It
 fails the generate step on structural errors and warns on the vacuity
-patterns. The check that matters most is `no_graded_layer`: **a case must
+patterns. `--capabilities` is required — pass `--no-capabilities` only if
+there is genuinely no profile, and expect the `capabilities_unchecked` warning
+that says the disabled-layer check did not run.
+
+It errors on a case missing `split`, `test_type`, or the `template_id` key,
+and on an INV/DIR case with no `metamorphic_parent` — every one of those is a
+field some later number is computed from, so an absent one makes that number
+untrue rather than merely incomplete. It warns when the whole suite has no
+INV/DIR case at all (the metamorphic floor in the budget table above is
+binding; the ≤25% ceiling is not). The check that matters most is `no_graded_layer`: **a case must
 assert at least one layer that is currently ENABLED in the capability
 matrix.** `expect.http` alone never counts — it is a liveness check, not a
 behavioral assertion.

@@ -208,6 +208,27 @@ or `run --full` appends to this same ledger
 total rather than counting only the entries this skill wrote — otherwise the
 optimizer's repeated holdout gates spend the seal invisibly.
 
+## Re-validate after any case edit
+Every branch of this skill edits case files: `--cluster` ends in label
+corrections, `--mine` writes new cases, `--unseal` rewrites `split` on both the
+cases it reseals and the ones it flips in. All three are exactly the edits
+`generate` §4 validates before handing a dataset over — done later, by hand,
+with no validation step in sight. So run the same check here, after the edit
+and before the next run:
+
+```
+${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
+  --capabilities <profile.capability_matrix.json> --manifest <dataset-fields.json>
+```
+
+(Cases and both JSON inputs are converted from YAML by you — the script takes
+JSON on purpose; see its docstring.) `--manifest` is the part that matters
+most after a hand-edit: `dataset.yaml`'s `cases`/`splits`/`coverage_grid`
+counts are hand-written prose that nothing re-derives, so a reclassification, a
+deleted case, or a reseal leaves them stale and silently wrong. A reseal in
+particular must come back clean on `holdout_not_sealed` and `missing_split`:
+those two are the only mechanical evidence the seal still holds.
+
 ## Rubric editing (any time)
 Rubrics live in `rubrics/*.md` under the state location (default
 `.agent-eval/`, or the adapter's `state_location`), versioned. A rubric is a

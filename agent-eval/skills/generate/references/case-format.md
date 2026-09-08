@@ -30,6 +30,11 @@ split: [full, smoke]                # which splits this case belongs to. A FIELD
                                     # mutually exclusive with `full` (enforced by
                                     # the field, not by which folder the bytes are
                                     # in), so a sealed case is never also in full.
+                                    # REQUIRED: validate_cases.py errors
+                                    # (missing_split) on a case with no split, or
+                                    # an empty one. Such a case is selected by no
+                                    # run mode, and if it was meant to be held out
+                                    # it is sealed by nothing.
 dataset_version_added: 3
 category: happy | multistep | edge | ambiguous | oos | adversarial-refusal | noise
                                     # Input flavor. Sub-divides MFT; these all share
@@ -38,6 +43,11 @@ category: happy | multistep | edge | ambiguous | oos | adversarial-refusal | noi
 test_type: MFT                      # MFT | INV | DIR — the ORACLE type, and the
                                     # grid's real column axis (CheckList,
                                     # arXiv:2005.04118: capabilities x test types).
+                                    # REQUIRED: validate_cases.py errors
+                                    # (missing_test_type) when it is absent — a
+                                    # case that does not name its oracle type is
+                                    # counted by no coverage number the suite
+                                    # reports, including the INV/DIR floor.
                                     # MFT = a direct case with its own expectation.
                                     # INV = perturbed input, expectation must NOT
                                     #       change (pair with metamorphic_parent);
@@ -65,7 +75,13 @@ template_id: shift_count_by_role    # REQUIRED unless this is a declared one-off
                                      # cases sharing a template are not independent samples,
                                      # so a pass rate over them needs CLUSTERED standard
                                      # errors ("Adding Error Bars to Evals", Miller 2024).
-                                     # Set to null ONLY for a declared one-off case.
+                                     # Set to null ONLY for a declared one-off case
+                                     # — and WRITE THE KEY. validate_cases.py checks
+                                     # the key's PRESENCE, not its truthiness
+                                     # (missing_template_id): absent means nobody
+                                     # decided, `null` means the author declared a
+                                     # one-off. A suite of nothing but one-offs
+                                     # warns (all_one_off).
 instantiation_params: {role: nurse} # REQUIRED whenever template_id is set: the tuple this
                                      # case was realized from — the PUBLIC params that vary
                                      # per instance (e.g. {role: nurse, week: "2026-W05"}),
@@ -91,7 +107,11 @@ filter:                              # provenance from the §2b mechanical filte
   answerable: true                   # could the expectation be derived from the oracle?
   nearest_neighbour: { id: c-2b8d4401, rouge_l: 0.34 }   # near-duplicate gate (< 0.7)
 metamorphic_parent: null             # or a case id — the parent this INV/DIR case perturbs.
-                                     # Required when test_type is INV or DIR.
+                                     # Required when test_type is INV or DIR, and
+                                     # enforced (missing_metamorphic_parent):
+                                     # otherwise `test_type: INV` on an ordinary case
+                                     # buys the suite's metamorphic coverage credit
+                                     # while perturbing nothing.
 
 input:
   messages:                          # OpenAI-schema; single- or multi-turn
@@ -297,6 +317,21 @@ previously lacked — the "hard error, never a silent fallback" rules below
 (`order_mode`, args `calls` scope, empty `columns`) were enforced only inside
 individual scorers at RUN time, which is long after a suite is authored and
 reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
+
+`--capabilities` is **required**. Without the profile's matrix every layer
+counts as enabled, which turns off the one check that catches a case asserting
+only DISABLED layers — it runs, it passes, it grades nothing. Pass
+`--no-capabilities` if you genuinely have no profile: it says so out loud,
+reports `capabilities_unchecked`, and is refused under `--strict`.
+
+Which findings are ERRORS and which are WARNINGS, as one rule: an **error** is
+a claim the suite makes that nothing backs (no `split`, no `test_type`, no
+`template_id` key, an INV with no parent, a case grading no enabled layer, a
+duplicate id). A **warning** is a suite thinner than the guidance recommends
+(no INV/DIR at all, all one-offs, a skewed category mix, a machine-stamped
+`accepted`) — a budget judgement the author is allowed to make, and one
+`--strict` promotes for a gating CI job. A required field enforced by a
+warning is not required, so nothing in the first list warns.
 
 The check that matters most is `no_graded_layer`: a case must assert at least
 one layer that is ENABLED in the capability matrix. `expect.http` alone never

@@ -28,13 +28,28 @@ def run_validate(*argv, stdin=None):
     return proc.returncode, payload, proc.stderr
 
 
+ALL_LAYERS_ENABLED = {"capability_matrix": {
+    layer: {"enabled": True} for layer in
+    ("routing", "tool_selection", "trajectory", "execution", "authz",
+     "answer_quality")}}
+
+
 def good_case(case_id="billing-happy-0000abcd", **overrides):
     """A minimal case with exactly one real graded assertion. Every fixture
     below is this case plus the one defect under test, so a finding can only
-    come from that defect."""
+    come from that defect.
+
+    `split`, `test_type` and the template pair are here because they are
+    REQUIRED, not because the tests below need them: a fixture that omits a
+    required field would make every one of those tests assert two findings and
+    hide the one it is about."""
     case = {
         "id": case_id,
         "category": "happy",
+        "split": ["full"],
+        "test_type": "MFT",
+        "template_id": "invoice_lookup",
+        "instantiation_params": {"customer": "acme"},
         "input": {"messages": [{"role": "user", "content": "hi"}]},
         "expect": {"answer": {"must_contain": ["invoice"]}},
         "no_op_expectation": "fail",
@@ -57,6 +72,15 @@ class ValidateTest(unittest.TestCase):
         return p
 
     def validate(self, cases, *extra):
+        """--capabilities is required, so supply an all-enabled matrix unless
+        the test is about that flag itself. Defaulting to --no-capabilities
+        here instead would put a capabilities_unchecked WARN in every other
+        test's findings list."""
+        argv = [str(x) for x in extra]
+        if not any(a.startswith("--capabilities") or a == "--no-capabilities"
+                   for a in argv):
+            extra = (*extra, "--capabilities",
+                     self.write_json("all-enabled.json", ALL_LAYERS_ENABLED))
         return run_validate("--cases", self.write_json("cases.json", cases),
                             *extra)
 
@@ -87,9 +111,9 @@ class TestCleanSuite(ValidateTest):
         cases = [
             good_case("a-happy-1", test_type="MFT", split=["full", "smoke"]),
             good_case("b-edge-2", category="edge", test_type="INV",
-                      split=["full"],
+                      split=["full"], metamorphic_parent="a-happy-1",
                       expect={"result": {"scalar": 7}, "http": {"status": 200}}),
-            good_case("c-oos-3", category="oos",
+            good_case("c-oos-3", category="oos", split=["holdout"],
                       expect={"http": {"status": 400}}),
         ]
         rc, out, _ = self.validate(cases)
@@ -97,9 +121,11 @@ class TestCleanSuite(ValidateTest):
         self.assertEqual(summary["cases"], 3)
         self.assertEqual(summary["by_category"],
                          {"edge": 1, "happy": 1, "oos": 1})
-        self.assertEqual(summary["by_test_type"], {"INV": 1, "MFT": 1})
+        self.assertEqual(summary["by_test_type"], {"INV": 1, "MFT": 2})
+        # Counted per split, not per membership list: "how many are sealed"
+        # has to be readable without re-adding the lists by hand.
         self.assertEqual(summary["by_split"],
-                         {"['full', 'smoke']": 1, "['full']": 1})
+                         {"full": 2, "holdout": 1, "smoke": 1})
         self.assertEqual(summary["by_graded_layer"]["answer_quality"], 1)
         self.assertEqual(summary["by_graded_layer"]["execution"], 1)
         self.assertEqual(summary["http_only"], 1)
@@ -108,12 +134,15 @@ class TestCleanSuite(ValidateTest):
 
     def test_accepts_jsonl_and_wrapper_and_stdin(self):
         case = good_case()
+        caps = self.write_json("all-enabled.json", ALL_LAYERS_ENABLED)
         p = self.tmp / "cases.jsonl"
         p.write_text(json.dumps(case) + "\n", encoding="utf-8")
-        self.assertEqual(run_validate("--cases", p)[0], 0)
+        self.assertEqual(run_validate("--cases", p, "--capabilities", caps)[0],
+                         0)
         rc, _, _ = self.validate({"cases": [case]})
         self.assertEqual(rc, 0)
-        rc, out, _ = run_validate("--cases", "-", stdin=json.dumps([case]))
+        rc, out, _ = run_validate("--cases", "-", "--capabilities", caps,
+                                  stdin=json.dumps([case]))
         self.assertEqual(rc, 0)
         self.assertEqual(out["summary"]["cases"], 1)
 
@@ -138,6 +167,49 @@ class TestErrorFindings(ValidateTest):
 
     def test_bad_category(self):
         self.assert_finds("bad_category", [good_case(category="hapy")])
+
+    def test_missing_split(self):
+        """Absent `split` used to pass silently — the case is then selected by
+        no run mode, and a case meant to be sealed is sealed by nothing."""
+        case = good_case()
+        del case["split"]
+        f = self.assert_finds("missing_split", [case])
+        self.assertIn("FIELD", f["message"])
+        # An empty list is the same statement, spelled differently.
+        self.assert_finds("missing_split", [good_case(split=[])])
+
+    def test_missing_test_type(self):
+        case = good_case()
+        del case["test_type"]
+        f = self.assert_finds("missing_test_type", [case])
+        self.assertIn("ORACLE", f["message"])
+
+    def test_missing_template_id_key(self):
+        """PRESENCE, not truthiness: absent means nobody decided, explicit
+        null means the author declared a one-off (case-format.md)."""
+        case = good_case()
+        del case["template_id"]
+        del case["instantiation_params"]
+        self.assert_finds("missing_template_id", [case])
+        # The declared one-off is clean.
+        rc, out, err = self.validate([good_case(template_id=None,
+                                                instantiation_params=None)])
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["findings"], [])
+        self.assertEqual(out["summary"]["one_off"], 1)
+
+    def test_missing_metamorphic_parent(self):
+        """Without this, `test_type: INV` on an ordinary case would buy the
+        suite's metamorphic coverage credit for free."""
+        for test_type in ("INV", "DIR"):
+            f = self.assert_finds("missing_metamorphic_parent",
+                                  [good_case(test_type=test_type)])
+            self.assertIn(test_type, f["message"])
+        # With a parent present it is clean.
+        self.assertEqual(self.validate(
+            [good_case("p-happy-1"),
+             good_case("c-happy-2", test_type="INV",
+                       metamorphic_parent="p-happy-1")])[0], 0)
 
     def test_bad_test_type(self):
         self.assert_finds("bad_test_type", [good_case(test_type="mft")])
@@ -179,7 +251,8 @@ class TestErrorFindings(ValidateTest):
 
     def test_params_without_template(self):
         self.assert_finds("params_without_template",
-                          [good_case(instantiation_params={"role": "nurse"})])
+                          [good_case(template_id=None,
+                                     instantiation_params={"role": "nurse"})])
 
     def test_bad_order_mode(self):
         self.assert_finds("bad_order_mode", [good_case(expect={
@@ -269,6 +342,32 @@ class TestWarnFindings(ValidateTest):
                                          {"role": "user", "content": "c"}]
         self.assertNotIn("single_turn_suite", self.codes(self.validate(cases)[1]))
 
+    def test_no_metamorphic_coverage(self):
+        cases = [good_case(f"c-happy-{i}") for i in range(11)]
+        f = self.assert_finds("no_metamorphic_coverage", cases, severity="WARN")
+        self.assertIsNone(f["case_id"])
+        # One INV case is the whole floor.
+        cases[0] = good_case("c-happy-0", test_type="INV",
+                             metamorphic_parent="c-happy-1")
+        self.assertNotIn("no_metamorphic_coverage",
+                         self.codes(self.validate(cases)[1]))
+        # At the threshold (10) it does not fire — a suite that small is a
+        # fragment, and a coverage share over it is arithmetic, not signal.
+        self.assertNotIn("no_metamorphic_coverage",
+                         self.codes(self.validate(
+                             [good_case(f"c-happy-{i}") for i in range(10)])[1]))
+
+    def test_all_one_off(self):
+        cases = [good_case(f"c-happy-{i}", template_id=None,
+                           instantiation_params=None) for i in range(5)]
+        f = self.assert_finds("all_one_off", cases, severity="WARN")
+        self.assertIsNone(f["case_id"])
+        # One templated case means the tuple phase happened at all.
+        cases[0] = good_case("c-happy-0")
+        self.assertNotIn("all_one_off", self.codes(self.validate(cases)[1]))
+        # Four one-offs is below the floor.
+        self.assertNotIn("all_one_off", self.codes(self.validate(cases[1:])[1]))
+
     def test_category_skew(self):
         # 3 happy / 1 edge / 1 oos -> happy is 60%.
         cases = [good_case("a-happy-1"), good_case("b-happy-2"),
@@ -323,6 +422,46 @@ class TestExitContract(ValidateTest):
         rc, out, err = self.validate([good_case()], "--capabilities", caps)
         self.assertEqual(rc, 2, err)
         self.assertIn("error", out)
+
+
+class TestCapabilitiesRequired(ValidateTest):
+    """--capabilities is required because without it every layer counts as
+    enabled, which turns OFF the no_graded_layer check for disabled layers —
+    the most expensive failure mode this linter covers. The opt-out exists,
+    but it has to be said out loud and it is visible in the report."""
+
+    def test_missing_both_flags_exits_2(self):
+        cases = self.write_json("cases.json", [good_case()])
+        rc, out, err = run_validate("--cases", cases)
+        self.assertEqual(rc, 2, err)
+        self.assertIn("--capabilities", out["error"])
+        self.assertIn("--no-capabilities", out["error"])
+
+    def test_both_flags_exit_2(self):
+        caps = self.write_json("caps.json", ALL_LAYERS_ENABLED)
+        rc, out, err = self.validate([good_case()], "--capabilities", caps,
+                                     "--no-capabilities")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("mutually exclusive", out["error"])
+
+    def test_opt_out_warns_and_is_recorded(self):
+        rc, out, err = self.validate([good_case()], "--no-capabilities")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.codes(out), ["capabilities_unchecked"])
+        self.assertEqual(out["findings"][0]["severity"], "WARN")
+        self.assertFalse(out["capabilities_checked"])
+
+    def test_opt_out_is_rejected_under_strict(self):
+        rc, out, err = self.validate([good_case()], "--no-capabilities",
+                                     "--strict")
+        self.assertEqual(rc, 1, err)
+        self.assertEqual(out["findings"][0]["severity"], "ERROR")
+
+    def test_real_matrix_records_capabilities_checked(self):
+        caps = self.write_json("caps.json", ALL_LAYERS_ENABLED)
+        rc, out, err = self.validate([good_case()], "--capabilities", caps)
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(out["capabilities_checked"])
 
 
 class TestManifestCheck(ValidateTest):

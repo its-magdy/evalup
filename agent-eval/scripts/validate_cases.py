@@ -51,9 +51,28 @@ is an ERROR.
 With --capabilities (the profile's capability_matrix, {"routing": {"enabled":
 false}, ...}), a layer only counts while it is enabled — a suite carried over
 from a profile with routing on is full of cases that assert nothing once
-routing is off, and they look like passes. Without the flag every layer is
-treated as enabled, so http-only cases are still caught but disabled-layer
-cases cannot be.
+routing is off, and they look like passes. Treating every layer as enabled
+still catches http-only cases but can never catch those, which is why
+--capabilities is REQUIRED: the alternative is --no-capabilities, which says
+so out loud, emits capabilities_unchecked, and is rejected under --strict. An
+optional flag would have made the most expensive check in this script default
+to off.
+
+ERROR vs WARN — the line this script draws:
+
+ERROR = the suite makes a claim that is not backed. A case with no `split` is
+in no run and its `holdout` seal rests on nothing; a case with no `test_type`
+is counted by no coverage grid; a case with no `template_id` key removes
+itself from the clustering the suite's error bars are computed over; an INV
+with no parent asserts an invariance against nothing. Each of those makes some
+number elsewhere untrue, so each fails the run.
+
+WARN = the suite is thinner than the guidance recommends, which is a budget
+judgement its author is allowed to make (no INV/DIR at all, an all-one-off
+suite, a skewed category mix). --strict promotes these for a gating CI job.
+
+A "required" field enforced by a warning is not required, so nothing in the
+first list warns.
 
 Output: one JSON report on stdout with `findings` (case_id, severity, code,
 message), a `summary` object, and counts. Exit 0 when no ERROR finding was
@@ -61,8 +80,9 @@ emitted, 1 when any was, 2 on malformed input ({"error": ...} on stdout, the
 shared contract in _common.die). Warnings alone never fail; --strict promotes
 every WARN to ERROR for a gating CI job.
 
-Usage: validate_cases.py --cases <file.json|-> [--capabilities <file.json>]
-                         [--strict]
+Usage: validate_cases.py --cases <file.json|->
+                         (--capabilities <file.json> | --no-capabilities)
+                         [--strict] [--manifest <file.json>]
 """
 import argparse
 import json
@@ -119,6 +139,19 @@ CATEGORY_SKEW_THRESHOLD = 0.40
 # reader to ignore the code.
 CATEGORY_SKEW_MIN_CASES = 5
 SINGLE_TURN_SUITE_MIN = 10
+# Same floor, same reason: under ~10 cases a coverage SHARE is arithmetic
+# rather than signal. generate/SKILL.md's budget table puts the metamorphic
+# floor at "every template gets >=1 INV; at the smallest budget the highest-
+# risk case still gets one" and says to treat the floor as binding and the
+# <=25% ceiling as not — so at its own 12-case worked example, zero INV/DIR is
+# a real gap.
+METAMORPHIC_SUITE_MIN = 10
+# A suite where every case declares itself a one-off is the per-case
+# template_id rule answered "none" N times: phase 1 of the two-phase flow
+# (generate/SKILL.md §2a, tuples before prose) never happened. Lower floor
+# than the two above because this one is about the authoring process, not
+# about a ratio — 5 straight one-offs is already a habit, not a rounding.
+ALL_ONE_OFF_MIN_CASES = 5
 
 
 def mapping(value):
@@ -445,24 +478,34 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   "reference keys on")
 
     splits = case.get("split")
-    if splits is not None:
-        if not isinstance(splits, list):
-            rep.error(label, "bad_split",
-                      f"split must be a list of {', '.join(SPLITS)}, got "
-                      f"{type(splits).__name__}")
-        else:
-            for name in splits:
-                if name not in SPLITS:
-                    rep.error(label, "bad_split",
-                              f"split {name!r} is not one of "
-                              f"{', '.join(SPLITS)}; a typo here silently "
-                              "drops the case from the run that names it")
-            if "holdout" in splits and "full" in splits:
-                rep.error(label, "holdout_not_sealed",
-                          "case is in both `holdout` and `full`; the seal "
-                          "rests on those being mutually exclusive, so a case "
-                          "in both is trained on and then measured as if held "
-                          "out")
+    if splits is None or splits == []:
+        # Absent used to pass silently, which made every split-shaped claim
+        # unbacked at once: no run mode selects this case (run-modes.md
+        # selects ON THE FIELD), and a case sitting in a holdout/ DIRECTORY
+        # is not sealed by anything a script can see — the seal is the
+        # `holdout` membership, checked below against `full`.
+        rep.error(label, "missing_split",
+                  "case declares no `split`; splits are a FIELD, not a "
+                  "directory (case-format.md), so a case with none is "
+                  "selected by no run mode and, if it was meant to be held "
+                  "out, is sealed by nothing")
+    elif not isinstance(splits, list):
+        rep.error(label, "bad_split",
+                  f"split must be a list of {', '.join(SPLITS)}, got "
+                  f"{type(splits).__name__}")
+    else:
+        for name in splits:
+            if name not in SPLITS:
+                rep.error(label, "bad_split",
+                          f"split {name!r} is not one of "
+                          f"{', '.join(SPLITS)}; a typo here silently "
+                          "drops the case from the run that names it")
+        if "holdout" in splits and "full" in splits:
+            rep.error(label, "holdout_not_sealed",
+                      "case is in both `holdout` and `full`; the seal "
+                      "rests on those being mutually exclusive, so a case "
+                      "in both is trained on and then measured as if held "
+                      "out")
 
     category = case.get("category")
     if category not in CATEGORIES:
@@ -471,7 +514,18 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   f"{', '.join(CATEGORIES)}")
 
     test_type = case.get("test_type")
-    if test_type is not None and test_type not in TEST_TYPES:
+    if test_type is None:
+        # The oracle type is the grid's column axis (CheckList, and
+        # case-format.md says so). Absent, this case is counted by no column
+        # of any coverage claim the suite makes — including the INV/DIR floor
+        # checked at suite level, which cannot see a case that declines to say
+        # what kind of oracle it has.
+        rep.error(label, "missing_test_type",
+                  f"case declares no `test_type`; one of "
+                  f"{', '.join(TEST_TYPES)} is the ORACLE type and the "
+                  "coverage grid's column axis, so a case without it is "
+                  "counted by no coverage number this suite reports")
+    elif test_type not in TEST_TYPES:
         rep.error(label, "bad_test_type",
                   f"test_type {test_type!r} is not one of "
                   f"{', '.join(TEST_TYPES)}")
@@ -496,6 +550,16 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   "with a case that measures nothing")
 
     parent = case.get("metamorphic_parent")
+    if test_type in ("INV", "DIR") and not is_nonempty_str(parent):
+        # Without this, the suite-level INV/DIR floor is satisfiable by
+        # typing `test_type: INV` on an ordinary case: the label would buy
+        # the coverage credit while the perturbation it names does not exist.
+        rep.error(label, "missing_metamorphic_parent",
+                  f"test_type is {test_type} but metamorphic_parent is "
+                  f"{parent!r}; a perturbation with no parent has no "
+                  "expectation to inherit (INV) or to move against (DIR), so "
+                  "it asserts nothing while still counting as metamorphic "
+                  "coverage")
     if is_nonempty_str(parent):
         if parent == case_id:
             rep.error(label, "self_metamorphic_parent",
@@ -508,9 +572,26 @@ def check_case(rep, case, all_ids, enabled, index=None):
                       "case in this input; the invariance it asserts cannot "
                       "be checked")
 
+    # generate/SKILL.md §2a and case-format.md both call this pair REQUIRED,
+    # with exactly one escape: a one-off case sets template_id to null AND
+    # SAYS SO. So the check is on the KEY's presence, not on its truthiness —
+    # absent means the two-phase generation flow was short-circuited and
+    # nobody decided anything, `template_id: null` means the author decided.
+    # Checking only truthiness is what let a 12-case suite carrying neither
+    # key validate clean while both docs called the pair required.
     template_id = case.get("template_id")
     params = case.get("instantiation_params")
     has_params = bool(params) and isinstance(params, dict)
+    declared_one_off = "template_id" in case and not is_nonempty_str(template_id)
+    if "template_id" not in case:
+        rep.error(label, "missing_template_id",
+                  "case has no `template_id` key: name the template this case "
+                  "was realized from (with instantiation_params), or declare "
+                  "the one-off by writing `template_id: null` explicitly. "
+                  "Cases sharing a template are not independent samples, so a "
+                  "case that never says which template it came from is "
+                  "silently dropped from the clustering the suite's error "
+                  "bars are computed over")
     if is_nonempty_str(template_id) and not has_params:
         rep.error(label, "template_without_params",
                   f"template_id {template_id!r} is set but "
@@ -549,7 +630,8 @@ def check_case(rep, case, all_ids, enabled, index=None):
 
     return {"id": case_id, "category": category, "test_type": test_type,
             "split": case.get("split"), "unit": case.get("unit"),
-            "layers": layers, "graded": graded, "http_only": http_only}
+            "layers": layers, "graded": graded, "http_only": http_only,
+            "one_off": declared_one_off}
 
 
 def check_manifest(rep, cases, records, manifest):
@@ -650,6 +732,27 @@ def check_suite(rep, cases, records):
                  "multi-turn coverage, so context carry-over, correction, and "
                  "follow-up failures cannot be observed at all")
 
+    metamorphic = sum(1 for r in records
+                      if r["test_type"] in ("INV", "DIR"))
+    if len(cases) > METAMORPHIC_SUITE_MIN and metamorphic == 0:
+        rep.warn(None, "no_metamorphic_coverage",
+                 f"none of the {len(cases)} cases is INV or DIR: the suite "
+                 "tests only direct expectations. An INV case inherits its "
+                 "parent's expectation, which makes it the cheapest cell in "
+                 "the grid (generate/SKILL.md's budget table treats that "
+                 "floor as binding), and without one the suite cannot see a "
+                 "paraphrase, a reordering, or a narrowed filter changing an "
+                 "answer that was supposed to hold")
+
+    if len(cases) >= ALL_ONE_OFF_MIN_CASES and all(r["one_off"]
+                                                   for r in records):
+        rep.warn(None, "all_one_off",
+                 f"all {len(cases)} cases declare `template_id: null`; a "
+                 "suite of nothing but one-offs means the tuple phase never "
+                 "happened (generate/SKILL.md §2a), so no variant can be "
+                 "compared against its siblings and the pass rate has no "
+                 "cluster structure to compute standard errors over")
+
     categories = tally(r["category"] for r in records)
     for category, n in (categories.items()
                         if len(cases) >= CATEGORY_SKEW_MIN_CASES else ()):
@@ -675,8 +778,12 @@ def main():
                          "JSONL; '-' reads stdin")
     ap.add_argument("--capabilities",
                     help="JSON capability_matrix, e.g. {\"routing\": "
-                         "{\"enabled\": false}, ...}; default: every layer "
-                         "enabled")
+                         "{\"enabled\": false}, ...}; REQUIRED unless "
+                         "--no-capabilities is given")
+    ap.add_argument("--no-capabilities", action="store_true",
+                    help="lint without a capability_matrix, treating every "
+                         "layer as enabled; reported as capabilities_unchecked "
+                         "and rejected under --strict")
     ap.add_argument("--strict", action="store_true",
                     help="promote every WARN to ERROR (a gating CI job)")
     ap.add_argument("--manifest",
@@ -686,10 +793,33 @@ def main():
                          "the actual case files so a hand-edit can't leave "
                          "the manifest silently stale")
     a = ap.parse_args()
+    # Checked here rather than with argparse's required mutually-exclusive
+    # group: argparse writes usage text to STDERR and exits 2 with no payload,
+    # which breaks the machine-readable-JSON-on-stdout contract every other
+    # bad-input path in this harness keeps (see _common.die).
+    if a.capabilities and a.no_capabilities:
+        die("--capabilities and --no-capabilities are mutually exclusive: "
+            "pass the profile's capability_matrix, or say explicitly that "
+            "there is none")
+    if not a.capabilities and not a.no_capabilities:
+        die("--capabilities <capability_matrix.json> is required (use "
+            "--no-capabilities to lint without one). Treating every layer as "
+            "enabled cannot catch the case this script exists for: a case "
+            "whose only assertions sit in a layer the profile has DISABLED "
+            "runs, passes, and grades nothing. That check must not be the "
+            "thing a forgotten flag turns off")
 
     cases = load_cases(a.cases)
     enabled = load_enabled_layers(a.capabilities)
     rep = Report(a.strict)
+    if a.no_capabilities:
+        rep.warn(None, "capabilities_unchecked",
+                 "linted with --no-capabilities: every layer is treated as "
+                 "enabled, so a case asserting only DISABLED layers cannot be "
+                 "reported here and a clean exit does not mean the suite "
+                 "grades anything under this profile — re-run with "
+                 "--capabilities before trusting it (--strict refuses this "
+                 "mode outright)")
 
     all_ids = {c.get("id") for c in cases if is_nonempty_str(c.get("id"))}
     records = [check_case(rep, case, all_ids, enabled, index=i)
@@ -708,13 +838,23 @@ def main():
 
     layer_counts = {layer: sum(1 for r in records if layer in r["graded"])
                     for layer in LAYERS}
+    # Counted PER SPLIT, not per membership list: a reader checking the seal
+    # or sizing a smoke run wants "how many cases are in holdout", and
+    # tallying the lists answers a different question ({"['full', 'smoke']":
+    # 7}) that has to be re-added by hand to answer this one.
+    split_counts = {}
+    for record in records:
+        splits = record["split"] if isinstance(record["split"], list) else []
+        for name in splits:
+            key = name if isinstance(name, str) else str(name)
+            split_counts[key] = split_counts.get(key, 0) + 1
     summary = {
         "cases": len(cases),
         "by_category": categories,
         "by_test_type": tally(r["test_type"] for r in records
                               if r["test_type"] is not None),
-        "by_split": tally(r["split"] for r in records
-                          if r["split"] is not None),
+        "by_split": dict(sorted(split_counts.items())),
+        "one_off": sum(1 for r in records if r["one_off"]),
         "by_graded_layer": layer_counts,
         "enabled_layers": sorted(enabled),
         "http_only": sum(1 for r in records if r["http_only"]),
@@ -723,6 +863,7 @@ def main():
     print(json.dumps({
         "harness_version": HARNESS_VERSION,
         "strict": a.strict,
+        "capabilities_checked": bool(a.capabilities),
         "summary": summary,
         "findings": rep.findings,
         "error_count": errors,
