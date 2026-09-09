@@ -53,10 +53,10 @@ label is wrong. Label corrections feed back to the dataset (bump
 
 For a hands-on look, build the viewer:
 `${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py <run-path> [-a <annotations.jsonl>] -o <out.html>`
-— add `--glob 'cases/*/verdict.json'` for `run`'s nested records. On a `--full`
-or `--holdout` run, stage a filtered copy that excludes the sealed ids instead
-of pointing it at `cases/`. Both, and why: annotation-ux.md §"Which files it
-reads", worth reading before the first invocation. Its
+— add `--glob 'cases/*/verdict.json'` for `run`'s nested records. On a
+`--full` or `--holdout` run, stage a filtered copy that excludes the sealed
+ids instead of pointing it at `cases/`. Both, and why: annotation-ux.md
+§"Which files it reads", worth reading before the first invocation. Its
 §"Theoretical-saturation stopping rule" owns the cadence — ≥100 traces, and
 stop a sitting after ~20 that add nothing. `--label` runs on that same rule.
 
@@ -82,8 +82,8 @@ The judge executes one rubric node per call, so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:
 1. Show: user message → app answer → the tool results it drew on (compact).
 2. Show that node's provisional verdict, its quoted evidence and its one-line
-   reason. `unknown` is signal, not a skip — the criterion is usually ambiguous
-   for that case.
+   reason. `unknown` is signal, not a skip — that criterion is usually
+   ambiguous for the case.
 3. Ask: agree / disagree / "the rubric is wrong here".
 4. On "rubric is wrong": edit the rubric NOW, bump its version, mark prior
    labels for a relabel-check. Split the validation labels **20/40/40** —
