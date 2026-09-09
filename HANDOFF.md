@@ -112,7 +112,7 @@ Each step is sized for a single low-usage session. Mark done as you go.
       `health_check`, `route_from_status`; all declared, none guessed.
 
 - [x] **Step 5b-ii — the scoring half.**
-      **DONE 2026-09-09 — `<sha>`.** All of §5, the run-level scorers, §9(c)'s
+      **DONE 2026-09-09 — `5e573c9`.** All of §5, the run-level scorers, §9(c)'s
       four checks and `--verify`; 551 tests (+38). The two that matter: the
       `REQUIRED_*` tables are **exec'd and parsed out of the contract file**
       rather than restated, and `--verify` on the shipped run exits 6 naming
