@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-09 (Step 6c done — `discover` slimmed and split)
+**Last updated:** 2026-09-09 (Step 6d done — the two decisions; ≤120 lines retired)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -40,9 +40,11 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
    silently dropped required outputs. **Fixed as of Step 5c**: the spec is
    `docs/runner-contract.md`, the engine is `scripts/run_cases.py`, and the skill
    builds a plan and reads a result instead of executing.
-2. **7 skills is the right count; ~33.9k tokens of skill prose at 22–29
-   words/sentence is the problem.** Move rationale to `references/`, keep
-   procedure in `SKILL.md`.
+2. **7 skills is the right count; the weight was the problem.** Rationale to
+   `references/`, procedure in `SKILL.md`. **Re-measured 2026-09-09 (`AUDIT` §1
+   addendum): the part that mattered is closed** — what `run` loads before a
+   case executes fell ~12,800 → ~4,891. Total prose barely moved, which is
+   fine: see §3 Step 6d, and **≤120 lines is retired.**
 
 **Do NOT rewrite the scorers.** They audited clean (statistics verified
 correct, HTML escaping hardened, multiset trajectory semantics, regex
@@ -55,14 +57,13 @@ and their siblings — hold that line.
 
 Each step is sized for a single low-usage session. Mark done as you go.
 
-- [x] **Step 0 — Baseline commit.** **DONE 2026-09-07 — `6c7d286`.**
-- [x] **Step 1 — Splits are a field, not a directory.** **DONE 2026-09-07 —
-      `f03c960`.** All five directory-selecting consumers rewritten; the
-      `datasets/*/` mentions left are deliberate.
-- [x] **Step 2 — One path convention.** **DONE 2026-09-07 — `05804ef`.**
-      `${CLAUDE_PLUGIN_ROOT}/...` cross-skill, relative links inside a skill, app
-      and state paths bare on purpose (README §"Path convention"). **The audit's
-      offender list was wrong in both directions** — grep, don't work a list.
+- [x] **Steps 0–2 — baseline; splits are a field; one path convention.**
+      **DONE 2026-09-07 — `6c7d286`, `f03c960`, `05804ef`.** All five
+      directory-selecting consumers rewritten (remaining `datasets/*/` mentions
+      are deliberate). Paths: `${CLAUDE_PLUGIN_ROOT}/...` cross-skill, relative
+      inside a skill, app/state paths bare (README §"Path convention"). **The
+      audit's offender list was wrong in both directions** — grep, don't work a
+      list.
 
 - [x] **Step 3 — The three scorer bugs + a regression test each.**
       **DONE 2026-09-08 — `0d2aa91`.** Each was a class with siblings, and the
@@ -77,22 +78,18 @@ Each step is sized for a single low-usage session. Mark done as you go.
       `_test_type`, `_template_id` — the KEY'S PRESENCE — `_metamorphic_parent`)
       + required `--capabilities`. The shipped 12-case field test: 0 → 36, all true.
 
-- [x] **Step 5a — Spec `run_cases.py`** (design only). **DONE 2026-09-08 —
-      `77d3778`.** `agent-eval/docs/runner-contract.md`. The missing-jsonl
-      failure is closed structurally (§9): both files are **regenerated from the
-      case dirs after every case**, and finalize exits 6 rather than write ok.
-
-- [x] **Step 5b-i — `run_cases.py`, the skeleton** (no scoring). **DONE
-      2026-09-08 — `c9bc4f7`.** §§2–4, 6–8, 11 + 64 tests on a real fake HTTP
-      app; **all 9 open decisions answered and the contract rewritten in the same
-      commit**. It could not be implemented as written — nothing said how an HTTP
-      request is BUILT — so `invocation` gained five declared fields, none guessed.
-
-- [x] **Step 5b-ii — the scoring half.** **DONE 2026-09-09 — `5e573c9`.** All
-      of §5, the run-level scorers, §9(c) and `--verify`; 551 tests (+38). The
-      `REQUIRED_*` tables are **exec'd out of the contract file**, not restated.
-      Four more contract silences became ADAPTER DECLARATIONS, and its one real
-      bug (§9(c)3 failing any run that skips a case) is fixed.
+- [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
+      `77d3778`, `c9bc4f7`, `5e573c9`.** Spec is `agent-eval/docs/runner-contract.md`;
+      551 tests (+102) on a real fake HTTP app. The missing-jsonl failure is
+      closed structurally (§9): both files are **regenerated from the case dirs
+      after every case**, and finalize exits 6 rather than write ok. **All nine
+      open decisions were answered and the contract rewritten in the same
+      commits** — it could not be implemented as written (nothing said how an
+      HTTP request is BUILT), so `invocation` gained five declared fields and
+      four more contract silences became **adapter declarations**, none guessed.
+      The `REQUIRED_*` tables are **exec'd out of the contract file**, not
+      restated, and the contract's one real bug (§9(c)3 failing any run that
+      skips a case) is fixed.
 
 - [x] **Step 5c — Rewire `run/SKILL.md`** around the runner.
       **DONE 2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 were deleted whole
@@ -101,51 +98,51 @@ Each step is sized for a single low-usage session. Mark done as you go.
       codes (**6** = a missing artifact, so the run is neither quotable nor a
       baseline; **7** = artifacts complete, numbers not). Also: **`--layer X`
       finally means something**, the skill runs `validate_cases.py`, and both
-      writers of the N=5 holdout count point at the `.jsonl` sidecar. §0/§1/§4
-      kept their numbers; one doc-pinning test changed on purpose.
+      writers of the N=5 holdout count point at the `.jsonl` sidecar.
 
-- [x] **Step 6a — Slim `generate/SKILL.md`.**
-      **DONE 2026-09-09 — `86b602e`.** 401 → **159** against a ≤120 target; mean
-      sentence 16.0 → 12.7. Rationale to a new `references/generation-method.md`;
-      `suite-sizing.md`, `case-format.md`, `agents/test-generator.md` already
-      OWNED the budget table, `expect.*`, id opacity, split-as-a-field. **Why
-      159:** procedure residue; `run-modes.md` cites §4. Numbers kept.
+- [x] **Steps 6a–6c — slim `generate`, `analyze`, `discover`.**
+      **DONE 2026-09-09 — `86b602e`, `d6bf421`, `6268cc3`.** 401→159, 252→167,
+      235→160; mean sentence 16.0→12.7, 20.4→15.6, 24.6→14.3. Each began with an
+      **ownership pass**, and that pass — not fatigue — set the floor each time:
+      the residue is procedure. Two new reference files where nothing owned the
+      rationale (`generation-method.md`, `topology-detection.md`); `analyze`
+      needed none. Section numbers preserved in all three (cited by number from
+      `run-modes.md`, `generate`, `optimize`, `dotnet.md`).
 
-- [x] **Step 6b — Slim `analyze/SKILL.md`.**
-      **DONE 2026-09-09 — `d6bf421`.** 252 → **167**, mean sentence 20.4 → 15.6.
-      **No new reference file: every paragraph that left had an owner already** —
-      the cadence rule and `--glob`'s seal hazard to `annotation-ux.md`, most of
-      `--label` and all of "Rubric editing" to `rubric-format.md` /
-      `agents/judge.md` / `profile-schema.md`, the sidecar argument to
-      runner-contract §6, the first-run re-argument to `run` §4. Cited by FLAG
-      name, never §number, so nothing renumbered; no test pins it. **Why 167:**
-      procedure residue (empty-state branches, cluster recipe, 20/40/40 labeling,
-      reseal steps, the re-validate command AUDIT §187 says it must own).
+- [x] **Step 6d — the two decisions.** **DONE 2026-09-09.** No skill edited.
+      The metric, the measurements and the argument are in `AUDIT-2026-09-06.md`
+      §1's addendum; only the calls are here.
 
-- [x] **Step 6c — Slim `discover/SKILL.md`.**
-      **DONE 2026-09-09 — `6268cc3`.** 235 → **160**; mean sentence 24.6 → 14.3,
-      longest 128 → 35. Ownership pass first, as in 6a/6b: `profile-schema.md`
-      already owned every consequence of `architecture.kind`, all of
-      `record_id_pattern`'s rationale, and **the whole capability-matrix table**
-      — that section is now "work down the schema's block" plus the three calls
-      the schema leaves open; `adapter-contract.md` owned the side-effect classes
-      and the oracle/seed/reset mechanics. **One new file** for the rationale
-      nothing owned: `references/topology-detection.md` (59), the three-signal
-      fingerprint catalogue. **§§1–8 kept their numbers** (`generate` §1 → §2's
-      five spellings, `optimize` → §6, `dotnet.md` → step 1); no test reads this
-      skill. `dotnet.md`'s "step 4" for the patch offer was already stale — now
-      step 5. **Why 160:** procedure residue — white/gray/black, the
-      read-only/declined-patch path the field test asked for, the patch offers,
-      the interview, `--diff`.
+      **D1 — `≤120 lines` is RETIRED and `SKILL.md` slimming is DONE.** On the
+      audit's own metric the total goal is *not* hit (33,790 → 31,242), and 120
+      lines would not hit it: **62% of what leaves a `SKILL.md` comes back in
+      `references/`** — which is the move the audit asked for. The two goals are
+      in tension; the total is not the target. The headline number *is* closed
+      (`run` ~12,800 → ~4,891), by **Step 5c deleting the dependency**, not by
+      prose. `≤18 words/sentence` is hit on all four; `start` and `optimize`
+      pass on lines and fail on density. **What remains is duplication, not
+      length** → 6e.
 
-- [ ] **Step 6d — the rest of the slimming.** `discover` 160, `analyze` 167,
-      `run` 164, `generate` 159, `help` 124; `optimize` 88 and `start` 80 pass.
-      **Four skills have now landed at 159–167 for the same reason** (procedure
-      residue, each checked against its owners) — so decide whether **≤120 is the
-      right target at all** before slimming a fifth. `help` escapes that
-      question: it is a delete-or-keep call (README pointer?), not a slimming
-      one. Then dedupe: one owning document per load-bearing fact
-      (`reports/baseline.json` in 8 files, `PROVISIONAL` 8, `state_location` 6).
+      **D2 — `help` KEEPS its slash command, LOSES its body** (execute in 6e).
+      All seven sections are owned elsewhere — `README`, `docs/workflow.md`,
+      `docs/concepts.md`, `optimize` §Preconditions — but **not** by `start`,
+      which owns almost none of it and *cites* `help` twice, so "fold it into
+      `start`" was the wrong shape. Not deleted outright: that deletes
+      **`/agent-eval:help`**, which `README`:25 advertises as the escape hatch
+      and `start` cannot absorb (a *doing* skill that first demands an app path
+      — the wrong answer to "what is this?"). So: ~35 lines that **dispatch and
+      explain nothing**.
+
+- [ ] **Step 6e — dedupe + execute D2.** Counts re-verified 2026-09-09:
+      `PROVISIONAL` **8** files, `state_location` **6**, `reports/baseline.json`
+      **7** (audit said 8; Step 6 removed one). **`help` is in all three lists**,
+      so gut it here, and move its one unowned paragraph — the route-target
+      definition — to `docs/concepts.md`. **Re-point three citations first:**
+      `start`:55,59 → `concepts.md` §Staged rigor; `scripts/md_to_html.py`:5 and
+      `annotation-ux.md`:96 → `workflow.md` §Who does what (both quote help's
+      "Reviewer… never needs Claude Code", which `workflow.md` owns). No test
+      pins `help`; `plugin.json` takes the whole `./skills/` dir, so the command
+      survives iff the directory does.
 
 - [ ] **Step 7 — Decide multi-turn.** Promised in `adapter-contract.md`,
       `case-format.md` and a `validate_cases.py` warning, but
@@ -201,5 +198,9 @@ Each step is sized for a single low-usage session. Mark done as you go.
   `run/SKILL.md` §4 halts on. A fixture for that branch, not a good example.
 - **The app under test in the field test is READ-ONLY** and lives outside this
   repo (`/path/to/reference-app`). Never modify it.
+- **The audit's token numbers are reproducible; `wc -l` is not their meter.**
+  `words × 1.33` over `agent-eval/skills/**/*.md`, whole file. At `6c7d286` it
+  returns 33,790 / 12,739 / 9,397 / 1,386 against the audit's ~33,900 / ~12,800
+  / ~9,400 / ~1,400. Measure that way before claiming a size win.
 - Reproducing any audit finding: every one has a copy-pasteable repro in
   `AUDIT-2026-09-06.md`. Re-run rather than re-deriving.
