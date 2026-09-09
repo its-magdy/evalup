@@ -92,7 +92,7 @@ capability_matrix:               # which eval layers apply and what blocks them
   tool_selection:  { enabled: true }
   trajectory:      { enabled: false, blocked_by: "stage: pre-stability" }
                                        # also forced off outright when kind: single_llm
-  multi_turn:      { enabled: false, blocked_by: "no session contract in adapter" }
+  multi_turn:      { enabled: false, blocked_by: "reserved: no conversation driver in the harness. NOT fixable from the adapter -- cases with >1 user turn are skipped" }
   cost_latency:    { enabled: true }
   execution:       { enabled: false, blocked_by: "no oracle configured (see oracle: above) + no case carries expect.result (scalar/rows)" }
   authz:           { enabled: false, blocked_by: "no identity/persona config; the id-leak checks additionally need tool-result capture and a matching record_id_pattern (forbidden_tools scores without either)" }

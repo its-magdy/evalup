@@ -1459,9 +1459,19 @@ class Runner:
                 return ("never-live tool(s) {} with environment.kind {!r} "
                         "(adapter hard rule 2)".format(
                             ", ".join(blocked), environment.get("kind")))
-        if user_turn_count(case) > 1 \
-                and not (self.adapter.get("invocation") or {}).get("session"):
-            return ("multi-turn case with no invocation.session contract "
+        if user_turn_count(case) > 1:
+            # Reserved, not merely unsupported, and the gate is deliberately
+            # blind to invocation.session. It used to skip only when no
+            # session contract was declared -- so an adapter that DID declare
+            # one (adapters/dotnet.md shipped exactly that block) fell through
+            # to invoke_once, where case_text() sends the LAST user message
+            # and the earlier turns vanish. That scored a truncated
+            # conversation as an ordinary pass or fail. Nothing drives
+            # session.start/send_turn/end, so declaring the contract could
+            # only ever buy a wrong number instead of an honest skip.
+            return (f"multi-turn case ({user_turn_count(case)} user turns); "
+                    "multi-turn evals are RESERVED -- no conversation driver "
+                    "exists, so only the last turn would reach the app "
                     "(adapter hard rule 3)")
         if case.get("identity") and not self.identity_map:
             return ("case declares an identity but the adapter has no "

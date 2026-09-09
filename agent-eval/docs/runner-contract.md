@@ -104,7 +104,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
     "trajectory":     {"enabled": false, "blocked_by": "no trace-id correlation"},
     "tool_selection": {"enabled": false, "blocked_by": "stage: pre-stability"},
     "cost_latency":   {"enabled": false, "blocked_by": "..."},
-    "multi_turn":     {"enabled": false, "blocked_by": "..."},
+    "multi_turn":     {"enabled": false, "blocked_by": "reserved: no conversation driver in the harness"},
     "answer_quality": {"enabled": true, "judged": "provisional"}
   },
 
@@ -617,7 +617,7 @@ Exit 2 makes the gap loud at the one moment someone can act on it.
 | trace requested, quiescence not reached by `max_wait_s` | `infra_incomplete`; the case's non-trace layers still score |
 | `normalize_trace.py` reports missing spans / orphans | `infra_incomplete` for trace-dependent layers only |
 | adversarial case with `environment.safe_to_attack: false` | `skipped`, reason recorded — never `fail` |
-| multi-turn case with no `invocation.session` contract | `skipped`, reason recorded (adapter hard rule 3) |
+| case with more than one user turn | `skipped`, reason recorded (adapter hard rule 3). Multi-turn is **reserved**: no conversation driver exists, so the gate ignores `invocation.session` entirely — declaring one would only buy a last-turn-only invocation scored as a real verdict. |
 
 **Infra and `skipped` verdicts never enter pass/fail denominators.** They are
 counted separately and reported.

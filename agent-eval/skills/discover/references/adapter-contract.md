@@ -107,11 +107,9 @@ invocation:
                                           # NOTE: timeout_s is NOT enforced in this mode
                                           # (an in-process call cannot be interrupted from
                                           # the stdlib) -- the callable owns its timeout.
-  # session contract — REQUIRED for multi-turn evals; without it, single-turn only
-  session:
-    start: {...}               # how to open a conversation (endpoint/args)
-    send_turn: {...}           # send one user turn → returns final text
-    end: {...}
+  # NO session block. Multi-turn is RESERVED (hard rule 3): the harness has no
+  # conversation driver, so there is nothing for start/send_turn/end to feed.
+  # Declaring one is not forward-compatible, it is harmful -- see hard rule 3.
   streaming: none | sse | websocket   # how to detect "response complete"; capture TTFT
   timeout_s: 60
   max_concurrency: 1           # serial by default. > 1 is REFUSED (exit 2) by
@@ -144,7 +142,7 @@ tools:                          # side-effect classification — from discover, 
 
 environment:
   kind: seeded-staging | mocked | live-readonly
-  # seeded-staging unlocks state-diff ground truth and simulated users.
+  # seeded-staging unlocks state-diff ground truth.
   # These are YOUR app's scripts, relative to the app root:
   seed: "tools/seed_test_db.py"            # per-case seeding
   reset: "tools/reset_test_db.py"          # between cases
@@ -169,8 +167,15 @@ data:
    would downgrade a fully instrumented app without saying so.
 2. `never-live` tools present + `environment.kind: live-*` → run refuses
    categories that could trigger them.
-3. Missing `session` contract → multi-turn cases skipped and reported as
-   skipped, not failed.
+3. **Multi-turn is RESERVED.** Any case with more than one user turn is
+   skipped and reported as skipped, not failed — unconditionally. The check
+   does not look at the adapter, because there is no adapter field that can
+   satisfy it: nothing in the harness drives a conversation. An earlier
+   `invocation.session` block was accepted here and made things *worse* — the
+   runner treated its presence as permission to proceed and then sent only the
+   case's last user message, scoring a truncated conversation as a real
+   verdict. An honest skip beats a number built from two-thirds of a
+   conversation.
 4. Env-var refs unresolved at runtime → pre-flight failure before any spend.
 5. `traces.convention` other than `gen_ai` with no `traces.mapping_shim` →
    trajectory layers disabled for the run (raw spans must never reach
@@ -191,7 +196,7 @@ and every scorer/skill keeps working unmodified. See
 
 | Capability | Adapter provides to core | adapter.yaml field(s) |
 |---|---|---|
-| **Invoke** | `start_session / send_turn(text, persona) / end_session → {text, trace_id}` — a plain function/HTTP call, regardless of transport | `invocation.*` |
+| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One turn per case; the session-shaped triple this row once named is reserved with the rest of multi-turn (hard rule 3). | `invocation.*` |
 | **Traces** | a trace-id-addressable span tree in `gen_ai.*` keys (native or shimmed) | `traces.*` (`convention`, `mapping_shim`, `correlation`) |
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
 | **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit, plus whether editing needs a rebuild | `prompts[]` |

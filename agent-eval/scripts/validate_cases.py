@@ -138,7 +138,6 @@ CATEGORY_SKEW_THRESHOLD = 0.40
 # 40%, so firing there would put a warning on every small suite and teach the
 # reader to ignore the code.
 CATEGORY_SKEW_MIN_CASES = 5
-SINGLE_TURN_SUITE_MIN = 10
 # Same floor, same reason: under ~10 cases a coverage SHARE is arithmetic
 # rather than signal. suite-sizing.md's budget table puts the metamorphic
 # floor at "every template gets >=1 INV; at the smallest budget the highest-
@@ -725,12 +724,28 @@ def check_suite(rep, cases, records):
                       "and baseline diffs key on the id, so all but one of "
                       "these cases silently vanish from the results")
 
-    turns = [count_turns(case) for case in cases]
-    if len(cases) > SINGLE_TURN_SUITE_MIN and all(t <= 1 for t in turns):
-        rep.warn(None, "single_turn_suite",
-                 f"all {len(cases)} cases are single-turn; the suite has no "
-                 "multi-turn coverage, so context carry-over, correction, and "
-                 "follow-up failures cannot be observed at all")
+    # This used to be the inverse check -- a suite-level `single_turn_suite`
+    # WARN that scolded the user for having NO multi-turn coverage. It was
+    # recommending the one thing the harness refuses to run: multi-turn is
+    # RESERVED and run_cases.py skips any case with a second user turn
+    # (adapter-contract.md hard rule 3). So the finding is per-case and points
+    # the other way. WARN, not ERROR, on Step 4's line: ERROR exists to stop a
+    # suite inflating its numbers with cases that cannot fail, and a SKIPPED
+    # case inflates nothing -- skips stay out of every denominator. The cost
+    # here is wasted authoring, not a false pass rate. `--strict` escalates it
+    # for anyone who wants the suite to hold no dead cases at all.
+    for i, (record, case) in enumerate(zip(records, cases)):
+        turns = count_turns(case)
+        if turns > 1:
+            # Same label fallback check_case uses: an id-less case still needs
+            # a handle, and the list position is the only one that exists.
+            rep.warn(record["id"] or f"<no id: cases[{i}]>",
+                     "multi_turn_case_reserved",
+                     f"this case has {turns} user turns; multi-turn is "
+                     "RESERVED, so run_cases.py will SKIP it and it will "
+                     "score nothing. Split it into single-turn cases, or "
+                     "fold the earlier turns into assistant/system context "
+                     "so exactly one user message remains")
 
     metamorphic = sum(1 for r in records
                       if r["test_type"] in ("INV", "DIR"))

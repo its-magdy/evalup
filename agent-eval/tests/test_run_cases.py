@@ -697,13 +697,39 @@ class TestSkipGates(RunnerCase):
         self.assertIn("never-live tool(s) send_email",
                       verdict["layers"]["http"]["reason"])
 
-    def test_multi_turn_case_without_a_session_contract(self):
-        case = make_case("c-0001", input={"messages": [
+    def multi_turn_case(self):
+        return make_case("c-0001", input={"messages": [
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hello"},
             {"role": "user", "content": "and then?"}]})
-        verdict = self.skip_reason_for(case)
+
+    def test_multi_turn_case_without_a_session_contract(self):
+        verdict = self.skip_reason_for(self.multi_turn_case())
         self.assertIn("hard rule 3", verdict["layers"]["http"]["reason"])
+
+    def test_multi_turn_case_skips_even_with_a_session_contract(self):
+        """Multi-turn is RESERVED, so the gate ignores invocation.session.
+
+        The old gate skipped only when no session contract was declared. An
+        adapter that declared one (adapters/dotnet.md shipped that block)
+        therefore ran the case single-turn -- last user message only, earlier
+        turns dropped -- and scored the truncated conversation as a real
+        verdict. Nothing drives start/send_turn/end, so the declaration could
+        never have made the run correct.
+        """
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.multi_turn_case()])
+        plan["adapter"]["invocation"]["session"] = {
+            "start": {"via": "POST /chat/session"},
+            "send_turn": {"via": "POST /chat/session/{id}/turn"},
+            "end": {"via": "DELETE /chat/session/{id}"}}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["verdict"], "skipped")
+        self.assertIn("RESERVED", verdict["layers"]["http"]["reason"])
+        # And nothing was sent: a truncated turn is not a cheaper datapoint.
+        self.assertEqual([c for c in self.app.calls if c["path"] != "/"], [])
 
     def test_identity_case_without_an_identity_map(self):
         """Running it under the default identity would score the wrong

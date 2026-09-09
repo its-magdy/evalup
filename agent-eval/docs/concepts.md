@@ -2,7 +2,7 @@
 
 ## The trajectory is the central artifact
 
-Every testing mode — static cases, trace mining, simulated users, policy
+Every testing mode — static cases, trace mining, policy
 rules — produces or scores the same thing: a structured record of what the
 app did (route chosen, tools called with which arguments, what they returned,
 what was answered). OTel GenAI spans feed it; `normalize_trace.py` converts

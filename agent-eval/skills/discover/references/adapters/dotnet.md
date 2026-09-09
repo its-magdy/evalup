@@ -211,10 +211,6 @@ invocation:
   mode: function
   entrypoint: "RefApp.Program"
   auth: { type: headers, headers: { X-Test-Persona: ${TEST_PERSONA} } }
-  session:
-    start: { via: "POST /chat/session" }
-    send_turn: { via: "POST /chat/session/{id}/turn" }
-    end: { via: "DELETE /chat/session/{id}" }
   streaming: sse
   timeout_s: 60
   max_concurrency: 1

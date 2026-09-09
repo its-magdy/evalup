@@ -114,9 +114,15 @@ metamorphic_parent: null             # or a case id — the parent this INV/DIR 
                                      # while perturbing nothing.
 
 input:
-  messages:                          # OpenAI-schema; single- or multi-turn
+  messages:                          # OpenAI-schema. ONE user message: multi-turn
     - { role: user, content: "why was my last invoice higher than usual?" }
-  session: fresh                     # or a named seeded conversation state
+                                     # is RESERVED, and a case with >1 user turn is
+                                     # SKIPPED by run_cases.py (adapter-contract.md
+                                     # hard rule 3) -- it never scores. Prior
+                                     # assistant/system turns as fixed context are
+                                     # fine; it is the second USER turn that skips.
+  session: fresh                     # `fresh` only. A named seeded conversation
+                                     # state is reserved with multi-turn.
 
 available_tools: null                # optional: tool names actually exposed to the agent for
                                      # this case, if the harness can scope the catalog per case

@@ -329,18 +329,32 @@ class TestWarnFindings(ValidateTest):
             self.assert_finds("source_derived_expectation",
                               [good_case(notes=notes)], severity="WARN")
 
-    def test_single_turn_suite(self):
+    def test_multi_turn_case_reserved(self):
+        """The inverse of the retired `single_turn_suite` warning.
+
+        That one fired when a suite had NO multi-turn coverage — recommending
+        the one thing run_cases.py refuses to run. Multi-turn is reserved, so
+        the finding is now per-case and fires ON the multi-turn case.
+        """
         cases = [good_case(f"c-happy-{i}") for i in range(11)]
-        f = self.assert_finds("single_turn_suite", cases, severity="WARN")
-        self.assertIsNone(f["case_id"])
-        # Exactly at the threshold (10) it does not fire.
-        self.assertEqual(self.codes(self.validate(cases[:10])[1]),
-                         ["category_skew"])
-        # One multi-turn case is enough coverage to silence it.
+        # A single-turn suite is exactly what the harness wants: silent.
+        self.assertNotIn("multi_turn_case_reserved",
+                         self.codes(self.validate(cases)[1]))
+        self.assertNotIn("single_turn_suite", self.codes(self.validate(cases)[1]))
         cases[0]["input"]["messages"] = [{"role": "user", "content": "a"},
                                          {"role": "assistant", "content": "b"},
                                          {"role": "user", "content": "c"}]
-        self.assertNotIn("single_turn_suite", self.codes(self.validate(cases)[1]))
+        f = self.assert_finds("multi_turn_case_reserved", cases, severity="WARN")
+        # Per-case: it names the case the author has to fix.
+        self.assertEqual(f["case_id"], "c-happy-0")
+        self.assertIn("2 user turns", f["message"])
+        # Prior assistant/system turns as fixed context do NOT trip it: one
+        # user message is one user turn regardless of what precedes it.
+        cases[0]["input"]["messages"] = [{"role": "system", "content": "s"},
+                                         {"role": "assistant", "content": "b"},
+                                         {"role": "user", "content": "c"}]
+        self.assertNotIn("multi_turn_case_reserved",
+                         self.codes(self.validate(cases)[1]))
 
     def test_no_metamorphic_coverage(self):
         cases = [good_case(f"c-happy-{i}") for i in range(11)]

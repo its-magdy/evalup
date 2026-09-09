@@ -20,7 +20,6 @@
   "agents": [
     "./agents/judge.md",
     "./agents/test-generator.md",
-    "./agents/trace-analyzer.md",
-    "./agents/simulated-user.md"
+    "./agents/trace-analyzer.md"
   ]
 }
