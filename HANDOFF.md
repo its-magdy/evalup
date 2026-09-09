@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 8 CLOSED; Step 9 reconned + split — next is 9a)
+**Last updated:** 2026-09-10 (Step 8 CLOSED; §4's ten gaps triaged — next is 9a)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -42,10 +42,9 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
    `docs/runner-contract.md`, the engine is `scripts/run_cases.py`, and the skill
    builds a plan and reads a result instead of executing.
 2. **7 skills is the right count; the weight was the problem.** Rationale to
-   `references/`, procedure in `SKILL.md`. **Re-measured 2026-09-09 (`AUDIT` §1
-   addendum): the part that mattered is closed** — what `run` loads before a
-   case executes fell ~12,800 → ~4,891. Total prose barely moved, which is
-   fine: see §3 Step 6d, and **≤120 lines is retired.**
+   `references/`, procedure in `SKILL.md`. **The part that mattered is closed**
+   — what `run` loads before a case executes fell ~12,800 → ~4,891 (`AUDIT` §1
+   addendum). Total prose barely moved, which is fine: **≤120 lines is retired.**
 
 **Do NOT rewrite the scorers.** They audited clean (statistics verified
 correct, HTML escaping hardened, multiset trajectory semantics, regex
@@ -67,26 +66,23 @@ Each step is sized for a single low-usage session. Mark done as you go.
 - [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`.**
       **DONE 2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with
       siblings (NFC needed fixing in **six** scorers via `_common.nfc`). The
-      validator's severity line — **ERROR = a claim nothing backs; WARN = a
-      suite thinner than the guidance recommends** — is in its docstring and
-      `case-format.md`.
+      severity line — **ERROR = a claim nothing backs; WARN = a suite thinner
+      than the guidance recommends** — is in the docstring + `case-format.md`.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
       `77d3778`, `c9bc4f7`, `5e573c9`.** 551 tests (+102) on a real fake HTTP
       app. Missing-jsonl closed **structurally**: both files are regenerated
-      from the case dirs after every case, finalize exits 6 rather than write
-      ok. **All nine open decisions answered in the same commits** — the
-      contract was not implementable as written (nothing said how an HTTP
-      request is BUILT), so `invocation` gained five declared fields and four
-      silences became **adapter declarations**, none guessed.
+      from the case dirs after every case, finalize exits 6. **All nine open
+      decisions answered in the same commits** — the contract was not
+      implementable as written, so `invocation` gained five declared fields and
+      four silences became **adapter declarations**, none guessed.
 
-- [x] **Step 5c — Rewire `run/SKILL.md`** around the runner.
-      **DONE 2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 deleted whole (the
-      runner's job verbatim), but the replacement had to ADD what nothing wrote
-      — **§1, building `plan.json`** — and answer each of the seven exit codes
-      (**6** = a missing artifact, so the run is neither quotable nor a
-      baseline; **7** = artifacts complete, numbers not). Also **`--layer X`
-      finally means something**.
+- [x] **Step 5c — Rewire `run/SKILL.md`** around the runner. **DONE
+      2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 deleted whole, but the
+      replacement had to ADD what nothing wrote — **§1, building `plan.json`**
+      — and answer each of the seven exit codes (**6** = a missing artifact, so
+      the run is neither quotable nor a baseline; **7** = artifacts complete,
+      numbers not).
 
 - [x] **Steps 6a–6c — slim `generate`, `analyze`, `discover`.**
       **DONE 2026-09-09 — `86b602e`, `d6bf421`, `6268cc3`.** 401→159, 252→167,
@@ -95,65 +91,69 @@ Each step is sized for a single low-usage session. Mark done as you go.
       preserved in all three (cited BY NUMBER from four other files).
 
 - [x] **Step 6d — the two decisions.** **DONE 2026-09-09 — `4ede98f`.** No
-      skill edited; argument in `AUDIT-2026-09-06.md` §1's addendum. **D1 —
-      `≤120 lines` is RETIRED**: 62% of what leaves a `SKILL.md` returns as
-      `references/`, so the total is not the target. **D2 — `help` keeps its
-      slash command, loses its body** — executed in 6e.
+      skill edited; argument in `AUDIT` §1's addendum. **D1 — `≤120 lines` is
+      RETIRED**: 62% of what leaves a `SKILL.md` returns as `references/`, so
+      the total is not the target. **D2 — `help` loses its body** — done in 6e.
 
 - [x] **Step 6e — dedupe + execute D2. Step 6 CLOSED.** **DONE 2026-09-09 —
       `a22ce8e`.** Triage changed the job: of the three counts **only `help`
-      duplicated anything** — the rest are *uses* or *owners*. **A MENTION
-      count is not a duplication count.** `help` 124 → 42 lines; its
-      `description` GREW (with no body it is the only thing that fires the
-      skill). Detail: `AUDIT-2026-09-06.md` §1 + §4.
+      duplicated anything**. **A MENTION count is not a duplication count.**
+      `help` 124 → 42 lines; its `description` GREW (with no body it is the
+      only thing that fires the skill). `AUDIT` §1 + §4.
 
 - [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
-      `337181a`.** Not delete-only: the skip gate tested `invocation.session`
-      for **presence only** while `dotnet.md` shipped a worked `session:`
-      block, so multi-turn cases ran **single-turn** and scored a truncated
-      conversation as a real verdict — **declaring the contract made the
-      harness less correct than omitting it.** Gate is now blind to
-      `session`; `single_turn_suite` was **inverted, not dropped**, into
-      per-case `multi_turn_case_reserved` (WARN). Argument + both corrections:
-      `AUDIT-2026-09-06.md` §8's RESOLVED block.
+      `337181a`.** **The precedent Step 10 rests on: declaring a contract the
+      harness does not honor made it LESS correct than omitting it** — the skip
+      gate tested `invocation.session` for presence only, so multi-turn cases
+      ran single-turn and a truncated conversation scored as a real verdict.
+      `single_turn_suite` was **inverted, not dropped**, into per-case
+      `multi_turn_case_reserved` (WARN). `AUDIT` §8's RESOLVED block.
 
 - [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** All five
       recon claims re-verified true (rare — say so). **The remote decision went
       to the user: write CI knowingly as a spec**, so `ci.yml` opens by stating
-      it has NEVER executed — do not cite it as evidence. `pyproject.toml` is
-      **dev-tooling only, no `[project]` table**; **`ruff.toml` did NOT fold
-      in**, so §4's blessed commands are UNCHANGED. Detail: `AUDIT`
-      §"RESOLVED … (Step 8a)".
+      it has NEVER executed. `pyproject.toml` is **dev-tooling only, no
+      `[project]` table**; **`ruff.toml` did NOT fold in**, so §4's blessed
+      commands are UNCHANGED. `AUDIT` §"RESOLVED … (Step 8a)".
 
 - [x] **Step 8b — Stale artifacts + the `micro_f1` relabel. Step 8 CLOSED.**
       **DONE 2026-09-10 — `593aad1`.** Both **relabelled, neither
       regenerated**; §10's "every case accepted by `test-generator`" was
-      **WRONG** (6 of 12; 5 by a human, 1 quarantined). **`REVIEW` §10's
-      "regenerate the worked example" is NOT DONE — the plugin ships no
-      conforming end-to-end example**, and a later step must build a NEW one
-      rather than spend the fixture. `micro_f1`'s **key is unchanged**; it is
-      not the report's `accuracy` (0.5 vs 0.6667). Full argument, both
-      fixtures and the experiment: `AUDIT` §"RESOLVED … (Step 8b)".
+      **WRONG** (6 of 12). **`REVIEW` §10's "regenerate the worked example" is
+      NOT DONE — the plugin ships no conforming end-to-end example**, and a
+      later step must build a NEW one rather than spend the fixture.
+      `micro_f1`'s **key is unchanged**. `AUDIT` §"RESOLVED … (Step 8b)".
 
-**Step 9 is FOUR steps, not one** — reconned 2026-09-10, see `AUDIT`
-§"Step 9 recon". Work them in this order, one per session:
+**`REVIEW` §4 has TEN gaps and the old Step 9 bullet named four.** Reconned
+2026-09-10 — `AUDIT` §"Step 9 recon" has the full disposition table; six were
+in no step. **Order: 9a → 10 → 9b → 9c, then STOP.** Four sessions, not nine.
 
 - [ ] **Step 9a — close the judge loop (`REVIEW` §4.4).** Build
-      `score_agreement.py` (TPR/TNR/κ). **Do this first: the gate is
+      `score_agreement.py` (TPR/TNR/κ). **First, because the gate is
       unsatisfiable in code today** — `run_cases.py`:2243 and
       `optimize/SKILL.md`:21 gate on `judge.status: calibrated`, which
       `profile-schema.md`:121-128 says is DERIVED from per-rubric tpr/tnr/
-      kappa, and nothing derives it. Note §4.4 is imprecise: the viewer DOES
-      read its annotation JSONL back (`build_review_viewer.py`:42-47) — no
+      kappa, and nothing derives it. §4.4 is imprecise: the viewer DOES read
+      its annotation JSONL back (`build_review_viewer.py`:42-47) — no
       **scorer** consumes it.
+- [ ] **Step 10 — RESERVE `REVIEW` §4's items 2, 5, 7, 8 and 10.** Multi-agent
+      attribution, per-layer stats, environment lifecycle, streaming, and the
+      schema fields with no scorer. **A reserve sweep, not a build wave** — all
+      five are the same shape Step 7 fixed (a field or declaration with no
+      scorer behind it), and §4 item 10 says "or mark the fields reserved"
+      itself. Use 7's `multi_turn_case_reserved` WARN pattern. Cheapest real
+      work left; do it before 9b/9c inherit the overclaims.
 - [ ] **Step 9b — run history (`REVIEW` §4.9).** `run_history.py`: per-metric
       time series + monotone-drift flag. Cheap aggregation, data already on disk.
 - [ ] **Step 9c — cost/latency (`REVIEW` §4.3).** `cost_usd` is RENDERED by
       the viewer (:379, :384) and written by nothing; `stats.py` is binary-only.
       Needs a price table + a continuous statistic — a design decision. **Keep
-      out of 9a's session.**
-- [ ] **Step 9d — RAG/retrieval (`REVIEW` §4.6).** Greenfield: grep finds
-      nothing. Probably its own wave, not a step.
+      out of 9a's session.** When this lands the remediation wave is DONE.
+
+**Not steps.** `REVIEW` §4.6 (RAG/retrieval) is greenfield — grep returns zero
+files — so it is a new capability, not a defect, and it is **out of the plan**;
+pick it up only if wanted. `REVIEW` §5's five "ideas worth stealing" are the
+same: optional, none is a defect.
 
 ---
 
