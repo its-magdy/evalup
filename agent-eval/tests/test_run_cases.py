@@ -8,8 +8,10 @@ The app under test is a fake HTTP app in a thread: every behaviour these tests
 assert (a 500 storm, a deliberate 400, a hang) is a behaviour a real app has,
 and none of them should need a real app to reproduce.
 
-Step 5b-i scope: no scoring, so every non-infra case rolls up to `unscored`.
-The pass/fail rollup, the REQUIRED_* table assertion and --verify are 5b-ii.
+The two tests that matter most are TestCompleteness's pair (the REQUIRED_*
+tables, asserted against the contract file itself rather than restated) and
+TestVerify.test_the_shipped_run_is_the_regression_test (the audit finding, as
+a check anyone can re-run).
 
 Run: python3 -m unittest discover -s tests -v   (from the plugin root)
 """
@@ -17,6 +19,7 @@ import http.server
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -27,7 +30,43 @@ import unittest
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 RUNNER = SCRIPTS / "run_cases.py"
+CONTRACT = SCRIPTS.parent / "docs" / "runner-contract.md"
 RUN_ID = "smoke-20260908T120000Z"
+
+sys.path.insert(0, str(SCRIPTS))
+import run_cases  # noqa: E402  - imported for its declared constants only
+
+
+def contract_block(after, fence="```"):
+    """The first fenced block following `after` in the contract."""
+    text = CONTRACT.read_text(encoding="utf-8")
+    start = text.index(after)
+    open_at = text.index(fence, start)
+    open_at = text.index("\n", open_at) + 1
+    return text[open_at:text.index(fence, open_at)]
+
+
+def exec_contract_block(after):
+    """Execute a python block out of the contract and return its namespace.
+
+    The contract says "where it and the code disagree, this file is right" --
+    so the test reads the table from the file rather than restating it, and a
+    doc edit that the code has not followed fails the suite.
+    """
+    namespace = {}
+    exec(compile(contract_block(after), str(CONTRACT), "exec"), namespace)
+    return {k: v for k, v in namespace.items() if not k.startswith("__")}
+
+
+def contract_tree_conditions():
+    """SS6's tree, as {filename: condition} off the `# only when:` markers."""
+    block = contract_block("## 6. The output tree")
+    found = {}
+    for line in block.splitlines():
+        match = re.match(r"\s*([\w.]+)\s+#\s*only when:\s*(.+?)\s*$", line)
+        if match:
+            found[match.group(1)] = match.group(2)
+    return found
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -426,17 +465,17 @@ class TestOutputTree(RunnerCase):
         self.assertEqual([r["case_id"] for r in rows], ["c-0001", "c-0002"])
         for row in rows:
             self.assertEqual(row["set"], "smoke")
-            self.assertEqual(row["verdict"], "unscored")   # 5b-i: no scoring
+            self.assertEqual(row["verdict"], "pass")
             self.assertTrue(row["gating"])
             self.assertIsInstance(row["layers"], dict)
             # Flattened to verdict STRINGS here; the scorer objects live in the
             # case's own verdict.json.
             for value in row["layers"].values():
                 self.assertIsInstance(value, str)
-        # Nothing is `pass` or `fail` yet, so the stats file is legitimately
-        # empty -- and it EXISTS, which is the whole point.
         self.assertTrue((self.out_dir() / "verdicts_for_stats.jsonl").is_file())
-        self.assertEqual(self.jsonl("verdicts_for_stats.jsonl"), [])
+        self.assertEqual(self.jsonl("verdicts_for_stats.jsonl"),
+                         [{"case_id": "c-0001", "verdict": "pass"},
+                          {"case_id": "c-0002", "verdict": "pass"}])
 
     def test_results_json_summary(self):
         plan = make_plan(self.state, self.app.base_url,
@@ -449,8 +488,10 @@ class TestOutputTree(RunnerCase):
         summary = results["summary"]
         self.assertEqual(summary["status"], "ok")
         self.assertEqual((summary["n"], summary["attempted"]), (2, 2))
-        self.assertEqual(summary["unscored"], 2)
+        self.assertEqual((summary["passes"], summary["failures"]), (2, 0))
+        self.assertEqual(summary["unscored"], 0)
         self.assertEqual(summary["infra_errors"], 0)
+        self.assertEqual(summary["scorer_errors"], 0)
         self.assertEqual(summary["missing_artifacts"], [])
         # The capability matrix's disabled layers, plus the trace-less ones.
         self.assertIn("trajectory", summary["unscorable_layers"])
@@ -485,10 +526,23 @@ class TestOutputTree(RunnerCase):
         self.assertFalse(verdict["trace"]["expected"])
         self.assertEqual(verdict["trace"]["reason"],
                          "traces.source: view-only")
-        # 5b-i: every applicable layer says so out loud rather than passing.
-        for name in ("http", "answer"):
-            self.assertEqual(verdict["layers"][name]["verdict"], "unscored")
-            self.assertIn("5b-ii", verdict["layers"][name]["reason"])
+        # SS5: every layer in the table gets a row on every case. An absent
+        # row and an `n/a` row are not the same statement.
+        self.assertEqual(sorted(verdict["layers"]),
+                         sorted(run_cases.LAYER_ORDER))
+        self.assertEqual(verdict["layers"]["http"],
+                         {"layer": "http", "verdict": "pass", "status": 200,
+                          "expected": 200})
+        # score_answer.py's own object, verbatim -- the runner invents no
+        # fields and drops none.
+        self.assertEqual(verdict["layers"]["answer"]["verdict"], "pass")
+        self.assertEqual(verdict["layers"]["answer"]["layer"], "answer")
+        # Applicable but disabled by the capability matrix: `unscorable`, with
+        # blocked_by COPIED from the matrix, never composed here.
+        self.assertEqual(verdict["layers"]["trajectory"],
+                         {"layer": "trajectory", "verdict": "n/a"})
+        self.assertEqual(verdict["layers"]["authz"],
+                         {"layer": "authz", "verdict": "n/a"})
 
     def test_answer_and_expect_are_kept_for_rescoring(self):
         """D9: a run can be re-scored without re-invoking the app."""
@@ -737,9 +791,12 @@ class TestNoRetryOn4xx(RunnerCase):
         self.assertEqual(response["attempts"], 1)
         self.assertEqual(response["status"], 400)
         self.assertIsNone(response["error"])
-        # Not infra: the app answered. 5b-i has no scoring, so `unscored`.
-        self.assertEqual(self.read("cases", "c-0001",
-                                   "verdict.json")["verdict"], "unscored")
+        # Not infra: the app ANSWERED. This case asserts status 200, so the
+        # 400 is a fail -- a real observation about the app, which is exactly
+        # what an infra verdict would have thrown away.
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["verdict"], "fail")
+        self.assertEqual(verdict["layers"]["http"]["verdict"], "fail")
 
 
 class TestCrashRate(RunnerCase):
@@ -836,7 +893,7 @@ class TestCanariesAndRepeats(RunnerCase):
         self.assertTrue(canary["canary"])
         self.assertFalse(canary["gating"])
         summary = self.read("results.json")["summary"]
-        self.assertEqual(summary["canaries"], {"n": 1, "passed": 0})
+        self.assertEqual(summary["canaries"], {"n": 1, "passed": 1})
         self.assertEqual(summary["n"], 1)      # the canary is not counted
 
     def test_repeats_directory_holds_every_repeat(self):
@@ -1039,8 +1096,8 @@ class TestResume(RunnerCase):
 
 
 class TestCompleteness(RunnerCase):
-    """SS9(c), the half 5b-i asserts: `status: "ok"` is written only after a
-    check. The REQUIRED_IF conditions and --verify land with 5b-ii."""
+    """SS9(c): `status: "ok"` is written ONLY after a check, so "the run
+    finished" and "the run's required outputs exist" are one statement."""
 
     responder = staticmethod(health_only(ok_responder))
 
@@ -1066,21 +1123,742 @@ class TestCompleteness(RunnerCase):
                       results["summary"]["missing_artifacts"])
 
     def test_required_tables_match_the_contract(self):
-        """SS9(b): the declared table is the one SS6 documents."""
-        sys.path.insert(0, str(SCRIPTS))
-        try:
-            import run_cases
-        finally:
-            sys.path.pop(0)
-        self.assertEqual(run_cases.REQUIRED_ALWAYS,
-                         ("manifest.yaml", "results.json", "verdicts.jsonl",
-                          "verdicts_for_stats.jsonl"))
+        """SS9(b): the declared table is the one the CONTRACT declares.
+
+        Not a restatement of the constants -- the contract file is executed and
+        parsed, so a table edited in one place and not the other fails here.
+        This is the check that keeps SS6's tree, SS9(b)'s table and the module's
+        constants from becoming three answers to one question.
+        """
+        declared = exec_contract_block(
+            "**(b) A declared required-artifact table.**")
+        self.assertEqual(run_cases.REQUIRED_ALWAYS, declared["REQUIRED_ALWAYS"])
         self.assertEqual(run_cases.REQUIRED_PER_CASE,
-                         ("request.json", "response.json", "verdict.json",
-                          "expect.json", "answer.txt"))
-        # report.md/.html are deliberately NOT required here: the skill writes
-        # them (SS13).
+                         declared["REQUIRED_PER_CASE"])
+        self.assertEqual(run_cases.REQUIRED_IF, declared["REQUIRED_IF"])
+        # report.md/.html are deliberately NOT required: the skill writes them
+        # (SS13), and a required file the runner does not produce would fail
+        # every run.
         self.assertNotIn("report.md", run_cases.REQUIRED_ALWAYS)
+        self.assertNotIn("report.md", run_cases.REQUIRED_IF)
+
+    def test_required_if_matches_the_output_tree(self):
+        """SS6: every conditional file in the tree is in REQUIRED_IF, with the
+        SAME condition string. A file added to the tree without a check -- the
+        exact way the shipped run lost verdicts.jsonl -- fails here."""
+        tree = contract_tree_conditions()
+        # reports/.gitignore is the one conditional file OUTSIDE the run dir,
+        # so it is not part of the tree the completeness check walks.
+        tree.pop(".gitignore", None)
+        self.assertEqual(tree, dict(run_cases.REQUIRED_IF))
+
+
+def span(trace_id, span_id, op, name, start=1, end=2, **attrs):
+    """One OTel gen_ai span, in the OTLP/JSON shape normalize_trace.py reads."""
+    values = {"gen_ai.operation.name": op}
+    values.update(attrs)
+    if op == "invoke_agent":
+        values["gen_ai.agent.name"] = name
+    elif op == "execute_tool":
+        values["gen_ai.tool.name"] = name
+    return {
+        "traceId": trace_id, "spanId": span_id, "name": name,
+        "startTimeUnixNano": str(start * 10 ** 9),
+        "endTimeUnixNano": str(end * 10 ** 9),
+        "attributes": [{"key": k, "value": {"stringValue": v}
+                        if isinstance(v, str) else {"intValue": v}}
+                       for k, v in values.items() if v is not None],
+    }
+
+
+def otlp(spans):
+    return {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
+
+
+class TestLayerTable(RunnerCase):
+    """SS5's three-way distinction, which is the load-bearing part.
+
+    n/a (not applicable) vs unscorable (applicable but disabled, blocked_by
+    copied from the matrix) vs unscored (enabled but its input could not be
+    produced). None of the three is ever pass and none is ever fail: the
+    shipped run's `trajectory: unscorable` rows are honest, a `pass` there
+    would have been a lie, and in the authz row a dangerous one.
+    """
+
+    responder = staticmethod(health_only(ok_responder))
+
+    def layers_of(self, case, **plan_kw):
+        plan = make_plan(self.state, self.app.base_url, cases=[case],
+                         **plan_kw)
+        rc, payload, proc = self.invoke(plan)
+        self.assertIn(rc, (0, 7), proc.stdout + proc.stderr)
+        return self.read("cases", case["id"], "verdict.json")["layers"]
+
+    def test_not_applicable_is_na(self):
+        layers = self.layers_of(make_case("c-0001"))
+        for name in ("routing", "trajectory", "tool_selection", "execution",
+                     "authz", "rules", "state", "judged", "loops"):
+            self.assertEqual(layers[name], {"layer": name, "verdict": "n/a"},
+                             name)
+
+    def test_applicable_but_disabled_is_unscorable_with_the_matrix_reason(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        layers = self.layers_of(case)
+        self.assertEqual(layers["trajectory"],
+                         {"layer": "trajectory", "verdict": "unscorable",
+                          # COPIED from the capability matrix, not composed by
+                          # the runner: `unscorable` means somebody decided
+                          # this layer is off and said why.
+                          "blocked_by": "no trace-id correlation"})
+
+    def test_applicable_and_enabled_but_no_input_is_unscored(self):
+        case = make_case("c-0001")
+        case["expect"]["authz"] = {"forbidden_tools": ["delete_user"]}
+        layers = self.layers_of(case)
+        self.assertEqual(layers["authz"]["verdict"], "unscored")
+        self.assertIn("traces.source: view-only", layers["authz"]["reason"])
+        # And never `pass`: an authz layer that reported pass without reading a
+        # trajectory is the dangerous one.
+        self.assertNotEqual(layers["authz"]["verdict"], "pass")
+
+    def test_a_vacuous_case_is_not_a_pass(self):
+        """SS10 rule 6, caught at run time as well as at authoring time."""
+        case = make_case("c-0001", expect={"state": {"unchanged": True}})
+        plan = make_plan(self.state, self.app.base_url, cases=[case])
+        self.invoke(plan)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["state"]["verdict"], "unscored")
+        self.assertEqual(verdict["layers"]["http"]["verdict"], "pass")
+        # `state` is unscored and `http` passed, so the case passes on http
+        # alone -- and every other layer says n/a out loud rather than
+        # contributing a silent pass.
+        self.assertEqual(verdict["verdict"], "pass")
+        self.assertEqual(
+            {name for name, layer in verdict["layers"].items()
+             if layer["verdict"] == "pass"}, {"http"})
+
+    def test_the_judged_row_says_why_it_is_unjudged(self):
+        case = make_case("c-0001")
+        case["expect"]["answer"]["rubric"] = "r-helpfulness"
+        layers = self.layers_of(case)
+        self.assertEqual(layers["judged"]["verdict"], "unjudged (mode: smoke)")
+
+    def test_business_rules_are_the_skills_job(self):
+        case = make_case("c-0001")
+        case["expect"]["answer"]["rules"] = ["cites the invoice id"]
+        layers = self.layers_of(case)
+        self.assertEqual(layers["rules"]["verdict"], "unscored")
+        self.assertIn("evaluated by the skill", layers["rules"]["reason"])
+
+    def test_a_missing_answer_field_is_unscored_not_a_content_failure(self):
+        """The response carried nothing at the declared <answer> path.
+
+        Scoring the empty string against must_contain would report a CONTENT
+        failure for what is an extraction gap -- a failure the app never had.
+        """
+        self.app.server.responder = lambda p, b, h: (200, {"reply": "ok"}, {})
+        case = make_case("c-0001")
+        layers = self.layers_of(case)
+        self.assertEqual(layers["answer"]["verdict"], "unscored")
+        self.assertIn("<answer>", layers["answer"]["reason"])
+
+
+class TestScorerErrors(RunnerCase):
+    """SS5.1: rc 2 is read off STDOUT, the run continues, and it exits 7."""
+
+    responder = staticmethod(health_only(ok_responder))
+
+    def test_a_malformed_expect_is_an_error_layer_not_a_failure(self):
+        # score_answer.py exits 2 on a non-list must_contain. One malformed
+        # expect block must not throw away the other case's spend...
+        bad = make_case("c-0001")
+        bad["expect"]["answer"] = {"must_contain": "ok"}
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[bad, make_case("c-0002")])
+        rc, payload, proc = self.invoke(plan)
+        # ...but the run's numbers are not quotable, so exit 7.
+        self.assertEqual(rc, 7, proc.stdout + proc.stderr)
+        self.assertIn("not quotable", payload["error"])
+
+        layer = self.read("cases", "c-0001", "verdict.json")["layers"]["answer"]
+        self.assertEqual(layer["verdict"], "error")
+        self.assertEqual(layer["scorer"], "score_answer.py")
+        # The scorers put errors on STDOUT (_common.die); a runner reading
+        # stderr here would record an empty string and report nothing.
+        self.assertTrue(layer["error"])
+        # The scorer error outranks the sibling http `pass`: a case with a
+        # broken scorer has a number nobody should quote.
+        self.assertEqual(self.read("cases", "c-0001",
+                                   "verdict.json")["verdict"], "unscored")
+        self.assertEqual(self.read("cases", "c-0002",
+                                   "verdict.json")["verdict"], "pass")
+        summary = self.read("results.json")["summary"]
+        self.assertEqual(summary["scorer_errors"], 1)
+        # SS11 row 7: the ARTIFACTS are complete, so the status stays "ok".
+        self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["missing_artifacts"], [])
+
+    def test_a_scorer_timeout_is_recorded_as_an_error(self):
+        plan = make_plan(self.state, self.app.base_url)
+        plan["scoring"] = {"scorer_timeout_s": 0.001}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 7, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-0001", "verdict.json")["layers"]["answer"]
+        self.assertEqual(layer["verdict"], "error")
+        self.assertIn("timed out", layer["error"])
+
+
+def routing_responder(path, body, headers):
+    """A trace-less app whose only routing observable is its status code --
+    the field test's shape exactly."""
+    if "refund" in (body.get("message") or ""):
+        return 400, {"message": "out of scope"}, {}
+    return 200, {"message": "ok", "route": "units"}, {}
+
+
+class TestRoutingRunLevel(RunnerCase):
+    """SS5.2. score_routing.py scores ALL cases at once, so it runs once."""
+
+    responder = staticmethod(health_only(routing_responder))
+
+    def routing_plan(self, cases, **invocation):
+        plan = make_plan(self.state, self.app.base_url, cases=cases)
+        plan["adapter"]["invocation"].update(invocation)
+        return plan
+
+    def test_route_from_status_is_declared_per_app_not_inferred(self):
+        """Decision D2. The shipped run inferred routes from status by hand
+        (200=answered, 400=none) -- defensible for that app, and exactly the
+        judgement a runner must not make silently across every app."""
+        cases = [
+            make_case("c-units", input={"messages": [{"role": "user",
+                                                      "content": "how many?"}]},
+                      expect={"http": {"status": 200}, "route": "units"}),
+            make_case("c-oos", input={"messages": [{"role": "user",
+                                                    "content": "a refund?"}]},
+                      expect={"http": {"status": 400}, "route": "__oos__"}),
+        ]
+        plan = self.routing_plan(cases, route_from_status={"200": "units",
+                                                           "400": "__oos__"})
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        for case_id in ("c-units", "c-oos"):
+            layer = self.read("cases", case_id, "verdict.json")["layers"]["routing"]
+            self.assertEqual(layer["verdict"], "pass")
+            # So no reader mistakes it for a trace-derived route.
+            self.assertEqual(layer["observed_from"], "status")
+
+        rows = self.jsonl("routing_results.jsonl")
+        self.assertEqual({r["case_id"] for r in rows}, {"c-units", "c-oos"})
+        report = self.read("routing_report.json")
+        self.assertEqual(report["layer"], "routing")
+        self.assertEqual(report["accuracy"], 1.0)
+        self.assertEqual(report["n"], 2)
+
+    def test_without_the_block_routing_is_unscored_and_excluded(self):
+        """Refusing to infer is the point: the runner never invents a route."""
+        cases = [make_case("c-units", expect={"http": {"status": 200},
+                                              "route": "units"})]
+        rc, _, proc = self.invoke(self.routing_plan(cases))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-units", "verdict.json")["layers"]["routing"]
+        self.assertEqual(layer["verdict"], "unscored")
+        self.assertIn("route_from_status", layer["reason"])
+        # Excluded from the run-level file, which therefore is not written.
+        self.assertFalse((self.out_dir() / "routing_results.jsonl").exists())
+        self.assertFalse((self.out_dir() / "routing_report.json").exists())
+
+    def test_a_declared_response_field_wins(self):
+        cases = [make_case("c-units", expect={"http": {"status": 200},
+                                              "route": "units"})]
+        plan = self.routing_plan(cases, route_from_response="route")
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-units", "verdict.json")["layers"]["routing"]
+        self.assertEqual((layer["verdict"], layer["observed_from"]),
+                         ("pass", "response"))
+
+    def test_oos_route_is_pre_checked_not_discovered_from_exit_2(self):
+        """Step 3 made score_routing.py exit 2 when --oos-route names a label
+        the data does not carry. A run that simply selected no OOS case is not
+        an error, so the runner performs the check itself."""
+        cases = [make_case("c-units", expect={"http": {"status": 200},
+                                              "route": "units"})]
+        plan = self.routing_plan(cases, route_from_status={"200": "units"})
+        plan["scoring"] = {"oos_route": "none"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("results.json")["summary"]["scorer_errors"],
+                         0)
+        self.assertNotIn("oos", self.read("routing_report.json"))
+
+    def test_oos_route_is_passed_when_the_data_carries_it(self):
+        cases = [
+            make_case("c-units", expect={"http": {"status": 200},
+                                         "route": "units"}),
+            make_case("c-oos", input={"messages": [{"role": "user",
+                                                    "content": "a refund?"}]},
+                      expect={"http": {"status": 400}, "route": "no-route"}),
+        ]
+        plan = self.routing_plan(cases, route_from_status={"200": "units",
+                                                           "400": "no-route"})
+        plan["scoring"] = {"oos_route": "no-route"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        report = self.read("routing_report.json")
+        self.assertIn("oos", json.dumps(report))
+
+    def test_clarify_ok_without_a_way_to_observe_it_is_unscored(self):
+        """`clarified: false` would be a CLAIM, not an observation -- and on a
+        case whose whole point is that clarifying is acceptable, the claim
+        decides the verdict."""
+        cases = [make_case("c-amb", expect={"http": {"status": 200},
+                                            "route": "units",
+                                            "clarify_ok": True})]
+        plan = self.routing_plan(cases, route_from_status={"200": "billing"})
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-amb", "verdict.json")["layers"]["routing"]
+        self.assertEqual(layer["verdict"], "unscored")
+        self.assertIn("clarify_from_response", layer["reason"])
+
+    def test_routing_survives_a_resume(self):
+        """SS9(a): the rows are read back off the case dirs, like everything
+        else -- so a resumed run's routing report is not half a report."""
+        cases = [make_case(f"c-{n}", expect={"http": {"status": 200},
+                                             "route": "units"})
+                 for n in range(1, 4)]
+        plan = self.routing_plan(cases, route_from_status={"200": "units"})
+        self.invoke(plan)
+        shutil.rmtree(self.out_dir() / "cases" / "c-3")
+        (self.out_dir() / "routing_results.jsonl").unlink()
+        (self.out_dir() / "routing_report.json").unlink()
+        rc, _, proc = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(len(self.jsonl("routing_results.jsonl")), 3)
+
+
+class TestExecutionLayer(RunnerCase):
+    """SS5.3. `actual` is EXTRACTED, never computed, and never guessed."""
+
+    responder = staticmethod(health_only(
+        lambda p, b, h: (200, {"message": "there are 7", "data": {"count": 7}},
+                         {})))
+
+    def execution_case(self):
+        return make_case("c-0001", expect={"http": {"status": 200},
+                                           "result": {"scalar": 7}})
+
+    def test_a_declared_response_field_is_extracted(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.execution_case()])
+        plan["adapter"]["invocation"]["result_from_response"] = "data.count"
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0001", "actual.json"),
+                         {"scalar": 7})
+        self.assertEqual(self.read("cases", "c-0001",
+                                   "verdict.json")["layers"]["execution"]
+                         ["verdict"], "pass")
+
+    def test_a_declared_prose_pattern_is_the_weakest_source(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.execution_case()])
+        plan["adapter"]["invocation"]["result_pattern"] = r"there are (\d+)"
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0001", "actual.json"),
+                         {"scalar": "7"})
+
+    def test_no_declared_extraction_is_unscored_never_a_mismatch(self):
+        """An unread result must never be scored as a mismatch: that
+        manufactures a failure the app never had."""
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.execution_case()])
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        actual = self.read("cases", "c-0001", "actual.json")
+        self.assertTrue(actual["missing"])
+        self.assertIn("result_from_response", actual["reason"])
+        layer = self.read("cases", "c-0001",
+                          "verdict.json")["layers"]["execution"]
+        self.assertEqual(layer["verdict"], "unscored")
+
+    def test_actual_json_is_required_only_when_the_case_asks_for_a_result(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.execution_case(), make_case("c-0002")])
+        self.invoke(plan)
+        self.assertTrue((self.out_dir() / "cases" / "c-0001"
+                         / "actual.json").is_file())
+        self.assertFalse((self.out_dir() / "cases" / "c-0002"
+                          / "actual.json").exists())
+        # ...and its absence where the condition HOLDS is exit 6.
+        (self.out_dir() / "cases" / "c-0001" / "actual.json").unlink()
+        rc, payload, _ = self.verify(self.out_dir())
+        self.assertEqual(rc, 6)
+        self.assertTrue(any("cases/c-0001/actual.json" in m
+                            for m in payload["missing_artifacts"]),
+                        payload["missing_artifacts"])
+
+    def verify(self, directory):
+        proc = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(directory)],
+            capture_output=True, text=True)
+        return (proc.returncode,
+                json.loads(proc.stdout) if proc.stdout.strip() else None, proc)
+
+
+class TestTrajectoryLayers(RunnerCase):
+    """The trace path end to end: collect, normalize once, then four scorers."""
+
+    TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+    def setUp(self):
+        super().setUp()
+        self.spans = self.tmp / "spans.json"
+        self.spans.write_text(json.dumps(otlp([
+            span(self.TRACE_ID, "aaaaaaaaaaaaaaa1", "invoke_agent", "units"),
+            span(self.TRACE_ID, "aaaaaaaaaaaaaaa2", "execute_tool",
+                 "list_invoices", **{"gen_ai.tool.call.arguments":
+                                     '{"unit_id": "U-1"}',
+                                     "gen_ai.tool.call.result": '{"n": 7}'}),
+        ])), encoding="utf-8")
+
+    @staticmethod
+    def responder(path, body, headers):
+        return 200, {"message": "ok", "traceId": TestTrajectoryLayers.TRACE_ID}, {}
+
+    def traced_plan(self, cases):
+        plan = make_plan(self.state, self.app.base_url, cases=cases)
+        plan["adapter"]["traces"] = {
+            "source": "otlp-file", "convention": "gen_ai",
+            "correlation": "response-field:traceId",
+            "location": str(self.spans),
+            "completeness": {"quiescence_ms": 10, "max_wait_s": 2},
+        }
+        plan["adapter"]["invocation"]["health_check"] = {
+            "method": "POST", "path": "/api/chat/ask", "expect_status": [200]}
+        plan["capability_matrix"] = {"routing": {"enabled": True},
+                                     "trajectory": {"enabled": True},
+                                     "tool_selection": {"enabled": True}}
+        return plan
+
+    def test_a_collected_trace_feeds_every_trajectory_layer(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        case["expect"]["args"] = {"list_invoices": {"unit_id": "U-1"}}
+        case["expect"]["authz"] = {"forbidden_tools": ["delete_invoice"]}
+        rc, payload, proc = self.invoke(self.traced_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        case_dir = self.out_dir() / "cases" / "c-0001"
+        # Both REQUIRED_IF files, because a trace was collected for this case.
+        self.assertTrue((case_dir / "trace.json").is_file())
+        self.assertTrue((case_dir / "trajectory.json").is_file())
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        for name in ("trajectory", "tool_selection", "loops", "authz"):
+            self.assertEqual(layers[name]["verdict"], "pass", name)
+        # normalize_trace.py runs ONCE and its output is what the four read.
+        self.assertEqual(self.read("cases", "c-0001",
+                                   "trajectory.json")["status"], "ok")
+
+    def test_the_route_comes_from_the_gen_ai_agent_name(self):
+        case = make_case("c-0001", expect={"http": {"status": 200},
+                                           "route": "units"})
+        rc, _, proc = self.invoke(self.traced_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-0001", "verdict.json")["layers"]["routing"]
+        self.assertEqual((layer["verdict"], layer["observed_from"]),
+                         ("pass", "trace"))
+
+    def test_a_result_from_a_tool_span_is_the_strongest_source(self):
+        case = make_case("c-0001", expect={"http": {"status": 200},
+                                           "result": {"scalar": 7}})
+        plan = self.traced_plan([case])
+        plan["adapter"]["invocation"]["result_from_tool"] = {
+            "tool": "list_invoices", "field": "n"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0001", "actual.json"),
+                         {"scalar": 7})
+
+    def test_a_trace_that_never_arrives_is_infra_not_unscored(self):
+        """The difference between "this run never had traces" and "this run
+        has traces and lost this one" is the difference between a known
+        limitation and a thing to go fix. Only the second is infra."""
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        plan = self.traced_plan([case])
+        # The health check joins (pre-flight passes), then the app stops
+        # echoing a trace id, so the case's own trace never arrives.
+        calls = {"n": 0}
+
+        def once(path, body, headers):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return 200, {"message": "ok", "traceId": self.TRACE_ID}, {}
+            return 200, {"message": "ok"}, {}
+
+        self.app.server.responder = once
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["trajectory"]["verdict"],
+                         "infra_incomplete")
+        self.assertEqual(verdict["verdict"], "infra_incomplete")
+        self.assertFalse(verdict["trace"]["collected"])
+        self.assertIn("no trace id", verdict["trace"]["reason"])
+        # ...and the two REQUIRED_IF files are correctly absent, which SS9
+        # must not then demand.
+        case_dir = self.out_dir() / "cases" / "c-0001"
+        self.assertFalse((case_dir / "trace.json").exists())
+        self.assertFalse((case_dir / "trajectory.json").exists())
+
+    def test_an_empty_trace_is_infra_incomplete_never_a_fail(self):
+        """SS7: missing spans are infra. The app's behaviour was not observed,
+        so nothing about it was measured -- least of all a failure."""
+        # A span whose declared parent is not in the trace: normalize_trace.py
+        # reports it under orphaned_parents and returns status "incomplete".
+        # The trace id still has to be PRESENT, or pre-flight's join check
+        # would refuse the run before any of this (SS4.5).
+        orphan = span(self.TRACE_ID, "bbbbbbbbbbbbbbb1", "execute_tool",
+                      "list_invoices")
+        orphan["parentSpanId"] = "cccccccccccccccc"
+        self.spans.write_text(json.dumps(otlp([orphan])), encoding="utf-8")
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        rc, _, proc = self.invoke(self.traced_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["trajectory"]["verdict"],
+                         "infra_incomplete")
+        self.assertEqual(verdict["verdict"], "infra_incomplete")
+
+
+class TestReliability(RunnerCase):
+    """SS5.5. pass@k vs pass^k, reduced once at the end."""
+
+    responder = staticmethod(health_only(ok_responder))
+
+    def test_reliability_json_is_written_at_k_above_1(self):
+        plan = make_plan(self.state, self.app.base_url, k=3)
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        report = self.read("reliability.json")
+        self.assertEqual(report["pass_hat_k"], 1.0)
+        self.assertEqual(len(self.jsonl("repeats.jsonl")), 3)
+
+    def test_a_case_with_an_infra_repeat_is_excluded_and_named(self):
+        """reduce_repeats.py refuses a non-pass/fail verdict outright, because
+        counting an infra verdict as a failure biases the estimate. A partial
+        case would poison the reducer or silently lower k for every other
+        case -- so it is excluded, and SAID to be excluded."""
+        state = {"n": 0}
+
+        def flaky(path, body, headers):
+            if path == "/":
+                return 200, {"message": "up"}, {}
+            state["n"] += 1
+            if state["n"] == 2:
+                return 500, {"message": "boom"}, {}
+            return 200, {"message": "ok"}, {}
+
+        self.app.server.responder = flaky
+        plan = make_plan(self.state, self.app.base_url, k=3,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["execution"] = {"timeout_s": 5, "max_attempts": 1,
+                             "backoff_s": [], "infra_rate_abort": 1.0,
+                             "insecure_tls": False}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        report = self.read("reliability.json")
+        self.assertEqual([e["case_id"] for e in report["excluded_cases"]],
+                         ["c-0001"])
+        self.assertIn("bias the estimate", report["excluded_note"])
+        self.assertEqual(len(self.jsonl("repeats.jsonl")), 3)   # c-0002 only
+
+    def test_nothing_to_reduce_is_not_a_scorer_error(self):
+        self.app.server.responder = health_only(
+            lambda p, b, h: (500, {"message": "boom"}, {}))
+        plan = make_plan(self.state, self.app.base_url, k=2)
+        plan["execution"] = {"timeout_s": 5, "max_attempts": 1,
+                             "backoff_s": [], "infra_rate_abort": 1.0,
+                             "insecure_tls": False}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        report = self.read("reliability.json")
+        self.assertEqual(report["verdict"], "unscored")
+        self.assertEqual(self.read("results.json")["summary"]["scorer_errors"],
+                         0)
+
+
+class TestBaselineComparison(RunnerCase):
+    """SS5.6 / D3. The diff has RULES, and rules that decide whether a change
+    ships are the category of thing this step exists to take out of LLM
+    hands."""
+
+    responder = staticmethod(health_only(ok_responder))
+
+    def a_baseline(self, run_id="smoke-20260907T120000Z", **manifest_kw):
+        directory = self.state / "reports" / run_id
+        directory.mkdir(parents=True)
+        manifest = {"run_id": run_id, "k": 1, "dataset_version": 1,
+                    "harness_version": run_cases.HARNESS_VERSION}
+        manifest.update(manifest_kw)
+        (directory / "manifest.yaml").write_text(json.dumps(manifest),
+                                                 encoding="utf-8")
+        (directory / "verdicts_for_stats.jsonl").write_text(
+            "\n".join(json.dumps({"case_id": f"c-{n:04d}", "verdict": "fail"})
+                      for n in range(1, 3)) + "\n", encoding="utf-8")
+        return directory / "verdicts_for_stats.jsonl"
+
+    def test_comparison_json_pairs_the_two_runs(self):
+        baseline = self.a_baseline()
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        rc, _, proc = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        comparison = self.read("comparison.json")
+        self.assertEqual(comparison["n"], 2)
+        self.assertEqual(comparison["baseline_pass_rate"], 0.0)
+        self.assertEqual(comparison["candidate_pass_rate"], 1.0)
+        self.assertEqual(comparison["candidate_run_id"], RUN_ID)
+        # Recorded in the manifest so --verify can evaluate the REQUIRED_IF
+        # condition later, with no plan and no argv in hand.
+        self.assertEqual(self.read("manifest.yaml")["baseline_verdicts"],
+                         str(baseline))
+        rc, payload, proc = self.verify(self.out_dir())
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        (self.out_dir() / "comparison.json").unlink()
+        rc, payload, _ = self.verify(self.out_dir())
+        self.assertEqual(rc, 6)
+        self.assertTrue(any("comparison.json" in m
+                            for m in payload["missing_artifacts"]))
+
+    def test_a_k_mismatch_is_refused_before_any_spend(self):
+        """Decision D7: a baseline at k=1 and a candidate at k=3 pair pass^k
+        verdicts computed over different numbers of trials."""
+        baseline = self.a_baseline()
+        plan = make_plan(self.state, self.app.base_url, k=3)
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 2)
+        self.assertIn("k: baseline 1, this run 3", payload["error"])
+        # SS11's exit-2 row promises "none written", and it holds: the check
+        # runs at plan validation, so the suite is not spent to learn this.
+        self.assertFalse(self.out_dir().exists())
+        self.assertEqual([c for c in self.app.calls], [])
+
+    def test_a_dataset_version_mismatch_is_refused(self):
+        baseline = self.a_baseline(dataset_version=2)
+        plan = make_plan(self.state, self.app.base_url)
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 2)
+        self.assertIn("dataset_version", payload["error"])
+
+    def test_a_baseline_without_its_manifest_is_refused(self):
+        """Version equality and the k-match are the comparison's rules, and
+        there is nowhere else to read them from."""
+        loose = self.tmp / "verdicts_for_stats.jsonl"
+        loose.write_text('{"case_id": "c-0001", "verdict": "pass"}\n',
+                         encoding="utf-8")
+        plan = make_plan(self.state, self.app.base_url)
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(loose)])
+        self.assertEqual(rc, 2)
+        self.assertIn("must sit beside its run's manifest.yaml",
+                      payload["error"])
+
+    def verify(self, directory):
+        proc = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(directory)],
+            capture_output=True, text=True)
+        return (proc.returncode,
+                json.loads(proc.stdout) if proc.stdout.strip() else None, proc)
+
+
+class TestVerify(RunnerCase):
+    """SS1/SS9: --verify re-asserts completeness over an existing run dir, with
+    no plan, no app calls, no scoring and no writes."""
+
+    responder = staticmethod(health_only(ok_responder))
+
+    def verify(self, directory):
+        proc = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(directory)],
+            capture_output=True, text=True)
+        try:
+            payload = json.loads(proc.stdout) if proc.stdout.strip() else None
+        except json.JSONDecodeError:
+            payload = None
+        return proc.returncode, payload, proc
+
+    def test_the_shipped_run_is_the_regression_test(self):
+        """THE audit finding, as a test.
+
+        field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/ is the
+        hand-orchestrated run that looks finished and has no verdicts.jsonl and
+        no verdicts_for_stats.jsonl -- so stats.py has nothing to pair and it
+        can never be a baseline. Nothing failed and nothing warned at the time.
+        --verify must exit 6 and name both files.
+
+        Verified on a COPY: the shipped run is a committed artifact and the
+        check writes nothing, but a test that could corrupt the evidence it
+        asserts on is not a test worth keeping.
+        """
+        shipped = (pathlib.Path(__file__).resolve().parents[2] / "field-test-qa"
+                   / ".agent-eval" / "reports" / "smoke-20260818T183920Z")
+        self.assertTrue(shipped.is_dir(), f"missing fixture: {shipped}")
+        copy = self.tmp / shipped.name
+        shutil.copytree(shipped, copy)
+
+        rc, payload, proc = self.verify(copy)
+        self.assertEqual(rc, 6, proc.stdout + proc.stderr)
+        self.assertIn("verdicts.jsonl", payload["missing_artifacts"])
+        self.assertIn("verdicts_for_stats.jsonl",
+                      payload["missing_artifacts"])
+        # Read-only, per SS1: the dir is byte-identical afterwards.
+        self.assertEqual(sorted(p.name for p in copy.iterdir()),
+                         sorted(p.name for p in shipped.iterdir()))
+
+    def test_verify_passes_a_complete_run(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        rc, payload, proc = self.verify(self.out_dir())
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(payload["missing_artifacts"], [])
+
+    def test_verify_names_a_deleted_per_case_artifact(self):
+        plan = make_plan(self.state, self.app.base_url)
+        self.invoke(plan)
+        (self.out_dir() / "cases" / "c-0001" / "expect.json").unlink()
+        rc, payload, _ = self.verify(self.out_dir())
+        self.assertEqual(rc, 6)
+        self.assertIn("cases/c-0001/expect.json",
+                      payload["missing_artifacts"])
+
+    def test_verify_catches_a_doctored_verdicts_file(self):
+        """SS9(c) check 3: the derived file must agree with the case dirs."""
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        self.invoke(plan)
+        rows = self.jsonl("verdicts.jsonl")
+        (self.out_dir() / "verdicts.jsonl").write_text(
+            json.dumps(rows[0]) + "\n", encoding="utf-8")
+        rc, payload, _ = self.verify(self.out_dir())
+        self.assertEqual(rc, 6)
+        self.assertTrue(any("c-0002" in item
+                            for item in payload["missing_artifacts"]),
+                        payload["missing_artifacts"])
+
+    def test_verify_needs_a_directory(self):
+        rc, payload, _ = self.verify(self.tmp / "nope")
+        self.assertEqual(rc, 2)
+        self.assertIn("not a directory", payload["error"])
 
 
 if __name__ == "__main__":

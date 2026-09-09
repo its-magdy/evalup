@@ -67,10 +67,37 @@ invocation:
                                           # traces are queryable, since the trace-join
                                           # check needs a real call to join on.
 
+  # --- what the runner may OBSERVE, all optional, all declared ---
+  # The runner reads a route, a clarification and a result only from paths
+  # named here. It never hunts a response for "the field that looks like a
+  # route": that heuristic works on four cases and picks the wrong field on
+  # the fifth. Undeclared means the layer is `unscored` with a reason, which
+  # is an honest gap; a wrong field is a number that reads as a measurement.
+  route_from_response: "route"            # dotted path to the route the app took.
+                                          # Highest priority. Next is a collected
+                                          # trace's first invoke_agent span name
+                                          # (gen_ai.agent.name), then the map below.
   route_from_status:                      # optional, trace-less apps only. Makes
     200: "<answered>"                     # status-derived routing DECLARED and per-app
     400: "__oos__"                        # instead of a runner-wide heuristic. Without
     403: "denied"                         # it, a trace-less run scores no routing layer.
+  clarify_from_response: "needs_clarification"   # dotted path to a boolean-ish field.
+                                          # REQUIRED for cases with expect.clarify_ok:
+                                          # without it the runner cannot tell whether the
+                                          # app clarified, and writing `clarified: false`
+                                          # would be a claim, not an observation -- one
+                                          # that decides the verdict on exactly those cases.
+
+  # Result extraction for expect.result (see the result-extraction contract
+  # below), in priority order. All three optional; declare the strongest one
+  # the app supports.
+  result_from_tool: {tool: run_sql, field: rows}   # 1. the last matching execute_tool
+                                          # span's result (JSON-parsed if the exporter
+                                          # recorded it as a string); `field` is an
+                                          # optional dotted path into it.
+  result_from_response: "data.count"      # 2. a dotted path into the response body.
+  result_pattern: "there are (\\d+)"       # 3. weakest: a regex over the prose answer,
+                                          # group 1 if it has one. Use sparingly.
 
   # function mode (preferred when auth/HTTP is in the way)
   entrypoint: "app.chat:handle_message"   # module:callable, importable from app.repo.
@@ -246,8 +273,13 @@ handoff:
   3. A parsed value from the prose answer, only if 1–2 are unavailable and the
      adapter declares a stable extraction pattern — the weakest source, use
      sparingly.
-  The result is written as the tiny JSON file `score_execution.py` expects:
-  `{"scalar": <v>}` or `{"rows": [...]}`.
+  The runner reaches each of the three through the `invocation` declaration
+  that names it — `result_from_tool`, `result_from_response`, `result_pattern`
+  (see above) — and tries them in that order. The result is written as the tiny
+  JSON file `score_execution.py` expects: a list becomes `{"rows": [...]}`,
+  anything else `{"scalar": <v>}`. No further coercion: the scorer owns the
+  type-aware comparison, and a second normalization in the runner would be a
+  second answer to what equality means.
 - **Unscorable, not fail** — when none of the above yields a value (no content
   capture, no structured field, unparseable prose), the runner writes
   `{"missing": true, "reason": "<why>"}`. The scorer turns this into

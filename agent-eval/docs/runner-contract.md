@@ -1,12 +1,17 @@
 # `run_cases.py` — Runner Contract
 
 **Status:** the nine open decisions below were **confirmed 2026-09-08**; this
-document has been rewritten to match them, and §§1–4, 6–8 and 11 are implemented
-by `scripts/run_cases.py` (Step 5b-i; tests in `tests/test_run_cases.py`).
-Step 5b-ii adds §5's layer table, the run-level scorers, `--baseline-verdicts`,
-`--verify`, and the `REQUIRED_IF` half of §9's check — until then every layer
-records `unscored`, `reason: "scoring not wired yet (5b-ii)"`. Step 5c rewires
-`run/SKILL.md` around the result.
+document has been rewritten to match them, and **every section is implemented**
+by `scripts/run_cases.py` (Steps 5b-i and 5b-ii; tests in
+`tests/test_run_cases.py`). Step 5c rewires `run/SKILL.md` around the result.
+
+Where 5b-ii found this document silent, the section says so and gives the
+answer: how an observed route is read (§5.2), how `actual` is extracted
+(§5.3), which repeats `reduce_repeats.py` may be handed (§5.5), and when the
+baseline comparison's version and `k` checks run (§5.6). All four are settled
+by **declaration in the adapter**, never by inference in the runner — the same
+line 5b-i drew when the contract turned out not to say how an HTTP request is
+built.
 
 This document is the spec: where it and the code disagree, **this file is
 right** and the code is the bug.
@@ -280,6 +285,32 @@ is ever `pass`, and none is ever `fail`.** The distinction is load-bearing: the
 shipped run's `trajectory: unscorable` rows are honest; a `pass` there would
 have been a lie, and in the `authz` row it would have been a dangerous one.
 
+Four rules make that mechanical:
+
+- **Every layer in the table gets a row on every case**, `n/a` included. An
+  absent row and an `n/a` row are not the same statement, and "this case does
+  not assert authz" is worth saying out loud — a reader who has to infer it
+  from an absence will eventually infer it wrongly.
+- **Enabled is `capability_matrix[<layer>].enabled is not false`**, looked up
+  under the layer's own name. `blocked_by` is *copied*; `unscorable` means
+  somebody decided this layer is off and said why, so a reason the runner
+  invented would let the matrix and the report disagree about that why.
+- The decision order per layer is **not applicable → disabled → input
+  unavailable → invoke the scorer**, and a **refusal** (safety gate) or a
+  **transport failure** stops before all of it. Scoring a case the harness
+  declined to run, or one the app never answered, would manufacture a failure
+  the app never had.
+- The scorer's object is stored **verbatim** under `layers.<name>`, so
+  `layers.tool_selection` holds an object whose own `"layer"` field reads
+  `"args"` — `score_args.py`'s name for itself. That is the scorer's word, and
+  rewriting it here to match the key would be the runner editing a scorer's
+  output, which is the one thing §5's first constraint forbids.
+
+**A missing answer is `unscored`, not a content failure.** When the response
+carries no value at the adapter's declared `<answer>` path, `score_answer.py`
+is not invoked: scoring the empty string against `must_contain` would report a
+content failure for what is an extraction gap.
+
 ### 5.1 Invoking a scorer
 
 ```python
@@ -324,6 +355,28 @@ least one selected case carries that route label — otherwise the scorer exits 
 and lists the labels present (Step 3 made it do that). The runner performs that
 check itself rather than discovering it from an exit code.
 
+**Where the observed route comes from**, in this order, and every source
+declared by the adapter:
+
+1. `invocation.route_from_response: "<dotted path>"` — a structured field in
+   the response that names the route. Recorded as `observed_from: "response"`.
+2. A collected trace: the **first `invoke_agent` span's `gen_ai.agent.name`**,
+   recorded as `observed_from: "trace"`. This is not a guess about the app's
+   shape — the adapter declared `traces.convention: gen_ai`, and that
+   declaration *is* the statement that agent names live in `gen_ai.agent.name`.
+3. `invocation.route_from_status` (decision **D2**, below), recorded as
+   `observed_from: "status"`.
+
+With none of the three, `layers.routing` is `unscored` and the case is excluded
+from `routing_results.jsonl`. `observed_from` is on every scored routing layer
+so no reader has to work out which of the three produced a label.
+
+**`clarify_ok` needs `invocation.clarify_from_response`.** A case with
+`expect.clarify_ok: true` and no declared way to observe whether the app
+clarified is `unscored`, with that as the reason. Writing `clarified: false`
+would be a claim rather than an observation — and on a case whose whole point is
+that clarifying is acceptable, that claim decides the verdict.
+
 **Trace-less routing.** With no trace there is no observed route, and the
 runner never *infers* one. The shipped run did infer it (`"route inferred from
 HTTP status only (200=Units/answered, 400=none)"`), which is a defensible
@@ -357,6 +410,24 @@ runner writes exactly what the scorer expects:
 `expected` is never computed at run time — it is already on the case as
 `expect.result`, and `reference_query` is provenance the runner never executes.
 
+Each of the three priorities is an **adapter declaration**, because "hunt the
+response for the field that looks like a result" is a heuristic that works on
+four cases and picks the wrong field on the fifth:
+
+| Priority | Declaration | Reads |
+|---|---|---|
+| 1 | `invocation.result_from_tool: {tool, field}` | the last matching `execute_tool` span's result (JSON-parsed when the exporter recorded it as a string), optionally at a dotted path |
+| 2 | `invocation.result_from_response: "<dotted path>"` | the response body |
+| 3 | `invocation.result_pattern: "<regex>"` | the prose answer; group 1 if the pattern has one |
+
+A list becomes `{"rows": [...]}`; anything else becomes `{"scalar": v}`. No
+further coercion — `score_execution.py` owns the type-aware comparison
+(`7 == "7" == "7.0"`), and a second normalization here would be a second answer
+to what equality means. When nothing is declared, or nothing matches, the runner
+writes `{"missing": true, "reason": ...}` naming which it was, and the scorer
+turns that into `unscored`. An unread result must never be scored as a mismatch:
+that manufactures a failure the app never had.
+
 ### 5.4 What the runner refuses to do
 
 Business rules, state-diff, and judged layers have no script. The runner records
@@ -371,6 +442,24 @@ Each repeat is a full independent invoke + score. The runner accumulates
 `reduce_repeats.py` once at the end into `<out>/reliability.json` for the
 pass@k / pass^k gap.
 
+**A case contributes to `repeats.jsonl` only when all k of its repeats scored
+`pass` or `fail`.** `reduce_repeats.py` refuses any other verdict outright —
+counting an infra verdict as a failure would bias the reliability estimate —
+and it refuses a case with fewer than `--k` rows. So a partial case would
+either poison the reducer or silently lower `k` for every other case in the
+run. The excluded cases and their verdicts are named in `reliability.json`
+under `excluded_cases`, never dropped quietly: a flakiness number computed over
+the cases that happened to answer every time is the one number a reliability
+run must not report without saying so. When no case qualifies, the runner
+writes `reliability.json` as `unscored` with that reason rather than invoking
+the reducer — `reduce_repeats.py` exits 2 on empty input, and a run where every
+repeat was an infra error is a run with nothing to reduce, not a scorer error.
+
+Each repeat's scorer inputs are materialized in a **scratch directory outside
+the run tree**, and only the representative repeat's are copied in. §6 declares
+`repeats/<n>/` as exactly three files and says the runner writes no others, so
+an `answer.txt` materialized to score repeat 3 must not land beside them.
+
 The **case-level** verdict for k>1 is `pass^k`: pass only if every repeat
 passed. Rationale: the hard-gated modes that use k>1 are asking for reliability,
 and a case that passes 2 of 3 is not a case that passes. The gap is reported,
@@ -382,6 +471,16 @@ never hidden.
 run's `verdicts_for_stats.jsonl` against the given one, and writes
 `<out>/comparison.json`. Without the flag the runner emits
 `verdicts_for_stats.jsonl` and stops.
+
+**The version and `k` checks run at plan validation, before any spend.** Every
+input to them is knowable up front, §11's exit-2 row promises "none written",
+and refusing after a full run would spend the suite to learn the comparison was
+never going to be legal. Reading them requires the baseline's own
+`manifest.yaml` **beside** the verdicts file it names; a baseline without one is
+exit 2, because version equality and the `k`-match are the comparison's rules
+and there is nowhere else to read them from. Skipping the check when the
+manifest is absent would be precisely the silent pass D3 folded this diff into
+the runner to prevent.
 
 It is folded in rather than left to the skill because the diff has **rules** —
 same `dataset_version` *and* same `harness_version`, attrition warnings, the
@@ -406,16 +505,17 @@ runner writes no other files.
 
 ```
 reports/
-  .gitignore                     # only when data.may_contain_pii; contents: */cases/
+  .gitignore                     # only when: data.may_contain_pii (contents: */cases/)
   <run-id>/
     manifest.yaml                # §10. Written at pre-flight, before any case.
     results.json                 # §10. Written at pre-flight (status: running), rewritten per case, finalized at end.
     verdicts.jsonl               # §9. Rewritten from the case dirs after every case.
     verdicts_for_stats.jsonl     # §9. Same, filtered.
-    routing_results.jsonl        # only when >=1 case is routing-scorable
-    routing_report.json          # only when routing_results.jsonl exists
-    repeats.jsonl                # only when k > 1
-    reliability.json             # only when k > 1
+    routing_results.jsonl        # only when: any case is routing-scorable
+    routing_report.json          # only when: routing_results.jsonl exists
+    repeats.jsonl                # only when: k > 1
+    reliability.json             # only when: k > 1
+    comparison.json              # only when: --baseline-verdicts was passed
     run.log                      # append-only, one JSON object per line (§12)
     cases/
       <case-id>/
@@ -424,12 +524,20 @@ reports/
         verdict.json             # §10 — written LAST, atomically. Its existence means "this case is done."
         expect.json              # the case's `expect` object, as fed to the scorers
         answer.txt               # the final answer text, as fed to score_answer/score_authz
-        trajectory.json          # only when a trace was collected and normalized
-        actual.json              # only when expect.result is present
-        trace.json               # only when traces.source is queryable this run
+        trajectory.json          # only when: a trace was collected for this case
+        actual.json              # only when: expect.result is present and the case ran
+        trace.json               # only when: a trace was collected for this case
         repeats/<n>/             # only when k > 1; n = 1..k
           request.json  response.json  verdict.json
 ```
+
+**`# only when:` is machine-read.** Every conditional file above carries its
+condition after that exact marker, and the string is the one `REQUIRED_IF`
+(§9(b)) stores for that file. A test parses this block and asserts the two are
+equal, so a file added here without a check — or a check whose condition drifts
+from the documented one — fails the suite. The `.gitignore` line is the one
+exception: it is written into `reports/`, not into the run directory, so it is
+outside the tree the completeness check walks.
 
 **Rules that make this tree unambiguous:**
 
@@ -593,13 +701,28 @@ REQUIRED_IF = {"routing_results.jsonl": "any case is routing-scorable",
                "routing_report.json":   "routing_results.jsonl exists",
                "repeats.jsonl":         "k > 1",
                "reliability.json":      "k > 1",
-               "trajectory.json":       "a trace was normalized for this case",
-               "actual.json":           "expect.result is present on this case",
-               "trace.json":            "traces.source is queryable this run"}
+               "comparison.json":       "--baseline-verdicts was passed",
+               "trajectory.json":       "a trace was collected for this case",
+               "actual.json":           "expect.result is present and the case ran",
+               "trace.json":            "a trace was collected for this case"}
 ```
 
-A 5b test asserts this table matches §6 of this document. `report.md`/`.html`
-are deliberately **not** here: the skill writes them (§13).
+A 5b test asserts this table matches §6 of this document — it execs the block
+above out of this file and diffs it against the module's constants, then parses
+§6's tree and diffs the `# only when:` strings against `REQUIRED_IF`'s values.
+`report.md`/`.html` are deliberately **not** here: the skill writes them (§13).
+
+Three of these conditions are evaluated per case, and all three are read off the
+**case directory**, never off the plan — which is what lets `--verify` evaluate
+them months later with no plan in hand. `trajectory.json` and `trace.json` key
+on `verdict.json`'s `trace.collected`, not on the run-level "is the store
+queryable": a queryable store that never produced this case's trace is
+`infra_incomplete` (§7), and demanding the file anyway would turn one honest
+infra row into a second, spurious completeness failure. `actual.json` keys on
+`expect.json` plus "the case ran", because a case the safety gates **skipped**
+made no call and has no result to extract. The run-level conditions read the
+manifest (`k`, `baseline_verdicts`) and the case verdicts (routing-scorable =
+at least one case whose `layers.routing` scored `pass` or `fail`).
 
 **(c) A finalize check that can fail the run.** Before writing the terminal
 `results.json` and returning, the runner:
@@ -607,10 +730,24 @@ are deliberately **not** here: the skill writes them (§13).
 1. verifies every `REQUIRED_ALWAYS` file exists, is non-empty, and parses;
 2. verifies every completed case directory has every `REQUIRED_PER_CASE` file,
    plus each `REQUIRED_IF` file whose condition held for that case;
-3. verifies `len(verdicts.jsonl) == len(cases attempted)` and that
-   `verdicts_for_stats.jsonl` is exactly the `pass`/`fail` subset;
-4. verifies `results.json`'s per-case rows and `summary` counts agree with
-   `verdicts.jsonl`.
+3. verifies `verdicts.jsonl` holds exactly one row per **completed case
+   directory**, with the same ids and the same verdicts, and that
+   `verdicts_for_stats.jsonl` is exactly the `pass`/`fail` subset of it;
+4. verifies `results.json`'s per-case rows are the non-holdout completed cases
+   with matching verdicts, and that its `summary` counts (`n`, `passes`,
+   `failures`, `gating_failures`, `unscored`, `skipped`, `infra_errors`,
+   `canaries`) agree with a recount over those case directories.
+
+Check 3 says "completed case directory", not "cases attempted": a case the
+safety gates **skipped** carries a `verdict.json` and a `verdicts.jsonl` row but
+is deliberately not in `summary.attempted` (§7), so equating the two would fail
+every run that refused a case. The case directories are the source of truth in
+§9(a), so they are what both derived files are checked against here — and being
+derivable from the tree alone is what makes checks 3 and 4 runnable under
+`--verify`. The run-time bookkeeping counters (`attempted`, `crash_rate`,
+`infra_rate`, `scorer_errors`) are **not** recounted: they are properties of the
+execution, not of the tree, and a check that has to guess at them would fail
+honest runs.
 
 Any discrepancy → the missing/mismatched items are written to
 `results.json.summary.missing_artifacts`, printed as JSON on stdout, and the
@@ -639,6 +776,10 @@ the shipped run already does. See Open decision **D1**.
   "harness_version": "0.1.0",             // from _common.HARNESS_VERSION, never invented by the caller
   "plan_sha256": "…",                     // canonical JSON of the plan; resume compares this
   "runner_version": 1,
+  "baseline_verdicts": null,              // or the --baseline-verdicts path. Recorded so §9's
+                                          // comparison.json condition is readable off the tree:
+                                          // --verify has no plan and no argv.
+
   "dataset_version": 1,
   "cases": [{"id": "…", "set": "smoke", "sha256": "…"}],   // sha256 of the case's canonical JSON
   "app": { … },                           // from manifest_extra
@@ -759,7 +900,11 @@ record, not the shareable summary) does carry it, since a paired diff needs it.
 | 4 | Canary failed — harness/judge drift; run stopped. | complete for cases finished |
 | 5 | Infra rate exceeded `infra_rate_abort`; run stopped. | complete for cases finished |
 | 6 | **Completeness check failed** — a required artifact is missing or inconsistent. `summary.missing_artifacts` names them. | incomplete, by definition |
-| 7 | At least one scorer returned exit 2. The run finished and its artifacts are complete, but its numbers are not quotable. | complete |
+| 7 | At least one scorer returned exit 2. The run finished and its artifacts are complete, but its numbers are not quotable. `summary.status` stays `"ok"` — the artifacts really are complete — and `summary.scorer_errors` is the count. | complete |
+
+**Precedence when more than one applies:** 6 outranks everything (an incomplete
+run's other findings are unreadable anyway), then 4/5 (an abort is the fact the
+caller must act on, and the scorer errors are still in `results.json`), then 7.
 
 2 matches the scorers' own "bad input" code, and like them the runner prints
 `{"error": "..."}` as JSON **on stdout** for every non-zero exit, so a caller

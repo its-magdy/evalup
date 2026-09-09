@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-08 (Step 5b-i done — runner skeleton, no scoring)
+**Last updated:** 2026-09-09 (Step 5b-ii done — the runner scores; 5b is complete)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -20,8 +20,8 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Working tree is CLEAN** as of Step 0. The whole prior review wave is
   committed as the baseline `6c7d286`; every later diff is now readable
   against it.
-- **Health:** 513 tests pass (~2min), ruff clean, all 14 CLI scripts `--help`
-  rc=0, Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-08.
+- **Health:** 551 tests pass (~2min), ruff clean, all 14 CLI scripts `--help`
+  rc=0, Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-09.
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -40,10 +40,9 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
    hand-orchestrated by the LLM every run: not reproducible, expensive, and it
    silently dropped required outputs (proof: the last shipped run is missing
    `verdicts.jsonl` and `verdicts_for_stats.jsonl`). **Being fixed now**:
-   `docs/runner-contract.md` is the spec, `scripts/run_cases.py` is the engine.
-   Step 5b-i shipped everything but scoring; 5b-ii wires the scorers and closes
-   the loop. Until 5b-ii lands the runner is not usable for a real run, and
-   `run/SKILL.md` still describes the hand-orchestrated flow (that is 5c).
+   `docs/runner-contract.md` is the spec, `scripts/run_cases.py` is the engine,
+   and as of 5b-ii **it is complete and usable for a real run**. `run/SKILL.md`
+   still describes the hand-orchestrated flow (that is 5c).
 2. **7 skills is the right count; ~33.9k tokens of skill prose at 22–29
    words/sentence is the problem.** Move rationale to `references/`, keep
    procedure in `SKILL.md`.
@@ -59,25 +58,16 @@ and their siblings — hold that line.
 
 Each step is sized for a single low-usage session. Mark done as you go.
 
-- [x] **Step 0 — Commit the current dirty tree** as a readable baseline.
-      **DONE 2026-09-07 — `6c7d286`.** 54 paths, +4547/-632. The shipped field
-      test went in without its per-case dirs: `reports/.gitignore` ignores
-      `*/cases/`.
-
-- [x] **Step 1 — Fix the splits field-vs-directory break.**
-      **DONE 2026-09-07 — `f03c960`.** Picked the field (`split: [full, smoke]`)
-      and rewrote all five consumers that selected by directory. The only
-      `datasets/*/` mentions left are generate's rationale for NOT using
-      directories.
-
+- [x] **Step 0 — Baseline commit.** **DONE 2026-09-07 — `6c7d286`.**
+- [x] **Step 1 — Splits are a field, not a directory.**
+      **DONE 2026-09-07 — `f03c960`.** All five directory-selecting consumers
+      rewritten; the `datasets/*/` mentions left are generate's rationale for
+      NOT using directories.
 - [x] **Step 2 — One path convention.**
-      **DONE 2026-09-07 — `05804ef`.** 18 files, +434/-388.
-      `${CLAUDE_PLUGIN_ROOT}/...` for anything executed or read cross-skill;
-      relative links for a `SKILL.md` into its own `references/`. App/state
-      paths stay bare on purpose and README §"Path convention" says so.
-      **The audit's offender list was wrong in both directions:** it named 6
-      files, 17 needed changes, and one it named has zero path references.
-      Grep; do not work down the list.
+      **DONE 2026-09-07 — `05804ef`.** `${CLAUDE_PLUGIN_ROOT}/...` cross-skill,
+      relative links inside a skill, app/state paths bare on purpose (README
+      §"Path convention"). **The audit's offender list was wrong in both
+      directions** — grep, do not work down a list.
 
 - [x] **Step 3 — The three scorer bugs, each with a regression test.**
       **DONE 2026-09-08 — `0d2aa91`.** All three audit repros re-ran failing
@@ -102,43 +92,42 @@ Each step is sized for a single low-usage session. Mark done as you go.
       pre-2026-08 layout; a mechanically migrated copy validates clean, so no
       rule turns a good case red.
 
-- [x] **Step 5a — Spec `run_cases.py`** (design only, no code).
-      **DONE 2026-09-08 — `77d3778`.** `agent-eval/docs/runner-contract.md`: one
-      JSON `plan.json` in (§2), the output tree (§6), every file's shape (§10),
-      7 exit codes (§11), what stays in the skill (§13). The
-      missing-`verdicts.jsonl` failure is closed structurally (§9) — both jsonl
-      files are **regenerated from the case dirs after every case**, a declared
-      `REQUIRED_*` table names every artifact, and a finalize check exits 6
-      instead of writing `status: "ok"`; `--verify` re-asserts it on any old run
-      dir. **Read the 9 Open decisions before 5b** — D2 (trace-less routing) and
-      D3 (who runs `stats.py`) change scope. No code, `run/SKILL.md` untouched.
+- [x] **Step 5a — Spec `run_cases.py`** (design only).
+      **DONE 2026-09-08 — `77d3778`.** `agent-eval/docs/runner-contract.md`.
+      The missing-`verdicts.jsonl` failure is closed structurally (§9): both
+      jsonl files are **regenerated from the case dirs after every case**, a
+      declared `REQUIRED_*` table names every artifact, and a finalize check
+      exits 6 instead of writing `status: "ok"`.
 
 - [x] **Step 5b-i — `run_cases.py`, the skeleton** (no scoring).
-      **DONE 2026-09-08 — `c9bc4f7`.** `scripts/run_cases.py` + 64 tests driving
-      a real fake HTTP app in a thread. Live: §§2–4, 6–8, 11 and the
-      `REQUIRED_ALWAYS`/`REQUIRED_PER_CASE` half of §9. **Every layer records
-      `unscored`, reason "scoring not wired yet (5b-ii)"**, so every non-infra
-      case rolls up to `unscored` and `verdicts_for_stats.jsonl` is legitimately
-      empty. **All 9 open decisions answered; `runner-contract.md` rewritten in
-      the same commit** — its "Open decisions" section is now a confirmed
-      record. Three changed code: D5 refuses `max_concurrency > 1` (exit 2), D6
-      implements `function` mode too, D8 makes the holdout ledger a **`.jsonl`
-      sidecar** (stdlib-only: appending a JSON line to the YAML dataset metadata
-      would corrupt it). D2/D3 are specced and land with the scoring half.
+      **DONE 2026-09-08 — `c9bc4f7`.** §§2–4, 6–8, 11 + 64 tests driving a real
+      fake HTTP app in a thread. **All 9 open decisions answered and the
+      contract rewritten in the same commit** — its "Open decisions" section is
+      now a confirmed record. D5 refuses `max_concurrency > 1` (exit 2), D6
+      implements `function` mode, D8 makes the holdout ledger a **`.jsonl`
+      sidecar** (stdlib-only: a JSON line appended to YAML corrupts it).
       **The contract could not be implemented as written** — it never said how
-      an HTTP request is BUILT. `adapter-contract.md`'s `invocation` gained
-      `endpoint`, `request_body`/`response_body` templates, `identity_map`,
-      `health_check`, `route_from_status`; all declared, none guessed. Full
-      accounting in the commit message.
+      an HTTP request is BUILT, so `adapter-contract.md`'s `invocation` gained
+      `endpoint`, `request_body`/`response_body`, `identity_map`,
+      `health_check`, `route_from_status`; all declared, none guessed.
 
-- [ ] **Step 5b-ii — the scoring half.** §5's layer table (9 scorer
-      shell-outs), run-level `score_routing.py` and `reduce_repeats.py`, D2's
-      `route_from_status`, D3's `--baseline-verdicts` → `comparison.json` (with
-      D7's k-mismatch check), then finalize's `REQUIRED_IF` conditions, §9(c)
-      checks 3–4, and `--verify`. Two tests matter most: `REQUIRED_*` asserted
-      against the contract's §6, and `--verify` on
-      `field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/` exiting 6 and
-      naming both missing files — the audit finding as a regression test.
+- [x] **Step 5b-ii — the scoring half.**
+      **DONE 2026-09-09 — `<sha>`.** All of §5, the run-level scorers, §9(c)'s
+      four checks and `--verify`; 551 tests (+38). The two that matter: the
+      `REQUIRED_*` tables are **exec'd and parsed out of the contract file**
+      rather than restated, and `--verify` on the shipped run exits 6 naming
+      both missing jsonl files. **The contract was silent in four places and
+      each is now answered by an ADAPTER DECLARATION, never by inference**
+      (`route_from_response`, `clarify_from_response`, `result_from_tool`,
+      `result_from_response`, `result_pattern` — all new in
+      `adapter-contract.md`): how an observed route is read, how `clarified` is
+      observed, how `actual` is extracted, and — the one real contract bug —
+      §9(c)3's `len(verdicts.jsonl) == cases attempted`, which fails every run
+      that skips a case. Also: `repeats.jsonl` carries a case only when all k
+      repeats are pass/fail (`reduce_repeats.py` refuses anything else), the
+      `--baseline-verdicts` version/k check runs at **plan validation** so exit
+      2 still means nothing was written, and a scorer `error` outranks a
+      sibling `pass` in the rollup. Full accounting in the commit message.
 
 - [ ] **Step 5c — Rewire `run/SKILL.md`** around the runner. Target: 305 lines
       → ~60. The skill should decide *what to run and how to read the result*,
@@ -185,22 +174,23 @@ Each step is sized for a single low-usage session. Mark done as you go.
   - `ruff check --config ruff.toml .`
   - `uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q`
     — the only conclusive 3.9 floor check. Run before any release.
-- **`validate_cases.py` takes JSON, not YAML**, deliberately — read its
-  docstring before "fixing" that. Convert with the caller's own YAML parser.
-  **`run_cases.py` takes JSON for the same reason** (`--plan`), and the skill
-  doing the YAML→JSON conversion *is* the run's parse, not a second opinion.
+- **`validate_cases.py` and `run_cases.py` take JSON, not YAML**, deliberately
+  — read the docstrings before "fixing" that. The skill's YAML→JSON conversion
+  *is* the run's parse, not a second opinion.
 - **The runner's spec is `agent-eval/docs/runner-contract.md` and it wins.**
   Its nine design decisions were confirmed 2026-09-08 and the section that used
   to hold them is now a record of the answers with the trade-offs — do not
   reopen one without reading it. Where the code and that file disagree, the
-  file is right.
+  file is right. **Two tests read that file at run time** (they exec §9(b)'s
+  python block and parse §6's `# only when:` markers), so an edit to either
+  fails the suite until the code follows — that is deliberate, not a brittle
+  test.
 - **The holdout ledger is a `.jsonl` sidecar**, not the YAML dataset metadata:
   a stdlib-only runner cannot append a JSON line to a YAML mapping without
   corrupting it. `run/SKILL.md` §4 and `analyze/SKILL.md` `--unseal` still say
   "dataset metadata" and need pointing at the sidecar in 5c/Step 6.
 - **`__oos__` is `score_routing.py`'s canonical internal OOS label**, not a
-  data value. `--oos-route <name>` maps the profile's OOS route name onto it.
-  (I initially misread the shipped report as inconsistent; it is not.)
+  data value. `--oos-route <name>` maps the profile's route name onto it.
 - **The scorers' error contract:** errors go to **stdout** (not stderr) as
   JSON, exit 2 on malformed input. Deliberate — see `_common.die()`.
 - **`field-test-qa/.agent-eval/` is in a mixed layout** (`baselines/` + `runs/`

@@ -29,22 +29,28 @@ TWO CONSTRAINTS, both load-bearing:
    converts YAML -> JSON with the parser it already uses, and that conversion
    IS the run's parse, not a second opinion.
 
-STEP 5b-i SCOPE. The scoring layer table (contract SS5) is NOT wired yet: every
-layer records verdict "unscored" with reason "scoring not wired yet (5b-ii)",
-so every non-infra case rolls up to `unscored` and verdicts_for_stats.jsonl is
-legitimately empty. What IS live: plan validation (SS2), env resolution (SS3),
-pre-flight (SS4), the output tree and atomic writes (SS6), the serial execute
-loop with the retry/infra taxonomy and both aborts (SS7), resume (SS8), the
-derived jsonl files and the REQUIRED_ALWAYS/REQUIRED_PER_CASE half of the
-completeness check (SS9), and the exit-code table (SS11). Exit 7 (scorer
-errors) is unreachable until 5b-ii, and --verify plus the REQUIRED_IF
-conditions land with it.
+THE THREE NON-VERDICTS (contract SS5) are the load-bearing part of the scoring
+half, and they are what this module spends most of its care on:
+
+  n/a        - not applicable: the case does not carry the layer's trigger.
+  unscorable - applicable, but the capability matrix disabled the layer.
+  unscored   - applicable and enabled, but the input could not be produced.
+
+None of the three is ever `pass` and none is ever `fail`. A refusal, a
+transport failure and an unread result are all in that space too: scoring a
+case the harness declined to run, or one the app never answered, would
+manufacture a failure the app never had -- the one outcome this harness must
+never produce. Anywhere the input is not observable, the runner says so and
+names the DECLARATION that would make it observable, rather than inferring.
 
 Usage:
   run_cases.py --plan <plan.json|-> --out <state>/reports/<run-id> [--resume]
   run_cases.py --plan <plan.json|-> --out <dir> --dry-run
+  run_cases.py --plan <plan.json|-> --out <dir> --baseline-verdicts <prev>.jsonl
+  run_cases.py --verify <reports/<run-id>>
 """
 import argparse
+import contextlib
 import hashlib
 import importlib
 import json
@@ -53,14 +59,16 @@ import re
 import shutil
 import socket
 import ssl
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-from _common import HARNESS_VERSION, add_version_flag
+from _common import HARNESS_VERSION, add_version_flag, nfc
 
 RUNNER_VERSION = 1
 PLAN_VERSION = 1
@@ -88,9 +96,11 @@ REQUIRED_SCORERS = (
     "score_execution.py", "score_routing.py", "trajectory_match.py",
 )
 
-# SS9(b). The declared required-artifact table. REQUIRED_IF's conditions are
-# checked in 5b-ii, once the layers that produce those files exist; the table
-# is declared here in full so the two halves cannot drift apart.
+# SS9(b). The declared required-artifact table. Two tests assert it against
+# the contract itself -- one execs SS9(b)'s python block out of the file, the
+# other parses SS6's tree and diffs the `# only when:` strings against
+# REQUIRED_IF's values. A file added to the tree without a check here is how
+# the shipped run lost verdicts.jsonl.
 REQUIRED_ALWAYS = ("manifest.yaml", "results.json", "verdicts.jsonl",
                    "verdicts_for_stats.jsonl")
 REQUIRED_PER_CASE = ("request.json", "response.json", "verdict.json",
@@ -100,10 +110,15 @@ REQUIRED_IF = {
     "routing_report.json": "routing_results.jsonl exists",
     "repeats.jsonl": "k > 1",
     "reliability.json": "k > 1",
-    "trajectory.json": "a trace was normalized for this case",
-    "actual.json": "expect.result is present on this case",
-    "trace.json": "traces.source is queryable this run",
+    "comparison.json": "--baseline-verdicts was passed",
+    "trajectory.json": "a trace was collected for this case",
+    "actual.json": "expect.result is present and the case ran",
+    "trace.json": "a trace was collected for this case",
 }
+# The three per-case conditions above, as predicates over a case DIRECTORY --
+# never over the plan, which is what lets --verify evaluate them months later
+# with no plan in hand.
+REQUIRED_IF_PER_CASE = ("trajectory.json", "actual.json", "trace.json")
 
 TOP_LEVEL_KEYS = (
     "plan_version", "run_id", "mode", "k", "gate", "selecting_split", "paths",
@@ -131,6 +146,34 @@ ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 PASS, FAIL = "pass", "fail"
 UNSCORED, SKIPPED = "unscored", "skipped"
 INFRA_ERROR, INFRA_INCOMPLETE = "infra_error", "infra_incomplete"
+
+# SS5's layer table, in the order it is walked and in the order the layers are
+# written into verdict.json. Every layer gets a row on every case: an absent
+# row and an `n/a` row are not the same statement, and "this case does not
+# assert authz" is worth saying out loud.
+LAYER_ORDER = ("http", "routing", "trajectory", "tool_selection", "loops",
+               "answer", "execution", "authz", "rules", "state", "judged")
+
+# The three non-verdicts SS5 makes load-bearing. None of them is ever `pass`
+# and none is ever `fail`:
+#   n/a        - not applicable: the case does not carry the trigger.
+#   unscorable - applicable, but the capability matrix disabled the layer.
+#                `blocked_by` is COPIED from the matrix, never invented.
+#   unscored   - applicable and enabled, but the input could not be produced.
+# The distinction is the difference between an honest gap and a lie; in the
+# authz row a `pass` here would be a dangerous one.
+NA, UNSCORABLE = "n/a", "unscorable"
+# ...and the fourth: the scorer itself failed (SS5.1). Distinct from `unscored`
+# because a broken scorer is a harness bug, not a property of the app, and it
+# is what exit 7 counts.
+LAYER_ERROR = "error"
+
+# Layers whose input is the normalized trajectory. Broader than
+# TRACE_DEPENDENT_LAYERS below, which is the capability taxonomy the manifest
+# reports: authz is not a trace CAPABILITY, but score_authz.py reads a
+# trajectory, so a trace that never arrived leaves it infra_incomplete rather
+# than pass.
+TRAJECTORY_LAYERS = ("trajectory", "tool_selection", "loops", "authz")
 
 # Categories the environment.safe_to_attack gate refuses outright (SS4.6/SS7).
 # adversarial-refusal is the only attack-shaped category case-format.md
@@ -795,16 +838,18 @@ def send_function(target, request_body):
 
 
 # --------------------------------------------------------------------------
-# Layer applicability (contract SS5's trigger column). 5b-i records every
-# applicable layer as `unscored`; 5b-ii replaces the placeholder with the
-# scorer shell-outs. The trigger rules live here, once, so the two halves
-# cannot disagree about which layers a case even claims to exercise.
+# Layer applicability (contract SS5's trigger column). The trigger rules live
+# here, once, so nothing else in the module can disagree about which layers a
+# case even claims to exercise.
 # --------------------------------------------------------------------------
 
-SCORING_NOT_WIRED = "scoring not wired yet (5b-ii)"
-
-
 def applicable_layers(case, trace_collected):
+    """SS5's trigger column: which layers this case even CLAIMS to exercise.
+
+    A layer is applicable iff its trigger field is present on the case. `loops`
+    is the one whose trigger is the run rather than the case -- there is
+    nothing to detect a loop in without a trajectory.
+    """
     expect = case.get("expect") or {}
     answer = expect.get("answer") or {}
     layers = ["http"]
@@ -824,15 +869,58 @@ def applicable_layers(case, trace_collected):
         layers.append("rules")
     if expect.get("state") is not None:
         layers.append("state")
+    if answer.get("rubric"):
+        layers.append("judged")
     if trace_collected:
         layers.append("loops")
     return layers
 
 
-def placeholder_layers(case, trace_collected):
-    return {name: {"layer": name, "verdict": UNSCORED,
-                   "reason": SCORING_NOT_WIRED}
-            for name in applicable_layers(case, trace_collected)}
+def na(name):
+    return {"layer": name, "verdict": NA}
+
+
+def unscorable(name, blocked_by):
+    return {"layer": name, "verdict": UNSCORABLE, "blocked_by": blocked_by}
+
+
+def unscored(name, reason):
+    return {"layer": name, "verdict": UNSCORED, "reason": reason}
+
+
+def shape_actual(value):
+    """SS5.3: the tiny JSON file score_execution.py expects.
+
+    A list of objects is a row set; anything else is a scalar. The runner does
+    not coerce types beyond that -- score_execution.py owns the type-aware
+    comparison (7 == "7" == "7.0"), and a second normalization here would be a
+    second answer to what equality means.
+    """
+    if isinstance(value, list):
+        return {"rows": value}
+    return {"scalar": value}
+
+
+def dotted_get(node, path):
+    """Read a dotted path out of a parsed body. Missing -> None.
+
+    Used only for values an ADAPTER declared the path of (the route field, the
+    clarify flag, a structured result). The runner never hunts a response for
+    "the field that looks like a route": a heuristic that works on four cases
+    and picks the wrong field on the fifth is the failure this whole contract
+    is written against.
+    """
+    for part in str(path).split("."):
+        if isinstance(node, list):
+            try:
+                node = node[int(part)]
+                continue
+            except (ValueError, IndexError):
+                return None
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
 
 
 def roll_up(layers, skipped_reason):
@@ -841,8 +929,12 @@ def roll_up(layers, skipped_reason):
     Rule 6 is the point of the whole ordering: a case whose every layer came
     back n/a / unscorable / unscored is NOT a pass. That is the vacuous-case
     failure validate_cases.py lints for at authoring time, caught again here at
-    run time -- and it is why 5b-i's placeholder run reports `unscored` for
-    every case instead of a green board.
+    run time.
+
+    The scorer-error rule sits ABOVE `fail` deliberately (SS5.1: "the case rolls
+    up to unscored"). A case with a broken scorer has a number nobody should
+    quote, and letting a sibling layer's `pass` carry it to `pass` would put
+    exactly that number in the report -- while the run still exits 7.
     """
     values = [layer.get("verdict") for layer in layers.values()]
     if INFRA_ERROR in values:
@@ -851,6 +943,8 @@ def roll_up(layers, skipped_reason):
         return INFRA_INCOMPLETE
     if skipped_reason:
         return SKIPPED
+    if LAYER_ERROR in values:
+        return UNSCORED
     if FAIL in values:
         return FAIL
     if PASS in values:
@@ -882,7 +976,8 @@ def flatten_layers(layers):
 # --------------------------------------------------------------------------
 
 class Runner:
-    def __init__(self, plan, out_dir, resume=False, dry_run=False):
+    def __init__(self, plan, out_dir, resume=False, dry_run=False,
+                 baseline_verdicts=None):
         self.plan = plan
         self.out = out_dir
         self.cases_dir = os.path.join(out_dir, "cases")
@@ -914,6 +1009,8 @@ class Runner:
         self.scorer_errors = 0
         self.holdout_looks = None
         self.status = "running"
+        self.routing_rows = []      # SS5.2's run-level input, accumulated
+        self.baseline_verdicts = baseline_verdicts
 
     # -- logging (SS12) ---------------------------------------------------
     def log(self, event, **fields):
@@ -1212,6 +1309,10 @@ class Runner:
             "harness_version": HARNESS_VERSION,
             "plan_sha256": self.plan_sha256,
             "runner_version": RUNNER_VERSION,
+            # Recorded so SS9's comparison.json condition is readable off the
+            # tree: --verify has no plan and no argv, and a conditional
+            # artifact whose condition is unknowable is a check that never runs.
+            "baseline_verdicts": self.baseline_verdicts,
             "dataset_version": extra.get("dataset_version"),
             "cases": [{"id": case["id"],
                        "set": self.plan["selecting_split"],
@@ -1429,12 +1530,18 @@ class Runner:
                 "crashed": crashed and error is not None}
 
     def execute_case(self, case):
-        """Run one case (k repeats) and write its directory. verdict.json LAST.
+        """Run one case (k repeats), score it, and write its directory.
 
         SS6: a case directory containing verdict.json is complete, by
         definition. Resume (SS8) and the completeness check (SS9) both key off
         exactly that fact, so it is the last atomic write here and nothing is
         written after it.
+
+        Every repeat is scored in its OWN scratch directory, outside the run
+        tree, and only the representative repeat's artifacts are copied in.
+        SS6 says the run tree holds no other files, and repeats/<n>/ is
+        declared as three files -- so a scorer input materialized for repeat 3
+        must not land beside them.
         """
         case_id = case["id"]
         case_dir = os.path.join(self.cases_dir, case_id)
@@ -1442,55 +1549,60 @@ class Runner:
         expect = case.get("expect") or {}
         # SS9/D9: expect.json and answer.txt live in the case dir so any run
         # can be RE-SCORED without re-invoking the app -- which is also how a
-        # scorer bug fix gets applied to historical runs.
-        atomic_write_json(os.path.join(case_dir, "expect.json"), expect)
+        # scorer bug fix gets applied to historical runs. Written FIRST because
+        # it is also the scorers' own argv for every repeat: one file, so the
+        # k repeats cannot be scored against k copies of it.
+        expect_path = os.path.join(case_dir, "expect.json")
+        atomic_write_json(expect_path, expect)
         self.log("case_start", case_id=case_id, k=self.k)
 
-        skip = self.skip_reason(case)
-        if skip:
-            record = self.skipped_record(case)
-        else:
-            self.attempted += 1
-            records = [self.invoke_once(case, n) for n in range(1, self.k + 1)]
-            record = records[0]
-            if self.k > 1:
-                repeat_verdicts = self.write_repeats(case_dir, case, records)
-                # SS6: the case-level request/response are the REPRESENTATIVE
-                # repeat -- the first FAILING one if any repeat failed, else
-                # repeat 1. Deterministic, and it makes the report's example
-                # excerpt the informative one rather than an arbitrary one.
-                record = next(
-                    (records[i] for i, rv in enumerate(repeat_verdicts)
-                     if rv["verdict"] == FAIL), records[0])
-            if any(r["crashed"] for r in records) \
-                    and case.get("category") in CRASH_RATE_CATEGORIES:
-                self.crashes += 1
+        scratches = []
+        try:
+            skip = self.skip_reason(case)
+            if skip:
+                attempts = [self.scored_attempt(case, self.skipped_record(case),
+                                                expect_path, skip, scratches)]
+            else:
+                self.attempted += 1
+                attempts = [
+                    self.scored_attempt(case, self.invoke_once(case, n),
+                                        expect_path, None, scratches)
+                    for n in range(1, self.k + 1)]
+                if any(a["record"]["crashed"] for a in attempts) \
+                        and case.get("category") in CRASH_RATE_CATEGORIES:
+                    self.crashes += 1
 
-        trace_collected, trace_reason = False, None
-        if not skip and self.trace_state["collected"]:
-            trace_collected, trace_reason = self.collect_trace(
-                case_dir, record["response"]["trace_id"])
+            # SS6: the case-level files are the REPRESENTATIVE repeat -- the
+            # first FAILING one if any repeat failed, else repeat 1.
+            # Deterministic, and it makes the report's example excerpt the
+            # informative one rather than an arbitrary one.
+            chosen = next((a for a in attempts if a["verdict"] == FAIL),
+                          attempts[0])
+            if not skip and self.k > 1:
+                self.write_repeats(case_dir, case, attempts)
+            self.publish(case_dir, chosen)
 
-        atomic_write_json(os.path.join(case_dir, "request.json"),
-                          record["request"])
-        atomic_write_json(os.path.join(case_dir, "response.json"),
-                          record["response"])
-        atomic_write(os.path.join(case_dir, "answer.txt"),
-                     record["response"]["answer"] or "")
+            verdict = self.build_verdict(case, chosen, skip)
+            if not skip and self.k > 1:
+                verdict["repeats"] = [
+                    {"n": a["n"], "verdict": a["verdict"], "layers": a["layers"]}
+                    for a in attempts]
+                # pass^k (decision D7): a case passes only if EVERY repeat
+                # passed. The modes that use k>1 are asking for reliability,
+                # and a case that passes 2 of 3 is not a case that passes. The
+                # pass@k/pass^k gap is reported by reduce_repeats.py, never
+                # hidden.
+                values = [a["verdict"] for a in attempts]
+                if all(v == PASS for v in values):
+                    verdict["verdict"] = PASS
+                elif FAIL in values:
+                    verdict["verdict"] = FAIL
+            self.record_routing_row(verdict)
+            atomic_write_json(os.path.join(case_dir, "verdict.json"), verdict)
+        finally:
+            for scratch in scratches:
+                shutil.rmtree(scratch, ignore_errors=True)
 
-        verdict = self.build_verdict(case, record, skip, trace_collected,
-                                     trace_reason)
-        if not skip and self.k > 1:
-            verdict["repeats"] = repeat_verdicts
-            # pass^k (decision D7): a case passes only if EVERY repeat passed.
-            # The modes that use k>1 are asking for reliability, and a case
-            # that passes 2 of 3 is not a case that passes. The pass@k/pass^k
-            # gap is reported by reduce_repeats.py, never hidden.
-            if all(rv["verdict"] == PASS for rv in repeat_verdicts):
-                verdict["verdict"] = PASS
-            elif any(rv["verdict"] == FAIL for rv in repeat_verdicts):
-                verdict["verdict"] = FAIL
-        atomic_write_json(os.path.join(case_dir, "verdict.json"), verdict)
         self.verdicts.append(verdict)
         self.log("case_done", case_id=case_id, verdict=verdict["verdict"])
         return verdict
@@ -1521,58 +1633,475 @@ class Runner:
         return {"request": request, "response": response, "error": None,
                 "crashed": False}
 
-    def write_repeats(self, case_dir, case, records):
+    def scored_attempt(self, case, record, expect_path, skip, scratches):
+        """One repeat: materialize its scorer inputs, then score it (SS5)."""
+        scratch = tempfile.mkdtemp(prefix="agent-eval-run-")
+        scratches.append(scratch)
+        atomic_write(os.path.join(scratch, "answer.txt"),
+                     record["response"]["answer"] or "")
+        trace_collected, trace_reason = False, None
+        if not skip and self.trace_state["collected"]:
+            trace_collected, trace_reason = self.collect_trace(
+                scratch, record["response"]["trace_id"])
+        layers = self.score_layers(case, record, skip, scratch, expect_path,
+                                   trace_collected, trace_reason)
+        return {"n": record["response"]["repeat"], "record": record,
+                "scratch": scratch, "layers": layers,
+                "verdict": roll_up(layers, skip),
+                "trace_collected": trace_collected,
+                "trace_reason": trace_reason}
+
+    @staticmethod
+    def publish(case_dir, attempt):
+        """Copy the representative repeat's artifacts into the case dir.
+
+        answer.txt is REQUIRED_PER_CASE and the three conditional files are
+        REQUIRED_IF, so this is the one place their presence is decided --
+        which is what lets SS9's check read the same condition off the tree
+        later without a plan.
+        """
+        record = attempt["record"]
+        atomic_write_json(os.path.join(case_dir, "request.json"),
+                          record["request"])
+        atomic_write_json(os.path.join(case_dir, "response.json"),
+                          record["response"])
+        for name in ("answer.txt", "trace.json", "trajectory.json",
+                     "actual.json"):
+            source = os.path.join(attempt["scratch"], name)
+            if os.path.isfile(source):
+                shutil.copyfile(source, os.path.join(case_dir, name))
+
+    def write_repeats(self, case_dir, case, attempts):
         """SS6: repeats/ exists iff k > 1, and holds EVERY repeat.
 
         Including the first -- no asymmetry between "the run" and "the extra
         runs", which is the shape that makes a repeat directory readable
         without knowing which index the case-level files came from.
         """
-        verdicts = []
-        for index, record in enumerate(records, 1):
-            repeat_dir = os.path.join(case_dir, "repeats", str(index))
+        for attempt in attempts:
+            repeat_dir = os.path.join(case_dir, "repeats", str(attempt["n"]))
             os.makedirs(repeat_dir, exist_ok=True)
             atomic_write_json(os.path.join(repeat_dir, "request.json"),
-                              record["request"])
+                              attempt["record"]["request"])
             atomic_write_json(os.path.join(repeat_dir, "response.json"),
-                              record["response"])
-            layers = self.layers_for(case, record, None, False, None)
-            verdict = {"case_id": case["id"], "repeat": index,
-                       "verdict": roll_up(layers, None), "layers": layers}
+                              attempt["record"]["response"])
             atomic_write_json(os.path.join(repeat_dir, "verdict.json"),
-                              verdict)
-            verdicts.append(verdict)
-        return verdicts
+                              {"case_id": case["id"], "repeat": attempt["n"],
+                               "verdict": attempt["verdict"],
+                               "layers": attempt["layers"]})
 
-    def layers_for(self, case, record, skip, trace_collected, trace_reason):
-        """5b-i's placeholder layer table (contract SS5 lands in 5b-ii).
+    # -- SS5. The layer table ---------------------------------------------
+    def capability_blocked_by(self, layer):
+        """SS5: a layer is enabled iff capability_matrix[<layer>].enabled is
+        not false. Returns the matrix's own `blocked_by` when it is not.
 
-        The INFRA rows are real, though: SS7's taxonomy is this step's, so an
-        exhausted retry budget really does produce infra_error, and a trace
-        that never joined really does produce infra_incomplete on the
-        trace-dependent layers and nothing else.
+        The string is COPIED, never composed here: `unscorable` means "somebody
+        decided this layer is off and said why", and a reason the runner made
+        up would let the matrix and the report disagree about that why.
         """
-        layers = placeholder_layers(case, trace_collected)
+        block = self.plan["capability_matrix"].get(layer)
+        if not isinstance(block, dict) or block.get("enabled") is not False:
+            return None
+        return block.get("blocked_by") or f"capability_matrix.{layer}.enabled: false"
+
+    def run_scorer(self, script, argv, layer):
+        """SS5.1. Shell out, parse stdout as JSON on EVERY return code.
+
+        The scorers' error contract puts errors on STDOUT as {"error": ...} and
+        signals failure with exit 2 (_common.die). A runner that read stderr on
+        failure would get an empty string and report nothing -- which is how a
+        malformed expect block becomes a silent hole in a report.
+
+        Returns the scorer's object VERBATIM on success: the runner reads only
+        `verdict` out of it for the rollup, and invents no fields and drops
+        none. The scorers are the definition of what a number means; a second
+        implementation here would be a second, divergent definition.
+        """
+        path = os.path.join(self.plan["paths"]["scripts_dir"], script)
+        command = [sys.executable, path, *[str(x) for x in argv]]
+        try:
+            proc = subprocess.run(
+                command, capture_output=True, text=True,
+                timeout=self.plan["scoring"]["scorer_timeout_s"])
+        except subprocess.TimeoutExpired:
+            return self.scorer_error(
+                layer, script, argv,
+                "scorer timed out after {}s".format(
+                    self.plan["scoring"]["scorer_timeout_s"]))
+        try:
+            payload = json.loads(proc.stdout)
+        except ValueError:
+            noise = (proc.stdout or proc.stderr)[:400]
+            return self.scorer_error(
+                layer, script, argv,
+                f"scorer exited {proc.returncode} and its stdout is not "
+                f"JSON: {noise!r}")
+        self.log("scorer", layer=layer, scorer=script, rc=proc.returncode)
+        if proc.returncode != 0:
+            return self.scorer_error(
+                layer, script, argv,
+                payload.get("error") if isinstance(payload, dict)
+                else str(payload), rc=proc.returncode)
+        return payload
+
+    def scorer_error(self, layer, script, argv, message, rc=2):
+        """A scorer that failed is counted, recorded, and does NOT stop the run.
+
+        One malformed expect block must not throw away 200 cases of spend --
+        but the run exits 7 at the end (SS11), because a run with scorer errors
+        has numbers nobody should quote.
+        """
+        self.scorer_errors += 1
+        self.log("scorer", layer=layer, scorer=script, rc=rc, error=message)
+        return {"layer": layer, "verdict": LAYER_ERROR, "scorer": script,
+                "argv": [str(x) for x in argv], "error": message}
+
+    def score_layers(self, case, record, skip, scratch, expect_path,
+                     trace_collected, trace_reason):
+        """SS5's table, walked top to bottom for one repeat.
+
+        Order of decision, per layer, and the order matters:
+          not applicable        -> n/a
+          capability disabled   -> unscorable, blocked_by from the matrix
+          input unavailable     -> unscored, with a reason
+          otherwise             -> the scorer's own object, verbatim
+        """
+        expect = case.get("expect") or {}
+        applicable = set(applicable_layers(case, trace_collected))
+        layers = {name: na(name) for name in LAYER_ORDER}
+
+        blocked = {}
+        for name in applicable:
+            reason = self.capability_blocked_by(name)
+            if reason:
+                blocked[name] = reason
+                layers[name] = unscorable(name, reason)
+
+        # A refusal and a transport failure both stop before scoring. Neither
+        # is ever a `fail`: scoring a case the harness declined to run, or one
+        # the app never answered, would manufacture a failure the app never had
+        # -- the one outcome this harness must never produce.
         if skip:
-            for layer in layers.values():
-                layer["verdict"] = SKIPPED
-                layer["reason"] = skip
+            for name in applicable - set(blocked):
+                layers[name] = {"layer": name, "verdict": SKIPPED,
+                                "reason": skip}
             return layers
         if record["error"]:
-            for layer in layers.values():
-                layer["verdict"] = INFRA_ERROR
-                layer["reason"] = record["error"]
+            for name in applicable - set(blocked):
+                layers[name] = {"layer": name, "verdict": INFRA_ERROR,
+                                "reason": record["error"]}
             return layers
+
+        trajectory_path = os.path.join(scratch, "trajectory.json")
+        answer_path = os.path.join(scratch, "answer.txt")
+        scoring = self.plan["scoring"]
+
+        def live(name):
+            return name in applicable and name not in blocked
+
+        # -- normalize, once: every trajectory layer reads its output --------
+        trajectory_gap = trace_reason
         if trace_reason:
-            for name in TRACE_DEPENDENT_LAYERS:
-                if name in layers:
-                    layers[name]["verdict"] = INFRA_INCOMPLETE
-                    layers[name]["reason"] = trace_reason
+            # A trace was EXPECTED for this case and did not arrive. That is
+            # infra (SS7), not `unscored`: the difference between "this run
+            # never had traces" and "this run has traces and lost this one" is
+            # the difference between a known limitation and a thing to go fix.
+            for name in TRAJECTORY_LAYERS:
+                if live(name):
+                    layers[name] = {"layer": name,
+                                    "verdict": INFRA_INCOMPLETE,
+                                    "reason": trace_reason}
+        elif trace_collected:
+            result = self.run_scorer(
+                "normalize_trace.py",
+                ["--trace-id", record["response"]["trace_id"],
+                 os.path.join(scratch, "trace.json")], "trajectory")
+            if result.get("verdict") == LAYER_ERROR:
+                for name in TRAJECTORY_LAYERS:
+                    if live(name):
+                        layers[name] = dict(result, layer=name)
+                trajectory_gap = result["error"]
+                trace_collected = False
+            else:
+                atomic_write_json(trajectory_path, result)
+                if result.get("status") != "ok":
+                    # SS7: missing spans / orphaned parents are infra, not a
+                    # fail -- the app's behaviour was not observed, so nothing
+                    # about it was measured.
+                    checks = result.get("checks") or {}
+                    trajectory_gap = (
+                        "normalize_trace.py reports status {!r} "
+                        "(spans_for_trace={}, orphaned_parents={})".format(
+                            result.get("status"),
+                            checks.get("spans_for_trace"),
+                            len(checks.get("orphaned_parents") or [])))
+                    for name in TRAJECTORY_LAYERS:
+                        if live(name):
+                            layers[name] = {"layer": name,
+                                            "verdict": INFRA_INCOMPLETE,
+                                            "reason": trajectory_gap}
+                    trace_collected = False
+        else:
+            # No trace was expected at all: the run is trace-less by
+            # declaration (SS4.5), so the gap is that declaration.
+            trajectory_gap = self.trace_state.get(
+                "reason", "no trace collected for this run")
+
+        # -- http: the runner compares; there is no scorer -------------------
+        if live("http"):
+            layers["http"] = self.score_http(expect, record)
+
+        # -- routing: the per-case row and the verdict derived from it -------
+        if live("routing"):
+            layers["routing"] = self.score_routing_row(case, record,
+                                                       trajectory_path
+                                                       if trace_collected
+                                                       else None,
+                                                       trajectory_gap)
+
+        # -- the trajectory-fed layers ---------------------------------------
+        for name, script, argv in (
+                ("trajectory", "trajectory_match.py",
+                 [trajectory_path, expect_path]
+                 + (["--fail-on-errored-calls"]
+                    if scoring["fail_on_errored_calls"] else [])),
+                ("tool_selection", "score_args.py",
+                 [trajectory_path, expect_path]),
+                ("loops", "detect_loops.py",
+                 [trajectory_path, "--repeat-threshold",
+                  scoring["repeat_threshold"], "--call-budget",
+                  scoring["call_budget"]]),
+                ("authz", "score_authz.py",
+                 [trajectory_path, expect_path, "--answer", answer_path]
+                 + (["--id-pattern", scoring["id_pattern"]]
+                    if scoring["id_pattern"] else [])),
+        ):
+            if not live(name) or layers[name]["verdict"] != NA:
+                continue
+            if not trace_collected:
+                layers[name] = unscored(name, trajectory_gap)
+                continue
+            layers[name] = self.run_scorer(script, argv, name)
+
+        # -- answer -----------------------------------------------------------
+        if live("answer"):
+            if record["response"]["answer"] is None:
+                # The response carried nothing at the declared <answer> path.
+                # Scoring the empty string against must_contain would report a
+                # content failure for what is an extraction gap.
+                layers["answer"] = unscored(
+                    "answer",
+                    "the response carried no value at the adapter's declared "
+                    "<answer> path; nothing to score")
+            else:
+                layers["answer"] = self.run_scorer(
+                    "score_answer.py", [answer_path, expect_path], "answer")
+
+        # -- execution --------------------------------------------------------
+        if live("execution"):
+            actual_path = os.path.join(scratch, "actual.json")
+            atomic_write_json(actual_path, self.extract_actual(
+                record, trajectory_path if trace_collected else None))
+            argv = [actual_path, expect_path]
+            if scoring["float_tolerance"]:
+                argv += ["--float-tolerance", scoring["float_tolerance"]]
+            layers["execution"] = self.run_scorer("score_execution.py", argv,
+                                                  "execution")
+
+        # -- SS5.4: the three the runner REFUSES to attempt --------------------
+        if live("rules"):
+            layers["rules"] = unscored(
+                "rules", "business rules are evaluated by the skill")
+        if live("state"):
+            layers["state"] = unscored(
+                "state", "state-diff needs environment.snapshot_state")
+        if live("judged"):
+            layers["judged"] = {"layer": "judged",
+                                "verdict": f"unjudged ({self.unjudged_reason()})"}
         return layers
 
-    def build_verdict(self, case, record, skip, trace_collected, trace_reason):
-        layers = self.layers_for(case, record, skip, trace_collected,
-                                 trace_reason)
+    @staticmethod
+    def score_http(expect, record):
+        """The one layer with no script: the runner compares (SS5)."""
+        status = record["response"]["status"]
+        expected = (expect.get("http") or {}).get("status")
+        if expected is not None:
+            return {"layer": "http", "verdict": PASS if status == expected
+                    else FAIL, "status": status, "expected": expected}
+        if status is not None and 500 <= status < 600:
+            return {"layer": "http", "verdict": INFRA_ERROR, "status": status,
+                    "reason": "5xx with no expect.http.status: the app failed, "
+                              "it did not answer wrongly"}
+        return {"layer": "http",
+                "verdict": PASS if status and 200 <= status < 300 else FAIL,
+                "status": status}
+
+    def observed_route(self, record, trajectory_path):
+        """SS5.2. Where an observed route may come from, in declared order.
+
+        Every source is something the ADAPTER declared. The runner never
+        infers a route: the shipped run did (200=answered, 400=none), which is
+        a defensible run-specific judgement and exactly the kind of judgement a
+        runner must not make silently across every app. Decision D2 makes it
+        declared and per-app instead.
+
+        Returns (route, source). A null route is written as null and the
+        scorer maps it to __no_route__.
+        """
+        invocation = self.adapter.get("invocation") or {}
+        field = invocation.get("route_from_response")
+        if field:
+            value = dotted_get(record["response"]["body"], field)
+            return (value if isinstance(value, str) else None), "response"
+        if trajectory_path:
+            # gen_ai's own meaning of "which agent handled this". The adapter
+            # declared `convention: gen_ai`, which IS the declaration that
+            # agent names live in gen_ai.agent.name -- so this reads a declared
+            # convention rather than guessing at a shape.
+            try:
+                agents = (read_json(trajectory_path).get("trajectory")
+                          or {}).get("agents") or []
+            except (OSError, ValueError):
+                agents = []
+            names = [a.get("name") for a in agents if a.get("name")]
+            if names:
+                return names[0], "trace"
+        status_map = invocation.get("route_from_status")
+        if isinstance(status_map, dict):
+            # JSON object keys are strings; a YAML->JSON adapter may carry
+            # either, so look both up rather than making the author guess.
+            status = record["response"]["status"]
+            value = status_map.get(str(status), status_map.get(status))
+            return (value if isinstance(value, str) else None), "status"
+        return None, None
+
+    def score_routing_row(self, case, record, trajectory_path, gap):
+        """The per-case routing row plus the verdict derived from it (SS5.2).
+
+        The row is accumulated for the run-level scorer; the verdict here
+        applies score_routing.py's own documented pass rule (observed in
+        acceptable, expected always implicitly acceptable, or clarify_ok and
+        clarified) so the two cannot disagree about a single case.
+        """
+        expect = case.get("expect") or {}
+        invocation = self.adapter.get("invocation") or {}
+        clarify_ok = bool(expect.get("clarify_ok"))
+        clarify_field = invocation.get("clarify_from_response")
+        if clarify_ok and not clarify_field:
+            # Writing `clarified: false` here would be a claim, not an
+            # observation -- and on a case whose whole point is that clarifying
+            # is acceptable, the claim decides the verdict.
+            return unscored(
+                "routing",
+                "expect.clarify_ok is set but the adapter declares no "
+                "invocation.clarify_from_response, so whether the app "
+                "clarified was never observed")
+        observed, source = self.observed_route(record, trajectory_path)
+        if source is None:
+            return unscored("routing", "{}; no invocation.route_from_response, "
+                                       "trace or route_from_status to read an "
+                                       "observed route from".format(
+                                           gap or "no observed route"))
+        clarified = bool(dotted_get(record["response"]["body"], clarify_field)) \
+            if clarify_field else False
+        row = {"case_id": case["id"], "expected": expect.get("route"),
+               "observed": observed,
+               "acceptable": expect.get("route_acceptable"),
+               "clarify_ok": clarify_ok, "clarified": clarified}
+        if row["expected"] is None:
+            # score_routing.py requires a non-null `expected`; a case with only
+            # route_acceptable has nothing for the confusion matrix to be about.
+            return unscored("routing",
+                            "expect.route is absent, so there is no expected "
+                            "label; score_routing.py requires one")
+        acceptable = [nfc(v) for v in (row["acceptable"] or [])
+                      if isinstance(v, str)] + [nfc(row["expected"])]
+        passed = (isinstance(observed, str) and nfc(observed) in acceptable) \
+            or (clarify_ok and clarified)
+        return {"layer": "routing", "verdict": PASS if passed else FAIL,
+                "observed_from": source, "row": row}
+
+    def extract_actual(self, record, trajectory_path):
+        """SS5.3 / the adapter's result-extraction contract, in priority order.
+
+        Every source is DECLARED. When none yields a value the runner writes
+        {"missing": true, "reason": ...} and score_execution.py turns that into
+        `unscored` -- an unread result must never be scored as a mismatch,
+        because that manufactures a failure the app never had.
+        """
+        invocation = self.adapter.get("invocation") or {}
+        body = record["response"]["body"]
+
+        from_tool = invocation.get("result_from_tool")
+        if isinstance(from_tool, dict) and trajectory_path:
+            try:
+                calls = (read_json(trajectory_path).get("trajectory")
+                         or {}).get("tool_calls") or []
+            except (OSError, ValueError):
+                calls = []
+            matches = [c for c in calls if c.get("name") == from_tool.get("tool")
+                       and c.get("result") is not None]
+            if matches:
+                value = matches[-1]["result"]
+                if isinstance(value, str):
+                    # The gen_ai convention carries the tool result as a
+                    # string attribute, so a structured result arrives as JSON
+                    # text. Parsed here rather than in normalize_trace.py,
+                    # which deliberately records the attribute as the exporter
+                    # set it.
+                    with contextlib.suppress(ValueError):
+                        value = json.loads(value)
+                if from_tool.get("field"):
+                    value = dotted_get(value, from_tool["field"])
+                if value is not None:
+                    return shape_actual(value)
+
+        field = invocation.get("result_from_response")
+        if field:
+            value = dotted_get(body, field)
+            if value is not None:
+                return shape_actual(value)
+
+        pattern = invocation.get("result_pattern")
+        if pattern:
+            answer = record["response"]["answer"] or ""
+            try:
+                match = re.search(pattern, answer)
+            except re.error as exc:
+                return {"missing": True,
+                        "reason": f"invocation.result_pattern is not a valid "
+                                  f"regex: {exc}"}
+            if match:
+                return shape_actual(match.group(1) if match.groups()
+                                    else match.group(0))
+
+        declared = [name for name in ("result_from_tool",
+                                      "result_from_response", "result_pattern")
+                    if invocation.get(name)]
+        if not declared:
+            return {"missing": True,
+                    "reason": "the adapter declares no result extraction "
+                              "(invocation.result_from_tool / "
+                              "result_from_response / result_pattern), so the "
+                              "app's result was never read"}
+        return {"missing": True,
+                "reason": "declared result extraction ({}) matched nothing in "
+                          "this response".format(", ".join(declared))}
+
+    def record_routing_row(self, verdict):
+        """Accumulate SS5.2's run-level input as cases complete.
+
+        Read back off the VERDICT rather than kept in a parallel list, so a
+        --resume rebuilds it from the case dirs like everything else in SS9(a).
+        """
+        row = (verdict["layers"].get("routing") or {}).get("row")
+        if row:
+            self.routing_rows.append(row)
+
+    def build_verdict(self, case, attempt, skip):
+        record = attempt["record"]
+        layers = attempt["layers"]
+        trace_collected = attempt["trace_collected"]
         canary = is_canary(case)
         expected_trace = self.trace_state["collected"]
         return {
@@ -1585,7 +2114,7 @@ class Runner:
             # harness, so folding it into the app's gate moves the number for
             # the wrong reason.
             "gating": (not canary) and case.get("gating", True) is not False,
-            "verdict": roll_up(layers, skip),
+            "verdict": attempt["verdict"],
             "k": self.k,
             # Carried on the verdict, not only in response.json, so a resumed
             # run can rebuild results.json's latency column from the same
@@ -1594,7 +2123,10 @@ class Runner:
             "layers": layers,
             "trace": {"expected": expected_trace,
                       "collected": trace_collected,
-                      "reason": trace_reason or (
+                      # SS6: trace.json absent is never ambiguous, because this
+                      # block says whether a trace was expected and why there
+                      # isn't one.
+                      "reason": attempt["trace_reason"] or (
                           None if trace_collected
                           else self.trace_state.get("reason"))},
             "repeats": None,
@@ -1626,9 +2158,30 @@ class Runner:
             [{"case_id": v["case_id"], "verdict": v["verdict"]}
              for v in self.verdicts if v["verdict"] in (PASS, FAIL)])
         if self.k > 1:
-            atomic_write_jsonl(os.path.join(self.out, "repeats.jsonl"), [
-                {"case_id": v["case_id"], "verdict": repeat["verdict"]}
-                for v in self.verdicts for repeat in (v["repeats"] or [])])
+            atomic_write_jsonl(os.path.join(self.out, "repeats.jsonl"),
+                               self.repeat_rows()[0])
+
+    def repeat_rows(self):
+        """SS5.5's input to reduce_repeats.py, and what had to be left out.
+
+        reduce_repeats.py refuses any verdict that is not pass/fail (counting
+        an infra verdict as a failure would bias the reliability estimate) and
+        refuses a case with fewer than k rows. So a case contributes ONLY when
+        all k of its repeats are pass/fail: a partial case would either poison
+        the reducer or silently lower k for every other case. The excluded
+        cases are named in reliability.json rather than dropped quietly.
+        """
+        rows, excluded = [], []
+        for verdict in self.verdicts:
+            repeats = verdict["repeats"] or []
+            values = [r["verdict"] for r in repeats]
+            if len(values) == self.k and all(v in (PASS, FAIL) for v in values):
+                rows.extend({"case_id": verdict["case_id"], "verdict": v}
+                            for v in values)
+            elif repeats:
+                excluded.append({"case_id": verdict["case_id"],
+                                 "verdicts": values})
+        return rows, excluded
 
     def summary(self, status, missing):
         verdicts = self.verdicts
@@ -1746,6 +2299,7 @@ class Runner:
             if verdict is None:
                 continue
             self.verdicts.append(verdict)
+            self.record_routing_row(verdict)
             if verdict["verdict"] != SKIPPED:
                 self.attempted += 1
             if self.crashed_on_disk(case):
@@ -1801,47 +2355,116 @@ class Runner:
                             self.attempted))
         return None
 
-    def check_completeness(self):
-        """SS9(c), the half 5b-i can honestly assert.
+    # -- SS5.2 / SS5.5 / SS5.6. The run-level scorers ----------------------
+    def score_run_level(self):
+        """Everything that scores the RUN rather than a case.
 
-        REQUIRED_ALWAYS and REQUIRED_PER_CASE are checked here; the REQUIRED_IF
-        conditions and the count-agreement checks (SS9(c) 3-4) land with the
-        scoring layer in 5b-ii, together with --verify. What this already buys
-        is the property the shipped run lacked: `status: "ok"` is written ONLY
-        after a check, so "the run finished" and "the run's required outputs
-        exist" are the same statement.
+        Runs before the completeness check, and runs even after an abort: the
+        partial run is still a well-formed artifact, and half a routing report
+        is more useful than none for working out why the run stopped.
         """
-        missing = []
-        for name in REQUIRED_ALWAYS:
-            path = os.path.join(self.out, name)
-            if not os.path.isfile(path):
-                missing.append(name)
-                continue
-            if name.endswith(".jsonl"):
-                continue          # an empty jsonl is legitimate (0 pass/fail)
-            if os.path.getsize(path) == 0:
-                missing.append(f"{name} (empty)")
-                continue
-            try:
-                read_json(path)
-            except (OSError, ValueError) as exc:
-                missing.append(f"{name} (unparseable: {exc})")
-        for verdict in self.verdicts:
-            for name in REQUIRED_PER_CASE:
-                relative = os.path.join("cases", verdict["case_id"], name)
-                if not os.path.isfile(os.path.join(self.out, relative)):
-                    missing.append(relative)
-        return missing
+        self.score_routing_run()
+        self.score_reliability()
+        self.score_comparison()
+
+    def score_routing_run(self):
+        """SS5.2. score_routing.py scores a JSONL of ALL cases at once.
+
+        It reports macro/micro F1, a confusion matrix, OOS metrics and
+        spurious_labels -- none of which is defined for a single case -- so the
+        rows accumulate as cases complete and the scorer runs once, here.
+        """
+        if not self.routing_rows:
+            return
+        results = os.path.join(self.out, "routing_results.jsonl")
+        atomic_write_jsonl(results, self.routing_rows)
+        argv = [results]
+        oos = self.plan["scoring"]["oos_route"]
+        if oos:
+            # --oos-route only RENAMES a label, so a name matching nothing
+            # renames nothing and the scorer exits 2 listing the labels present
+            # (Step 3 made it do that). The runner performs the check itself
+            # rather than discovering it from an exit code, because a run that
+            # simply has no OOS cases selected is not an error.
+            present = set()
+            for row in self.routing_rows:
+                for key in ("expected", "observed"):
+                    if isinstance(row.get(key), str):
+                        present.add(nfc(row[key]))
+                present.update(nfc(v) for v in (row.get("acceptable") or [])
+                               if isinstance(v, str))
+            if nfc(oos) in present:
+                argv += ["--oos-route", oos]
+            else:
+                self.log("scorer", layer="routing", scorer="score_routing.py",
+                         skipped_flag="--oos-route",
+                         reason=f"no selected case carries route {oos!r}")
+        report = self.run_scorer("score_routing.py", argv, "routing")
+        atomic_write_json(os.path.join(self.out, "routing_report.json"), report)
+
+    def score_reliability(self):
+        """SS5.5. pass@k vs pass^k over the repeats, once, at the end."""
+        if self.k <= 1:
+            return
+        rows, excluded = self.repeat_rows()
+        path = os.path.join(self.out, "reliability.json")
+        if not rows:
+            # reduce_repeats.py exits 2 on empty input, and an all-infra run is
+            # not a scorer error -- it is a run with nothing to reduce.
+            atomic_write_json(path, unscored(
+                "reliability",
+                f"no case has {self.k} pass/fail repeats to reduce"))
+            return
+        report = self.run_scorer(
+            "reduce_repeats.py",
+            [os.path.join(self.out, "repeats.jsonl"), "--k", self.k],
+            "reliability")
+        if excluded:
+            # Named, not dropped quietly: a flakiness number computed over the
+            # cases that happened to answer every time is the one number a
+            # reliability run must not report without saying so.
+            report = dict(report, excluded_cases=excluded, excluded_note=(
+                "excluded from pass@k/pass^k: a case contributes only when all "
+                "k repeats scored pass or fail (reduce_repeats.py refuses "
+                "infra/unscored verdicts, and counting them as failures would "
+                "bias the estimate)"))
+        atomic_write_json(path, report)
+
+    def score_comparison(self):
+        """SS5.6 / decision D3. The baseline diff, with its rules.
+
+        Folded into the runner rather than left to the skill because the diff
+        HAS rules -- version equality, the k-match, attrition, "within noise" --
+        and rules that decide whether a change ships are the category of thing
+        this whole step exists to take out of LLM hands. The version and k
+        checks already ran at plan validation, before any spend.
+        """
+        if not self.baseline_verdicts:
+            return
+        report = self.run_scorer(
+            "stats.py",
+            [self.baseline_verdicts,
+             os.path.join(self.out, "verdicts_for_stats.jsonl")],
+            "comparison")
+        atomic_write_json(os.path.join(self.out, "comparison.json"), dict(
+            report, baseline_verdicts=self.baseline_verdicts,
+            candidate_run_id=self.plan["run_id"]))
 
     def finalize(self, aborted):
         status, code = ("ok", EXIT_OK) if not aborted else aborted[:2]
-        missing = self.check_completeness()
+        self.score_run_level()
+        missing = verify_run_dir(self.out)
         if missing:
             status, code = "incomplete", EXIT_INCOMPLETE
+        elif not aborted and self.scorer_errors:
+            # SS11 row 7: the run finished and its artifacts are complete, so
+            # the status stays "ok" -- but its numbers are not quotable, and an
+            # exit code is the only part of that a CI script reads.
+            code = EXIT_SCORER
         self.status = status
         self.write_results(status=status, missing=missing, exit_code=code)
         self.log("finalize", status=status, exit_code=code,
-                 missing=len(missing))
+                 missing=len(missing), scorer_errors=self.scorer_errors)
         if missing:
             raise RunnerExit(
                 EXIT_INCOMPLETE,
@@ -1849,8 +2472,231 @@ class Runner:
                 "unreadable".format(self.plan["run_id"], len(missing)),
                 missing_artifacts=missing)
         if aborted:
+            # An abort outranks exit 7: "the canary drifted" is the fact the
+            # caller has to act on, and the scorer errors are in results.json.
             raise RunnerExit(code, aborted[2])
+        if code == EXIT_SCORER:
+            raise RunnerExit(
+                EXIT_SCORER,
+                f"{self.scorer_errors} scorer invocation(s) failed; the "
+                "run's artifacts are complete but its numbers are not "
+                "quotable")
         return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# SS9(c). The completeness check, as a function of a RUN DIRECTORY.
+#
+# Deliberately not a method: finalize and --verify must be the same check, or
+# "the run finished" and "this old run's outputs exist" become two different
+# statements again -- which is the failure this whole contract is written
+# against. Everything below is read off the tree, so it works months later
+# with no plan, no adapter and no app.
+# --------------------------------------------------------------------------
+
+def read_jsonl(path):
+    with open(path, encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
+
+
+def completed_cases(out_dir):
+    """SS6: a case directory containing a parseable verdict.json is complete,
+    by definition. This function is that definition, in one place."""
+    cases_dir = os.path.join(out_dir, "cases")
+    listing = sorted(os.listdir(cases_dir)) if os.path.isdir(cases_dir) else []
+    found = {}
+    for case_id in listing:
+        try:
+            found[case_id] = read_json(
+                os.path.join(cases_dir, case_id, "verdict.json"))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def case_requires(name, out_dir, case_id, verdict):
+    """REQUIRED_IF's three per-case conditions, evaluated off the case dir."""
+    if name in ("trajectory.json", "trace.json"):
+        # Keyed on the trace this case actually got, not on the run-level "is
+        # the store queryable": a queryable store that never produced this
+        # case's trace is infra_incomplete (SS7), and demanding the file anyway
+        # would turn one honest infra row into a spurious completeness failure.
+        return bool((verdict.get("trace") or {}).get("collected"))
+    if name == "actual.json":
+        if verdict.get("verdict") == SKIPPED:
+            return False        # nothing was sent, so there is no result
+        try:
+            expect = read_json(os.path.join(out_dir, "cases", case_id,
+                                            "expect.json"))
+        except (OSError, ValueError):
+            return False        # expect.json itself is already reported missing
+        return isinstance(expect, dict) and expect.get("result") is not None
+    return False
+
+
+def verify_run_dir(out_dir):
+    """Return the list of missing or inconsistent artifacts. Empty == complete.
+
+    Writes nothing, calls nothing, scores nothing.
+    """
+    missing = []
+    docs = {}
+    for name in REQUIRED_ALWAYS:
+        path = os.path.join(out_dir, name)
+        if not os.path.isfile(path):
+            missing.append(name)
+            continue
+        if name.endswith(".jsonl"):
+            # An empty jsonl is legitimate (a run with zero pass/fail cases);
+            # an unparseable one is not.
+            try:
+                docs[name] = read_jsonl(path)
+            except (OSError, ValueError) as exc:
+                missing.append(f"{name} (unparseable: {exc})")
+            continue
+        if os.path.getsize(path) == 0:
+            missing.append(f"{name} (empty)")
+            continue
+        try:
+            docs[name] = read_json(path)
+        except (OSError, ValueError) as exc:
+            missing.append(f"{name} (unparseable: {exc})")
+
+    cases = completed_cases(out_dir)
+    manifest = docs.get("manifest.yaml") or {}
+
+    # (2) every completed case dir, with its conditionals.
+    for case_id, verdict in cases.items():
+        for name in REQUIRED_PER_CASE:
+            relative = f"cases/{case_id}/{name}"
+            if not os.path.isfile(os.path.join(out_dir, relative)):
+                missing.append(relative)
+        for name in REQUIRED_IF_PER_CASE:
+            if not case_requires(name, out_dir, case_id, verdict):
+                continue
+            relative = f"cases/{case_id}/{name}"
+            if not os.path.isfile(os.path.join(out_dir, relative)):
+                missing.append(f"{relative} ({REQUIRED_IF[name]})")
+
+    # ...and the run-level ones. Each condition is read off the tree too, so
+    # --verify evaluates exactly what finalize evaluated.
+    routing_scorable = any(
+        ((v.get("layers") or {}).get("routing") or {}).get("verdict")
+        in (PASS, FAIL) for v in cases.values())
+    conditions = {
+        "routing_results.jsonl": routing_scorable,
+        "routing_report.json": os.path.isfile(
+            os.path.join(out_dir, "routing_results.jsonl")),
+        "repeats.jsonl": (manifest.get("k") or 1) > 1,
+        "reliability.json": (manifest.get("k") or 1) > 1,
+        "comparison.json": bool(manifest.get("baseline_verdicts")),
+    }
+    for name, required in conditions.items():
+        if required and not os.path.isfile(os.path.join(out_dir, name)):
+            missing.append(f"{name} ({REQUIRED_IF[name]})")
+
+    # (3) the derived files against the case dirs, which are their only source.
+    rows = docs.get("verdicts.jsonl")
+    if rows is not None:
+        by_id = {}
+        for row in rows:
+            case_id = row.get("case_id")
+            if case_id in by_id:
+                missing.append(
+                    f"verdicts.jsonl (duplicate row for {case_id})")
+            by_id[case_id] = row.get("verdict")
+        for case_id in sorted(set(cases) - set(by_id)):
+            missing.append(
+                f"verdicts.jsonl (no row for completed case {case_id})")
+        for case_id in sorted(set(by_id) - set(cases)):
+            missing.append(
+                f"verdicts.jsonl (row for {case_id}, which has no completed case "
+                "directory)")
+        for case_id in sorted(set(by_id) & set(cases)):
+            if by_id[case_id] != cases[case_id].get("verdict"):
+                missing.append(
+                    "verdicts.jsonl ({}: {!r}, but its verdict.json says "
+                    "{!r})".format(case_id, by_id[case_id],
+                                   cases[case_id].get("verdict")))
+        stats_rows = docs.get("verdicts_for_stats.jsonl")
+        if stats_rows is not None:
+            want = [{"case_id": r.get("case_id"), "verdict": r.get("verdict")}
+                    for r in rows if r.get("verdict") in (PASS, FAIL)]
+            if stats_rows != want:
+                # stats.py treats a third verdict value as a hard error rather
+                # than filtering silently, so this filtering stays a visible
+                # step -- and a visible step is one something can check.
+                missing.append(
+                    "verdicts_for_stats.jsonl (not the pass/fail subset of "
+                    f"verdicts.jsonl: {len(stats_rows)} rows, expected {len(want)})")
+
+    # (4) results.json against the same case dirs.
+    results = docs.get("results.json")
+    if results is not None and rows is not None:
+        missing.extend(check_results_json(results, cases))
+    return missing
+
+
+def check_results_json(results, cases):
+    """SS9(c) check 4. Only what is derivable from the tree.
+
+    The run-time bookkeeping counters (attempted, crash_rate, infra_rate,
+    scorer_errors) are properties of the EXECUTION, not of the tree, so they
+    are recorded and not recounted -- a check that had to guess at them would
+    fail honest runs.
+    """
+    problems = []
+    shown = {row.get("case_id"): row for row in (results.get("cases") or [])}
+    # THE HOLDOUT SEAL: a holdout case contributes no row here, and its
+    # case_id must appear nowhere in this file.
+    expected_ids = {cid for cid, v in cases.items() if not v.get("holdout")}
+    sealed = {cid for cid, v in cases.items() if v.get("holdout")}
+    for case_id in sorted(expected_ids - set(shown)):
+        problems.append(
+            f"results.json (no row for completed case {case_id})")
+    for case_id in sorted(set(shown) - expected_ids):
+        problems.append(
+            f"results.json (row for {case_id}, which is holdout or has no completed "
+            "case directory)")
+    for case_id in sorted(sealed & set(shown)):
+        problems.append(
+            f"results.json (holdout case {case_id} is named in the shareable summary; "
+            "the seal is broken)")
+    for case_id in sorted(expected_ids & set(shown)):
+        if shown[case_id].get("verdict") != cases[case_id].get("verdict"):
+            problems.append(
+                "results.json ({}: {!r}, but its verdict.json says {!r})"
+                .format(case_id, shown[case_id].get("verdict"),
+                        cases[case_id].get("verdict")))
+
+    summary = results.get("summary") or {}
+    graded = [v for v in cases.values() if not v.get("canary")]
+    canaries = [v for v in cases.values() if v.get("canary")]
+
+    def count(value):
+        return sum(1 for v in graded if v.get("verdict") == value)
+
+    recounted = {
+        "n": len(graded),
+        "passes": count(PASS), "failures": count(FAIL),
+        "unscored": count(UNSCORED), "skipped": count(SKIPPED),
+        "infra_errors": count(INFRA_ERROR) + count(INFRA_INCOMPLETE),
+        "gating_failures": sum(1 for v in graded if v.get("gating")
+                               and v.get("verdict") == FAIL),
+    }
+    for key, value in recounted.items():
+        if summary.get(key) != value:
+            problems.append(
+                f"results.json (summary.{key} is {summary.get(key)!r}; the "
+                f"case directories count {value})")
+    seen = summary.get("canaries") or {}
+    want = {"n": len(canaries),
+            "passed": sum(1 for v in canaries if v.get("verdict") == PASS)}
+    if (seen.get("n"), seen.get("passed")) != (want["n"], want["passed"]):
+        problems.append(
+            f"results.json (summary.canaries is {seen!r}; the case directories "
+            f"count {want})")
+    return problems
 
 
 def is_canary(case):
@@ -1901,9 +2747,84 @@ def dry_run_report(runner):
     }
 
 
-def run(plan, out_dir, resume=False, dry_run=False):
+def validate_baseline(plan, path):
+    """SS5.6 (D3) and the k-match (D7), checked at PLAN VALIDATION.
+
+    Before any spend, because SS11's exit-2 row promises "none written" and
+    every input to this check is knowable up front. Refusing after a full run
+    would spend the suite to learn the comparison was never going to be legal.
+
+    The baseline must sit beside its own manifest.yaml: version equality and
+    the matching k are the comparison's rules, there is nowhere else to read
+    them from, and skipping the check when the manifest is absent is exactly
+    the silent-pass failure D3 folded this diff into the runner to prevent.
+    """
+    if not os.path.isfile(path):
+        bad_input(f"--baseline-verdicts {path} is not a readable file")
+    # stats.py is the tenth scorer and the only one this flag needs, so it is
+    # checked here rather than in REQUIRED_SCORERS -- a run without the flag
+    # must not be refused for a script it will never invoke.
+    stats = os.path.join(plan["paths"]["scripts_dir"], "stats.py")
+    if not os.path.isfile(stats):
+        bad_input(f"--baseline-verdicts needs stats.py, which is not in "
+                  f"{plan['paths']['scripts_dir']}")
+    manifest_path = os.path.join(
+        os.path.dirname(os.path.abspath(path)), "manifest.yaml")
+    try:
+        manifest = read_json(manifest_path)
+    except (OSError, ValueError) as exc:
+        bad_input(
+            "--baseline-verdicts must sit beside its run's manifest.yaml "
+            f"({manifest_path}): {exc}; the comparison's rules are version "
+            "equality and a matching k, and there is nowhere else to read "
+            "them from")
+    mismatches = []
+    for key, ours in (
+            ("dataset_version",
+             (plan.get("manifest_extra") or {}).get("dataset_version")),
+            ("harness_version", HARNESS_VERSION),
+            ("k", plan["k"])):
+        if manifest.get(key) != ours:
+            mismatches.append(
+                f"{key}: baseline {manifest.get(key)!r}, this run {ours!r}")
+    if mismatches:
+        bad_input(
+            "baseline run {!r} is not comparable to this one -- {}. A "
+            "different dataset or harness version changes what a verdict "
+            "MEANS, and a different k pairs pass^k verdicts computed over "
+            "different numbers of trials.".format(
+                manifest.get("run_id"), "; ".join(mismatches)),
+            baseline=manifest_path)
+
+
+def verify_command(out_dir):
+    """SS1: the completeness check alone, over an existing run directory.
+
+    No app calls, no scoring, no writes -- so it can be pointed at any run,
+    including one produced before this runner existed. The shipped
+    hand-orchestrated run is expected to exit 6 here and name both missing
+    files; that is the audit finding turned into a check anyone can re-run.
+    """
+    if not os.path.isdir(out_dir):
+        bad_input(f"--verify {out_dir} is not a directory")
+    missing = verify_run_dir(out_dir)
+    if missing:
+        raise RunnerExit(
+            EXIT_INCOMPLETE,
+            f"run directory {out_dir} is incomplete: {len(missing)} "
+            "required artifact(s) missing or inconsistent",
+            verified=out_dir, missing_artifacts=missing)
+    print(json.dumps({"verified": out_dir, "status": "ok",
+                      "missing_artifacts": []}, indent=2))
+    return EXIT_OK
+
+
+def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
     validate_plan(plan, out_dir)
-    runner = Runner(plan, out_dir, resume=resume, dry_run=dry_run)
+    if baseline_verdicts:
+        validate_baseline(plan, baseline_verdicts)
+    runner = Runner(plan, out_dir, resume=resume, dry_run=dry_run,
+                    baseline_verdicts=baseline_verdicts)
 
     if dry_run:
         runner.preflight()
@@ -1939,22 +2860,41 @@ def main():
                     "artifacts, and check that the run's required outputs "
                     "exist before reporting success.")
     add_version_flag(ap)
-    ap.add_argument("--plan", required=True,
+    ap.add_argument("--plan",
                     help="the plan.json document (docs/runner-contract.md "
-                         "SS2); '-' reads stdin")
-    ap.add_argument("--out", required=True,
+                         "SS2); '-' reads stdin. Required except with --verify")
+    ap.add_argument("--out",
                     help="the run directory to write; its basename must equal "
-                         "the plan's run_id")
+                         "the plan's run_id. Required except with --verify")
     ap.add_argument("--resume", action="store_true",
                     help="continue an interrupted run into an existing --out")
     ap.add_argument("--dry-run", action="store_true",
                     help="validate, pre-flight, and print the resolved case "
                          "list; write nothing and call the app zero times")
+    ap.add_argument("--baseline-verdicts", metavar="PATH",
+                    help="a previous run's verdicts_for_stats.jsonl; pairs it "
+                         "against this run's with stats.py and writes "
+                         "comparison.json. Must sit beside its own "
+                         "manifest.yaml, and refused up front when the "
+                         "dataset version, harness version or k differ")
+    ap.add_argument("--verify", metavar="DIR",
+                    help="run ONLY the completeness check (SS9) over an "
+                         "existing run directory and exit; no app calls, no "
+                         "scoring, no writes")
     a = ap.parse_args()
 
     try:
+        if a.verify:
+            if any((a.plan, a.out, a.resume, a.dry_run, a.baseline_verdicts)):
+                bad_input("--verify runs alone: it re-checks a finished run "
+                          "directory and takes no plan, no output directory "
+                          "and no scoring flags")
+            return verify_command(a.verify)
+        if not a.plan or not a.out:
+            bad_input("--plan and --out are both required (or --verify DIR)")
         return run(load_plan(a.plan), a.out, resume=a.resume,
-                   dry_run=a.dry_run)
+                   dry_run=a.dry_run,
+                   baseline_verdicts=a.baseline_verdicts)
     except RunnerExit as exc:
         # Every non-zero exit prints {"error": ...} as JSON on STDOUT, so a
         # caller parses ONE shape regardless of outcome -- the scorers'
