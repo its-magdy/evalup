@@ -65,13 +65,12 @@ Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`.**
       **DONE 2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with
-      siblings: `sub_mde_keep`; NFC in **six** scorers via `_common.nfc` (regex
-      stays asymmetric on purpose); `--oos-route`; `score_authz --id-pattern`;
-      `stringify`'s `ensure_ascii`. The validator's severity line — **ERROR = a
-      claim nothing backs; WARN = a suite thinner than the guidance
-      recommends** — is in its docstring and `case-format.md`; four new ERRORs
-      (incl. `_template_id` — the KEY'S PRESENCE) + required `--capabilities`
-      took the shipped 12-case field test 0 → 36, all true.
+      siblings: `sub_mde_keep`; NFC in **six** scorers via `_common.nfc`;
+      `--oos-route`; `score_authz --id-pattern`; `stringify`'s `ensure_ascii`.
+      The validator's severity line — **ERROR = a claim nothing backs; WARN = a
+      suite thinner than the guidance recommends** — is in its docstring and
+      `case-format.md`; four new ERRORs + required `--capabilities` took the
+      shipped 12-case field test 0 → 36, all true.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
       `77d3778`, `c9bc4f7`, `5e573c9`.** Spec is `agent-eval/docs/runner-contract.md`;
@@ -85,21 +84,19 @@ Each step is sized for a single low-usage session. Mark done as you go.
       out of the contract file**, not restated.
 
 - [x] **Step 5c — Rewire `run/SKILL.md`** around the runner.
-      **DONE 2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 were deleted whole
-      (the runner's job verbatim), but the replacement had to ADD what nothing
-      wrote — **§1, building `plan.json`** — and answer each of the seven exit
-      codes (**6** = a missing artifact, so the run is neither quotable nor a
-      baseline; **7** = artifacts complete, numbers not). Also: **`--layer X`
-      finally means something**, the skill runs `validate_cases.py`, and both
-      writers of the N=5 holdout count point at the `.jsonl` sidecar.
+      **DONE 2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 deleted whole (the
+      runner's job verbatim), but the replacement had to ADD what nothing wrote
+      — **§1, building `plan.json`** — and answer each of the seven exit codes
+      (**6** = a missing artifact, so the run is neither quotable nor a
+      baseline; **7** = artifacts complete, numbers not). Also **`--layer X`
+      finally means something**.
 
 - [x] **Steps 6a–6c — slim `generate`, `analyze`, `discover`.**
       **DONE 2026-09-09 — `86b602e`, `d6bf421`, `6268cc3`.** 401→159, 252→167,
       235→160; mean sentence 16.0→12.7, 20.4→15.6, 24.6→14.3. Each began with an
       **ownership pass**, and that pass — not fatigue — set the floor each time:
       the residue is procedure. Two new reference files where nothing owned the
-      rationale (`generation-method.md`, `topology-detection.md`); `analyze`
-      needed none. Section numbers preserved in all three (cited by number from
+      rationale; section numbers preserved in all three (cited BY NUMBER from
       `run-modes.md`, `generate`, `optimize`, `dotnet.md`).
 
 - [x] **Step 6d — the two decisions.** **DONE 2026-09-09 — `4ede98f`.** No
@@ -121,9 +118,8 @@ Each step is sized for a single low-usage session. Mark done as you go.
       them: **a MENTION count is not a duplication count.** `help`: 124 → 42
       lines (1,403 → **602** tokens), a 12-row dispatch table and nothing else.
       Its frontmatter `description` GREW — with no body it is the only thing
-      that fires the skill. Three citations were re-pointed **before** the
-      prose died (`start` now cites `help` **zero** times). Skills prose
-      31,242 → **30,448**. Triage recorded in `AUDIT-2026-09-06.md` §1 + §4.
+      that fires the skill. Skills prose 31,242 → **30,448**. Triage in
+      `AUDIT-2026-09-06.md` §1 + §4.
 
 - [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
       `337181a`.** The argument and both corrections are in
@@ -137,19 +133,27 @@ Each step is sized for a single low-usage session. Mark done as you go.
       (>1 user turn skips, full stop, + a regression test); `session:` is gone
       from `adapter-contract.md` and `dotnet.md`; `simulated-user.md` deleted
       **with its `plugin.json` entry**. `single_turn_suite` was **inverted, not
-      dropped** — it recommended the one thing the runner refuses to run — into
-      per-case `multi_turn_case_reserved`, **WARN not ERROR**: a skipped case
-      inflates no denominator, so the cost is wasted authoring, not a false
-      number. Also: `normalize_trace.py` is **not** attribution-free (it builds
-      `agents[]` + rolls tokens up the parent chain), so `REVIEW` §4 item 2's
-      bundle — the BUILD case — is smaller than it claims.
+      dropped** into per-case `multi_turn_case_reserved`, **WARN not ERROR**: a
+      skipped case inflates no denominator. Also `normalize_trace.py` is **not**
+      attribution-free (it builds `agents[]`), so `REVIEW` §4 item 2's bundle —
+      the BUILD case — is smaller than it claims.
 
-- [ ] **Step 8 — Housekeeping.** Regenerate the worked example in
-      `field-test-qa/.agent-eval/` (36 validation errors since Step 4; the
-      migration is mechanical, see `201aa2a`) or label it "pre-2026-08 layout,
-      kept for the migration doc". Add CI + `pyproject.toml`
-      (`REVIEW-2026-08-08.md` §3). Reconcile `.tool-versions` (pins 3.11) against
-      the claimed 3.9 floor. Drop or relabel `micro_f1` (≡ matrix accuracy).
+  Step 8 is SPLIT and its recon is done — `AUDIT-2026-09-06.md` §"Step 8 recon"
+  has the verified state. **Two of `REVIEW` §3's three items are already
+  closed** (dangling refs; test-command ambiguity) — do not re-fix them.
+
+- [ ] **Step 8a — Packaging.** Genuinely open: no `pyproject.toml`, no CI, and
+      `agent-eval/.tool-versions` pins **3.11.11** against the claimed 3.9
+      floor. **Decide before writing CI: `git remote -v` is EMPTY**, so a
+      `.github/workflows/` file would never execute — add a remote or write it
+      knowingly, but say which.
+
+- [ ] **Step 8b — Stale artifacts.** Regenerate `field-test-qa/.agent-eval/`
+      (36 errors since Step 4; migration is mechanical, `201aa2a`) or label it
+      "pre-2026-08 layout" — note §4 already relies on it as the
+      ambiguous-layout FIXTURE, so relabelling may be the honest call.
+      `micro_f1`: **relabel, don't drop** — `score_routing.py`:296 uses the
+      macro/micro gap as the minority-route skew warning.
 
 - [ ] **Step 9 — Reopen `REVIEW-2026-08-08.md` §§4–5**: cost/latency as
       first-class metrics, `score_agreement.py` to close the judge loop (the
