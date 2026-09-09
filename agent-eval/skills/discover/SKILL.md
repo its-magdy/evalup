@@ -11,225 +11,150 @@ argument-hint: "[path-or-url] [--diff]"
 
 # Discover — Profile the App
 
-Output artifacts, written to the state location (default `<app>/.agent-eval/`,
-or the adapter's `state_location` — any external path is fine for read-only repos):
-`profile.yaml` (what the app is; schema in
+Write three artifacts to the state location (default `<app>/.agent-eval/`, or
+the adapter's `state_location`): `profile.yaml` (what the app is — fields in
 [references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`
-(how to talk to it; contract in
-[references/adapter-contract.md](references/adapter-contract.md)),
-and `findings.md` (design gaps found — often week one's most valuable output).
+(how to talk to it — fields in
+[references/adapter-contract.md](references/adapter-contract.md)), and
+`findings.md` (design gaps, often week one's most valuable output). Those two
+schemas own what each field *means*; this file owns how to decide its value
+from evidence.
 
 ## Procedure
 
 ### 1. Determine access level
-- Repo path given → **white-box**: full discovery + optimization possible.
-- Endpoint + reachable traces → **gray-box**: trajectory evals, recommendations only.
-- Endpoint only → **black-box**: answer-level evals only (probe the endpoint
-  conversationally to map capabilities — a few exploratory conversations,
-  note fallback behavior, infer route targets from responses).
+Set `access_level` in adapter.yaml:
+- Repo path given → **white**: full discovery and optimization.
+- Endpoint + reachable traces → **gray**: trajectory evals, recommendations only.
+- Endpoint only → **black**: answer-level evals only. Map capabilities by probing
+  — a few exploratory conversations, note fallback behavior, infer route targets
+  from responses.
 
 ### 2. Topology detection — an explicit enum, not a vibe
 Set `architecture.kind` to exactly one of `single_llm | tool_agent |
-router_executor | multi_agent | workflow` (schema in
-[references/profile-schema.md](references/profile-schema.md)). This enum
-**mechanically drives which eval layers turn on** (recorded in
-`capability_matrix`, see bottom of this file):
-`single_llm` → no trajectory/routing (asserting a trajectory over one bare
-call is noise, not rigor); `tool_agent` → full trajectory (tool selection +
-args + loop termination) applies; `router_executor` → routing is scored **as
-a classifier** (precision/recall/confusion matrix per route target) kept
-**separate** from conditional-executor quality per route; `multi_agent` →
-per-handoff capture (full prompt+response at every agent-to-agent boundary,
-not just aggregate spans); `workflow` → the path *set* is fixed at design
-time, so plan per-node golden-behavior regression instead of open-ended
-trajectory scoring.
+router_executor | multi_agent | workflow`, underscores included. This enum
+mechanically drives the capability matrix below; profile-schema.md's
+`architecture.kind` block says what each spelling turns on.
 
-Detect from three independent signals and cross-check them against each
-other — trusting one alone is how a router gets misfiled as a workflow:
-1. **Code fingerprints** (white-box): one model invocation, no tool schema,
-   no loop = `single_llm`. One system prompt + tool set wrapped in a
-   `while`-style loop that calls model → executes tool_calls → feeds results
-   back until stop = `tool_agent`. An upfront classify step emitting a label
-   then `if/elif`/dict dispatch into N fixed handlers, only one "real"
-   generation per request = `router_executor`. Multiple agents with their own
-   prompts/tools and handoffs (`transfer_to_X`, CrewAI
-   `Crew.kickoff`/`Process.hierarchical`, AutoGen `GroupChatManager`, OpenAI
-   Agents SDK `handoff`+`Runner`) = `multi_agent`. An explicit graph built at
-   design time (LangGraph `StateGraph.add_node`/`add_edge`) where the path
-   *set* is fixed even if edges are LLM-conditional = `workflow`.
-2. **Prompt language**: orchestrator prompts say "delegate to / available
-   agents:"; router prompts say "classify into one of the following"; narrow
-   single-role prompts belong to a sub-agent, not a standalone `tool_agent`.
-   Use this to corroborate — or contradict — the code-fingerprint read.
-3. **OTel span shape**: count + nesting of `invoke_agent` spans (sample from
-   the 1–3 live requests step 4 sends anyway). One `invoke_agent` with
-   looping `execute_tool`/`chat` children = `tool_agent`; multiple siblings
-   with distinct `gen_ai.agent.name` = `multi_agent`; identical trace shape
-   across many different inputs = `workflow`; input-varying shape with a
-   classify-then-dispatch pattern = `router_executor`.
+Detect from three independent signals and cross-check them against each other:
+1. **Code fingerprints** (white-box).
+2. **Prompt language** — orchestrator, router, or narrow single-role.
+3. **OTel span shape**, from the 1–3 live requests step 4 sends anyway.
 
-**Framework fingerprint step** (a speed-up, never a substitute for the enum):
-before reading line-by-line, grep for LangGraph / CrewAI / AutoGen /
-OpenAI-Agents-SDK import + idiom signatures (or note none found). Record the
-match in `architecture.framework` (`langgraph | crewai | autogen |
-openai-agents-sdk | custom | none`). A framework hit narrows which
-code-fingerprint pattern to expect next, but the topology enum is still set
-from the three signals above — a team can hand-roll a router with no
-framework at all, and a framework doesn't guarantee the topology you'd
-assume from its name.
-
-Record each signal's evidence under `architecture.detected_from` so a human
-can audit *why* discover called it `router_executor` and not `multi_agent`.
-Disagreement between signals is itself a finding for findings.md — never
-silently pick one and move on.
+The catalogue for all three, plus the framework-signature grep that speeds them
+up, is [references/topology-detection.md](references/topology-detection.md).
+Record each signal's evidence under `architecture.detected_from`, so a human can
+audit why you said `router_executor` and not `multi_agent`. Disagreement between
+signals is itself a finding — never silently pick one and move on.
 
 ### 3. Code archaeology (white-box)
-Read the codebase for: agent definitions and their system prompts (files,
-constants, DB references), tool schemas and descriptions, routing/dispatch
-definitions (the route targets — domains, nodes, or sub-agents — the app
-chooses between, if any), model configuration, conversation/session handling,
-OTel setup.
-Record every **optimizable surface** (prompt/tool-description locations) and
-every **tool's side-effect class**: `safe-live` (read-only), `needs-mock`
-(writes to shared state), `never-live` (external side effects: email, payments,
-tickets).
-Also record `record_id_pattern`: the regex matching the app's own record
-identifiers (order ids, invoice ids, primary keys). The authz scorer's default
-recognizer only sees `letters[-_]digits` tokens, so an app with UUID or
-integer ids needs its own pattern here or its `allowed_record_ids` checks come
-back unscorable at run time.
-
-Also detect the app's **data-access layer** for ground truth: which DB/ORM
-(Postgres/MySQL/SQL Server + Entity Framework/SQLAlchemy/Prisma/etc.), where
-schema/migrations live, and whether a seeded-staging environment or read
-replica already exists. You can't offer a seeded fixture in step 5 without
-first knowing what to seed — this is the input to the oracle offer below.
+Read the code for: agent definitions and their system prompts (files, constants,
+DB references), tool schemas and descriptions, routing/dispatch definitions (the
+route targets the app chooses between, if any), model configuration,
+conversation/session handling, OTel setup. Record as you go:
+- Every **optimizable surface** — prompt and tool-description locations → `prompts[]`.
+- Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
+  adapter-contract.md defines them. Confirm each with the human.
+- `record_id_pattern` — the regex matching the app's own record identifiers
+  (order ids, invoice ids, primary keys).
+- The **data-access layer** → `oracle.db`: DB and ORM, where schema/migrations
+  live, and whether a seeded staging environment or read replica already exists.
+  You cannot offer a fixture in step 5 without knowing what there is to seed.
 
 ### 4. Validate the profile against reality — MANDATORY before generate
-Static reading is confidently wrong for dynamic apps (DB prompts, runtime tool
-registration, feature flags). Send 1–3 harmless requests through the adapter
-and compare observed traces (agent names, tool names, `invoke_agent` span
-shape) against the inferred profile — this is also where the OTel-span-shape
-topology signal from step 2 gets its evidence. Mark every profile entry
-`verified: true|false`. Generation must not proceed on unverified core
-entries — say so and fix first.
+Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
+tool registration, feature flags). Send 1–3 harmless requests through the adapter
+and compare observed agent names, tool names and `invoke_agent` span shape
+against the inferred profile — this is also step 2's span-shape evidence. Mark
+every profile entry `verified: true|false`. Generation must not proceed on
+unverified core entries: say so, and fix first.
 
 ### 5. Patch, don't assign homework
-For each gap found, OFFER to fix it now (it's the user's code — get a yes, then
-edit; a "no" is fine — see Read-only mode below):
-- No GenAI spans → write instrumentation for their stack (span per LLM call,
-  `invoke_agent` span per agent stage with `gen_ai.agent.name`, `execute_tool`
-  span per tool with `gen_ai.tool.name`).
-- Content capture off → enable it (env var or code), warn about PII implications.
-- No trace-ID echo → add `traceparent` (or a trace-id field) to the app's response.
-- Traces use a non-`gen_ai` convention (openinference / openllmetry-legacy) →
-  write the per-adapter mapping shim (declared as `traces.mapping_shim` in
-  adapter.yaml; converts spans to `gen_ai.*` keys before `normalize_trace.py`)
-  and verify its output on one live trace. No shim → trajectory layers stay
-  off; record as a finding.
+For each gap found, OFFER to fix it now. It is the user's code: get a yes, then
+edit. A "no" is fine — see Read-only mode below.
+- No GenAI spans → instrument their stack: a span per LLM call, `invoke_agent`
+  per agent stage with `gen_ai.agent.name`, `execute_tool` per tool with
+  `gen_ai.tool.name`.
+- Content capture off → enable it (env var or code), warn about the PII
+  implications, record the answer as `data.may_contain_pii`.
+- No trace-ID echo → add `traceparent`, or a trace-id field, to the response.
+- Non-`gen_ai` trace convention → write the `traces.mapping_shim` and verify its
+  output on one live trace. No shim keeps the trajectory layers off.
 - No clean invocation path (auth walls) → add a test-mode entry point or an
-  internal-function shim; record in adapter.yaml which mode is used.
-- Prompts as string literals/f-strings → offer the one-time extraction refactor
-  (prompts to files, code loads them; verify no behavior change with 2–3 smoke
-  requests). Pitch: "unlocks the optimizer later."
-- **No ground-truth / oracle path** → OFFER to stand up a seeded fixture
-  (frozen seed DB / Testcontainers / docker-compose seeded volume) plus a
-  read-only oracle connection (`SELECT`-only DB role or read replica, never
-  the app's write connection) so the execution layer can compute `expected`
-  from a reference query against known state. The connection/seed/reset
-  mechanics are the adapter's job — see
-  [references/adapter-contract.md](references/adapter-contract.md)'s
-  `environment:` block for the contract this wires into. This step only decides **whether**
-  one exists and records it as `oracle:` in profile.yaml (schema in
-  [references/profile-schema.md](references/profile-schema.md)), which is
-  what `capability_matrix.execution` checks as its precondition. Declining is
-  normal — see Read-only mode below;
-  record `oracle: { available: false }` plus the declined-patch entry and the
-  copy-paste fixture/role-grant script in findings.md.
+  internal-function shim, and record which in adapter.yaml.
+- Prompts as string literals or f-strings → offer the one-time extraction
+  refactor: prompts to files, code loads them, 2–3 smoke requests to show no
+  behavior change. Pitch it as what unlocks the optimizer later.
+- **No ground-truth / oracle path** → offer a seeded fixture plus a read-only
+  oracle connection, never the app's write connection. Connection, seed and reset
+  mechanics are the adapter's job (adapter-contract.md's `environment:` and
+  `oracle:` blocks); this step decides only **whether** one exists, and records
+  `oracle:` in profile.yaml.
+
 After each patch, re-verify with one live request.
 
 ### Read-only mode — declining patches is normal
-Declining any or all patches is a normal, supported path (read-only repo
-rules, change freezes, QA without write access, third-party audits) — not an
-improvisation to fall back on when things go wrong. If `repo_access:
-read-only` is set in adapter.yaml, don't offer code patches at all, ever
-(this includes the oracle/fixture offer above: propose the read-only oracle
-*role* against an existing replica if one exists, but never propose writing
-seed/reset scripts into the app repo). Pairing `repo_access: read-only` with
-an out-of-tree `state_location` (adapter-contract.md) — so all eval state
-lives outside the app repo entirely — is the expected shape for a QA sandbox
-or third-party audit; treat it as a first-class configuration, not a
-degraded one. For every patch declined or not offered:
-- Record each declined patch in findings.md as
-  `declined: <patch> → costs <capability>` (e.g. "declined: no trace-id echo →
-  trajectory layers unavailable", "declined: no oracle → execution layer
-  unavailable, data-Q&A cases stay answer-graded only").
-- Include the copy-paste patch text in findings.md so the app team can apply
-  it themselves later.
-- Continue the procedure with whatever capabilities remain; the capability
-  matrix records what stayed off and why. Never stall on a "no".
+Read-only repos, change freezes, QA without write access and third-party audits
+are supported paths, not improvisations for when things go wrong. With
+`repo_access: read-only` set, never offer a code patch at all. That includes
+step 5's oracle: propose the read-only *role* against an existing replica if
+there is one, never seed or reset scripts written into the app repo. Pairing it
+with an out-of-tree `state_location` is the expected shape for a QA sandbox or
+third-party audit. For every patch declined or not offered:
+- Record it in findings.md as `declined: <patch> → costs <capability>`, e.g.
+  "declined: no oracle → execution layer unavailable, data-Q&A cases stay
+  answer-graded only".
+- Include the copy-paste patch text, fixture and role-grant scripts included.
+- Continue with whatever capabilities remain; the capability matrix records what
+  stayed off and why. Never stall on a "no".
 
 ### 6. Assess maturity → set the stage
-Ask the user (and check git history): are the app's route-target and tool
+Ask the user, and check git history: are the app's route-target and tool
 boundaries stable, or still changing week to week?
-- Churning → `stage: pre-stability`. Only invariant checks apply (crash rate,
-  responds-always, format compliance, loop detection, refusal of the
-  adversarial set). Say plainly: "full trajectory eval is too early; it would
-  rot within a week. Here's what we track instead, and what unlocks when."
+- Churning → `stage: pre-stability`. Only invariant checks apply: crash rate,
+  responds-always, format compliance, loop detection, refusal of the adversarial
+  set. Say plainly that full trajectory eval would rot within a week, then name
+  what you track instead and what unlocks when.
 - Stable → `stage: stable`; trajectory layers apply.
-- Real traffic exists → also enable trace-mining paths in analyze.
+- Real traffic exists → also enable analyze's trace-mining paths.
 
 ### 7. Interview the human
-Code says what the app does; only humans know what it should do. Ask, and
-record answers under `confirmed_by_human:` in profile.yaml:
-- Route-target boundaries for ambiguous query types — give 3 concrete examples
-  found (`router_executor`/`multi_agent`/`workflow` apps only; skip for
-  `single_llm`/`tool_agent`, which have no dispatch step).
-- What must the bot never do/say (→ business-rule oracles; also draft rules
-  from any policy docs/READMEs found and ask for confirmation).
-- What does a good answer look like, per route target (or overall, for a
-  `single_llm`/`tool_agent` app) (→ seeds the rubric).
-- Who is the domain arbiter — the person with the final word on answer quality
-  (→ `roles:`; the role name is fixed regardless of architecture).
+Code says what the app does; only humans know what it should do. Ask, and record
+the answers under `confirmed_by_human:` in profile.yaml:
+- Route-target boundaries for ambiguous query types, with 3 concrete examples you
+  found. Skip for `single_llm`/`tool_agent`, which have no dispatch step.
+- What must the bot never do or say → business-rule oracles. Draft rules from any
+  policy docs or READMEs found, and ask for confirmation.
+- What a good answer looks like, per route target (or overall) → seeds the rubric.
+- Who is the domain arbiter, the final word on answer quality → `roles:`. That
+  role name is fixed regardless of architecture.
 
 ### 8. Report findings
-`findings.md`: design gaps (no OOS route, overlapping route targets, tools with
-vague descriptions, missing confirmation on destructive tools), each with
-evidence and a suggested fix. Present top 3 in chat.
+`findings.md`: design gaps (no OOS route, overlapping route targets, vague tool
+descriptions, missing confirmation on destructive tools), each with evidence and
+a suggested fix. Present the top 3 in chat.
 
 ## `--diff` mode (after app changes)
-Re-run steps 2–4 against the current code (topology detection included — a
+Re-run steps 2–4 against the current code, topology detection included: a
 refactor can move an app from `tool_agent` to `router_executor`, which flips
-which layers apply), diff old vs new profile, list renamed/removed/added
-agents/tools/route targets, then map to the dataset: which cases reference
-stale names → propose bulk migrations (mechanical renames auto-fixable;
-semantic changes flagged for human review). Never let the user discover
-staleness via a wall of red — this command is the answer to "my app changed."
+which layers apply. Diff old profile against new, list renamed/removed/added
+agents/tools/route targets, then map onto the dataset — which cases reference
+stale names. Propose bulk migrations: mechanical renames are auto-fixable,
+semantic changes get flagged for human review. This command is the answer to "my
+app changed"; never let the user meet staleness as a wall of red instead.
 
 ## Capability matrix (write into profile.yaml)
-Layers on: answer quality (always) · routing (`route_targets` exist —
-`router_executor`/`multi_agent`/`workflow` only; never `single_llm`, which has
-no dispatch step) · tool selection/args/trajectory (tools exist + stage ≥
-stable; `single_llm` forces this off regardless of stage) · multi-turn (app is
-conversational + adapter supports sessions) · cost/latency (traces exist) ·
-**execution** (an `oracle` is configured — see step 5 — and at least one case
-carries a `reference_query`/seeded fixture; blocked otherwise, and the
-connection mechanics live in adapter-contract.md, not here) · **authz** (an
-identity/persona config exists for the app — blocked otherwise, since
-`expect.authz` is scored against the tool-call log and returned record IDs,
-never a prose read. Tool-result content capture is a *partial* precondition,
-not a blocking one: without it `forbidden_tools` still scores — which tools
-fired is structural — while the record-id checks report `unscorable`. Record
-the app's record-id regex as `record_id_pattern` in profile.yaml during code
-archaeology; run passes it to `score_authz.py --id-pattern`, without which an
-app whose ids are UUIDs or integer keys scores `expect.authz.allowed_record_ids`
-unscorable — `forbidden_record_ids` is a literal search and needs no pattern)
-· judged layers (judge calibrated) — each with its blocking precondition named.
+Give every layer an `enabled`, and when false a named `blocked_by`. The layers
+and their preconditions are profile-schema.md's `capability_matrix:` block —
+work down it and check each precondition against what steps 1–7 actually found,
+rather than restating the block from memory.
 
-The topology enum from step 2 drives this table mechanically, not just by
-convention: `single_llm` forces `routing` and `trajectory` off outright;
-`router_executor` turns `routing` on scored as a classifier and reports
-conditional-executor quality per route as a separate number; `multi_agent`
-turns on per-handoff capture in addition to per-agent trajectory; `workflow`
-substitutes per-node golden-behavior regression for open-ended trajectory
-scoring.
+Three calls that block leaves to you:
+- The step 2 enum drives routing and trajectory mechanically, not by convention:
+  `single_llm` forces both off whatever else you found.
+- Answer quality is always on; cost/latency follows purely from traces existing.
+- `authz` enables *partly* when the id-leak preconditions are missing — enable it
+  and name the degradation in `blocked_by`, rather than calling the layer off.
+
+Never leave a layer off without a `blocked_by`. `run` reads this matrix, and an
+unnamed blocker reaches the user as an unexplained `unscorable`.

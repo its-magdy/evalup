@@ -97,7 +97,7 @@ scope creep in the tool itself.
 - **Check this on day one of discovery** — it sets the optimize loop's
   iterate-cycle time (file-edit vs. file-edit-plus-rebuild). If the team
   hasn't externalized prompts, discover's patch offer (see `discover/SKILL.md`
-  step 4) should pitch the one-time extraction-to-file refactor specifically
+  step 5) should pitch the one-time extraction-to-file refactor specifically
   because it collapses this cost.
 - **adapter.yaml mapping:**
   ```yaml
