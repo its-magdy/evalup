@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-09 (Step 6e done — Step 6 is CLOSED; next is Step 7)
+**Last updated:** 2026-09-10 (Step 7 done — multi-turn RESERVED; next is Step 8)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -19,8 +19,8 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Branch:** `run-layout-consistency`. Main branch is `main`.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
-- **Health:** 551 tests pass (~2min), ruff clean, all 14 CLI scripts `--help`
-  rc=0, Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-09.
+- **Health:** 552 tests pass (~2min), ruff clean, all 14 CLI scripts `--help`
+  rc=0, Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-10.
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -58,12 +58,10 @@ and their siblings — hold that line.
 Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **Steps 0–2 — baseline; splits are a field; one path convention.**
-      **DONE 2026-09-07 — `6c7d286`, `f03c960`, `05804ef`.** All five
-      directory-selecting consumers rewritten (remaining `datasets/*/` mentions
-      are deliberate). Paths: `${CLAUDE_PLUGIN_ROOT}/...` cross-skill, relative
-      inside a skill, app/state paths bare (README §"Path convention"). **The
-      audit's offender list was wrong in both directions** — grep, don't work a
-      list.
+      **DONE 2026-09-07 — `6c7d286`, `f03c960`, `05804ef`.** Paths:
+      `${CLAUDE_PLUGIN_ROOT}/...` cross-skill, relative inside a skill, app/state
+      paths bare (README §"Path convention"). **The audit's offender list was
+      wrong in both directions** — grep, don't work a list.
 
 - [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`.**
       **DONE 2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with
@@ -77,16 +75,14 @@ Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
       `77d3778`, `c9bc4f7`, `5e573c9`.** Spec is `agent-eval/docs/runner-contract.md`;
-      551 tests (+102) on a real fake HTTP app. The missing-jsonl failure is
-      closed structurally (§9): both files are **regenerated from the case dirs
-      after every case**, and finalize exits 6 rather than write ok. **All nine
-      open decisions were answered and the contract rewritten in the same
-      commits** — it could not be implemented as written (nothing said how an
-      HTTP request is BUILT), so `invocation` gained five declared fields and
-      four more contract silences became **adapter declarations**, none guessed.
-      The `REQUIRED_*` tables are **exec'd out of the contract file**, not
-      restated, and the contract's one real bug (§9(c)3 failing any run that
-      skips a case) is fixed.
+      551 tests (+102) on a real fake HTTP app. Missing-jsonl closed
+      structurally: both files are **regenerated from the case dirs after every
+      case**, finalize exits 6 rather than write ok. **All nine open decisions
+      were answered in the same commits** — the contract could not be
+      implemented as written (nothing said how an HTTP request is BUILT), so
+      `invocation` gained five declared fields and four more silences became
+      **adapter declarations**, none guessed. `REQUIRED_*` tables are **exec'd
+      out of the contract file**, not restated.
 
 - [x] **Step 5c — Rewire `run/SKILL.md`** around the runner.
       **DONE 2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 were deleted whole
@@ -125,23 +121,28 @@ Each step is sized for a single low-usage session. Mark done as you go.
       them: **a MENTION count is not a duplication count.** `help`: 124 → 42
       lines (1,403 → **602** tokens), a 12-row dispatch table and nothing else.
       Its frontmatter `description` GREW — with no body it is the only thing
-      that fires the skill. Its one unowned paragraph, the route-target
-      definition, is now `concepts.md` §Route targets. Three citations
-      re-pointed **before** the prose died: `start`:55,59 → `concepts.md`
-      §Staged rigor (so `start` now cites `help` **zero** times);
-      `md_to_html.py`:5 and `annotation-ux.md`:96 → `workflow.md` §Who does
-      what, re-quoted to *its* wording. The `~50+ deterministic-only` drift
-      died with the paragraph. Skills prose 31,242 → **30,448**. The triage
-      itself is recorded in `AUDIT-2026-09-06.md` §1 (Step 6e block) and §4.
+      that fires the skill. Three citations were re-pointed **before** the
+      prose died (`start` now cites `help` **zero** times). Skills prose
+      31,242 → **30,448**. Triage recorded in `AUDIT-2026-09-06.md` §1 + §4.
 
-- [ ] **Step 7 — Decide multi-turn.** Promised in `adapter-contract.md`,
-      `case-format.md` and a `validate_cases.py` warning, but
-      `normalize_trace.py` has no session/turn/agent attribution, no scorer is
-      turn-aware, and `agents/simulated-user.md` is referenced by **zero** skills
-      (and declares `tools: Read`, so it cannot call the app). Either build it
-      (`REVIEW-2026-08-08.md` §4 item 2 — it also unblocks authz scoping,
-      per-agent loops, cost attribution) or mark it reserved and delete the
-      orphan agent + the unactionable warning.
+- [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
+      `337181a`.** The argument and both corrections are in
+      `AUDIT-2026-09-06.md` §8's RESOLVED block. Not a delete-only step: the
+      skip gate tested `invocation.session` for **presence only** and
+      `adapters/dotnet.md` shipped a worked `session:` block, so following the
+      .NET example ran multi-turn cases **single-turn** — `case_text()` sends
+      the last user message, earlier turns dropped, truncated conversation
+      scored as a real verdict. **Declaring the contract made the harness less
+      correct than omitting it.** The gate is now blind to `invocation.session`
+      (>1 user turn skips, full stop, + a regression test); `session:` is gone
+      from `adapter-contract.md` and `dotnet.md`; `simulated-user.md` deleted
+      **with its `plugin.json` entry**. `single_turn_suite` was **inverted, not
+      dropped** — it recommended the one thing the runner refuses to run — into
+      per-case `multi_turn_case_reserved`, **WARN not ERROR**: a skipped case
+      inflates no denominator, so the cost is wasted authoring, not a false
+      number. Also: `normalize_trace.py` is **not** attribution-free (it builds
+      `agents[]` + rolls tokens up the parent chain), so `REVIEW` §4 item 2's
+      bundle — the BUILD case — is smaller than it claims.
 
 - [ ] **Step 8 — Housekeeping.** Regenerate the worked example in
       `field-test-qa/.agent-eval/` (36 validation errors since Step 4; the
