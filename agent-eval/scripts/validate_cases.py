@@ -140,7 +140,7 @@ CATEGORY_SKEW_THRESHOLD = 0.40
 CATEGORY_SKEW_MIN_CASES = 5
 SINGLE_TURN_SUITE_MIN = 10
 # Same floor, same reason: under ~10 cases a coverage SHARE is arithmetic
-# rather than signal. generate/SKILL.md's budget table puts the metamorphic
+# rather than signal. suite-sizing.md's budget table puts the metamorphic
 # floor at "every template gets >=1 INV; at the smallest budget the highest-
 # risk case still gets one" and says to treat the floor as binding and the
 # <=25% ceiling as not — so at its own 12-case worked example, zero INV/DIR is
@@ -739,7 +739,7 @@ def check_suite(rep, cases, records):
                  f"none of the {len(cases)} cases is INV or DIR: the suite "
                  "tests only direct expectations. An INV case inherits its "
                  "parent's expectation, which makes it the cheapest cell in "
-                 "the grid (generate/SKILL.md's budget table treats that "
+                 "the grid (suite-sizing.md's budget table treats that "
                  "floor as binding), and without one the suite cannot see a "
                  "paraphrase, a reordering, or a narrowed filter changing an "
                  "answer that was supposed to hold")

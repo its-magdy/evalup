@@ -59,10 +59,12 @@ checked against its primary source rather than relayed):
 - **Preference leakage** (Li et al., arXiv:2502.01534) and Panickssery et al.
   2024 on self-preference, for §0's cross-family guidance — which is stated as
   a documented risk, not a measured effect for case authoring, because no
-  study measures that. See generate/SKILL.md §0 for the full hedge.
+  study measures that. The full hedge is in
+  generate/references/generation-method.md.
 - **"Adding Error Bars to Evals"** (Miller, Anthropic 2024) for clustered
   standard errors on template-grouped cases, paired difference testing, and
-  reporting SEM — the basis of generate/SKILL.md §1's honesty ceiling.
+  reporting SEM — the basis of generate/references/suite-sizing.md, which
+  bounds what §1's suite may claim.
 
 On file layout: one-file-per-case is NOT unprecedented — Terminal-Bench and
 Harbor both use a directory per task (task.yaml/task.toml + Dockerfile +

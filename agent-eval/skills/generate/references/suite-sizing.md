@@ -2,9 +2,9 @@
 
 Read this when setting or defending the suite's quotas (grid depth, smoke,
 holdout, canary, metamorphic), or when writing the statistical caveats into
-the dataset metadata. SKILL.md §1 carries the operational table; this file
-carries the reasoning behind it and the statistics that bound what the
-resulting pass rates mean.
+the dataset metadata. SKILL.md §1 states the shape of the rule — a ratio of
+suite size plus a floor — and this file owns the numbers, the reasoning behind
+them, and the statistics that bound what the resulting pass rates mean.
 
 ## Budget geometry — ratios with a floor, never absolutes
 Every quota in this skill (grid depth, smoke, holdout, canary, metamorphic) is
@@ -23,7 +23,11 @@ ratio:
 - **Canary quota** (a small fixed-answer subset carried across runs to detect
   drift — distinct from the judge's own
   calibration set): ~10% of the full set, floor 2 once any data-Q&A layer
-  exists, even in a 12-case suite.
+  exists, even in a 12-case suite. Every canary must assert CONTENT
+  (`expect.result` or `expect.answer`), per SKILL.md §4: one whose only live
+  assertion is `http: 200` cannot detect drift, because drift shows up in the
+  answer and 200 comes back either way. That is the single most common way a
+  canary set silently becomes decorative.
 - **INV/DIR (metamorphic) cases:** at most ~25% of the full set are
   perturbation variants; floor: **every template gets at least one INV**, and
   at the smallest budget the single highest-risk case still gets one. Treat
