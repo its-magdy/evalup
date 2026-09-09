@@ -3,7 +3,9 @@
 **Status:** the nine open decisions below were **confirmed 2026-09-08**; this
 document has been rewritten to match them, and **every section is implemented**
 by `scripts/run_cases.py` (Steps 5b-i and 5b-ii; tests in
-`tests/test_run_cases.py`). Step 5c rewires `run/SKILL.md` around the result.
+`tests/test_run_cases.py`). Step 5c rewired `run/SKILL.md` around the result:
+the skill now builds `plan.json` (§2), reads the seven exit codes (§11), and
+keeps only §13's list.
 
 Where 5b-ii found this document silent, the section says so and gives the
 answer: how an observed route is read (§5.2), how `actual` is extracted
@@ -16,7 +18,7 @@ built.
 This document is the spec: where it and the code disagree, **this file is
 right** and the code is the bug.
 
-**What this is.** `run/SKILL.md` §2 "Execute" is currently hand-orchestrated by
+**What this is.** `run/SKILL.md` §2 "Execute" used to be hand-orchestrated by
 the LLM on every run. That is the audit's first conclusion: not reproducible,
 expensive, and it silently drops required outputs. The proof is the shipped run
 at `field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/`, which has
@@ -93,7 +95,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
   "paths": {
     "scripts_dir": "/abs/path/to/agent-eval/scripts",   // ${CLAUDE_PLUGIN_ROOT}/scripts
     "state_dir": "/abs/path/to/.agent-eval",            // for reports/.gitignore and the holdout ledger
-    "holdout_ledger": "datasets/dataset.yaml"           // relative to state_dir; null = runner refuses --holdout/--full (§6)
+    "holdout_ledger": "datasets/holdout-looks.jsonl"    // .jsonl sidecar, relative to state_dir; null = runner refuses --holdout/--full (§6)
   },
 
   "adapter": { ... },        // adapter.yaml converted to JSON, VERBATIM, env refs UNRESOLVED (§3)
@@ -342,7 +344,8 @@ per routing-applicable case as cases complete, writes
 `<out>/routing_results.jsonl`, and invokes the scorer **once**, after the last
 case, before finalize.
 
-Row shape, with the field mapping `run/SKILL.md` §3 specifies:
+Row shape, mapping the case's `expect.route` / `expect.route_acceptable` onto
+the scorer's `expected` / `acceptable`:
 `{"case_id", "expected": <case.expect.route>, "observed": <observed>,
 "acceptable": <case.expect.route_acceptable>, "clarify_ok", "clarified"}`.
 A null `observed` is written as `null` and the scorer maps it to `__no_route__`.
@@ -560,8 +563,8 @@ outside the tree the completeness check walks.
   a partial file visible mid-write, never a batch at run end.
 - `trace.json` absent is never ambiguous: when it is absent, `verdict.json`'s
   `trace` block says whether a trace was expected and why there isn't one.
-- Holdout cases get ordinary directories here (per `run/SKILL.md` §2/§4). The
-  seal is enforced at §10's `results.json`, not by withholding files.
+- Holdout cases get ordinary directories here, like any other case. The seal is
+  enforced at §10's `results.json`, not by withholding files.
 - Canary cases get ordinary directories too, with `canary: true` in
   `verdict.json`, and are excluded from every denominator in `results.json`.
 
@@ -582,8 +585,10 @@ JSON line to a YAML mapping corrupts the document it is meant to append to. A
 JSONL sidecar is also what makes the second writer (`analyze --unseal`) safe
 without a lock file, since a single short `O_APPEND` line write is atomic on
 POSIX, and it is what lets a reader take the running total by counting lines.
-`run/SKILL.md` §4 and `analyze/SKILL.md` §`--unseal` still describe the ledger
-as "the dataset metadata"; pointing both at the sidecar is Step 5c/6 work.
+`run/SKILL.md` §4 and `analyze/SKILL.md` §`--unseal` — the two writers of the
+N=5 count — were pointed at the sidecar in Step 5c; the plan's
+`paths.holdout_ledger` is what names it (`datasets/holdout-looks.jsonl` by
+convention).
 
 The append happens once, at pre-flight, before the first case — the *look* is
 the spend, so a run that aborts halfway has still spent it. `--resume` does not
@@ -628,7 +633,7 @@ counted separately and reported.
   `summary.status: "aborted_infra"`. Burning a full suite against a down
   service produces an expensive way of learning the service is down.
 
-**Gating failures do not affect the exit code.** `run/SKILL.md` §5 is explicit
+**Gating failures do not affect the exit code.** `run/SKILL.md` §6 is explicit
 that a separate tokenless shell step reads `results.json` and sets the merge
 gate. A runner that exited 1 on a red suite would make the gate script's own
 check dead code and quietly move the gate into the runner. The plan's `gate`

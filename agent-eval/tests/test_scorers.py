@@ -3160,10 +3160,21 @@ class TestOosRouteValidation(ScorerTest):
         self.assertEqual(rc, 0, err)
         self.assertEqual(out["oos"]["support"], 1)
 
-    def test_the_run_skill_documents_the_precondition(self):
-        spec = RUN_SKILL.read_text(encoding="utf-8")
+    def test_the_precondition_is_documented_where_it_is_now_enforced(self):
+        """This assertion used to read `run/SKILL.md`, which called the scorer
+        by hand. Step 5c moved the call into `run_cases.py`: the skill now only
+        chooses `scoring.oos_route`, and the runner checks the label against
+        the selected cases and OMITS the flag rather than discovering the
+        error from an exit code. So the precondition is pinned where it is
+        enforced -- the runner contract -- and the skill is free to stay
+        short. Dropping the assertion instead would leave the scorer's one
+        LLM-supplied argument undocumented again, which is the audit finding
+        this class exists for."""
+        spec = RUNNER_CONTRACT.read_text(encoding="utf-8")
         self.assertIn("--oos-route", spec)
         self.assertIn("exits 2", spec)
+        # ...and the skill still says where the value comes from.
+        self.assertIn("oos_route", RUN_SKILL.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
@@ -3171,6 +3182,7 @@ if __name__ == "__main__":
 
 
 RUN_SKILL = SCRIPTS.parent / "skills" / "run" / "SKILL.md"
+RUNNER_CONTRACT = SCRIPTS.parent / "docs" / "runner-contract.md"
 
 
 class TestRunArtifactContract(ScorerTest):

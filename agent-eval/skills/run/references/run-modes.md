@@ -1,8 +1,9 @@
 # Run Modes
 
-One execution engine (SKILL.md §§1–4: pre-flight → execute → score →
-compare/report). These five modes are named selections + gate policies layered
-over it — nothing else about the engine changes per mode. This run-mode
+One execution engine — `${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py`, spec in
+`${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md`. These five modes are named
+selections + gate policies the skill resolves into that runner's `plan.json`
+(SKILL.md §1); nothing else about the engine changes per mode. This run-mode
 taxonomy maps onto the plugin's pre-existing `--smoke` flag.
 
 | Mode | Flag | Selection | k | Gate | When |
@@ -56,8 +57,9 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   verdicts (also emits pass@k and the pass@k−pass^k flakiness gap). `--k` may
   override, but `--k` < 3 under `--regression` prints a warning that pass^k
   loses meaning below that, it does not refuse.
-- **Gate**: hard. Nonzero exit on gating failures — this is the mode CI runs
-  pre-merge/nightly (§5 Headless/CI gate in SKILL.md).
+- **Gate**: hard. The CI step exits nonzero on gating failures — this is the
+  mode CI runs pre-merge/nightly (SKILL.md §6; the runner itself always exits 0
+  on a red suite).
 - **Judged layers**: included if `judge.status: calibrated`, `unjudged` with
   the calibration banner otherwise (the ordinary rule — regression does not
   force judged layers the way `full` does; that keeps the everyday merge gate
@@ -80,11 +82,12 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   tag-filtered) set to cases that scored `fail` on the most recent
   *comparable* prior run for that tag (same `dataset_version` AND same
   harness version — identical comparability rule as the baseline diff in
-  SKILL.md §4; a scorer/dataset change invalidates "prior failures" the same
-  way it invalidates a baseline diff). No comparable prior run exists → this
-  is a variant of the first-run branch: fall back to the full tag-filtered
-  set and say so ("no comparable prior run for tag `billing` — running all
-  N tagged cases instead of just prior failures"), never error.
+  SKILL.md §4 and runner-contract §5.6; a scorer/dataset change invalidates
+  "prior failures" the same way it invalidates a baseline diff). No comparable
+  prior run exists → this is a variant of the first-run branch: fall back to
+  the full tag-filtered set and say so ("no comparable prior run for tag
+  `billing` — running all N tagged cases instead of just prior failures"),
+  never error.
 - **k**: whatever each case specifies; targeted does not force repeats.
 - **Gate**: soft. This is a developer feedback loop ("did my tool-description
   edit fix what I think it fixed?"), not a merge gate.
@@ -110,13 +113,13 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` step 5 ("Gate on holdout")
   consumes — there is no separate hard threshold beyond that statistical test.
 - **Reporting**: aggregate only, always — no per-case trace excerpts, no
-  page-one failure clusters (per SKILL.md §4's zero-failure/holdout
-  reporting rule). This is the one place in the harness where "less detail in
-  the report" is the correct, intentional behavior, not a gap. Per-case
-  `cases/<case-id>/` folders still get written on disk (SKILL.md §2 — that's
-  what makes resume work), but their `request.json`/`response.json` content
-  is never pulled into `report.md`/`.html` or `results.json`'s per-case rows;
-  only the aggregate stats cross the seal.
+  page-one failure clusters (SKILL.md §5's holdout rule). This is the one
+  place in the harness where "less detail in the report" is the correct,
+  intentional behavior, not a gap. Per-case `cases/<case-id>/` folders still
+  get written on disk (runner-contract §6 — that's what makes resume work), but
+  their `request.json`/`response.json` content is never pulled into
+  `report.md`/`.html` or `results.json`'s per-case rows; only the aggregate
+  stats cross the seal.
 - **Holdout-look budget**: running `--holdout` counts as one look toward the
   N=5 reseal trigger (`${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md`
   "Candidate pool": "Holdout looks are counted; after 5, analyze forces a
@@ -143,8 +146,8 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   to the release decision, an `unjudged` banner on page one is the signal to
   go calibrate before shipping, not to ship blind.
 - **Adversarial/authz cases**: run if the adapter's `environment.safe_to_attack`
-  is true (same gate as any other red-team probe; see SKILL.md §3's authz
-  layer); still skipped (not failed) otherwise.
+  is true (same gate as any other red-team probe; the runner applies it at
+  pre-flight, runner-contract §4.6/§7); still skipped (not failed) otherwise.
 - **When**: release validation, before staged rigor moves an app toward
   `traffic`/`production` — a
   monitoring-window release habit sits on top of this, not instead of it
@@ -174,7 +177,7 @@ jq -e 'select(.type=="system" and .subtype=="init")
 # the run this invocation just wrote — its manifest.yaml is the newest one
 # under reports/, and manifest.yaml's own `run_id` field (SKILL.md §1) is the
 # source of truth, not stdout-parsing this CLI call's own text reply — then
-# pull results.json from that same run directory (SKILL.md §4), since
+# pull results.json from that same run directory (SKILL.md §5), since
 # results.json is the durable file that also survives past this one CI
 # invocation.
 manifest=$(ls -t reports/*/manifest.yaml | head -1)
@@ -190,7 +193,7 @@ exit 0
 - `--bare` skips plugin/skill auto-discovery, so the same command produces
   the same behavior on every CI runner — reproducibility over convenience.
 - `--permission-mode dontAsk` removes every approval prompt, including the
-  §1 pre-flight cost/time confirmation — there is no human on the other end
+  cost/time confirmation in SKILL.md §2 — there is no human on the other end
   to answer it in CI.
 - Checking `system/init` for `plugin_errors`/`mcp_server_errors` first is not
   optional: a run that launched under a broken plugin load can produce a
@@ -208,7 +211,7 @@ exit 0
   failures currently tend to surface as generic hook errors instead. Both are
   kept here as best-effort practice; re-verify against the current Claude
   Code docs when actually wiring this into CI.
-- Note the zero-failure branch (SKILL.md §4) surfaces here as
+- Note the zero-failure branch (SKILL.md §5) surfaces here as
   `gating_failures == 0` — a legitimate, common, good outcome, not an edge
   case the gate script needs to special-case beyond "0 is not greater than
   0."

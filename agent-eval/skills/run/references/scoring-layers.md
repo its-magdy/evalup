@@ -1,9 +1,12 @@
 # Scoring Layers — Execution and Authz
 
-The two layers in `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §3 with enough
-invocation mechanics to be worth their own page. §3 tells you *when* to run
-them and how they are reported; this page is the *how*. Everything here is call
-mechanics for `${CLAUDE_PLUGIN_ROOT}/scripts/score_execution.py` and
+The two layers with enough invocation mechanics to be worth their own page.
+`${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py` performs every call described here
+during a run — runner-contract §5's layer table is *when*, and this page is the
+*how* behind it, for reading a verdict, filling `plan.json`'s `scoring` block
+(`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1), or scoring outside a run.
+Everything here is call mechanics for
+`${CLAUDE_PLUGIN_ROOT}/scripts/score_execution.py` and
 `${CLAUDE_PLUGIN_ROOT}/scripts/score_authz.py` — call them, do not reimplement
 their scoring logic.
 
@@ -57,8 +60,8 @@ cases scorable; if you see allowed-id checks coming back uniformly unscorable
 on an app that clearly returns ids, this is the reason. `validate_cases.py`
 warns (`unrecognizable_record_ids`) at generate time on exactly these cases.
 Gate: if the case's `category` is `adversarial-*` and the adapter's
-`environment.safe_to_attack` is not true
-(`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1 pre-flight), skip the case for
+`environment.safe_to_attack` is not true (the runner reads this at pre-flight,
+`${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` §4.6), skip the case for
 this layer and report it `skipped` (with the reason), the same
 never-invoke-an-uncleared-probe discipline as any other red-team check — do not
 silently fail it and do not run it anyway. Non-adversarial `expect.authz` cases

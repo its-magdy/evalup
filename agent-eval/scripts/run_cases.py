@@ -75,7 +75,7 @@ PLAN_VERSION = 1
 
 # SS11. Distinct codes rather than 0/1/2 because 6 is the one that makes the
 # shipped run's failure mode nameable, and once 6 exists the others cost
-# nothing to distinguish. A RED SUITE EXITS 0: gating is run/SKILL.md SS5's
+# nothing to distinguish. A RED SUITE EXITS 0: gating is run/SKILL.md SS6's
 # separate tokenless shell step, and a runner that exited non-zero on failures
 # would quietly move the gate in here (contract SS7).
 EXIT_OK = 0
@@ -1427,7 +1427,7 @@ class Runner:
 
     # -- SS7. The serial execute loop -------------------------------------
     def ordered_cases(self):
-        """Canaries first (run/SKILL.md SS2), then the plan's own order.
+        """Canaries first (contract SS7), then the plan's own order.
 
         Canaries measure the HARNESS, not the app; running them first means a
         drifted harness stops the run before it spends the suite's budget

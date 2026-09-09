@@ -847,7 +847,7 @@ class TestHoldoutSeal(RunnerCase):
                 in (out / "verdicts.jsonl").read_text(
                     encoding="utf-8").splitlines() if line.strip()]
         self.assertEqual([r["case_id"] for r in rows], ["c-0001", "c-0002"])
-        # ...and so do their ordinary case directories (run/SKILL.md SS2).
+        # ...and so do their ordinary case directories (contract SS6).
         self.assertTrue((out / "cases" / "c-0001" / "verdict.json").is_file())
 
     def test_the_look_is_recorded_once_in_the_ledger(self):

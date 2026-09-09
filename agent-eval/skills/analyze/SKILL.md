@@ -198,14 +198,19 @@ review already done — reuse that annotation instead of re-reading the trace
 from scratch (see the flywheel section of [references/annotation-ux.md](references/annotation-ux.md)).
 
 ## `--unseal` — holdout access, deliberately inconvenient
-Warn ("looking at holdout cases spends their validity"), log the access with
-date and reason into the dataset metadata, show what was asked, and after 5
-recorded looks require a reseal: rewrite each viewed case's `split` from
-`holdout` to `full`, flip fresh unviewed cases the other way, bump
-dataset_version. The N=5 counts **looks**, not just unseals: a `run --holdout`
-or `run --full` appends to this same ledger
-(`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4), so read the ledger's running
-total rather than counting only the entries this skill wrote — otherwise the
+Warn ("looking at holdout cases spends their validity"), then append one JSON
+line — `{"date", "mode": "unseal", "reason": "<why you looked>"}` — to the
+**holdout-look ledger**, show
+what was asked, and after 5 recorded looks require a reseal: rewrite each
+viewed case's `split` from `holdout` to `full`, flip fresh unviewed cases the
+other way, bump dataset_version. The ledger is a **`.jsonl` sidecar** beside
+the dataset (`datasets/holdout-looks.jsonl`, named by the run plan's
+`paths.holdout_ledger`), **not** the dataset YAML — a JSON line appended to a
+YAML mapping corrupts it, and a one-line `O_APPEND` write is what makes two
+writers safe without a lock. The N=5 counts **looks**, not just unseals: a
+`run --holdout` or `run --full` appends to this same file
+(`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4), so take the running total by
+counting its lines rather than the entries this skill wrote — otherwise the
 optimizer's repeated holdout gates spend the seal invisibly.
 
 ## Re-validate after any case edit
