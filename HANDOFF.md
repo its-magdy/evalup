@@ -135,7 +135,7 @@ Each step is sized for a single low-usage session. Mark done as you go.
       `_common.py` by name. **`REVIEW` §3's other two items stay closed.**
 
 - [x] **Step 8b — Stale artifacts + the `micro_f1` relabel. Step 8 CLOSED.**
-      **DONE 2026-09-10 — `SHA8B`.** Recon re-verified (36 errors exactly, and
+      **DONE 2026-09-10 — `593aad1`.** Recon re-verified (36 errors exactly, and
       they are three codes × 12, not 36 defects), but §10's "every case
       accepted by `test-generator`" was **WRONG**: 6 of 12, plus 5 by a human
       and 1 quarantined. **(a) RELABELLED, not regenerated** —
