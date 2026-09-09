@@ -34,6 +34,16 @@ which carries the same `case_id` and would otherwise double every case. This
 paragraph and the script's docstring are the contract: if `run` changes where
 it writes records, change it here too.
 
+**The seal.** `--glob` takes one pattern and has no exclude syntax. So on a
+`--full` or `--holdout` run, pointing the viewer at `cases/` renders the sealed
+holdout records too. Their `request.json`/`response.json` are exactly the
+content `run/SKILL.md` §4 keeps out of the aggregate report and out of
+`results.json`'s per-case rows. An unfiltered page silently spends a look
+against the N=5 reseal budget, without going through `analyze --unseal`. Stage
+a filtered copy first: cross-reference the case files for the ids whose `split`
+contains `holdout`, symlink every other `cases/<case-id>/verdict.json` into a
+scratch directory, and glob that directory instead.
+
 ## Storage format — plain JSONL, one line per annotation event
 
 ```jsonc
