@@ -129,9 +129,11 @@ Each step is sized for a single low-usage session. Mark done as you go.
       2 still means nothing was written, and a scorer `error` outranks a
       sibling `pass` in the rollup. Full accounting in the commit message.
 
-- [ ] **Step 5c — Rewire `run/SKILL.md`** around the runner. Target: 305 lines
-      → ~60. The skill should decide *what to run and how to read the result*,
-      not *how to execute*.
+- [ ] **Step 5c — Rewire `run/SKILL.md`** around the runner. 318 lines → ~60.
+      Its §§1–3 (pre-flight, execute, score) are now `run_cases.py`'s job
+      verbatim; what stays is contract §13's list. The skill decides *what to
+      run and how to read the result*, not *how to execute*. It currently does
+      not mention `run_cases.py` at all.
 
 - [ ] **Step 6 — Slim the skills.** Target ≤120 lines and ≤18 words/sentence
       per `SKILL.md`; rationale moves to `references/`. Also dedupe: one owning
