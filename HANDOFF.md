@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 8a done — packaging; next is Step 8b)
+**Last updated:** 2026-09-10 (Step 8 CLOSED — 8b done; next is Step 9)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -74,15 +74,13 @@ Each step is sized for a single low-usage session. Mark done as you go.
       shipped 12-case field test 0 → 36, all true.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
-      `77d3778`, `c9bc4f7`, `5e573c9`.** Spec is `agent-eval/docs/runner-contract.md`;
-      551 tests (+102) on a real fake HTTP app. Missing-jsonl closed
-      structurally: both files are **regenerated from the case dirs after every
-      case**, finalize exits 6 rather than write ok. **All nine open decisions
-      were answered in the same commits** — the contract could not be
-      implemented as written (nothing said how an HTTP request is BUILT), so
-      `invocation` gained five declared fields and four more silences became
-      **adapter declarations**, none guessed. `REQUIRED_*` tables are **exec'd
-      out of the contract file**, not restated.
+      `77d3778`, `c9bc4f7`, `5e573c9`.** 551 tests (+102) on a real fake HTTP
+      app. Missing-jsonl closed **structurally**: both files are regenerated
+      from the case dirs after every case, finalize exits 6 rather than write
+      ok. **All nine open decisions answered in the same commits** — the
+      contract was not implementable as written (nothing said how an HTTP
+      request is BUILT), so `invocation` gained five declared fields and four
+      silences became **adapter declarations**, none guessed.
 
 - [x] **Step 5c — Rewire `run/SKILL.md`** around the runner.
       **DONE 2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 deleted whole (the
@@ -94,11 +92,9 @@ Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **Steps 6a–6c — slim `generate`, `analyze`, `discover`.**
       **DONE 2026-09-09 — `86b602e`, `d6bf421`, `6268cc3`.** 401→159, 252→167,
-      235→160; mean sentence 16.0→12.7, 20.4→15.6, 24.6→14.3. Each began with an
-      **ownership pass**, and that pass — not fatigue — set the floor each time:
-      the residue is procedure. Two new reference files where nothing owned the
-      rationale; section numbers preserved in all three (cited BY NUMBER from
-      `run-modes.md`, `generate`, `optimize`, `dotnet.md`).
+      235→160. Each began with an **ownership pass**, and that pass — not
+      fatigue — set the floor: the residue is procedure. Section numbers
+      preserved in all three (cited BY NUMBER from four other files).
 
 - [x] **Step 6d — the two decisions.** **DONE 2026-09-09 — `4ede98f`.** No
       skill edited; the metric, the measurements and the argument are in
@@ -110,11 +106,11 @@ Each step is sized for a single low-usage session. Mark done as you go.
       slash command, loses its body** — executed in 6e.
 
 - [x] **Step 6e — dedupe + execute D2. Step 6 CLOSED.** **DONE 2026-09-09 —
-      `a22ce8e`.** Triage first, and it changed the job: of the three counts
-      **only `help` duplicated anything** — the rest are *uses* or *owners*.
-      **A MENTION count is not a duplication count.** `help` 124 → 42 lines
-      (1,403 → 602 tokens); its `description` GREW (with no body it is the
-      only thing that fires the skill). Detail: `AUDIT-2026-09-06.md` §1 + §4.
+      `a22ce8e`.** Triage changed the job: of the three counts **only `help`
+      duplicated anything** — the rest are *uses* or *owners*. **A MENTION
+      count is not a duplication count.** `help` 124 → 42 lines; its
+      `description` GREW (with no body it is the only thing that fires the
+      skill). Detail: `AUDIT-2026-09-06.md` §1 + §4.
 
 - [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
       `337181a`.** Not delete-only: the skip gate tested `invocation.session`
@@ -134,17 +130,25 @@ Each step is sized for a single low-usage session. Mark done as you go.
       `pyproject.toml` is **dev-tooling only, no `[project]` table** — that
       absent `[project.dependencies]` is the one slot a runtime import could
       enter through. **`ruff.toml` did NOT fold in**, so the blessed commands
-      are UNCHANGED. `.tool-versions` keeps 3.11.11 and now argues why the dev
-      pin sits above the floor. CI's matrix is REAL interpreters (3.9/3.11/
-      3.13, 552 each), and its `--help` job skips `_common.py` by name.
-      **`REVIEW` §3's other two items stay closed**, not re-fixed.
+      are UNCHANGED. `.tool-versions` keeps 3.11.11 and argues why. CI's matrix
+      is REAL interpreters (3.9/3.11/3.13, 552 each); its `--help` job skips
+      `_common.py` by name. **`REVIEW` §3's other two items stay closed.**
 
-- [ ] **Step 8b — Stale artifacts.** Regenerate `field-test-qa/.agent-eval/`
-      (36 errors since Step 4; migration is mechanical, `201aa2a`) or label it
-      "pre-2026-08 layout" — note §4 already relies on it as the
-      ambiguous-layout FIXTURE, so relabelling may be the honest call.
-      `micro_f1`: **relabel, don't drop** — `score_routing.py`:296 uses the
-      macro/micro gap as the minority-route skew warning.
+- [x] **Step 8b — Stale artifacts + the `micro_f1` relabel. Step 8 CLOSED.**
+      **DONE 2026-09-10 — `SHA8B`.** Recon re-verified (36 errors exactly, and
+      they are three codes × 12, not 36 defects), but §10's "every case
+      accepted by `test-generator`" was **WRONG**: 6 of 12, plus 5 by a human
+      and 1 quarantined. **(a) RELABELLED, not regenerated** —
+      `field-test-qa/.agent-eval/LAYOUT.md`. It is the only §4-halt fixture,
+      it is a *second* fixture for a pre-runner run (no `verdicts*.jsonl` →
+      exit 6 today), and it is **not reproducible** (read-only app, dirty sha).
+      **`REVIEW` §10's "regenerate the worked example" is therefore NOT DONE
+      and the plugin ships no conforming example** — a later step must build a
+      NEW one. **(b) `micro_f1` relabelled, KEY UNCHANGED** (baselines read it;
+      §2's line holds). New by experiment: it is **not** the report's
+      `accuracy` (0.5 vs 0.6667 — the matrix excludes accepted_alternates), so
+      dropping it deletes the warning *and* that number. `AUDIT` §"RESOLVED …
+      (Step 8b)".
 
 - [ ] **Step 9 — Reopen `REVIEW-2026-08-08.md` §§4–5**: cost/latency as
       first-class metrics, `score_agreement.py` to close the judge loop (the
@@ -181,9 +185,10 @@ Each step is sized for a single low-usage session. Mark done as you go.
   data value. `--oos-route <name>` maps the profile's route name onto it.
 - **The scorers' error contract:** errors go to **stdout** (not stderr) as
   JSON, exit 2 on malformed input. Deliberate — see `_common.die()`.
-- **`field-test-qa/.agent-eval/` is in a mixed layout** (`baselines/` + `runs/`
-  old, `reports/` new, no `reports/baseline.json`) — the exact ambiguous state
-  `run/SKILL.md` §4 halts on. A fixture for that branch, not a good example.
+- **`field-test-qa/.agent-eval/` is stale ON PURPOSE** — mixed layout, 36
+  validator errors. Two fixtures depend on it; **read its `LAYOUT.md` before
+  migrating, regenerating or copying it.** Not a good example, and nothing
+  else in the repo is one either.
 - **The app under test in the field test is READ-ONLY** and lives outside this
   repo (`/path/to/reference-app`). Never modify it.
 - **The audit's token numbers are reproducible; `wc -l` is not their meter.**

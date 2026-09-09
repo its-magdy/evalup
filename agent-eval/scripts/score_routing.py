@@ -27,6 +27,24 @@ excluded from the average. Cases that pass via the acceptable
 set or the clarify path (observed != expected) are excluded from the
 confusion matrix and P/R/F1 and counted as accepted_alternates — they are
 not mismatches. Accuracy still counts them as passes.
+
+`micro_f1` is REPORTED RATHER THAN DROPPED, and the reason is the pair, not
+the number. For single-label multiclass every wrong prediction is exactly one
+FP for the predicted label and one FN for the expected one, so micro-P ==
+micro-R == micro_f1 == the confusion matrix's accuracy. That identity is what
+makes macro_f1 vs micro_f1 the class-imbalance signal: macro weights every
+ROUTE TARGET equally, micro weights every CASE equally, so the two separate
+exactly when a high-support target carries the score while a minority target
+fails underneath it. The >0.1 gap check at the end of main() IS that
+comparison — deleting the key as "redundant" deletes a working warning.
+
+It is also not redundant with the `accuracy` field above, which is a
+different quantity: `accuracy` is passes/len(rows) over every case, while
+micro_f1 is computed over matrix_rows, from which accepted_alternates are
+excluded. On 3 cases where one passes via the acceptable set, `accuracy` is
+0.6667 and `micro_f1` is 0.5. Drop micro_f1 and the matrix's own accuracy is
+reported by nothing.
+
 Usage: score_routing.py <results.jsonl> [--oos-route <name>]
 """
 import argparse
@@ -294,8 +312,12 @@ def main():
                     "This is not evidence of zero OOS leakage."),
             }
     if abs(out["macro_f1"] - out["micro_f1"]) > 0.1:
-        out["warning"] = ("macro/micro F1 gap >0.1: minority route targets are "
-                          "underperforming — check per_target")
+        out["warning"] = (
+            "macro_f1 vs micro_f1 gap >0.1: micro_f1 is the confusion "
+            "matrix's accuracy (every case weighted equally) while macro_f1 "
+            "weights every route target equally, so the gap means the score "
+            "is carried by high-support targets while minority route targets "
+            "underperform — check per_target")
     print(json.dumps(out, indent=2))
 
 

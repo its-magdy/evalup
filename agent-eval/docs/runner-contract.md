@@ -339,7 +339,11 @@ proc = subprocess.run(
 ### 5.2 `score_routing.py` is run-level
 
 It scores a JSONL of all cases at once and reports macro/micro F1, a confusion
-matrix, OOS metrics, and `spurious_labels`. So: the runner accumulates one row
+matrix, OOS metrics, and `spurious_labels`. (`micro_f1` is the confusion
+matrix's accuracy — not the `accuracy` field, which counts accepted alternates
+the matrix excludes. It is kept because the macro-vs-micro gap is the
+minority-route skew warning; see the scorer's docstring before "simplifying"
+it away.) So: the runner accumulates one row
 per routing-applicable case as cases complete, writes
 `<out>/routing_results.jsonl`, and invokes the scorer **once**, after the last
 case, before finalize.

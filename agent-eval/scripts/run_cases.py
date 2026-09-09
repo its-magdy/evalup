@@ -2383,6 +2383,8 @@ class Runner:
         It reports macro/micro F1, a confusion matrix, OOS metrics and
         spurious_labels -- none of which is defined for a single case -- so the
         rows accumulate as cases complete and the scorer runs once, here.
+        (micro_f1 is the matrix's accuracy and is kept deliberately: the
+        macro-vs-micro gap is the minority-route skew warning.)
         """
         if not self.routing_rows:
             return
