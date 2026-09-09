@@ -144,7 +144,23 @@ there is no reason to skip it before a release.
 runtime imports outside the stdlib. `ruff.toml` keeps a deliberately small rule
 set, and each entry carries a comment saying which defect class it catches or
 which comment in the code already argues for it; read it there before adding to
-it.
+it. `pyproject.toml` declares those dev tools and nothing else: it has no
+`[project]` table, because this plugin is installed by copy from
+`.claude-plugin/plugin.json`, never pip-installed, and the absent
+`[project.dependencies]` list is the one slot a runtime dependency could
+arrive through. Ruff's config deliberately stays in `ruff.toml` — note that
+when both files sit side by side, `ruff.toml` wins and a `[tool.ruff]` table
+in `pyproject.toml` is ignored silently.
+
+`.tool-versions` pins **3.11.11**, above the 3.9 floor, on purpose: you edit on
+a supported interpreter and check the floor with `uv`, which fetches a real 3.9
+without making you install an end-of-life one. The file says so in a comment.
+
+`.github/workflows/ci.yml` runs all three depths plus a `--help` check on a
+real 3.9/3.11/3.13 matrix — **but it has never executed.** This repository has
+no git remote, so nothing has ever evaluated that file; it is a specification
+parked for the day one is added, and its header says so. Until then the
+commands above are the only checked claim.
 
 An app you can invoke programmatically. OpenTelemetry with GenAI spans is
 strongly recommended (discover offers to add it) — without traces, trajectory

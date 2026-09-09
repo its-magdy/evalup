@@ -1,1 +1,21 @@
+# The DEV pin, deliberately above the runtime floor. Not a contradiction --
+# read both numbers together:
+#
+#   floor  = 3.9   (README.md "Requirements"; PY_FLOOR in tests/test_scorers.py;
+#                   target-version in ruff.toml; the 3.9 leg of ../.github/
+#                   workflows/ci.yml). This is what the harness must RUN on,
+#                   and it is deliberate: 3.9 is past upstream EOL but RHEL 9
+#                   ships it with vendor-backported fixes, and long-lived
+#                   enterprise environments are the target. Do not raise it.
+#
+#   dev    = 3.11  (this file). This is what you EDIT on.
+#
+# Pinning this file to 3.9 would force every contributor to install an
+# end-of-life interpreter for daily work in order to check a property that a
+# throwaway environment checks better: `uv run --python 3.9 ...` fetches a
+# real 3.9 in seconds without touching what asdf has installed, and that
+# command -- not this file -- is the conclusive floor check (HANDOFF.md
+# section 4, README.md "Requirements").
+#
+# The harness is stdlib-only, so nothing is installed for either number.
 python 3.11.11

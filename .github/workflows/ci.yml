@@ -1,0 +1,125 @@
+# STATUS: SPECIFICATION. This workflow has never executed.
+#
+# As of 2026-09-10 this repository has no git remote -- `git remote -v` is
+# empty -- so GitHub Actions has never seen this file, and the branch it was
+# written on (`run-layout-consistency`) has never merged to `main`. Nothing
+# here is evidence that anything passes. It is the executable form of
+# README.md "Requirements", parked so that adding a remote makes the checks
+# start running unchanged, and so the floor policy lives somewhere a machine
+# can act on rather than only in prose.
+#
+# What IS checked today is the local command set in HANDOFF.md section 4. Run
+# those. Do not cite a green badge; there is no badge.
+#
+# Every step below was run by hand on macOS on 2026-09-10 before this file was
+# committed, so the commands themselves are known-good; what is unverified is
+# the YAML around them (runner images, action versions, the matrix wiring).
+# Expect to debug that once, on the first real push.
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    # Everything lives in the plugin directory; the repo root also holds the
+    # design/review docs and the field-test workspace, which are not code.
+    working-directory: agent-eval
+
+jobs:
+  # The real interpreter matrix. This is the check that does not exist locally
+  # in any cheap form: PY_FLOOR in tests/test_scorers.py compiles the scripts
+  # against 3.9's *grammar* via ast.parse(feature_version=...), which passes on
+  # a stdlib API that only 3.10 has. Running the suite on an actual 3.9 is the
+  # only thing that catches that, and it is why 3.9 leads the matrix.
+  #
+  # 3.9 is DELIBERATE and must not be raised to make this pass. It is past
+  # upstream EOL (October 2025) and kept anyway because RHEL 9 ships it with
+  # vendor-backported fixes, and long-lived enterprise environments are the
+  # target. If a change breaks 3.9, change the change.
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # floor, dev pin (see agent-eval/.tool-versions), and a current
+        # release so the harness is not quietly pinned to old behaviour either.
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # No install step, and that is the assertion: the harness is stdlib-only
+      # at runtime. If this ever needs a `pip install`, something under
+      # scripts/ grew a third-party import and the rule is broken.
+      - run: python -m unittest discover -s tests
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # --config is explicit on purpose. pyproject.toml is a sibling of
+      # ruff.toml in this directory and ruff.toml takes precedence; naming the
+      # file keeps which-config-won unambiguous, and matches the blessed
+      # command in HANDOFF.md section 4 verbatim.
+      - run: uv run --group dev ruff check --config ruff.toml .
+
+  # The conclusive floor check, verbatim from HANDOFF.md section 4 / README.md
+  # "Requirements". It overlaps the 3.9 leg of `tests` on purpose: that leg
+  # runs the unittest path, this runs the pytest path with pytest-subtests, so
+  # a subtest that silently collapses to one opaque pass shows up here.
+  floor-3-9:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: >
+          uv run --python 3.9 --with pytest --with pytest-subtests
+          python -m pytest tests -q
+
+  # Every CLI answers --help with rc=0.
+  #
+  # TRAP, and the reason this does not just loop over scripts/*.py: there are
+  # 15 files in scripts/ but only 14 CLIs. scripts/_common.py is a shared
+  # module with no argparse and no __main__ block, so `python _common.py
+  # --help` exits 0 having printed NOTHING -- a naive loop passes on it for
+  # entirely the wrong reason, and would keep passing if a real CLI regressed
+  # into printing nothing too.
+  #
+  # So two guards, not one: skip underscore-prefixed modules, and require
+  # actual output. The count assertion is the third -- if someone adds a
+  # sixteenth file, this fails and forces a decision about which set it joins
+  # rather than silently widening or narrowing the check.
+  cli-help:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: every CLI answers --help with rc=0 and non-empty output
+        run: |
+          set -euo pipefail
+          n=0
+          for f in scripts/*.py; do
+            case "$(basename "$f")" in
+              _*) echo "skip (shared module, not a CLI): $f"; continue ;;
+            esac
+            out="$(python "$f" --help)"
+            if [ -z "$out" ]; then
+              echo "FAIL: $f --help exited 0 but printed nothing" >&2
+              exit 1
+            fi
+            n=$((n + 1))
+          done
+          echo "checked $n CLIs"
+          [ "$n" -eq 14 ] || {
+            echo "expected 14 CLIs, found $n -- update this count and say why" >&2
+            exit 1
+          }
