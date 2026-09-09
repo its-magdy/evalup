@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 7 done — multi-turn RESERVED; next is Step 8)
+**Last updated:** 2026-09-10 (Step 8a done — packaging; next is Step 8b)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -20,7 +20,8 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
 - **Health:** 552 tests pass (~2min), ruff clean, all 14 CLI scripts `--help`
-  rc=0, Python 3.9 compatible (re-verified with `uv`). Verified 2026-09-10.
+  rc=0. Verified 2026-09-10 on **3.9, 3.11 and 3.13** — 552 each, so the floor
+  is now checked against real interpreters, not only `ast.parse`'s grammar.
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -108,45 +109,35 @@ Each step is sized for a single low-usage session. Mark done as you go.
       Step 5c deleting a dependency, not via prose. **D2 — `help` keeps its
       slash command, loses its body** — executed in 6e.
 
-- [x] **Step 6e — dedupe + execute D2. Step 6 is now CLOSED.** **DONE
-      2026-09-09 — `a22ce8e`.** The triage came first and changed the job: of the three
-      counts, **only `help` duplicated anything.** Every other mention is a
-      *use* (a procedure step naming the field) or an *owner* —
-      `adapter-contract.md`:22 for `state_location`; `runner-contract.md` +
-      `migrate-run-layout.md` for `reports/baseline.json`; `rubric-format.md`
-      §5 + `concepts.md` §The judge for `PROVISIONAL`. Nothing was moved for
-      them: **a MENTION count is not a duplication count.** `help`: 124 → 42
-      lines (1,403 → **602** tokens), a 12-row dispatch table and nothing else.
-      Its frontmatter `description` GREW — with no body it is the only thing
-      that fires the skill. Skills prose 31,242 → **30,448**. Triage in
-      `AUDIT-2026-09-06.md` §1 + §4.
+- [x] **Step 6e — dedupe + execute D2. Step 6 CLOSED.** **DONE 2026-09-09 —
+      `a22ce8e`.** Triage first, and it changed the job: of the three counts
+      **only `help` duplicated anything** — the rest are *uses* or *owners*.
+      **A MENTION count is not a duplication count.** `help` 124 → 42 lines
+      (1,403 → 602 tokens); its `description` GREW (with no body it is the
+      only thing that fires the skill). Detail: `AUDIT-2026-09-06.md` §1 + §4.
 
 - [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
-      `337181a`.** The argument and both corrections are in
-      `AUDIT-2026-09-06.md` §8's RESOLVED block. Not a delete-only step: the
-      skip gate tested `invocation.session` for **presence only** and
-      `adapters/dotnet.md` shipped a worked `session:` block, so following the
-      .NET example ran multi-turn cases **single-turn** — `case_text()` sends
-      the last user message, earlier turns dropped, truncated conversation
-      scored as a real verdict. **Declaring the contract made the harness less
-      correct than omitting it.** The gate is now blind to `invocation.session`
-      (>1 user turn skips, full stop, + a regression test); `session:` is gone
-      from `adapter-contract.md` and `dotnet.md`; `simulated-user.md` deleted
-      **with its `plugin.json` entry**. `single_turn_suite` was **inverted, not
-      dropped** into per-case `multi_turn_case_reserved`, **WARN not ERROR**: a
-      skipped case inflates no denominator. Also `normalize_trace.py` is **not**
-      attribution-free (it builds `agents[]`), so `REVIEW` §4 item 2's bundle —
-      the BUILD case — is smaller than it claims.
+      `337181a`.** Not delete-only: the skip gate tested `invocation.session`
+      for **presence only** while `dotnet.md` shipped a worked `session:`
+      block, so multi-turn cases ran **single-turn** and scored a truncated
+      conversation as a real verdict — **declaring the contract made the
+      harness less correct than omitting it.** Gate is now blind to
+      `session`; `single_turn_suite` was **inverted, not dropped**, into
+      per-case `multi_turn_case_reserved` (WARN). Argument + both corrections:
+      `AUDIT-2026-09-06.md` §8's RESOLVED block.
 
-  Step 8 is SPLIT and its recon is done — `AUDIT-2026-09-06.md` §"Step 8 recon"
-  has the verified state. **Two of `REVIEW` §3's three items are already
-  closed** (dangling refs; test-command ambiguity) — do not re-fix them.
-
-- [ ] **Step 8a — Packaging.** Genuinely open: no `pyproject.toml`, no CI, and
-      `agent-eval/.tool-versions` pins **3.11.11** against the claimed 3.9
-      floor. **Decide before writing CI: `git remote -v` is EMPTY**, so a
-      `.github/workflows/` file would never execute — add a remote or write it
-      knowingly, but say which.
+- [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** The recon's
+      five claims all re-verified true (rare — say so). **The remote decision
+      went to the user: write CI knowingly as a spec.** `.github/workflows/
+      ci.yml` therefore opens by stating it has NEVER executed and that the
+      checked claim is §4's local commands — do not cite it as evidence.
+      `pyproject.toml` is **dev-tooling only, no `[project]` table** — that
+      absent `[project.dependencies]` is the one slot a runtime import could
+      enter through. **`ruff.toml` did NOT fold in**, so the blessed commands
+      are UNCHANGED. `.tool-versions` keeps 3.11.11 and now argues why the dev
+      pin sits above the floor. CI's matrix is REAL interpreters (3.9/3.11/
+      3.13, 552 each), and its `--help` job skips `_common.py` by name.
+      **`REVIEW` §3's other two items stay closed**, not re-fixed.
 
 - [ ] **Step 8b — Stale artifacts.** Regenerate `field-test-qa/.agent-eval/`
       (36 errors since Step 4; migration is mechanical, `201aa2a`) or label it
@@ -168,7 +159,9 @@ Each step is sized for a single low-usage session. Mark done as you go.
   - `python3 -m unittest discover -s tests` — 551 tests, ~2min, the blessed
     command. (`test_run_cases.py` is most of the time: a real HTTP server per
     test, and one test kills a runner mid-run.)
-  - `ruff check --config ruff.toml .`
+  - `ruff check --config ruff.toml .` — `--config` is not decoration:
+    `pyproject.toml` is now a sibling, and when both exist **`ruff.toml` wins
+    and a `[tool.ruff]` table in `pyproject.toml` is ignored silently**.
   - `uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q`
     — the only conclusive 3.9 floor check. Run before any release.
 - **`validate_cases.py` and `run_cases.py` take JSON, not YAML**, deliberately
@@ -197,5 +190,8 @@ Each step is sized for a single low-usage session. Mark done as you go.
   `words × 1.33` over `agent-eval/skills/**/*.md`, whole file. At `6c7d286` it
   returns 33,790 / 12,739 / 9,397 / 1,386 against the audit's ~33,900 / ~12,800
   / ~9,400 / ~1,400. Measure that way before claiming a size win.
+- **`.github/workflows/ci.yml` has never run.** There is still no git remote,
+  so it is a specification (its header says so). The three commands above are
+  the only checked claim — never report CI as green.
 - Reproducing any audit finding: every one has a copy-pasteable repro in
   `AUDIT-2026-09-06.md`. Re-run rather than re-deriving.
