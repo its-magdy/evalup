@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 8 CLOSED — 8b done; next is Step 9)
+**Last updated:** 2026-09-10 (Step 8 CLOSED; Step 9 reconned + split — next is 9a)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -66,12 +66,10 @@ Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`.**
       **DONE 2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with
-      siblings: `sub_mde_keep`; NFC in **six** scorers via `_common.nfc`;
-      `--oos-route`; `score_authz --id-pattern`; `stringify`'s `ensure_ascii`.
-      The validator's severity line — **ERROR = a claim nothing backs; WARN = a
+      siblings (NFC needed fixing in **six** scorers via `_common.nfc`). The
+      validator's severity line — **ERROR = a claim nothing backs; WARN = a
       suite thinner than the guidance recommends** — is in its docstring and
-      `case-format.md`; four new ERRORs + required `--capabilities` took the
-      shipped 12-case field test 0 → 36, all true.
+      `case-format.md`.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
       `77d3778`, `c9bc4f7`, `5e573c9`.** 551 tests (+102) on a real fake HTTP
@@ -97,12 +95,9 @@ Each step is sized for a single low-usage session. Mark done as you go.
       preserved in all three (cited BY NUMBER from four other files).
 
 - [x] **Step 6d — the two decisions.** **DONE 2026-09-09 — `4ede98f`.** No
-      skill edited; the metric, the measurements and the argument are in
-      `AUDIT-2026-09-06.md` §1's addendum. **D1 — `≤120 lines` is RETIRED and
-      `SKILL.md` slimming is DONE**: 62% of what leaves a `SKILL.md` comes back
-      as `references/`, so the total and "move rationale out" are in direct
-      tension and the total is not the target; the headline number closed via
-      Step 5c deleting a dependency, not via prose. **D2 — `help` keeps its
+      skill edited; argument in `AUDIT-2026-09-06.md` §1's addendum. **D1 —
+      `≤120 lines` is RETIRED**: 62% of what leaves a `SKILL.md` returns as
+      `references/`, so the total is not the target. **D2 — `help` keeps its
       slash command, loses its body** — executed in 6e.
 
 - [x] **Step 6e — dedupe + execute D2. Step 6 CLOSED.** **DONE 2026-09-09 —
@@ -122,38 +117,43 @@ Each step is sized for a single low-usage session. Mark done as you go.
       per-case `multi_turn_case_reserved` (WARN). Argument + both corrections:
       `AUDIT-2026-09-06.md` §8's RESOLVED block.
 
-- [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** The recon's
-      five claims all re-verified true (rare — say so). **The remote decision
-      went to the user: write CI knowingly as a spec.** `.github/workflows/
-      ci.yml` therefore opens by stating it has NEVER executed and that the
-      checked claim is §4's local commands — do not cite it as evidence.
-      `pyproject.toml` is **dev-tooling only, no `[project]` table** — that
-      absent `[project.dependencies]` is the one slot a runtime import could
-      enter through. **`ruff.toml` did NOT fold in**, so the blessed commands
-      are UNCHANGED. `.tool-versions` keeps 3.11.11 and argues why. CI's matrix
-      is REAL interpreters (3.9/3.11/3.13, 552 each); its `--help` job skips
-      `_common.py` by name. **`REVIEW` §3's other two items stay closed.**
+- [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** All five
+      recon claims re-verified true (rare — say so). **The remote decision went
+      to the user: write CI knowingly as a spec**, so `ci.yml` opens by stating
+      it has NEVER executed — do not cite it as evidence. `pyproject.toml` is
+      **dev-tooling only, no `[project]` table**; **`ruff.toml` did NOT fold
+      in**, so §4's blessed commands are UNCHANGED. Detail: `AUDIT`
+      §"RESOLVED … (Step 8a)".
 
 - [x] **Step 8b — Stale artifacts + the `micro_f1` relabel. Step 8 CLOSED.**
-      **DONE 2026-09-10 — `593aad1`.** Recon re-verified (36 errors exactly, and
-      they are three codes × 12, not 36 defects), but §10's "every case
-      accepted by `test-generator`" was **WRONG**: 6 of 12, plus 5 by a human
-      and 1 quarantined. **(a) RELABELLED, not regenerated** —
-      `field-test-qa/.agent-eval/LAYOUT.md`. It is the only §4-halt fixture,
-      it is a *second* fixture for a pre-runner run (no `verdicts*.jsonl` →
-      exit 6 today), and it is **not reproducible** (read-only app, dirty sha).
-      **`REVIEW` §10's "regenerate the worked example" is therefore NOT DONE
-      and the plugin ships no conforming example** — a later step must build a
-      NEW one. **(b) `micro_f1` relabelled, KEY UNCHANGED** (baselines read it;
-      §2's line holds). New by experiment: it is **not** the report's
-      `accuracy` (0.5 vs 0.6667 — the matrix excludes accepted_alternates), so
-      dropping it deletes the warning *and* that number. `AUDIT` §"RESOLVED …
-      (Step 8b)".
+      **DONE 2026-09-10 — `593aad1`.** Both **relabelled, neither
+      regenerated**; §10's "every case accepted by `test-generator`" was
+      **WRONG** (6 of 12; 5 by a human, 1 quarantined). **`REVIEW` §10's
+      "regenerate the worked example" is NOT DONE — the plugin ships no
+      conforming end-to-end example**, and a later step must build a NEW one
+      rather than spend the fixture. `micro_f1`'s **key is unchanged**; it is
+      not the report's `accuracy` (0.5 vs 0.6667). Full argument, both
+      fixtures and the experiment: `AUDIT` §"RESOLVED … (Step 8b)".
 
-- [ ] **Step 9 — Reopen `REVIEW-2026-08-08.md` §§4–5**: cost/latency as
-      first-class metrics, `score_agreement.py` to close the judge loop (the
-      viewer exports annotation JSONL nothing reads back), the longitudinal
-      run-history layer, and the RAG/retrieval layer.
+**Step 9 is FOUR steps, not one** — reconned 2026-09-10, see `AUDIT`
+§"Step 9 recon". Work them in this order, one per session:
+
+- [ ] **Step 9a — close the judge loop (`REVIEW` §4.4).** Build
+      `score_agreement.py` (TPR/TNR/κ). **Do this first: the gate is
+      unsatisfiable in code today** — `run_cases.py`:2243 and
+      `optimize/SKILL.md`:21 gate on `judge.status: calibrated`, which
+      `profile-schema.md`:121-128 says is DERIVED from per-rubric tpr/tnr/
+      kappa, and nothing derives it. Note §4.4 is imprecise: the viewer DOES
+      read its annotation JSONL back (`build_review_viewer.py`:42-47) — no
+      **scorer** consumes it.
+- [ ] **Step 9b — run history (`REVIEW` §4.9).** `run_history.py`: per-metric
+      time series + monotone-drift flag. Cheap aggregation, data already on disk.
+- [ ] **Step 9c — cost/latency (`REVIEW` §4.3).** `cost_usd` is RENDERED by
+      the viewer (:379, :384) and written by nothing; `stats.py` is binary-only.
+      Needs a price table + a continuous statistic — a design decision. **Keep
+      out of 9a's session.**
+- [ ] **Step 9d — RAG/retrieval (`REVIEW` §4.6).** Greenfield: grep finds
+      nothing. Probably its own wave, not a step.
 
 ---
 
