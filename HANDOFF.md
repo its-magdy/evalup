@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-09 (Step 6d done — the two decisions; ≤120 lines retired)
+**Last updated:** 2026-09-09 (Step 6e done — Step 6 is CLOSED; next is Step 7)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -65,18 +65,15 @@ Each step is sized for a single low-usage session. Mark done as you go.
       audit's offender list was wrong in both directions** — grep, don't work a
       list.
 
-- [x] **Step 3 — The three scorer bugs + a regression test each.**
-      **DONE 2026-09-08 — `0d2aa91`.** Each was a class with siblings, and the
-      hunt found more than the audit named: `sub_mde_keep`; NFC in **six**
-      scorers via `_common.nfc` (regex stays asymmetric on purpose);
-      `--oos-route` and `score_authz --id-pattern`; `stringify`'s `ensure_ascii`.
-
-- [x] **Step 4 — Tighten `validate_cases.py`.**
-      **DONE 2026-09-08 — `201aa2a`.** The severity line, in the docstring and
-      case-format.md: **ERROR = a claim nothing backs; WARN = a suite thinner
-      than the guidance recommends.** Four new ERRORs (`missing_split`,
-      `_test_type`, `_template_id` — the KEY'S PRESENCE — `_metamorphic_parent`)
-      + required `--capabilities`. The shipped 12-case field test: 0 → 36, all true.
+- [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`.**
+      **DONE 2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with
+      siblings: `sub_mde_keep`; NFC in **six** scorers via `_common.nfc` (regex
+      stays asymmetric on purpose); `--oos-route`; `score_authz --id-pattern`;
+      `stringify`'s `ensure_ascii`. The validator's severity line — **ERROR = a
+      claim nothing backs; WARN = a suite thinner than the guidance
+      recommends** — is in its docstring and `case-format.md`; four new ERRORs
+      (incl. `_template_id` — the KEY'S PRESENCE) + required `--capabilities`
+      took the shipped 12-case field test 0 → 36, all true.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
       `77d3778`, `c9bc4f7`, `5e573c9`.** Spec is `agent-eval/docs/runner-contract.md`;
@@ -109,40 +106,32 @@ Each step is sized for a single low-usage session. Mark done as you go.
       needed none. Section numbers preserved in all three (cited by number from
       `run-modes.md`, `generate`, `optimize`, `dotnet.md`).
 
-- [x] **Step 6d — the two decisions.** **DONE 2026-09-09.** No skill edited.
-      The metric, the measurements and the argument are in `AUDIT-2026-09-06.md`
-      §1's addendum; only the calls are here.
+- [x] **Step 6d — the two decisions.** **DONE 2026-09-09 — `4ede98f`.** No
+      skill edited; the metric, the measurements and the argument are in
+      `AUDIT-2026-09-06.md` §1's addendum. **D1 — `≤120 lines` is RETIRED and
+      `SKILL.md` slimming is DONE**: 62% of what leaves a `SKILL.md` comes back
+      as `references/`, so the total and "move rationale out" are in direct
+      tension and the total is not the target; the headline number closed via
+      Step 5c deleting a dependency, not via prose. **D2 — `help` keeps its
+      slash command, loses its body** — executed in 6e.
 
-      **D1 — `≤120 lines` is RETIRED and `SKILL.md` slimming is DONE.** On the
-      audit's own metric the total goal is *not* hit (33,790 → 31,242), and 120
-      lines would not hit it: **62% of what leaves a `SKILL.md` comes back in
-      `references/`** — which is the move the audit asked for. The two goals are
-      in tension; the total is not the target. The headline number *is* closed
-      (`run` ~12,800 → ~4,891), by **Step 5c deleting the dependency**, not by
-      prose. `≤18 words/sentence` is hit on all four; `start` and `optimize`
-      pass on lines and fail on density. **What remains is duplication, not
-      length** → 6e.
-
-      **D2 — `help` KEEPS its slash command, LOSES its body** (execute in 6e).
-      All seven sections are owned elsewhere — `README`, `docs/workflow.md`,
-      `docs/concepts.md`, `optimize` §Preconditions — but **not** by `start`,
-      which owns almost none of it and *cites* `help` twice, so "fold it into
-      `start`" was the wrong shape. Not deleted outright: that deletes
-      **`/agent-eval:help`**, which `README`:25 advertises as the escape hatch
-      and `start` cannot absorb (a *doing* skill that first demands an app path
-      — the wrong answer to "what is this?"). So: ~35 lines that **dispatch and
-      explain nothing**.
-
-- [ ] **Step 6e — dedupe + execute D2.** Counts re-verified 2026-09-09:
-      `PROVISIONAL` **8** files, `state_location` **6**, `reports/baseline.json`
-      **7** (audit said 8; Step 6 removed one). **`help` is in all three lists**,
-      so gut it here, and move its one unowned paragraph — the route-target
-      definition — to `docs/concepts.md`. **Re-point three citations first:**
-      `start`:55,59 → `concepts.md` §Staged rigor; `scripts/md_to_html.py`:5 and
-      `annotation-ux.md`:96 → `workflow.md` §Who does what (both quote help's
-      "Reviewer… never needs Claude Code", which `workflow.md` owns). No test
-      pins `help`; `plugin.json` takes the whole `./skills/` dir, so the command
-      survives iff the directory does.
+- [x] **Step 6e — dedupe + execute D2. Step 6 is now CLOSED.** **DONE
+      2026-09-09 — `a22ce8e`.** The triage came first and changed the job: of the three
+      counts, **only `help` duplicated anything.** Every other mention is a
+      *use* (a procedure step naming the field) or an *owner* —
+      `adapter-contract.md`:22 for `state_location`; `runner-contract.md` +
+      `migrate-run-layout.md` for `reports/baseline.json`; `rubric-format.md`
+      §5 + `concepts.md` §The judge for `PROVISIONAL`. Nothing was moved for
+      them: **a MENTION count is not a duplication count.** `help`: 124 → 42
+      lines (1,403 → **602** tokens), a 12-row dispatch table and nothing else.
+      Its frontmatter `description` GREW — with no body it is the only thing
+      that fires the skill. Its one unowned paragraph, the route-target
+      definition, is now `concepts.md` §Route targets. Three citations
+      re-pointed **before** the prose died: `start`:55,59 → `concepts.md`
+      §Staged rigor (so `start` now cites `help` **zero** times);
+      `md_to_html.py`:5 and `annotation-ux.md`:96 → `workflow.md` §Who does
+      what, re-quoted to *its* wording. The `~50+ deterministic-only` drift
+      died with the paragraph. Skills prose 31,242 → **30,448**.
 
 - [ ] **Step 7 — Decide multi-turn.** Promised in `adapter-contract.md`,
       `case-format.md` and a `validate_cases.py` warning, but
