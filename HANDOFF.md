@@ -131,7 +131,8 @@ Each step is sized for a single low-usage session. Mark done as you go.
       §Staged rigor (so `start` now cites `help` **zero** times);
       `md_to_html.py`:5 and `annotation-ux.md`:96 → `workflow.md` §Who does
       what, re-quoted to *its* wording. The `~50+ deterministic-only` drift
-      died with the paragraph. Skills prose 31,242 → **30,448**.
+      died with the paragraph. Skills prose 31,242 → **30,448**. The triage
+      itself is recorded in `AUDIT-2026-09-06.md` §1 (Step 6e block) and §4.
 
 - [ ] **Step 7 — Decide multi-turn.** Promised in `adapter-contract.md`,
       `case-format.md` and a `validate_cases.py` warning, but
