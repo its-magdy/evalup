@@ -13,6 +13,15 @@ trace scored as "missing tool call" is a manufactured failure. Missing result
 content-dependent checks (argument faithfulness, answer faithfulness) are
 reported unscorable.
 
+## Route targets — the vocabulary
+
+A **route target** is whatever the app dispatches between before it acts: a
+*domain* (router→executor), a *node* (graph), or a *sub-agent* (orchestrator).
+The three are the same object under three architectures, which is why one
+routing layer scores all of them. An app that never dispatches — a single LLM
+call with tools — has no route targets, so the routing layer simply does not
+apply to it; every other layer still does.
+
 ## Layers and credit assignment
 
 A single "was the answer good?" score can't tell you which prompt to fix.

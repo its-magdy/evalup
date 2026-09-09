@@ -52,11 +52,11 @@ work on them at once.
 
 3. **State the stage.** Read the `stage` field from `profile.yaml` (or the one
    discover just wrote) and tell the user plainly what is unlocked and what is
-   locked and why (see help skill's "Staged rigor"). Frame locks as "unlocks
-   when X," never as missing features.
+   locked and why (`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Staged rigor has
+   the stage table). Frame locks as "unlocks when X," never as missing features.
 
    Naming the stage is not enough on its own — "stage: invariant" means nothing
-   to someone who hasn't read the help skill, so always spell out the one or
+   to someone who has not read that table, so always spell out the one or
    two things it currently gates. Do this on every reply, including the ones
    that route to a blocked or broken state (checks 2, 3, and a dangling
    baseline pointer in 4). Those are precisely the moments a user is deciding

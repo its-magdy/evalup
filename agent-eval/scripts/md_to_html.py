@@ -2,9 +2,9 @@
 """Stdlib-only Markdown -> self-contained HTML converter for agent-eval reports.
 
 `run`/`analyze` write reports as Markdown; this renders a matching `.html` a
-non-technical reviewer can double-click and read (help/SKILL.md: "Reviewer
-(QA) ... never needs Claude Code: datasets are plain YAML, reports are
-HTML/markdown."). This script is the piece that promise depended on and that
+non-technical reviewer can double-click and read (docs/workflow.md, "Who does
+what": "QA and the arbiter never need Claude Code: datasets are YAML, reports
+are HTML/Markdown."). This script is the piece that promise depended on and that
 was previously missing (QA punch-list gap: "missing .md->.html converter").
 
 Supports exactly the subset the reports actually use: headings (#..######),
