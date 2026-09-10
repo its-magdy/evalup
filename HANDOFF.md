@@ -118,7 +118,7 @@ in no step. **Order: 9a → 10 → 9b → 9c, then STOP.** Four sessions, not ni
       including why the recon's "all data already on disk" was FALSE and why κ
       gets Fisher's exact p and no confidence interval.
 - [x] **Step 10 — RESERVE `REVIEW` §4's items 2, 5, 7, 8 and 10. DONE
-      2026-09-10 — `<sha>`.** All five reserved, none built; body in `AUDIT`
+      2026-09-10 — `d22bcaa`.** All five reserved, none built; body in `AUDIT`
       §"RESOLVED … (Step 10)". **§4.7 was the live one**: `expect.state` graded
       `trajectory` in the validator, so a state-only case cleared
       `no_graded_layer` — and **rollup rule 5 then let the `http` row carry it
