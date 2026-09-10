@@ -134,7 +134,9 @@ scope creep in the tool itself.
   ```yaml
   environment:
     kind: seeded-staging
-    seed: "Fixtures/SeedCase.cs"        # invoked via a small CLI runner, or dotnet test category
+    # RESERVED: recorded here, invoked by nothing (adapter-contract.md). Run
+    # the seed/reset yourself before the suite -- run_cases.py will not.
+    seed: "Fixtures/SeedCase.cs"        # a small CLI runner, or a dotnet test category
     reset: "Fixtures/RespawnReset.cs"
     snapshot_state: "Fixtures/DumpState.cs"
     safe_to_attack: false
@@ -211,7 +213,10 @@ invocation:
   mode: function
   entrypoint: "RefApp.Program"
   auth: { type: headers, headers: { X-Test-Persona: ${TEST_PERSONA} } }
-  streaming: sse
+  # No `streaming:`. The app streams SSE to its real UI; the harness reads a
+  # complete response and measures no TTFT, so declaring it here would teach a
+  # key nothing reads (adapter-contract.md). Point `invocation` at the
+  # non-streaming route the tests already use.
   timeout_s: 60
   max_concurrency: 1
 
@@ -230,9 +235,9 @@ tools:
 
 environment:
   kind: seeded-staging
-  seed: "Fixtures/SeedCase.cs"
-  reset: "Fixtures/RespawnReset.cs"
-  snapshot_state: "Fixtures/DumpState.cs"
+  seed: "Fixtures/SeedCase.cs"          # RESERVED -- see above; you run these, not the harness
+  reset: "Fixtures/RespawnReset.cs"     # RESERVED
+  snapshot_state: "Fixtures/DumpState.cs"   # RESERVED
   safe_to_attack: false
 
 oracle:

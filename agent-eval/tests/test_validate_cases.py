@@ -288,6 +288,22 @@ class TestErrorFindings(ValidateTest):
         self.assertEqual(
             sum(1 for c in self.codes(out) if c == "unquoted_bool_or_number"), 2)
 
+    def test_state_only_case_is_an_error_not_a_free_pass(self):
+        """Step 10. `expect.state` used to map onto the trajectory layer, so a
+        case whose only expectation was an end-state assertion earned the
+        graded stamp -- and run_cases.py then scored `state` unscored (no
+        state-diff scorer exists) and rolled the case up to `pass` off its
+        `http` row alone. A case that cannot fail is precisely what
+        no_graded_layer exists to stop, so the mapping is gone and the ERROR
+        names the reserved key rather than claiming the case asserts nothing.
+        """
+        case = good_case("c-state", expect={"state": {"unchanged": True}})
+        f = self.assert_finds("no_graded_layer", [case])
+        self.assertIn("expect.state", f["message"])
+        self.assertIn("RESERVED", f["message"])
+        # ...and it is NOT reported as http-only: it did assert something.
+        self.assertNotIn("expect.http", f["message"])
+
 
 class TestWarnFindings(ValidateTest):
     def test_no_op_pass(self):
@@ -355,6 +371,42 @@ class TestWarnFindings(ValidateTest):
                                          {"role": "user", "content": "c"}]
         self.assertNotIn("multi_turn_case_reserved",
                          self.codes(self.validate(cases)[1]))
+
+    def test_reserved_expectation_warns_beside_a_real_layer(self):
+        """With a graded layer present the case is fine; the state key is dead
+        weight, which is a WARN on Step 4's line (wasted authoring, no false
+        number) exactly as multi_turn_case_reserved is."""
+        case = good_case("c-mixed", expect={"answer": {"must_contain": ["x"]},
+                                            "state": {"unchanged": True}})
+        f = self.assert_finds("reserved_expectation", [case], severity="WARN")
+        self.assertEqual(f["case_id"], "c-mixed")
+        self.assertIn("expect.state", f["message"])
+        # An empty/absent state key is not an assertion and stays silent.
+        self.assertNotIn("reserved_expectation", self.codes(self.validate(
+            [good_case("c-quiet", expect={"answer": {"must_contain": ["x"]},
+                                          "state": None})])[1]))
+
+    def test_reserved_case_fields_warn(self):
+        """seed_state, excluded_tools and available_tools are declared by
+        case-format.md and driven by nothing: run_cases.py never invokes
+        environment.seed/.reset/.snapshot_state, no layer scores a tool the
+        agent was told to avoid, and the tool catalog cannot be narrowed per
+        case. Each one silently changes what the author thinks the case tests,
+        so each says so once."""
+        for field, value, code in (
+                ("seed_state", "fixtures/base.sql", "seed_state_not_loaded"),
+                ("excluded_tools", ["delete_user"],
+                 "excluded_tools_not_scored"),
+                ("available_tools", ["get_invoice"],
+                 "available_tools_not_scoped")):
+            with self.subTest(field=field):
+                f = self.assert_finds(code, [good_case(**{field: value})],
+                                      severity="WARN")
+                self.assertIn(field, f["message"])
+                # Empty is the documented default and must stay silent.
+                self.assertNotIn(code, self.codes(self.validate(
+                    [good_case(**{field: [] if isinstance(value, list)
+                                  else None})])[1]))
 
     def test_no_metamorphic_coverage(self):
         cases = [good_case(f"c-happy-{i}") for i in range(11)]

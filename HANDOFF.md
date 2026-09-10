@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 9a DONE — the judge gate is derived; next is Step 10)
+**Last updated:** 2026-09-10 (Step 10 DONE — five reserved, and `http` no longer carries a case; next is 9b)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -19,10 +19,10 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Branch:** `run-layout-consistency`. Main branch is `main`.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
-- **Health:** **590** tests pass (~2min), ruff clean, all **15** CLI scripts
-  `--help` rc=0. Verified 2026-09-10 on **3.9, 3.11, 3.13 and 3.14** — 590
-  each. The blessed `unittest` command runs on whatever `python3` is (here
-  3.14), so the uv 3.9 floor check below is not optional.
+- **Health:** **594** tests pass (~2min), ruff clean, all **15** CLI scripts
+  `--help` rc=0. Verified 2026-09-10 on **3.14 and 3.9** (the blessed
+  `unittest` command runs on whatever `python3` is — here 3.14 — so the uv 3.9
+  floor check below is not optional).
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -64,11 +64,11 @@ Each step is sized for a single low-usage session. Mark done as you go.
       paths bare (README §"Path convention"). **The audit's offender list was
       wrong in both directions** — grep, don't work a list.
 
-- [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`.**
-      **DONE 2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with
-      siblings (NFC needed fixing in **six** scorers via `_common.nfc`). The
-      severity line — **ERROR = a claim nothing backs; WARN = a suite thinner
-      than the guidance recommends** — is in the docstring + `case-format.md`.
+- [x] **Steps 3–4 — the three scorer bugs; tighten `validate_cases.py`. DONE
+      2026-09-08 — `0d2aa91`, `201aa2a`.** Each bug was a class with siblings
+      (NFC needed fixing in **six** scorers via `_common.nfc`). The severity
+      line — **ERROR = a claim nothing backs; WARN = a suite thinner than the
+      guidance recommends** — is in the docstring + `case-format.md`.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
       `77d3778`, `c9bc4f7`, `5e573c9`.** Body in `AUDIT` §2 + the contract
@@ -82,24 +82,19 @@ Each step is sized for a single low-usage session. Mark done as you go.
       the run is neither quotable nor a baseline; **7** = artifacts complete,
       numbers not).
 
-- [x] **Steps 6a–6c — slim `generate`, `analyze`, `discover`.**
-      **DONE 2026-09-09 — `86b602e`, `d6bf421`, `6268cc3`.** 401→159, 252→167,
-      235→160. Each began with an **ownership pass**, and that pass — not
-      fatigue — set the floor: the residue is procedure. Section numbers
-      preserved in all three (cited BY NUMBER from four other files).
+- [x] **Steps 6a–6c — slim `generate`, `analyze`, `discover`. DONE 2026-09-09
+      — `86b602e`, `d6bf421`, `6268cc3`.** Body in `AUDIT` §1's re-measured block.
 
-- [x] **Step 6d — the two decisions.** **DONE 2026-09-09 — `4ede98f`.** No
-      skill edited; argument in `AUDIT` §1's addendum. **D1 — `≤120 lines` is
-      RETIRED**: 62% of what leaves a `SKILL.md` returns as `references/`, so
-      the total is not the target. **D2 — `help` loses its body** — done in 6e.
+- [x] **Step 6d — the two decisions. DONE 2026-09-09 — `4ede98f`.** No skill
+      edited. **D1 — `≤120 lines` is RETIRED; D2 — `help` loses its body** (6e).
+      Argument in `AUDIT` §1's addendum and §12 rec 5.
 
 - [x] **Step 6e — dedupe + execute D2. Step 6 CLOSED.** **DONE 2026-09-09 —
       `a22ce8e`.** Of the three counts **only `help` duplicated anything** — **a
       MENTION count is not a duplication count**. `AUDIT` §1 + §4.
 
-- [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
-      `337181a`.** Body in `AUDIT` §8's RESOLVED block — read it before Step
-      10, which rests on its precedent.
+- [x] **Step 7 — Decide multi-turn: RESERVED. DONE 2026-09-10 — `337181a`.**
+      Body in `AUDIT` §8's RESOLVED block; Step 10 rests on its precedent.
 
 - [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** Body in
       `AUDIT` §"RESOLVED … (Step 8a)". Two facts §4 depends on: **CI was
@@ -119,42 +114,41 @@ in no step. **Order: 9a → 10 → 9b → 9c, then STOP.** Four sessions, not ni
 
 - [x] **Step 9a — close the judge loop (`REVIEW` §4.4). DONE 2026-09-10 —
       `eebd318`.** `score_agreement.py` **plus a gate change in
-      `run_cases.py`** — a scorer that only emitted numbers would leave
-      `judge.status` exactly as hand-set as it was, so `calibrated` is now
-      **necessary and not sufficient**: it must be backed by
-      `paths.judge_calibration`, the scorer's `.json` sidecar, whose
-      `rubrics_measured` must cover every rubric a selected case pins. **The
-      recon was wrong once — "all data already on disk" is FALSE**: the runner
-      writes the judged layer `unjudged` on *every* path, so nothing holds a
-      judge verdict and the judge/human pairing must be recorded at labeling
-      time (`judge_label` on the annotation line). κ gets **no confidence
-      interval** — the usual one is a normal approximation, so Fisher's exact
-      p instead. `AUDIT` §"RESOLVED … (Step 9a)".
-- [ ] **Step 10 — RESERVE `REVIEW` §4's items 2, 5, 7, 8 and 10.** Multi-agent
-      attribution, per-layer stats, environment lifecycle, streaming, and the
-      schema fields with no scorer. **A reserve sweep, not a build wave** — all
-      five are the same shape Step 7 fixed (a field or declaration with no
-      scorer behind it), and §4 item 10 says "or mark the fields reserved"
-      itself. Use 7's `multi_turn_case_reserved` WARN pattern. Cheapest real
-      work left; do it before 9b/9c inherit the overclaims.
+      `run_cases.py`** (§4's gotcha). Body in `AUDIT` §"RESOLVED … (Step 9a)",
+      including why the recon's "all data already on disk" was FALSE and why κ
+      gets Fisher's exact p and no confidence interval.
+- [x] **Step 10 — RESERVE `REVIEW` §4's items 2, 5, 7, 8 and 10. DONE
+      2026-09-10 — `<sha>`.** All five reserved, none built; body in `AUDIT`
+      §"RESOLVED … (Step 10)". **§4.7 was the live one**: `expect.state` graded
+      `trajectory` in the validator, so a state-only case cleared
+      `no_graded_layer` — and **rollup rule 5 then let the `http` row carry it
+      to `pass`**. That half was never about `state`: `http` applies to every
+      case, so ANY case whose real layers came back `unscored`/`unscorable`
+      passed. See §4's gotcha. Exactly one test failed when it was fixed — the
+      one asserting the old behaviour under the name
+      `test_a_vacuous_case_is_not_a_pass`. **§4.2 is a doc correction** (its
+      build shrank to an owner field no scorer would read); **§4.5 is a
+      non-finding** — nothing declares a per-layer statistic, so there is
+      nothing to reserve. 4 WARNs + 1 ERROR (by deletion, not a new check).
 - [ ] **Step 9b — run history (`REVIEW` §4.9).** `run_history.py`: per-metric
       time series + monotone-drift flag. Cheap aggregation, data already on disk.
 - [ ] **Step 9c — cost/latency (`REVIEW` §4.3).** `cost_usd` is RENDERED by
       the viewer (:379, :384) and written by nothing; `stats.py` is binary-only.
-      Needs a price table + a continuous statistic — a design decision. **Keep
-      out of 9a's session.** When this lands the remediation wave is DONE.
+      Needs a price table + a continuous statistic — a design decision. Step 10
+      left it one gift: `capability_matrix.cost_latency` is enabled and has NO
+      row in the layer table, so the runner emits nothing for it on any case.
+      When this lands the remediation wave is DONE.
 
 **Not steps.** `REVIEW` §4.6 (RAG/retrieval) is greenfield — grep returns zero
-files — so it is a new capability, not a defect, and it is **out of the plan**;
-pick it up only if wanted. `REVIEW` §5's five "ideas worth stealing" are the
-same: optional, none is a defect.
+files — so it is a new capability, not a defect, and **out of the plan**.
+`REVIEW` §5's five "ideas worth stealing" are the same: optional, not defects.
 
 ---
 
 ## 4. Gotchas a new session will otherwise rediscover the hard way
 
 - **Commands** (run from `agent-eval/`):
-  - `python3 -m unittest discover -s tests` — 551 tests, ~2min, the blessed
+  - `python3 -m unittest discover -s tests` — 594 tests, ~2min, the blessed
     command. (`test_run_cases.py` is most of the time: a real HTTP server per
     test, and one test kills a runner mid-run.)
   - `ruff check --config ruff.toml .` — `--config` is not decoration:
@@ -175,6 +169,14 @@ same: optional, none is a defect.
   is necessary, not sufficient: `run_cases.py` also demands
   `paths.judge_calibration`'s sidecar (`score_agreement.py --write`). Every
   failure is a reason string on the `unjudged` layer, never an exit code.
+- **`http` no longer carries a case to `pass` (Step 10).** Rollup rule 5 is
+  **non-`http`**; rule 6 keeps a case that asserts nothing else a pass. So a
+  case whose real layers are all `unscored`/`unscorable` now rolls up
+  `unscored`. Never `fail` — the change can only be more conservative.
+- **Five things are RESERVED and the validator WARNs on each:** `expect.state`,
+  `seed_state`, `available_tools`, `excluded_tools` (+ `difficulty`, doc-only).
+  `run_cases.py` calls `environment.seed/.reset/.snapshot_state` **nowhere** —
+  seed out of band. Do not "wire up" one without a scorer to read it.
 - **The holdout ledger is a `.jsonl` sidecar** (`datasets/holdout-looks.jsonl`,
   from the plan's `paths.holdout_ledger`), not the YAML dataset metadata — a
   stdlib-only runner would corrupt the YAML. The running total is a LINE COUNT,

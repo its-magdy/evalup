@@ -29,6 +29,16 @@ checks.spans_missing_duration. Token usage is recorded per LLM call and
 rolled up to the nearest ancestor invoke_agent span, so per-stage cost is
 derivable from the output.
 
+WHAT IS NOT ATTRIBUTED, since the rollup above makes it look like it might be:
+tool_calls carry name/call_id/args/result/error/duration and NO owning agent,
+no span_id and no parent, and llm_calls carry no prompt or response text. The
+parent chain is walked for the token rollup and then discarded. So per-agent
+COST ships and per-agent BEHAVIOUR does not: no scorer can say which sub-agent
+made a call, which is why agent-scoped expectations are reserved
+(case-format.md) and why per-handoff capture is not a thing this harness has.
+Adding the owner field alone would only move the gap one layer along -- nothing
+downstream reads it -- so it waits for the scorer that would.
+
 Usage: normalize_trace.py <spans.json> --trace-id <id>
 Output: {"status": "ok"|"incomplete", "trajectory": {...}, "checks": {...}}
 """

@@ -933,10 +933,11 @@ def dotted_get(node, path):
 def roll_up(layers, skipped_reason):
     """SS10's case-verdict rollup, first match wins.
 
-    Rule 6 is the point of the whole ordering: a case whose every layer came
+    Rule 7 is the point of the whole ordering: a case whose every layer came
     back n/a / unscorable / unscored is NOT a pass. That is the vacuous-case
     failure validate_cases.py lints for at authoring time, caught again here at
-    run time.
+    run time -- and rules 5-6 are what make it bite (see below): `http` alone
+    is a pass only for a case that asserts nothing else.
 
     The scorer-error rule sits ABOVE `fail` deliberately (SS5.1: "the case rolls
     up to unscored"). A case with a broken scorer has a number nobody should
@@ -954,7 +955,22 @@ def roll_up(layers, skipped_reason):
         return UNSCORED
     if FAIL in values:
         return FAIL
-    if PASS in values:
+    # Rule 5, and `http` is excluded from it on purpose (Step 10). A status
+    # code is a LIVENESS check -- validate_cases.py refuses to count it toward
+    # gradedness for exactly this reason -- so letting it be the one `pass`
+    # that carries a case made every case whose real layers came back
+    # unscored/unscorable a `pass`: a trace-less run of an expect.tools case,
+    # an answer the adapter's <answer> path could not reach, and every
+    # RESERVED expectation (expect.state) alike. SS5 says a `pass` on an
+    # unscorable trajectory row "would have been a lie"; this is where the lie
+    # was told, one level up. A case that asserts nothing BUT http is still a
+    # pass -- there the liveness check is the whole claim.
+    if any(name != "http" and layer.get("verdict") == PASS
+           for name, layer in layers.items()):
+        return PASS
+    if layers.get("http", {}).get("verdict") == PASS and not [
+            name for name, layer in layers.items()
+            if name != "http" and layer.get("verdict") != NA]:
         return PASS
     return UNSCORED
 
@@ -1934,8 +1950,16 @@ class Runner:
             layers["rules"] = unscored(
                 "rules", "business rules are evaluated by the skill")
         if live("state"):
+            # RESERVED, and the reason says so rather than naming a field the
+            # user could go declare. It used to read "state-diff needs
+            # environment.snapshot_state", which is a to-do the adapter cannot
+            # discharge: nothing in this runner calls seed, reset or
+            # snapshot_state, so declaring all three changes nothing here.
+            # Same correction Step 7 made to the multi_turn blocked_by string.
             layers["state"] = unscored(
-                "state", "state-diff needs environment.snapshot_state")
+                "state", "state-diff is RESERVED: no scorer compares "
+                         "environment snapshots, and the runner never invokes "
+                         "environment.seed/.reset/.snapshot_state")
         if live("judged"):
             layers["judged"] = {"layer": "judged",
                                 "verdict": f"unjudged ({self.unjudged_reason()})"}

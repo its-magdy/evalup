@@ -1249,16 +1249,38 @@ class TestLayerTable(RunnerCase):
         self.assertNotEqual(layers["authz"]["verdict"], "pass")
 
     def test_a_vacuous_case_is_not_a_pass(self):
-        """SS10 rule 6, caught at run time as well as at authoring time."""
+        """SS10 rule 6, caught at run time as well as at authoring time.
+
+        This test used to assert the opposite -- that the case below PASSES on
+        its `http` row alone -- which is the defect Step 10 found rather than a
+        rule anyone chose. `expect.state` is RESERVED (no scorer compares
+        environment snapshots), so this case measured nothing about the app's
+        behaviour, and a status code is a liveness check: `validate_cases.py`
+        already refuses to count `expect.http` toward gradedness. Counting it
+        one level up, in the rollup, is what turned every unscorable real layer
+        into a pass -- a trace-less `expect.tools` case included.
+        """
         case = make_case("c-0001", expect={"state": {"unchanged": True}})
         plan = make_plan(self.state, self.app.base_url, cases=[case])
         self.invoke(plan)
         verdict = self.read("cases", "c-0001", "verdict.json")
         self.assertEqual(verdict["layers"]["state"]["verdict"], "unscored")
+        self.assertIn("RESERVED", verdict["layers"]["state"]["reason"])
+        # The app answered, and that is recorded honestly...
         self.assertEqual(verdict["layers"]["http"]["verdict"], "pass")
-        # `state` is unscored and `http` passed, so the case passes on http
-        # alone -- and every other layer says n/a out loud rather than
-        # contributing a silent pass.
+        # ...but it does not carry the case: nothing behavioural was scored.
+        self.assertEqual(verdict["verdict"], "unscored")
+
+    def test_http_only_case_still_passes_on_liveness(self):
+        """The other side of the same rule. When `http` is the ONLY applicable
+        layer the liveness check IS the whole claim, so it still rolls up to
+        `pass` -- excluding http from rule 5 must not turn a deliberate
+        responds-always case into an unscored one."""
+        case = make_case("c-0001", expect={"http": {"status": 200}})
+        plan = make_plan(self.state, self.app.base_url, cases=[case])
+        self.invoke(plan)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["http"]["verdict"], "pass")
         self.assertEqual(verdict["verdict"], "pass")
         self.assertEqual(
             {name for name, layer in verdict["layers"].items()

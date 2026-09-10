@@ -75,8 +75,15 @@ invocation:
   # is an honest gap; a wrong field is a number that reads as a measurement.
   route_from_response: "route"            # dotted path to the route the app took.
                                           # Highest priority. Next is a collected
-                                          # trace's first invoke_agent span name
+                                          # trace's FIRST invoke_agent span name
                                           # (gen_ai.agent.name), then the map below.
+                                          # "First" is by span start time, so on a
+                                          # multi_agent app whose orchestrator is itself
+                                          # an invoke_agent span the trace fallback names
+                                          # the ORCHESTRATOR, not the sub-agent that
+                                          # handled the turn -- and no attribution exists
+                                          # to tell them apart. Declare this field on any
+                                          # app with a dispatching parent agent.
   route_from_status:                      # optional, trace-less apps only. Makes
     200: "<answered>"                     # status-derived routing DECLARED and per-app
     400: "__oos__"                        # instead of a runner-wide heuristic. Without
@@ -110,7 +117,14 @@ invocation:
   # NO session block. Multi-turn is RESERVED (hard rule 3): the harness has no
   # conversation driver, so there is nothing for start/send_turn/end to feed.
   # Declaring one is not forward-compatible, it is harmful -- see hard rule 3.
-  streaming: none | sse | websocket   # how to detect "response complete"; capture TTFT
+  # NO streaming field. It declared "how to detect response complete; capture
+  # TTFT" and did neither: nothing in run_cases.py reads it, no TTFT is
+  # recorded anywhere, and completion is EOF (http) or return (function).
+  # Declaring it bought a worked example (dotnet.md shipped `streaming: sse`)
+  # that taught a setting with no effect. If the app answers ONLY over SSE,
+  # the runner reads the raw event-stream text as the body, so point the
+  # adapter at a non-streaming route or expect answer extraction to fail
+  # `unscored`. Wall-clock `latency_s` IS recorded per case; TTFT is not.
   timeout_s: 60
   max_concurrency: 1           # serial by default. > 1 is REFUSED (exit 2) by
                                # run_cases.py rather than silently serialized:
@@ -141,13 +155,18 @@ tools:                          # side-effect classification — from discover, 
   - { name: send_email,     side_effects: never-live }
 
 environment:
-  kind: seeded-staging | mocked | live-readonly
-  # seeded-staging unlocks state-diff ground truth.
-  # These are YOUR app's scripts, relative to the app root:
-  seed: "tools/seed_test_db.py"            # per-case seeding
-  reset: "tools/reset_test_db.py"          # between cases
-  snapshot_state: "tools/dump_state.py"    # for end-state assertions
-  safe_to_attack: false        # red-team/chaos refuse to run unless true
+  kind: seeded-staging | mocked | live-readonly   # READ by run_cases.py (hard rule 2)
+  # The three below are RESERVED and DOCUMENTATION ONLY: run_cases.py invokes
+  # none of them, so nothing seeds, resets or snapshots anything between cases.
+  # Record them if they exist -- discover's finding is real and state-diff needs
+  # them the day a scorer lands -- but drive them YOURSELF, out of band, before
+  # the run. A case whose `seed_state` names a fixture nobody loaded runs
+  # against ambient state (validate_cases.py WARNs seed_state_not_loaded), and
+  # `expect.state` is scored by nothing at all.
+  seed: "tools/seed_test_db.py"            # RESERVED: per-case seeding, not called
+  reset: "tools/reset_test_db.py"          # RESERVED: between cases, not called
+  snapshot_state: "tools/dump_state.py"    # RESERVED: end-state assertions, not compared
+  safe_to_attack: false        # READ: red-team/chaos refuse to run unless true
 
 prompts:                        # optimizable surfaces (white-box only);
                                 # paths relative to the app root
@@ -200,7 +219,7 @@ and every scorer/skill keeps working unmodified. See
 | **Traces** | a trace-id-addressable span tree in `gen_ai.*` keys (native or shimmed) | `traces.*` (`convention`, `mapping_shim`, `correlation`) |
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
 | **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit, plus whether editing needs a rebuild | `prompts[]` |
-| **Seed / reset / snapshot** | three callables: load fixture, wipe state, hash/dump state | `environment.seed` / `.reset` / `.snapshot_state` |
+| **Seed / reset / snapshot** | *(RESERVED — declared, never called; no state-diff scorer exists, so filling this row changes no verdict. Drive them out of band.)* | `environment.seed` / `.reset` / `.snapshot_state` |
 | **Oracle** | a read-only connection/handle the harness can query for ground truth | see `oracle:` block below |
 | **Tool catalog + side-effect class** | `[{name, schema, side_effects: safe-live\|needs-mock\|never-live}]` | `tools[]` |
 | **Access level + safe-to-attack** | `white\|gray\|black` + a boolean gate | `access_level`, `environment.safe_to_attack` |

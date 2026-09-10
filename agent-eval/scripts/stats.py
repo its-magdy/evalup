@@ -49,6 +49,25 @@ Usage: stats.py <baseline.jsonl> <candidate.jsonl> [--alpha 0.05]
 Rows: {"case_id": ..., "verdict": "pass"|"fail"}. Any other verdict is a hard
 error: infra verdicts must be excluded upstream, never counted as failures.
 
+THREE THINGS THIS GATE DOES NOT DO, stated here so no reader infers them from
+how exact the rest of it is:
+
+  cases are treated as INDEPENDENT. They are not: cases sharing a `template_id`
+    are clustered data, and suite-sizing.md ("Grid-generated cases are
+    CLUSTERED data") cites clustered standard errors running over three times
+    the naive ones. Nothing here reads `template_id`. So the tail probabilities
+    are exact for the model, and the model is optimistic on a template-heavy
+    suite. Read a marginal keep on a suite built from a few templates as
+    weaker than its p-value looks.
+  the verdict is CASE-LEVEL, one row per case. There is no per-layer gate: a
+    routing regression that a tool-selection gain cancels out is invisible here
+    (agent-eval scores layers independently per case, but nothing aggregates or
+    tests them separately). Look at the per-case layer rows before concluding a
+    flat rate means nothing moved.
+  no multiplicity correction of any kind. Run this once per comparison; every
+    extra look at the same holdout is an extra chance to be fooled, which is
+    what the N=5 holdout-look ledger exists to bound.
+
 See also: reduce_repeats.py for pass^k/pass@k over repeated verdicts of the
 SAME case (a reliability/flakiness signal, not a baseline-vs-candidate one).
 """

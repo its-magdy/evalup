@@ -56,9 +56,14 @@ whose tools get renamed weekly produces only maintenance pain.
 You cannot judge your way to factual correctness; ground truth is
 **constructed**:
 
-1. **Seeded environment + state diff** (strongest): you planted the data, so
-   the correct answer — and correct end state — is mechanically derivable.
-   Also the only safe way to eval side-effectful tools.
+1. **Seeded environment + state diff** (strongest *in principle*): you planted
+   the data, so the correct answer — and correct end state — is mechanically
+   derivable. Also the only safe way to eval side-effectful tools. **The
+   end-state half is RESERVED in this harness**: seeding and snapshotting are
+   yours to drive out of band, `expect.state` is compared by no scorer, and
+   `run_cases.py` never calls `environment.seed/.reset/.snapshot_state`. What
+   a seeded environment buys you today is a trustworthy `expect.result`
+   (execution layer), not a state diff.
 2. **Mocked/recorded tools**: scripted returns make answers computable and
    runs deterministic.
 3. **Business rules** (cheapest — most real policies are deterministically

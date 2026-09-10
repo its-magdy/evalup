@@ -58,10 +58,14 @@ test_type: MFT                      # MFT | INV | DIR — the ORACLE type, and t
                                     #       increase row count; a permission removed
                                     #       must not add rows).
 difficulty: medium                  # easy | medium | hard. HIDDEN from the agent — never
-                                     # copy this into input.messages or any prompt text; it
-                                     # exists only for stratified reporting (GAIA-style: report
-                                     # pass rate per difficulty band, never blended). Canonical
-                                     # schema field.
+                                     # copy this into input.messages or any prompt text.
+                                     # RESERVED for stratified reporting (GAIA-style: pass rate
+                                     # per band, never blended) — no script stratifies today, so
+                                     # every rate the harness prints, `summary.passes` included,
+                                     # IS blended across bands. Band it by hand off
+                                     # verdicts.jsonl, or read the number as the mix-weighted
+                                     # average it is. Canonical schema field: record it now, or
+                                     # the banding is unrecoverable later.
 template_id: shift_count_by_role    # REQUIRED unless this is a declared one-off.
                                     # id shared by every instantiation of one
                                      # authored case template (e.g. "shift_count_by_role").
@@ -124,19 +128,30 @@ input:
   session: fresh                     # `fresh` only. A named seeded conversation
                                      # state is reserved with multi-turn.
 
-available_tools: null                # optional: tool names actually exposed to the agent for
-                                     # this case, if the harness can scope the catalog per case
-                                     # (sampled subset, BFCL/ToolBench style). Omit = full catalog.
-excluded_tools: []                   # optional: tools left IN the exposed catalog (or listed
-                                     # here purely for documentation if the catalog can't be
-                                     # scoped) that are deliberately NOT needed to solve this
-                                     # case — a relevance/irrelevance test (does the agent avoid
-                                     # reaching for a plausible-but-wrong tool). Calling one is a
-                                     # trajectory finding, not automatically a hard fail unless
-                                     # it also appears in expect.tools.forbidden.
+available_tools: null                # optional, RESERVED: tool names the agent was meant to see
+                                     # for this case (sampled subset, BFCL/ToolBench style).
+                                     # THIS HARNESS CANNOT SCOPE THE CATALOG — run_cases.py sends
+                                     # one request and the app exposes whatever it always exposes,
+                                     # so a relevance test authored against a narrowed catalog is
+                                     # not the test that runs. The field is read only by the
+                                     # never-live-tool skip gate (adapter hard rule 2).
+                                     # Omit = full catalog, which is also what setting it means.
+excluded_tools: []                   # optional, RESERVED: tools deliberately NOT needed to solve
+                                     # this case — a relevance/irrelevance test (does the agent
+                                     # avoid a plausible-but-wrong tool). NOTHING SCORES IT: no
+                                     # layer reports that the agent reached for one, and
+                                     # trajectory_match.py knows only `forbidden`, which is a
+                                     # different (hard-fail) semantic. To make reaching for one
+                                     # FAIL, list it in expect.tools.forbidden; leave it here only
+                                     # as documentation. validate_cases.py WARNs either way.
 
-seed_state: null                     # optional: fixture the environment must be
-                                     # seeded with (enables state-diff scoring)
+seed_state: null                     # optional, RESERVED: fixture the environment is meant to
+                                     # hold for this case. NOBODY LOADS IT — run_cases.py never
+                                     # invokes environment.seed/.reset/.snapshot_state, so the
+                                     # case runs against whatever state is already there. Seed it
+                                     # out of band before the run; a stored `expect.result`
+                                     # computed against a fixture nobody loaded is an artifact of
+                                     # ambient state, not a measurement.
 
 identity: null                       # optional: who the request is made as —
                                      # use for authorization cases (403s,
@@ -207,8 +222,13 @@ expect:
                                      # `search:`) is a HARD ERROR — it would score every
                                      # trajectory and leave no row saying so. To assert
                                      # only that a tool was called, use expect.tools.
-  state:                             # end-state assertion (needs seed_state + snapshot)
-    null
+  state:                             # end-state assertion. RESERVED: no scorer compares
+    null                             # environment snapshots, so this key is graded by NOTHING.
+                                     # It no longer counts toward the trajectory layer either —
+                                     # a case whose ONLY expectation is `state` is a
+                                     # `no_graded_layer` ERROR, because it used to pass off its
+                                     # http row alone. Alongside real expectations it is a WARN
+                                     # and simply contributes nothing to the verdict.
   authz:                             # PERMISSION/SCOPE cases — scored by score_authz.py
                                      # DETERMINISTICALLY against the trace's tool-call log and
                                      # returned record IDs. The refusal verdict is NEVER an LLM
@@ -348,6 +368,15 @@ measuring nothing.
 
 Scoring semantics:
 - Layers score independently; a case reports per-layer verdicts, not one blob.
+  There is no per-LAYER statistic: `stats.py` gates one verdict per case, so a
+  layer that regressed while the case-level rate held flat is visible only by
+  reading the per-case rows.
+- **Reserved fields, in one place** — `expect.state`, `seed_state`,
+  `available_tools`, `excluded_tools` and `difficulty` are all declared here and
+  scored by nothing. Each is safe to record (the provenance is unrecoverable
+  later) and each earns a `validate_cases.py` WARN so no one mistakes it for a
+  measurement. Multi-turn (`>1` user turn) is reserved harder still: those cases
+  are SKIPPED.
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
 - Judged dimensions are skipped (reported as `unjudged`) while the judge is
   uncalibrated — never silently included.

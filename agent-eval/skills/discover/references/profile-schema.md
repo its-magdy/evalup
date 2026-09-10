@@ -21,8 +21,12 @@ architecture:
   #   router_executor -> routing scored AS A CLASSIFIER (precision/recall/confusion
   #                       matrix per route target), kept separate from conditional
   #                       executor quality per route.
-  #   multi_agent     -> per-handoff capture (full prompt+response at every
-  #                       agent-to-agent boundary), in addition to per-agent trajectory.
+  #   multi_agent     -> per-agent trajectory. Per-HANDOFF capture (prompt+response at
+  #                       each agent-to-agent boundary) is RESERVED: normalize_trace.py
+  #                       records no prompt or response text at all, and tool calls carry
+  #                       no owning agent, so no expectation can be scoped to one
+  #                       sub-agent. What DOES ship per agent: the `agents[]` stage list
+  #                       with duration and rolled-up tokens (normalize_trace.py:232-281).
   #   workflow        -> path *set* fixed at design time -> per-node golden-behavior
   #                       regression instead of open-ended trajectory scoring.
   framework: langgraph | crewai | autogen | openai-agents-sdk | custom | none
@@ -59,7 +63,8 @@ tools:
     args: [invoice_id]
     verified: true
 
-conversation: { multi_turn: true, streaming: sse }
+# No `conversation:` block. Multi-turn is RESERVED (capability_matrix below) and
+# `streaming` is read by nothing -- see adapter-contract.md's invocation notes.
 
 record_id_pattern: "INV-[0-9]+"  # regex for the app's own record identifiers.
                                  # Passed by run to `score_authz.py --id-pattern`.
@@ -93,6 +98,7 @@ capability_matrix:               # which eval layers apply and what blocks them
   trajectory:      { enabled: false, blocked_by: "stage: pre-stability" }
                                        # also forced off outright when kind: single_llm
   multi_turn:      { enabled: false, blocked_by: "reserved: no conversation driver in the harness. NOT fixable from the adapter -- cases with >1 user turn are skipped" }
+  state:           { enabled: false, blocked_by: "reserved: no state-diff scorer in the harness. NOT fixable from the adapter -- run_cases.py never invokes environment.seed/.reset/.snapshot_state, so expect.state scores nothing and a state-only case is a validator ERROR" }
   cost_latency:    { enabled: true }
   execution:       { enabled: false, blocked_by: "no oracle configured (see oracle: above) + no case carries expect.result (scalar/rows)" }
   authz:           { enabled: false, blocked_by: "no identity/persona config; the id-leak checks additionally need tool-result capture and a matching record_id_pattern (forbidden_tools scores without either)" }

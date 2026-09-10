@@ -277,7 +277,7 @@ it is **enabled** iff `capability_matrix[<layer>].enabled` is not `false`.
 | `execution` | `expect.result` | `score_execution.py` | `actual.json expect.json [--float-tolerance F]` | `actual.json` per §5.3 |
 | `authz` | `expect.authz` | `score_authz.py` | `trajectory.json expect.json [--answer answer.txt] [--id-pattern P]` | `trajectory.json`, `expect.json`, `answer.txt` |
 | `rules` | `expect.answer.rules` | *(no script)* | — | `unscored`, `reason: "business rules are evaluated by the skill"` |
-| `state` | `expect.state` non-null | *(no script)* | — | `unscored`, `reason: "state-diff needs environment.snapshot_state"` unless the adapter declares one; §5.4 |
+| `state` | `expect.state` non-null | *(no script)* | — | `unscored`, `reason: "state-diff is RESERVED: no scorer compares environment snapshots, and the runner never invokes environment.seed/.reset/.snapshot_state"` — on **every** path, whatever the adapter declares; §5.4 |
 | judged | `expect.answer.rubric` | *(no script)* | — | `unjudged (mode: <mode>)` for smoke/targeted; else `unjudged (judge not calibrated)` unless `judge.status == calibrated` **and** `paths.judge_calibration` backs it (§5.4), in which case `unjudged (deferred to skill)` |
 | `reliability` | `k > 1` | `reduce_repeats.py` | `repeats.jsonl [--k N]` | **run-level**, §5.5 |
 
@@ -442,6 +442,18 @@ Business rules, state-diff, and judged layers have no script. The runner records
 them `unscored`/`unjudged` with a reason and **never** attempts them. An LLM
 step may fill them in afterward by rewriting `verdict.json`; the runner's own
 output is deterministic and reproducible without a model.
+
+**State-diff is RESERVED, not pending an adapter field.** The runner calls
+`environment.seed`, `.reset` and `.snapshot_state` **nowhere** — an adapter may
+declare all three and the `state` row is identical. So the row's reason names
+the reservation instead of a field, for the reason Step 7 rewrote the
+`multi_turn` `blocked_by`: a reason that reads as a user to-do gets discharged,
+and the user is then owed a measurement that still does not exist. Two
+consequences the layer table cannot state on its own: a case's `seed_state` is
+loaded by nobody (seed out of band or accept ambient state), and
+`validate_cases.py` no longer counts `expect.state` toward gradedness, so a
+state-only case is a `no_graded_layer` ERROR rather than a `pass` off its
+`http` row.
 
 **The judged gate is derived, not asserted.** `manifest_extra.judge.status` is
 copied out of `profile.yaml`, which a model edits — and `profile-schema.md`
@@ -877,12 +889,26 @@ the shipped run already does. See Open decision **D1**.
 2. any layer `infra_incomplete` → `infra_incomplete`
 3. the case was skipped by a safety gate → `skipped`
 4. any applicable, enabled layer `fail` → `fail`
-5. at least one layer `pass` → `pass`
-6. otherwise → `unscored`
+5. at least one **non-`http`** layer `pass` → `pass`
+6. `http` passed and no other layer is applicable → `pass`
+7. otherwise → `unscored`
 
-Rule 6 is the point: a case whose every layer came back `n/a`/`unscorable`/
+Rule 7 is the point: a case whose every layer came back `n/a`/`unscorable`/
 `unscored` is **not** a pass. That is the vacuous-case failure
 `validate_cases.py` lints for at authoring time, caught again at run time.
+
+**Why `http` is excluded from rule 5** (Step 10; it used to satisfy it, and
+that was a defect, not a decision). A status code is a *liveness* check —
+`validate_cases.py` refuses to count `expect.http` toward gradedness for
+exactly this reason — so while it could be the one `pass` that carried a case,
+every case whose real layers came back `unscored`/`unscorable` rolled up to
+`pass` anyway: a trace-less run of an `expect.tools` case, an answer the
+adapter's `<answer>` path could not reach, and every RESERVED expectation
+(`expect.state`). §5 says a `pass` on an unscorable `trajectory` row "would
+have been a lie" — this is where that lie was being told, one level up. Rule 6
+keeps the deliberate liveness-only case (nothing asserted but `http`) a pass,
+because there the liveness check is the whole claim. The change can only make a
+run more conservative: it converts `pass` to `unscored`, never to `fail`.
 
 `gating` is `true` unless the case is a canary. `summary.gating_failures` counts
 cases with `gating: true` and `verdict: "fail"`.
@@ -972,7 +998,9 @@ Named here so 5b does not grow them, and so 5c knows what stays in the skill:
   *which* run to diff against; running the diff itself moved into the runner
   with decision **D3** (§5.6), because the diff's rules — version equality, the
   k-match, attrition, "within noise" — decide whether a change ships.
-- **Judged layers, business rules, state-diff.** §5.4.
+- **Judged layers and business rules.** §5.4. (State-diff is on that list too,
+  but nobody owns it: it is RESERVED, and no skill is told to fill it in
+  either — see §5.4.)
 - **Pinning `reports/baseline.json`.** A skill decision, not an execution step.
 
 ---

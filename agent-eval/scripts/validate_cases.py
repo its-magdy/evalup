@@ -42,11 +42,18 @@ WHAT COUNTS AS GRADED (the no_graded_layer check):
 A case's expect keys map onto capability layers:
   route, route_acceptable -> routing        result -> execution
   tools                   -> tool_selection authz  -> authz
-  args, state             -> trajectory     answer, format -> answer_quality
+  args                    -> trajectory     answer, format -> answer_quality
 `expect.http` maps to NOTHING. A status code is a liveness check: it says the
 request reached the app, not that the app did the right thing. A case whose
 only expectation is `http` is reported http-only and, having no graded layer,
 is an ERROR.
+
+`expect.state` maps to nothing either, and for a sharper reason: state-diff is
+RESERVED (no scorer compares environment snapshots, and run_cases.py never
+invokes environment.seed/reset/snapshot_state). While it graded `trajectory`,
+a state-only case was stamped graded and then rolled up to `pass` off its
+`http` row alone -- a case that could not fail. It is now an ERROR by the same
+no_graded_layer rule, and a state expectation alongside real ones WARNs.
 
 With --capabilities (the profile's capability_matrix, {"routing": {"enabled":
 false}, ...}), a layer only counts while it is enabled — a suite carried over
@@ -62,10 +69,11 @@ ERROR vs WARN — the line this script draws:
 
 ERROR = the suite makes a claim that is not backed. A case with no `split` is
 in no run and its `holdout` seal rests on nothing; a case with no `test_type`
-is counted by no coverage grid; a case with no `template_id` key removes
-itself from the clustering the suite's error bars are computed over; an INV
-with no parent asserts an invariance against nothing. Each of those makes some
-number elsewhere untrue, so each fails the run.
+is counted by no coverage grid; a case with no `template_id` key cannot be
+grouped with its variants, and unlike a missing scorer that grouping cannot be
+recovered afterwards; an INV with no parent asserts an invariance against
+nothing. Each of those makes some number elsewhere untrue, or makes one
+permanently uncomputable, so each fails the run.
 
 WARN = the suite is thinner than the guidance recommends, which is a budget
 judgement its author is allowed to make (no INV/DIR at all, an all-one-off
@@ -108,11 +116,25 @@ LAYER_OF_EXPECT = {
     "route_acceptable": "routing",
     "tools": "tool_selection",
     "args": "trajectory",
-    "state": "trajectory",
     "result": "execution",
     "authz": "authz",
     "answer": "answer_quality",
     "format": "answer_quality",
+}
+# `state` is NOT in the map above, deliberately (Step 10). It used to grade
+# `trajectory`, so a case whose only expectation was `expect.state` earned the
+# graded stamp -- and then run_cases.py scored the state layer `unscored` (no
+# state-diff scorer exists) and rolled the case up from its `http` row alone.
+# A case that can only pass is exactly what no_graded_layer exists to stop, so
+# removing the entry turns those into that ERROR instead of a free pass. The
+# key stays in EXPECT_SHAPE: a malformed expect.state is still worth reporting.
+#
+# Reserved expect keys: present in case-format.md, scored by nothing. The value
+# is the sentence the per-case WARN explains itself with.
+RESERVED_EXPECT = {
+    "state": "no state-diff scorer exists in the harness; run_cases.py "
+             "never compares environment snapshots and records the state "
+             "layer unscored on every path",
 }
 LAYERS = ("routing", "tool_selection", "trajectory", "execution", "authz",
           "answer_quality")
@@ -308,6 +330,61 @@ def asserted_layers(expect):
             continue
         layers.add(layer)
     return layers
+
+
+def reserved_expectations(expect):
+    """The RESERVED expect keys this case actually asserts something in."""
+    return {key for key in RESERVED_EXPECT
+            if asserts_something(expect.get(key))}
+
+
+def check_reserved_fields(rep, case_id, case, expect):
+    """WARN on every field the case format offers that nothing scores (Step 10).
+
+    All four are WARN, not ERROR, on Step 4's line, and the line is the same
+    one Step 7 applied to multi-turn: ERROR exists to stop a suite inflating a
+    denominator with cases that cannot fail. None of these does that by itself
+    -- the state-only case that could is now an ERROR through no_graded_layer
+    (see LAYER_OF_EXPECT), and what is left here is dead weight in a case that
+    is otherwise graded normally. The cost is wasted authoring and a test that
+    is not the test the author wrote, so it is worth saying loudly and is not
+    worth failing a run over. `--strict` escalates all four.
+    """
+    for key in sorted(reserved_expectations(expect)):
+        rep.warn(case_id, "reserved_expectation",
+                 f"expect.{key} is RESERVED: {RESERVED_EXPECT[key]}. The rest "
+                 "of this case still scores; this key contributes nothing to "
+                 "its verdict")
+
+    if asserts_something(case.get("seed_state")):
+        # The runner never calls environment.seed/reset/snapshot_state -- grep
+        # run_cases.py, they appear nowhere. So the fixture named here is a
+        # note to a human, and the case runs against whatever state the
+        # environment happens to be in. That is not a free pass (the case can
+        # still fail honestly), but a result computed against a fixture nobody
+        # loaded is an artifact of ambient state, which is worth one line.
+        rep.warn(case_id, "seed_state_not_loaded",
+                 f"seed_state {case['seed_state']!r} is not loaded by "
+                 "anything: run_cases.py never invokes environment.seed, "
+                 ".reset or .snapshot_state, so this case runs against "
+                 "whatever state the environment is already in. Seed it "
+                 "out of band before the run, or the expectation is only as "
+                 "reproducible as that ambient state")
+
+    if asserts_something(case.get("excluded_tools")):
+        rep.warn(case_id, "excluded_tools_not_scored",
+                 "excluded_tools is scored by nothing -- no layer reports "
+                 "that the agent reached for one. To make reaching for it "
+                 "FAIL, list it in expect.tools.forbidden (trajectory_match's "
+                 "own semantic); leave it here only as documentation")
+
+    if asserts_something(case.get("available_tools")):
+        rep.warn(case_id, "available_tools_not_scoped",
+                 "available_tools does not scope anything: the runner cannot "
+                 "narrow the app's tool catalog per case, so the app is "
+                 "invoked with its FULL catalog and a relevance test authored "
+                 "against a narrowed one is not the test that runs. The field "
+                 "is read only by the never-live-tool skip gate")
 
 
 def check_expect_shapes(rep, case_id, expect):
@@ -532,7 +609,8 @@ def check_case(rep, case, all_ids, enabled, index=None):
     expect = mapping(case.get("expect"))
     layers = asserted_layers(expect)
     graded = layers & enabled
-    http_only = not layers and "http" in expect
+    reserved = reserved_expectations(expect)
+    http_only = not layers and not reserved and "http" in expect
     if not graded:
         if http_only:
             detail = ("its only expectation is expect.http, which is a "
@@ -541,6 +619,10 @@ def check_case(rep, case, all_ids, enabled, index=None):
         elif layers:
             detail = ("every layer it asserts is disabled in the capability "
                       f"matrix ({', '.join(sorted(layers))})")
+        elif reserved:
+            detail = ("the only thing it asserts is "
+                      + ", ".join(f"expect.{key}" for key in sorted(reserved))
+                      + ", which is RESERVED and graded by nothing")
         else:
             detail = "it asserts nothing under `expect`"
         rep.error(label, "no_graded_layer",
@@ -587,10 +669,13 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   "case has no `template_id` key: name the template this case "
                   "was realized from (with instantiation_params), or declare "
                   "the one-off by writing `template_id: null` explicitly. "
-                  "Cases sharing a template are not independent samples, so a "
-                  "case that never says which template it came from is "
-                  "silently dropped from the clustering the suite's error "
-                  "bars are computed over")
+                  "Cases sharing a template are not independent samples "
+                  "(suite-sizing.md), and a case that never says which "
+                  "template it came from can never be grouped with its "
+                  "siblings afterwards -- the provenance is unrecoverable, "
+                  "which is why this is an ERROR while the clustered error "
+                  "bars it enables are still unbuilt (stats.py treats cases "
+                  "as independent today, and says so)")
     if is_nonempty_str(template_id) and not has_params:
         rep.error(label, "template_without_params",
                   f"template_id {template_id!r} is set but "
@@ -603,6 +688,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   "scoring")
 
     check_expect_shapes(rep, label, expect)
+    check_reserved_fields(rep, label, case, expect)
     check_tools(rep, label, expect)
     check_args(rep, label, expect)
     check_result(rep, label, expect)
