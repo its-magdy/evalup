@@ -13,10 +13,9 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 
 ## 1. Where things stand
 
-- **Repo:** `/path/to/workspace`
-- **Plugin:** `agent-eval/` (v0.1.0). Root also holds `research/`,
-  `field-test-qa/`, and the review docs.
-- **Branch:** `run-layout-consistency`. Main branch is `main`.
+- **Repo:** `/path/to/workspace`;
+  plugin `agent-eval/` (v0.1.0); root also holds `research/`, `field-test-qa/`
+  and the review docs. Branch `run-layout-consistency`, main branch `main`.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
 - **Health:** **687** tests pass (~2min), ruff clean, all **17** CLI scripts
