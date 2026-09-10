@@ -107,7 +107,7 @@ Each step is sized for a single low-usage session. Mark done as you go.
       flakiness ledger exists**, and **nothing declared a trend view**, so 9b
       had nothing to reserve.
 - [x] **Step 9c — cost/latency (`REVIEW` §4.3). Step 9 and the WHOLE
-      REMEDIATION WAVE CLOSED. DONE 2026-09-10 — `SHA9C`.**
+      REMEDIATION WAVE CLOSED. DONE 2026-09-10 — `afc2650`.**
       `scripts/score_cost.py` + 35 tests, contract **§5.7**, named in
       `analyze/SKILL.md`. Body in `AUDIT` §"RESOLVED … (Step 9c)". Half build,
       half reserve: **`cost_latency` is not a per-case layer and never will be**
