@@ -1039,7 +1039,10 @@ SCORERS = ("normalize_trace.py", "score_routing.py", "trajectory_match.py",
 # Everything that parses JSON owes the exit-2-with-{"error"} contract. The
 # viewer generator does (it reads run records), so it belongs here even though
 # it scores nothing.
-JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py",)
+# score_agreement.py and run_history.py score no case, but both parse JSON
+# read off a run and both were outside this sweep until Step 9b noticed.
+JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py", "score_agreement.py",
+                              "run_history.py")
 
 # Every script with a CLI owes --version/--help — both non-scorers stamp the
 # harness version into artifacts that runs get compared against, so a silent

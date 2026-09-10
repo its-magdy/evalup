@@ -69,6 +69,17 @@ Zero gating failures → produce insight, not silence:
   suite is not the same as a good one. That is how the issues a green suite
   cannot see get caught.
 
+### Across runs, not just this one
+`${CLAUDE_PLUGIN_ROOT}/scripts/run_history.py reports/ [-o reports/history.json]`
+— every other comparison here is pairwise, so five consecutive "within noise"
+diffs can hide a ten-point erosion. It groups `reports/` into comparable series
+(`run/SKILL.md` §4's diff rules, plus the split and the enabled layers), flags a
+monotone drift per metric, and journals each case's verdict history. Quote
+`drift_flagged` and the journal's transitions, never a "better"/"worse" — that
+is `stats.py`'s call on a specific pair, and this script deliberately makes
+none. Read `excluded_runs` first: a run without `summary.status: ok` is not in
+the series, which is usually why a series looks short.
+
 ## `--label` — judge calibration, 15 minutes at a time
 The 15 minutes is the **sitting**, not the total: labeling runs as repeated
 short sessions until the numbers hold, so optimize for low friction per case.
