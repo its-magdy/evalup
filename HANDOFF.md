@@ -4,7 +4,7 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 8 CLOSED; §4's ten gaps triaged — next is 9a)
+**Last updated:** 2026-09-10 (Step 9a DONE — the judge gate is derived; next is Step 10)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -19,9 +19,10 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Branch:** `run-layout-consistency`. Main branch is `main`.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
-- **Health:** 552 tests pass (~2min), ruff clean, all 14 CLI scripts `--help`
-  rc=0. Verified 2026-09-10 on **3.9, 3.11 and 3.13** — 552 each, so the floor
-  is now checked against real interpreters, not only `ast.parse`'s grammar.
+- **Health:** **590** tests pass (~2min), ruff clean, all **15** CLI scripts
+  `--help` rc=0. Verified 2026-09-10 on **3.9, 3.11, 3.13 and 3.14** — 590
+  each. The blessed `unittest` command runs on whatever `python3` is (here
+  3.14), so the uv 3.9 floor check below is not optional.
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -70,12 +71,9 @@ Each step is sized for a single low-usage session. Mark done as you go.
       than the guidance recommends** — is in the docstring + `case-format.md`.
 
 - [x] **Steps 5a–5b — spec and build `run_cases.py`.** **DONE 2026-09-08/09 —
-      `77d3778`, `c9bc4f7`, `5e573c9`.** 551 tests (+102) on a real fake HTTP
-      app. Missing-jsonl closed **structurally**: both files are regenerated
-      from the case dirs after every case, finalize exits 6. **All nine open
-      decisions answered in the same commits** — the contract was not
-      implementable as written, so `invocation` gained five declared fields and
-      four silences became **adapter declarations**, none guessed.
+      `77d3778`, `c9bc4f7`, `5e573c9`.** Body in `AUDIT` §2 + the contract
+      itself: **the contract was not implementable as written**, and all nine
+      open decisions were answered in the same commits — none guessed.
 
 - [x] **Step 5c — Rewire `run/SKILL.md`** around the runner. **DONE
       2026-09-09 — `676ab23`.** 318 → **164**. §§1–3 deleted whole, but the
@@ -96,25 +94,16 @@ Each step is sized for a single low-usage session. Mark done as you go.
       the total is not the target. **D2 — `help` loses its body** — done in 6e.
 
 - [x] **Step 6e — dedupe + execute D2. Step 6 CLOSED.** **DONE 2026-09-09 —
-      `a22ce8e`.** Triage changed the job: of the three counts **only `help`
-      duplicated anything**. **A MENTION count is not a duplication count.**
-      `help` 124 → 42 lines; its `description` GREW (with no body it is the
-      only thing that fires the skill). `AUDIT` §1 + §4.
+      `a22ce8e`.** Of the three counts **only `help` duplicated anything** — **a
+      MENTION count is not a duplication count**. `AUDIT` §1 + §4.
 
 - [x] **Step 7 — Decide multi-turn: RESERVED.** **DONE 2026-09-10 —
-      `337181a`.** **The precedent Step 10 rests on: declaring a contract the
-      harness does not honor made it LESS correct than omitting it** — the skip
-      gate tested `invocation.session` for presence only, so multi-turn cases
-      ran single-turn and a truncated conversation scored as a real verdict.
-      `single_turn_suite` was **inverted, not dropped**, into per-case
-      `multi_turn_case_reserved` (WARN). `AUDIT` §8's RESOLVED block.
+      `337181a`.** Body in `AUDIT` §8's RESOLVED block — read it before Step
+      10, which rests on its precedent.
 
-- [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** All five
-      recon claims re-verified true (rare — say so). **The remote decision went
-      to the user: write CI knowingly as a spec**, so `ci.yml` opens by stating
-      it has NEVER executed. `pyproject.toml` is **dev-tooling only, no
-      `[project]` table**; **`ruff.toml` did NOT fold in**, so §4's blessed
-      commands are UNCHANGED. `AUDIT` §"RESOLVED … (Step 8a)".
+- [x] **Step 8a — Packaging.** **DONE 2026-09-10 — `526e495`.** Body in
+      `AUDIT` §"RESOLVED … (Step 8a)". Two facts §4 depends on: **CI was
+      written knowingly as a spec**, and **`ruff.toml` did NOT fold in**.
 
 - [x] **Step 8b — Stale artifacts + the `micro_f1` relabel. Step 8 CLOSED.**
       **DONE 2026-09-10 — `593aad1`.** Both **relabelled, neither
@@ -128,14 +117,19 @@ Each step is sized for a single low-usage session. Mark done as you go.
 2026-09-10 — `AUDIT` §"Step 9 recon" has the full disposition table; six were
 in no step. **Order: 9a → 10 → 9b → 9c, then STOP.** Four sessions, not nine.
 
-- [ ] **Step 9a — close the judge loop (`REVIEW` §4.4).** Build
-      `score_agreement.py` (TPR/TNR/κ). **First, because the gate is
-      unsatisfiable in code today** — `run_cases.py`:2243 and
-      `optimize/SKILL.md`:21 gate on `judge.status: calibrated`, which
-      `profile-schema.md`:121-128 says is DERIVED from per-rubric tpr/tnr/
-      kappa, and nothing derives it. §4.4 is imprecise: the viewer DOES read
-      its annotation JSONL back (`build_review_viewer.py`:42-47) — no
-      **scorer** consumes it.
+- [x] **Step 9a — close the judge loop (`REVIEW` §4.4). DONE 2026-09-10 —
+      `SHA9A`.** `score_agreement.py` **plus a gate change in
+      `run_cases.py`** — a scorer that only emitted numbers would leave
+      `judge.status` exactly as hand-set as it was, so `calibrated` is now
+      **necessary and not sufficient**: it must be backed by
+      `paths.judge_calibration`, the scorer's `.json` sidecar, whose
+      `rubrics_measured` must cover every rubric a selected case pins. **The
+      recon was wrong once — "all data already on disk" is FALSE**: the runner
+      writes the judged layer `unjudged` on *every* path, so nothing holds a
+      judge verdict and the judge/human pairing must be recorded at labeling
+      time (`judge_label` on the annotation line). κ gets **no confidence
+      interval** — the usual one is a normal approximation, so Fisher's exact
+      p instead. `AUDIT` §"RESOLVED … (Step 9a)".
 - [ ] **Step 10 — RESERVE `REVIEW` §4's items 2, 5, 7, 8 and 10.** Multi-agent
       attribution, per-layer stats, environment lifecycle, streaming, and the
       schema fields with no scorer. **A reserve sweep, not a build wave** — all
@@ -177,6 +171,10 @@ same: optional, none is a defect.
   §9(b)'s python block, parse §6's `# only when:` markers, and pin
   `--oos-route`'s precondition), so an edit fails the suite until the code
   follows — deliberate, not brittle.
+- **The judged gate is DERIVED as of 9a.** A plan's `judge.status: calibrated`
+  is necessary, not sufficient: `run_cases.py` also demands
+  `paths.judge_calibration`'s sidecar (`score_agreement.py --write`). Every
+  failure is a reason string on the `unjudged` layer, never an exit code.
 - **The holdout ledger is a `.jsonl` sidecar** (`datasets/holdout-looks.jsonl`,
   from the plan's `paths.holdout_ledger`), not the YAML dataset metadata — a
   stdlib-only runner would corrupt the YAML. The running total is a LINE COUNT,

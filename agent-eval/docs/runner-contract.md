@@ -95,7 +95,8 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
   "paths": {
     "scripts_dir": "/abs/path/to/agent-eval/scripts",   // ${CLAUDE_PLUGIN_ROOT}/scripts
     "state_dir": "/abs/path/to/.agent-eval",            // for reports/.gitignore and the holdout ledger
-    "holdout_ledger": "datasets/holdout-looks.jsonl"    // .jsonl sidecar, relative to state_dir; null = runner refuses --holdout/--full (§6)
+    "holdout_ledger": "datasets/holdout-looks.jsonl",   // .jsonl sidecar, relative to state_dir; null = runner refuses --holdout/--full (§6)
+    "judge_calibration": "judge/calibration.json"       // .json sidecar from score_agreement.py --write, relative to state_dir; null = the judged gate stays shut (§5.4)
   },
 
   "adapter": { ... },        // adapter.yaml converted to JSON, VERBATIM, env refs UNRESOLVED (§3)
@@ -277,7 +278,7 @@ it is **enabled** iff `capability_matrix[<layer>].enabled` is not `false`.
 | `authz` | `expect.authz` | `score_authz.py` | `trajectory.json expect.json [--answer answer.txt] [--id-pattern P]` | `trajectory.json`, `expect.json`, `answer.txt` |
 | `rules` | `expect.answer.rules` | *(no script)* | — | `unscored`, `reason: "business rules are evaluated by the skill"` |
 | `state` | `expect.state` non-null | *(no script)* | — | `unscored`, `reason: "state-diff needs environment.snapshot_state"` unless the adapter declares one; §5.4 |
-| judged | `expect.answer.rubric` | *(no script)* | — | `unjudged (mode: <mode>)` for smoke/targeted; else `unjudged (judge not calibrated)` unless `judge.status == calibrated`, in which case `unjudged (deferred to skill)` |
+| judged | `expect.answer.rubric` | *(no script)* | — | `unjudged (mode: <mode>)` for smoke/targeted; else `unjudged (judge not calibrated)` unless `judge.status == calibrated` **and** `paths.judge_calibration` backs it (§5.4), in which case `unjudged (deferred to skill)` |
 | `reliability` | `k > 1` | `reduce_repeats.py` | `repeats.jsonl [--k N]` | **run-level**, §5.5 |
 
 **Not applicable ⇒ `"n/a"`. Applicable but disabled ⇒ `"unscorable"` with
@@ -441,6 +442,27 @@ Business rules, state-diff, and judged layers have no script. The runner records
 them `unscored`/`unjudged` with a reason and **never** attempts them. An LLM
 step may fill them in afterward by rewriting `verdict.json`; the runner's own
 output is deterministic and reproducible without a model.
+
+**The judged gate is derived, not asserted.** `manifest_extra.judge.status` is
+copied out of `profile.yaml`, which a model edits — and `profile-schema.md`
+§`judge:` has always said that flag is DERIVED "not set by hand" from each
+rubric's own tpr/tnr/kappa. So the flag is **necessary and not sufficient**:
+with `judge.status: calibrated` the runner also requires
+`paths.judge_calibration` to name a `score_agreement.py --write` sidecar
+(`schema: agent-eval/judge-calibration/1`) whose own `status` is `calibrated`
+and whose `rubrics_measured` covers every rubric a selected case pins in
+`expect.answer.rubric` (matched with or without the `-v<version>` pin). Any
+gap — path unset, file missing, wrong schema, uncalibrated, a rubric never
+measured — yields that specific reason in place of `deferred to skill`.
+
+Every one of those failures is a **reason string, never an exit code**. The
+judged layer is `unjudged` in all of them and is never `pass`/`fail`, so a
+stricter gate here can only make a run more conservative; an unreadable sidecar
+must not sink a run whose other layers scored fine. The sidecar cannot know
+which rubrics are *active* (it sees only what its annotations covered), which
+is exactly why the runner checks coverage against the cases it is about to run:
+between them the two halves close a gate that, before this, opened on a word an
+LLM typed into a YAML file.
 
 ### 5.5 Repeats (`k > 1`)
 

@@ -55,6 +55,35 @@ have flagged the empty result as suspicious rather than reporting it as 0.",
  "reviewer": "priya", "ts": "2026-08-02T14:03:00Z"}
 ```
 
+**The calibration fields.** A line written during a calibration pass carries
+three more, and `${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py` counts only
+lines that have the first of them:
+
+```jsonc
+{"case_id": "billing-happy-3f9a2c1d", "label": "fail",
+ "judge_label": "pass",              // the judge's verdict for the SAME node:
+                                     //   pass | fail | unknown
+ "rubric_id": "billing_answer",      // groups the numbers — calibration is per rubric
+ "node_id": "correct_amount",        // the judge runs ONE node per call, so label per node
+ "critique": "...", "reviewer": "priya", "ts": "..."}
+```
+
+`judge_label` is recorded **at labeling time, on the same line as the human
+label**, and there is a hard reason it cannot be joined in later instead: no
+artifact in this harness holds a judge verdict. `run_cases.py`'s judged layer
+is always `unjudged (<reason>)` — it has no script (`runner-contract.md` §5.4)
+— so the only moment both sides exist together is the moment the reviewer is
+looking at them. The viewer's export panel writes the human side only, so a
+viewer-only file scores nothing and says so; the per-node conversational flow
+(`analyze --label`) is what writes both.
+
+Lines with no `judge_label` are ordinary open-coding annotations: counted as
+`unpaired_annotations` and skipped, so one file can hold both kinds of pass.
+Because the log is append-only, a **later un-paired re-annotation supersedes an
+earlier paired one** and drops it from the numbers — conservative on purpose,
+since the judge verdict paired at the earlier look may have come from a rubric
+version since edited.
+
 JSONL over YAML/a database: one changed or added annotation is one changed
 line, so a PR diff shows exactly what changed — no re-indentation cascade, no
 merge conflict on an unrelated row. Re-reviewing a trace **appends** a new
@@ -156,7 +185,12 @@ When the judge has a provisional rubric, use the same viewer (or
 conversationally) to run the calibration pass: for 25–50 examples, the judge's
 provisional per-dimension verdict sits beside a blank human column; the
 reviewer marks agree / disagree / edit-rubric, with a critique on every
-disagreement. Track **TPR and TNR live, never raw accuracy** — a 90%-pass app
+disagreement. Score the pass with
+`${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
+<state>/judge/calibration.json` — it computes each rubric's TPR/TNR/κ from
+these lines and writes the sidecar the runner reads, which is what makes
+`judge.status` a derived fact instead of a flag someone typed. Track **TPR and
+TNR live, never raw accuracy** — a 90%-pass app
 makes an always-pass judge look 90% "accurate" while catching 0% of real
 failures, exactly the trap `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md`'s
 calibration workflow and `analyze --label` both guard against. **EvalGen's rule

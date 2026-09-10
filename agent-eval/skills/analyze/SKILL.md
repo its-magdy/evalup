@@ -92,8 +92,16 @@ case-level agree/disagree cannot say which criterion drifted. Per case:
    tuned against it. Every disagreement you resolve on it silently converts it
    into a training split.
 
+Do not compute the numbers yourself. Append one JSONL line per labelled node —
+`{case_id, rubric_id, node_id, label, judge_label, critique, reviewer, ts}`
+(annotation-ux.md §"The calibration fields") — then run
+`${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
+<state>/judge/calibration.json`. That sidecar is what the runner reads; a
+`calibrated` profile with no sidecar behind it no longer opens the judged gate.
+
 Record the result **per rubric first**: `status.calibrated` and that rubric's
-own numbers, in its own file (rubric-format.md §File shape). Until it flips its
+own numbers **as the scorer computed them**, in its own file (rubric-format.md
+§File shape). Until it flips its
 verdicts stay watermarked `PROVISIONAL`, and `optimize` refuses to target it.
 Then roll the aggregate into profile.yaml's `judge.calibration`. Never set
 `judge.status` by hand — it is derived, and one uncalibrated active rubric

@@ -167,6 +167,13 @@ NA, UNSCORABLE = "n/a", "unscorable"
 # because a broken scorer is a harness bug, not a property of the app, and it
 # is what exit 7 counts.
 LAYER_ERROR = "error"
+# The sidecar score_agreement.py writes, named by plan paths.judge_calibration.
+# JSON, not YAML, for the reason the holdout ledger is .jsonl: this package is
+# stdlib-only and cannot safely rewrite the YAML that holds profile.yaml's
+# judge block.
+JUDGE_CALIBRATION_SCHEMA = "agent-eval/judge-calibration/1"
+# `<rubric_id>-v<version>` is a PIN, not part of the id (rubric-format.md).
+RUBRIC_PIN = re.compile(r"-v\d+$")
 
 # Layers whose input is the normalized trajectory. Broader than
 # TRACE_DEPENDENT_LAYERS below, which is the capability taxonomy the manifest
@@ -988,6 +995,10 @@ class Runner:
         self.execution = plan["execution"]
         self.started_at = utc_now()
         self.plan_sha256 = sha256_of(plan)
+        # Memoized: unjudged_reason() is called per case AND in the summary,
+        # and the answer is run-level -- re-reading the sidecar per case would
+        # let a mid-run edit change the reason from case to case.
+        self._judge_gate = None
 
         self.adapter = {}
         self.auth_values = {}
@@ -2240,9 +2251,81 @@ class Runner:
         judge = (self.plan.get("manifest_extra") or {}).get("judge") or {}
         if self.plan["mode"] in ("smoke", "targeted"):
             return "mode: {}".format(self.plan["mode"])
-        if judge.get("status") == "calibrated":
-            return "deferred to skill"
-        return "judge not calibrated"
+        if judge.get("status") != "calibrated":
+            return "judge not calibrated"
+        if self._judge_gate is None:
+            self._judge_gate = self.check_judge_calibration()
+        return self._judge_gate
+
+    def check_judge_calibration(self):
+        """Is `judge.status: calibrated` backed by measurements? (SS5.4)
+
+        `manifest_extra.judge.status` is copied from profile.yaml, which a
+        model edits -- and profile-schema.md has always said the flag is
+        DERIVED, "not set by hand", from each rubric's own tpr/tnr/kappa. Until
+        score_agreement.py existed nothing derived it, so the harness's central
+        credibility gate opened on a word an LLM typed. This is the half of the
+        fix that lives in the runner: the flag is now necessary and NOT
+        sufficient, and the sufficient part is a sidecar of numbers.
+
+        Every failure degrades to a REASON STRING, never an exit code. The
+        judged layer is `unjudged` either way -- it has no script and is never
+        pass/fail (SS5.4) -- so a stricter gate here can only make a run more
+        conservative, and an unreadable sidecar must not sink a run whose other
+        eleven layers scored fine.
+
+        The sidecar cannot know which rubrics are ACTIVE; the runner can see
+        which ones the selected cases reference, so it closes that half here.
+        """
+        declared = (self.plan["paths"] or {}).get("judge_calibration")
+        if not declared:
+            return ("judge calibration not recorded -- paths."
+                    "judge_calibration is unset, and a hand-set "
+                    "judge.status does not open this gate on its own "
+                    "(score_agreement.py --write)")
+        path = declared if os.path.isabs(declared) \
+            else os.path.join(self.state_dir, declared)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                sidecar = json.load(fh)
+            if not isinstance(sidecar, dict):
+                raise ValueError("expected a JSON object")
+        except (OSError, ValueError) as exc:
+            return f"judge calibration unreadable ({path}): {exc}"
+        if sidecar.get("schema") != JUDGE_CALIBRATION_SCHEMA:
+            return "judge calibration schema is {!r}, expected {!r}".format(
+                sidecar.get("schema"), JUDGE_CALIBRATION_SCHEMA)
+        if sidecar.get("status") != "calibrated":
+            return f"judge not calibrated per {path}"
+        measured = sidecar.get("rubrics_measured")
+        if not isinstance(measured, list):
+            return f"judge calibration lists no rubrics_measured ({path})"
+        # Compare on the bare rubric_id, with the pin still accepted: a case
+        # references `<rubric_id>-v<version>` (case-format.md's convention,
+        # rubric-format.md SS'File shape'), while an annotation carries whichever
+        # of the two the labelling flow wrote. Matching both ways means a
+        # correctly calibrated rubric is never refused over a version suffix.
+        have = set()
+        for name in measured:
+            if isinstance(name, str):
+                have.add(nfc(name))
+                have.add(RUBRIC_PIN.sub("", nfc(name)))
+        missing = sorted({
+            ref for ref in self.referenced_rubrics()
+            if ref not in have and RUBRIC_PIN.sub("", ref) not in have})
+        if missing:
+            return ("judge calibration measured no rubric {} used by this "
+                    "run".format(", ".join(repr(m) for m in missing)))
+        return "deferred to skill"
+
+    def referenced_rubrics(self):
+        """The rubric each selected case pins, per applicable_layers's trigger."""
+        refs = set()
+        for case in self.plan["cases"]:
+            rubric = ((case.get("expect") or {}).get("answer") or {}).get("rubric")
+            if isinstance(rubric, str) and rubric.strip():
+                refs.add(nfc(rubric.strip()))
+        return refs
 
     def write_results(self, status=None, missing=None, exit_code=None):
         """results.json: written at pre-flight, rewritten per case, finalized.

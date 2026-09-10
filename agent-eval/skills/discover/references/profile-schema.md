@@ -128,6 +128,12 @@ judge:
                                  # status `uncalibrated` (the optimizer refuses judged
                                  # objectives until it flips).
   calibration: { labeled_cases: 0, tpr: null, tnr: null, kappa: null, last_checked: null }
+                                 # WHAT derives it: ${CLAUDE_PLUGIN_ROOT}/scripts/
+                                 # score_agreement.py, over the calibration lines of an
+                                 # annotation JSONL. Its --write sidecar (paths.
+                                 # judge_calibration) is what run_cases.py checks; this
+                                 # block is the human-readable copy, and on its own it
+                                 # opens nothing.
   model: ""                      # must differ from app's model family, or
   same_family_accepted: false    # ...user consciously accepted the bias risk
                                  # model is applied as the override whenever the

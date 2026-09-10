@@ -62,6 +62,11 @@ valid case is.
   `datasets/holdout-looks.jsonl`), relative to `state_dir` — not the dataset
   YAML, which a stdlib-only appender would corrupt. Required by `--holdout`
   and `--full` (§4).
+- **`paths.judge_calibration`**: the **`.json` sidecar** `score_agreement.py
+  --write` produced (e.g. `judge/calibration.json`), relative to `state_dir`.
+  `judge.status: calibrated` alone no longer opens the judged gate — without
+  this file the runner reports `unjudged (judge calibration not recorded)`,
+  because that flag is DERIVED and nothing but this sidecar derives it.
 - **`manifest_extra`**: what only you know — `dataset_version`, app repo, git
   SHA, models, prompt snapshot hashes, judge model + status, rubric versions,
   temperature, environment kind, cost estimate. Without it the run compares to
