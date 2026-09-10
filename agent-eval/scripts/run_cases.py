@@ -209,6 +209,14 @@ INFRA_ABORT_MIN_CASES = 8
 QUERYABLE_TRACE_SOURCES = ("otlp-file",)
 UNIMPLEMENTED_TRACE_SOURCES = ("jaeger", "tempo", "clickhouse")
 TRACELESS_TRACE_SOURCES = ("view-only", "none")
+# The capability taxonomy the manifest reports as disabled on a trace-less run.
+# `cost_latency` is in here and deliberately NOT in LAYER_ORDER (SS5.7): it is a
+# run-level CAPABILITY, not a per-case layer, so this runner emits no row for it
+# on any case. A per-case cost verdict would need a per-case budget and the case
+# format has no such field. What the flag buys is the true statement that a
+# trace-less run recorded no token count anywhere -- `cases/<id>/trajectory.json`
+# is the only cost input in the tree -- which is what `scripts/score_cost.py`
+# reads afterwards. Per-case `latency_s` is recorded either way.
 TRACE_DEPENDENT_LAYERS = ("trajectory", "tool_selection", "loops",
                           "cost_latency")
 

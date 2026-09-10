@@ -100,6 +100,18 @@ capability_matrix:               # which eval layers apply and what blocks them
   multi_turn:      { enabled: false, blocked_by: "reserved: no conversation driver in the harness. NOT fixable from the adapter -- cases with >1 user turn are skipped" }
   state:           { enabled: false, blocked_by: "reserved: no state-diff scorer in the harness. NOT fixable from the adapter -- run_cases.py never invokes environment.seed/.reset/.snapshot_state, so expect.state scores nothing and a state-only case is a validator ERROR" }
   cost_latency:    { enabled: true }
+                                       # run-level, NOT a per-case layer: no row in
+                                       # runner-contract.md SS5's table and none in
+                                       # LAYER_ORDER, so no case gets a cost verdict
+                                       # (that would need a per-case budget nothing
+                                       # declares). `true` asserts the traces carry
+                                       # gen_ai.usage.* + gen_ai.request.model, so
+                                       # scripts/score_cost.py can price a finished
+                                       # run against a DECLARED price table. Forced
+                                       # off in effect on a trace-less run: no
+                                       # trajectory.json means no token count at all.
+                                       # Latency needs no trace and is always there.
+                                       # TTFT and cached tokens are RESERVED.
   execution:       { enabled: false, blocked_by: "no oracle configured (see oracle: above) + no case carries expect.result (scalar/rows)" }
   authz:           { enabled: false, blocked_by: "no identity/persona config; the id-leak checks additionally need tool-result capture and a matching record_id_pattern (forbidden_tools scores without either)" }
                                        # expect.authz is scored against the tool-call

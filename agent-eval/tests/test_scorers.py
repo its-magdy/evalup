@@ -1042,7 +1042,7 @@ SCORERS = ("normalize_trace.py", "score_routing.py", "trajectory_match.py",
 # score_agreement.py and run_history.py score no case, but both parse JSON
 # read off a run and both were outside this sweep until Step 9b noticed.
 JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py", "score_agreement.py",
-                              "run_history.py")
+                              "run_history.py", "score_cost.py")
 
 # Every script with a CLI owes --version/--help — both non-scorers stamp the
 # harness version into artifacts that runs get compared against, so a silent

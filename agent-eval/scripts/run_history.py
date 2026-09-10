@@ -78,12 +78,12 @@ artifact and never was: the flakiness signal is `reliability.json`, written by
 `reduce_repeats.py` and present ONLY when k > 1. Since k is a series key, a
 series either has it on every point or on none, and a metric present on some
 runs and not others is skipped with its reason rather than plotted ragged.
-NOT read, and each for a stated reason: `cost_usd` is written by no component
-in this package (`build_review_viewer.py` renders it and nothing produces it),
-and per-case `latency_s` IS on disk in `results.json` but aggregating it means
-choosing a statistic for a heavy-tailed, retry-contaminated distribution. Both
-belong to the cost/latency step, which owns that decision; plotting a mean
-latency here would pre-empt it with the weakest possible choice.
+NOT read, and each for a stated reason: per-case `latency_s` IS on disk in
+`results.json`, but a mean over a heavy-tailed, retry-contaminated distribution
+is the weakest possible summary of it, and cost is not on this line at all --
+`score_cost.py` owns both. Cost in particular cannot be a series metric even in
+principle: the price table is DATED and the runs are not, so two points on one
+line could differ only because the vendor changed its price sheet between them.
 
 THE HOLDOUT SEAL holds by construction. `results.json` carries holdout cases as
 an AGGREGATE ONLY (`summary.holdout`) and no holdout `case_id` appears in the
@@ -801,10 +801,13 @@ def main():
             "The drift flag is two-sided and describes a sequence; it says "
             "nothing about whether a change should ship."),
         "not_measured": (
-            "cost_usd is written by no component here, and per-case latency_s "
-            "is on disk but aggregating it means choosing a statistic for a "
-            "heavy-tailed retry-contaminated distribution -- both belong to "
-            "the cost/latency step that owns that decision."),
+            "per-case latency_s and cost_usd are not plotted here. Both are "
+            "owned by score_cost.py, which prices a run against a DECLARED "
+            "price table and reports latency as order statistics: a MEAN "
+            "latency on this line would be the weakest possible summary of a "
+            "heavy-tailed retry-contaminated distribution, and cost cannot be "
+            "a series metric even in principle, because the price table is "
+            "dated and the runs are not."),
     }
     if not points:
         out["note"] = (

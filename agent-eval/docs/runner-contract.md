@@ -537,6 +537,40 @@ diff does — the manifest recording `k` is only useful if something checks it.
 Choosing the baseline (`reports/baseline.json`) stays a skill decision (§13);
 the runner only ever compares the two files it is handed.
 
+### 5.7 `cost_latency` is a run-level capability, NOT a layer
+
+`capability_matrix.cost_latency` is a declared, enabled capability that has
+**no row in §5's table and no entry in `LAYER_ORDER`**, and that is deliberate,
+not an omission. The runner emits nothing for it on any case, and a reader who
+finds it in the matrix should not go looking for a `layers.cost_latency` row.
+
+**Why there is no per-case row.** Every layer above answers "did this case do
+the right thing", and a per-case *cost* verdict would need a per-case budget to
+compare against. The case format has no such field, and inventing one would be
+a new declaration with no scorer behind it — the overclaim Step 10 spent a
+session removing five of. Cost is also intrinsically comparative: "this case
+cost $0.004" is not a pass or a fail, it is a number that means something only
+beside another run's. So it is **run-level, like `score_routing.py` (§5.2)**,
+and it is computed *after* a run rather than during one.
+
+**What the matrix flag therefore means.** `cost_latency.enabled` declares that
+this app's traces carry `gen_ai.usage.*` and `gen_ai.request.model`, so its
+runs can be priced. It is in `TRACE_DEPENDENT_LAYERS`, so a **trace-less run
+lists it in `manifest.yaml`'s `traces.disabled_layers`** — which is the true
+and useful statement that this run recorded no token count anywhere, since
+`cases/<id>/trajectory.json` (§6, `# only when: a trace was collected`) is the
+only cost input the tree has. Per-case `latency_s` is recorded on every run,
+traced or not, so the latency half never depends on this flag.
+
+**Who computes it.** `scripts/score_cost.py`, invoked by `analyze` (§13: the
+runner does not write reports). It reads a finished run directory — plus a
+second one for the paired diff, and a **declared price-table sidecar**, which
+is not in `plan.json` for the reason nothing else undriven is: the runner
+prices nothing, so a price key here would be a declaration with no reader. Its
+output goes to stdout or `-o`, never into a run directory, so §6's tree is
+unchanged. TTFT and cached-token accounting are **reserved**, not built; the
+script's docstring states both limits and carries them in its payload.
+
 ---
 
 ## 6. The output tree

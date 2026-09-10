@@ -478,9 +478,12 @@ class TestMetrics(HistoryCase):
             capture_output=True, text=True)
         self.assertEqual(hits.stdout.strip(), "")
 
-    def test_cost_and_latency_are_left_to_the_step_that_owns_them(self):
+    def test_cost_and_latency_are_left_to_the_script_that_owns_them(self):
         # latency_s IS on disk per case in results.json and is deliberately
-        # not aggregated here; cost_usd is written by nothing at all.
+        # not aggregated here; cost needs a price table, which is DATED, so it
+        # is not a series metric even in principle. Step 9c gave both an owner
+        # (score_cost.py) and this string now names it rather than pointing at
+        # a step nobody can look up.
         self.ramp([["pass"], ["fail"]])
         payload = self.history()
         names = set(payload["series"][0]["metrics"]) | set(
@@ -490,6 +493,7 @@ class TestMetrics(HistoryCase):
         # Declared, not silently omitted: the reader is told where the line is.
         self.assertIn("latency_s", payload["not_measured"])
         self.assertIn("cost_usd", payload["not_measured"])
+        self.assertIn("score_cost.py", payload["not_measured"])
 
     def test_it_states_no_second_definition_of_better(self):
         # stats.py owns the keep rule. A drift flag describes a sequence.

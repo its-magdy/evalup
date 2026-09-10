@@ -80,6 +80,32 @@ is `stats.py`'s call on a specific pair, and this script deliberately makes
 none. Read `excluded_runs` first: a run without `summary.status: ok` is not in
 the series, which is usually why a series looks short.
 
+### What it cost, beside whether it worked
+`${CLAUDE_PLUGIN_ROOT}/scripts/score_cost.py <run> [--baseline <run>]
+[--prices <state>/prices.json] [-o reports/cost.json]` — `stats.py` compares
+binary verdicts only, so "2% better but 3× more expensive" reads there exactly
+like a free win. This prices the tokens the trace already recorded and
+summarizes latency as order statistics; with `--baseline` it adds the paired
+diff (an exact sign test, an exact distribution-free interval for the median
+difference, and an exact permutation test on the total — no bootstrap, per
+`stats.py`'s no-approximation rule).
+
+**It is not a second gate.** There is one definition of "better" in this
+package and it is `stats.py`'s keep rule; cost is not in it and there is no
+budget anywhere. Report the two side by side and let the user make the trade.
+Read `by_verdict_change.unchanged` — that is the spend that bought nothing
+measurable.
+
+**The price table is declared, never guessed.** Prices go stale silently, so
+nothing is bundled: write `<state>/prices.json` (shape in the script's
+docstring; `as_of` and `source` are required) and match `gen_ai.request.model`
+exactly, adding an `aliases` entry rather than hoping a prefix matches. A model
+the table does not name withholds the **dollars** and keeps the **tokens**.
+A **trace-less app cannot be priced at all** — `cases/<id>/trajectory.json` is
+the only token source — and its latency block is still complete. Quote
+`declared_limits` with any figure: cached tokens are not accounted for, TTFT is
+not measured, and at `k > 1` the cost is one representative repeat's.
+
 ## `--label` — judge calibration, 15 minutes at a time
 The 15 minutes is the **sitting**, not the total: labeling runs as repeated
 short sessions until the numbers hold, so optimize for low friction per case.
