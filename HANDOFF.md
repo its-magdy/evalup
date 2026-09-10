@@ -118,7 +118,7 @@ Each step is sized for a single low-usage session. Mark done as you go.
 in no step. **Order: 9a → 10 → 9b → 9c, then STOP.** Four sessions, not nine.
 
 - [x] **Step 9a — close the judge loop (`REVIEW` §4.4). DONE 2026-09-10 —
-      `SHA9A`.** `score_agreement.py` **plus a gate change in
+      `eebd318`.** `score_agreement.py` **plus a gate change in
       `run_cases.py`** — a scorer that only emitted numbers would leave
       `judge.status` exactly as hand-set as it was, so `calibrated` is now
       **necessary and not sufficient**: it must be backed by
