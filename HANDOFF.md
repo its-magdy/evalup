@@ -29,7 +29,7 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 |---|---|
 | `HANDOFF.md` (this) | state + plan. Start here. |
 | `AUDIT-2026-09-06.md` | **current** audit. All findings, all verified. |
-| `REVIEW-2026-08-08.md` | prior review. Its §2 bugs + §10 doc fixes are DONE; **§§3–9 are still open** and are the source for later steps. |
+| `REVIEW-2026-08-08.md` | prior review; it was the source for the whole plan and is now **fully dispositioned**. §2 bugs, §3 packaging, §6 slimming, §9 metrics and §10's doc fixes are DONE; all TEN of §4's gaps are built or RESERVED (`AUDIT` §"Step 9 recon" has the table); **§5 is out of plan by decision**; §7's order is superseded by §3 below. **The one item still open is §10's "regenerate the worked example".** |
 | `field-test-qa/qa-report.md` | 2026-07-18 real-user QA field test. Most of its items are fixed; useful for the user's-eye view. |
 | `EVAL-DESIGN-RECOMMENDATION.md` | 2026-08-02 design synthesis. Authoritative for *direction*, not for current state. |
 
