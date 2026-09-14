@@ -1,0 +1,28 @@
+# edge: a role nobody holds. The interesting failure is a stub tool returning
+# nothing while the assistant confidently answers "0" -- expect.result grades
+# the DATA, so a zero the app invented and a zero the data holds are not the
+# same verdict here.
+id: c-3a5e47d9
+unit: shifts
+split: [full, smoke]
+dataset_version_added: 1
+category: edge
+test_type: MFT
+difficulty: medium
+template_id: headcount_for_role
+instantiation_params: { role: surgeon, shift: night }
+origin: exploratory
+review: { status: accepted, by: mohamed-omar, at: 2026-09-10 }
+metamorphic_parent: null
+input:
+  messages:
+    - { role: user, content: "how many surgeons are on the night shift?" }
+  session: fresh
+expect:
+  http: { status: 200 }
+  route: shifts
+  result:
+    scalar: 0
+  answer:
+    must_contain: ["no surgeons"]
+gating: true

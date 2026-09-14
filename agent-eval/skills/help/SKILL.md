@@ -33,6 +33,7 @@ explanations on purpose, so anything you would "recall" from it is a guess.
 | Where does my eval state live? What is in it? | `${CLAUDE_PLUGIN_ROOT}/README.md` §Where state lives |
 | What must my app provide to be evaluated? | `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapter-contract.md` |
 | Why did a run refuse a diff, or halt on my state directory? | `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4 |
+| What does a real dataset / adapter / run directory look like? Show me an example. | `${CLAUDE_PLUGIN_ROOT}/examples/quickstart/README.md` |
 
 Rules:
 

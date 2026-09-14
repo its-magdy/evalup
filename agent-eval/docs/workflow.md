@@ -17,6 +17,11 @@ need Claude Code: datasets are YAML, reports are HTML/Markdown.
 
 ## Day 1 — first contact (≈1 hour to first insight)
 
+Before step 1, if you want to see the shape of what each step writes:
+`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/` holds a complete, validated
+example of all of it — one profile, one adapter, six cases, the plan, and the
+run's file list — for a small trace-less app. It is worth ten minutes.
+
 1. `/agent-eval:start <app>` → runs **discover**: profiles the app, patches
    missing instrumentation (GenAI spans, content capture, trace-ID echo,
    invocation shim — each with your approval), classifies tool side effects,

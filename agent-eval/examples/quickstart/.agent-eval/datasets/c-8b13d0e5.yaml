@@ -1,0 +1,26 @@
+# happy path, shifts. The metamorphic PARENT of c-2d7c6a11 below.
+id: c-8b13d0e5
+unit: shifts
+split: [full, smoke]
+dataset_version_added: 1
+category: happy
+test_type: MFT
+difficulty: easy
+template_id: headcount_for_role
+instantiation_params: { role: nurse, shift: night }
+origin: synthetic
+review: { status: accepted, by: mohamed-omar, at: 2026-09-10 }
+metamorphic_parent: null
+input:
+  messages:
+    - { role: user, content: "how many nurses are on the night shift?" }
+  session: fresh
+expect:
+  http: { status: 200 }
+  route: shifts
+  result:
+    scalar: 7
+    reference_query: "SELECT count(*) FROM roster WHERE role='nurse' AND shift='night'"
+  answer:
+    must_contain: ["7"]
+gating: true

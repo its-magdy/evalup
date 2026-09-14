@@ -4,7 +4,8 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-10 (Step 9c DONE — **the remediation wave is CLOSED**)
+**Last updated:** 2026-09-11 (the `LAYER_OF_EXPECT` swap FIXED — the last
+confirmed defect; `REVIEW` closed 2026-09-10, the wave at Step 9c)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -18,8 +19,8 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
   and the review docs. Branch `run-layout-consistency`, main branch `main`.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
-- **Health:** **687** tests pass (~2min), ruff clean, all **17** CLI scripts
-  `--help` rc=0. Verified 2026-09-10 on **3.14 and 3.9** (the blessed
+- **Health:** **706** tests pass (~2min), ruff clean, all **17** CLI scripts
+  `--help` rc=0. Verified 2026-09-11 on **3.14 and 3.9** (the blessed
   `unittest` command runs on whatever `python3` is — here 3.14 — so the uv 3.9
   floor check below is not optional).
 
@@ -28,7 +29,7 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 |---|---|
 | `HANDOFF.md` (this) | state + plan. Start here. |
 | `AUDIT-2026-09-06.md` | **current** audit. All findings, all verified. |
-| `REVIEW-2026-08-08.md` | prior review; it was the source for the whole plan and is now **fully dispositioned**. §2 bugs, §3 packaging, §6 slimming, §9 metrics and §10's doc fixes are DONE; all TEN of §4's gaps are built or RESERVED (`AUDIT` §"Step 9 recon" has the table); **§5 is out of plan by decision**; §7's order is superseded by §3 below. **The one item still open is §10's "regenerate the worked example".** |
+| `REVIEW-2026-08-08.md` | prior review; it was the source for the whole plan and is now **fully dispositioned and CLOSED**. §2 bugs, §3 packaging, §6 slimming, §9 metrics and §10's doc fixes are DONE; all TEN of §4's gaps are built or RESERVED (`AUDIT` §"Step 9 recon" has the table); **§5 is out of plan by decision**; §7's order is superseded by §3 below. §10's worked example was **built new** (not regenerated — it never could be). **Nothing in it is open.** |
 | `field-test-qa/qa-report.md` | 2026-07-18 real-user QA field test. Most of its items are fixed; useful for the user's-eye view. |
 | `EVAL-DESIGN-RECOMMENDATION.md` | 2026-08-02 design synthesis. Authoritative for *direction*, not for current state. |
 
@@ -57,54 +58,40 @@ and their siblings — hold that line.
 
 Each step is sized for a single low-usage session. Mark done as you go.
 
-- [x] **Steps 0–4 — baseline; splits are a field; one path convention; the
-      three scorer bugs; tighten `validate_cases.py`. DONE 2026-09-07/08 —
-      `6c7d286`, `f03c960`, `05804ef`, `0d2aa91`, `201aa2a`.** Paths:
-      `${CLAUDE_PLUGIN_ROOT}/...` cross-skill, relative inside a skill,
-      app/state bare (README §"Path convention"). **The audit's offender list
-      was wrong in both directions** — grep, don't work a list. Each bug was a
-      class with siblings (NFC in **six** scorers, via `_common.nfc`). The
-      severity line — **ERROR = a claim nothing backs; WARN = thinner than the
-      guidance recommends** — is in the docstring + `case-format.md`.
-
-- [x] **Steps 5a–5c — spec and build `run_cases.py`, then rewire
-      `run/SKILL.md`. DONE 2026-09-08/09 — `77d3778`, `c9bc4f7`, `5e573c9`,
-      `676ab23`.** Body in `AUDIT` §2 + the contract: **it was not implementable
-      as written**; all nine decisions were answered, none guessed. The skill
-      went 318 → **164** and had to ADD **§1, building `plan.json`**.
-
-- [x] **Steps 6a–6e — slim the skills; the two decisions; dedupe. Step 6
-      CLOSED. DONE 2026-09-09 — `86b602e`, `d6bf421`, `6268cc3`, `4ede98f`,
-      `a22ce8e`.** Body in `AUDIT` §1's re-measured block + addendum and §4.
-      **D1 — `≤120 lines` is RETIRED; D2 — `help` loses its body.** Only `help`
-      duplicated anything: **a MENTION count is not a duplication count**.
-
-- [x] **Step 7 — Decide multi-turn: RESERVED. DONE 2026-09-10 — `337181a`.**
-      Body in `AUDIT` §8's RESOLVED block; Step 10 rests on its precedent.
-
-- [x] **Steps 8a–8b — packaging; stale artifacts + `micro_f1`. Step 8 CLOSED.
-      DONE 2026-09-10 — `526e495`, `593aad1`.** Bodies in `AUDIT` §"RESOLVED …
-      (Step 8a)"/"(Step 8b)". Two facts §4 rests on: **CI was written knowingly
-      as a spec**, and **`ruff.toml` did NOT fold in**.
+- [x] **Steps 0–8b — CLOSED, 2026-09-07/10. Bodies in `AUDIT`; the shas are the
+      readable diff.** *0–4* baseline, splits-as-a-field, one path convention,
+      the three scorer bugs, a tighter `validate_cases.py` — `6c7d286`,
+      `f03c960`, `05804ef`, `0d2aa91`, `201aa2a`. *5a–5c* the runner: spec in
+      `docs/runner-contract.md`, engine in `run_cases.py`, skill rewired 318 →
+      **164** — `77d3778`, `c9bc4f7`, `5e573c9`, `676ab23`. *6a–6e* slim the
+      skills, D1 (**`≤120 lines` RETIRED**) and D2 (`help` loses its body),
+      dedupe — `86b602e`, `d6bf421`, `6268cc3`, `4ede98f`, `a22ce8e`. *7*
+      multi-turn **RESERVED** — `337181a`. *8a–8b* packaging; the stale
+      artifacts **relabelled, not regenerated**, and `micro_f1` kept —
+      `526e495`, `593aad1`.
+      **The four lessons that outlived their steps:** paths are
+      `${CLAUDE_PLUGIN_ROOT}/…` cross-skill, relative inside a skill, bare for
+      app/state (README §"Path convention"); **ERROR = a claim nothing backs,
+      WARN = thinner than the guidance recommends**; every bug was a *class*
+      with siblings, so **grep, don't work a list** — the audit's offender list
+      was wrong in both directions; and **a MENTION count is not a duplication
+      count.**
 
 **`REVIEW` §4 has TEN gaps and the old Step 9 bullet named four.** `AUDIT`
 §"Step 9 recon" has the disposition table; six were in no step.
 
-- [x] **Step 9a — close the judge loop (`REVIEW` §4.4). DONE 2026-09-10 —
-      `eebd318`.** `score_agreement.py` **+ a gate change in `run_cases.py`**
-      (§4's gotcha). Body in `AUDIT` §"RESOLVED … (Step 9a)".
+- [x] **Step 9a — the judge loop (`REVIEW` §4.4). DONE — `eebd318`.**
+      `score_agreement.py` **+ a gate change in `run_cases.py`** (§4).
 - [x] **Step 10 — RESERVE `REVIEW` §4's items 2, 5, 7, 8 and 10. DONE
       2026-09-10 — `d22bcaa`.** All five reserved, none built; body in `AUDIT`
       §"RESOLVED … (Step 10)". **§4.7 was the live one** and its rollup half hit
       every case, not just `state` — see §4's `http` gotcha. **§4.2 is a doc
       correction; §4.5 is a non-finding** (nothing declares a per-layer
       statistic, so there is nothing to reserve). 4 WARNs + 1 ERROR.
-- [x] **Step 9b — run history (`REVIEW` §4.9). DONE 2026-09-10 — `2bbb40a`.**
-      `scripts/run_history.py` + 58 tests, named in `analyze/SKILL.md`. Body in
-      `AUDIT` §"RESOLVED … (Step 9b)". **"All data already on disk" was WRONG a
-      fifth time; the gap was COMPARABILITY** (`manifest.yaml`-only keys), **no
-      flakiness ledger exists**, and **nothing declared a trend view**, so 9b
-      had nothing to reserve.
+- [x] **Step 9b — run history (`REVIEW` §4.9). DONE — `2bbb40a`.**
+      `run_history.py` + 58 tests, named in `analyze/SKILL.md`. **"All data
+      already on disk" was WRONG a fifth time; the gap was COMPARABILITY**
+      (`manifest.yaml`-only keys), so 9b had nothing to reserve.
 - [x] **Step 9c — cost/latency (`REVIEW` §4.3). Step 9 and the WHOLE
       REMEDIATION WAVE CLOSED. DONE 2026-09-10 — `afc2650`.**
       `scripts/score_cost.py` + 35 tests, contract **§5.7**, named in
@@ -114,27 +101,48 @@ Each step is sized for a single low-usage session. Mark done as you go.
       **§4.3's bootstrap is DECLINED by name** — see §4's gotcha. Finding six
       (the recon's `stages.json`) is corrected in place in `AUDIT`'s recon.
 
-**The plan is DONE. What is deliberately OUT of it** — decided, not dropped:
-**§4.6 RAG/retrieval** and **§5's five "ideas worth stealing"** are greenfield
-additions, not remediation (grep returns zero files; `AUDIT` §"Step 9 recon"
-DEMOTED them) — a new wave if anyone wants one. **Everything Steps 7 and 10
-RESERVED** (multi-turn, `expect.state`, `seed_state`, `available_tools`,
+- [x] **The worked example (`REVIEW` §10) — BUILT NEW. The FIRST work after the
+      wave, and it CLOSES `REVIEW` entirely. DONE 2026-09-10.**
+      `agent-eval/examples/quickstart/` + `tests/test_example.py` (16 tests).
+      Body in `AUDIT` §"RESOLVED … (the worked example)". **A SPLIT, and it is
+      the answer to 8b:** the *inputs* are COMMITTED (readable before install,
+      and they ship — a marketplace install copies the tree), the *run* is
+      GENERATED into a temp dir on every test run against a real HTTP server,
+      so it can never be stale. `validate_cases.py --strict` over the shipped
+      suite must be **0 errors AND 0 warnings**. Two handed-down claims were
+      wrong again: **only ONE test reads `field-test-qa/.agent-eval/`**, not
+      two (the halt branch builds its shape synthetically), and it is **36
+      ERROR / 8 WARN** today, not 7 — Step 10 added a WARN under 8b. Both
+      corrected in place in that dir's `LAYOUT.md`; **no artifact under it was
+      touched.** No new CLI script — the fixture app lives in `tests/`, so the
+      count stays **17**.
+
+**The plan is DONE and `REVIEW` is CLOSED. What is deliberately OUT** — decided,
+not dropped: **§4.6 RAG/retrieval** and **§5's five "ideas worth stealing"** are
+greenfield additions, not remediation (grep returns zero files; `AUDIT` §"Step 9
+recon" DEMOTED them) — a new wave if anyone wants one. **Everything Steps 7 and
+10 RESERVED** (multi-turn, `expect.state`, `seed_state`, `available_tools`,
 `excluded_tools`, agent-scoped expectations, streaming/TTFT) plus 9c's
 **cached-token pricing** each wait for the scorer that would read them; do not
-wire one up without one. **NEXT, and the only actionable work left: `REVIEW`
-§10's "regenerate the worked example" — the plugin ships NO conforming
-end-to-end example** (`AUDIT` §10 bullet 1 + §"RESOLVED … (Step 8b)").
-`field-test-qa/.agent-eval/` is stale ON PURPOSE and a `test_run_cases.py`
-fixture reads it, so a new example must be **BUILT, not carved out of it** —
-and decide first whether it is COMMITTED (and rots, which is the defect 8b is
-about) or GENERATED by something a test runs.
+wire one up without one.
+
+**The `LAYER_OF_EXPECT` swap — FIXED 2026-09-11, and NOTHING IS OPEN.**
+`validate_cases.py` mapped `expect.tools`/`expect.args` onto the OPPOSITE layers
+from `run_cases.py` and contract §5; two map lines + the docstring repeating it.
+Body in `AUDIT` §"RESOLVED … (the LAYER_OF_EXPECT swap)". **Both suites
+re-measured and both HELD** — `field-test-qa/` 36/8, `quickstart/` 0/0, each
+blind to it for a different reason. A test pins the pairing now (one
+structural, against `run_cases.applicable_layers`) — nothing did, which is why
+it survived.
+**Number six:** `machine_accepted` fires 6× there, not 7, and `gating` is not
+its condition. Anything further is a NEW WAVE — see just above.
 
 ---
 
 ## 4. Gotchas a new session will otherwise rediscover the hard way
 
 - **Commands** (run from `agent-eval/`):
-  - `python3 -m unittest discover -s tests` — 687 tests, ~2min, the blessed
+  - `python3 -m unittest discover -s tests` — 706 tests, ~2min, the blessed
     command. (`test_run_cases.py` is most of the time: a real HTTP server per
     test, and one test kills a runner mid-run.)
   - `ruff check --config ruff.toml .` — `--config` is not decoration:
@@ -151,57 +159,44 @@ about) or GENERATED by something a test runs.
   §9(b)'s python block, parse §6's `# only when:` markers, and pin
   `--oos-route`'s precondition), so an edit fails the suite until the code
   follows — deliberate, not brittle.
-- **The judged gate is DERIVED as of 9a.** `judge.status: calibrated` is
-  necessary, not sufficient: `run_cases.py` also demands
-  `paths.judge_calibration`'s sidecar (`score_agreement.py --write`). Every
-  failure is a reason string on `unjudged`, never an exit code.
-- **`http` no longer carries a case to `pass` (Step 10).** Rollup rule 5 is
-  **non-`http`**; rule 6 keeps a liveness-only case a pass. A case whose real
-  layers are all `unscored`/`unscorable` now rolls up `unscored` — never
-  `fail`, so the change can only be more conservative.
-- **A series is not a pair (Step 9b).** §5.6's three keys suffice for
-  `stats.py` because a pair is joined by case-id INTERSECTION; a trend over
-  aggregates has none, so `run_history.py` also keys on `mode` +
-  `selecting_split` + the enabled-layer set — and **not** on the app `git_sha`,
-  the independent variable. Only `summary.status: "ok"` runs join a series, and
-  it never says "better": that is `stats.py`'s keep rule, and this repo refuses
-  a second one.
-- **Cost NEVER gates, and the price table is a SIDECAR (9c).** `score_cost.py`
-  is run-level; **`cost_latency` is a capability, not a layer** — no row in §5's
-  table, none in `LAYER_ORDER`, permanently (contract **§5.7**). Exactly ONE
-  keep rule remains (`stats.py`); `FORBIDDEN_VERDICT_WORDS` + a test enforce it.
-  `--prices <state>/prices.json` is declared per app and **not in `plan.json`**
-  — the runner prices nothing, so a key there would have no reader. Exact model
-  match; an unknown model withholds the **dollars**, keeps the **tokens**.
-  **A trace-less run cannot be priced at all** (no `trajectory.json`) — that
-  includes the field test, whose latency is still complete.
-- **§4.3's bootstrap is DECLINED (9c), deliberately.** A resampling
-  approximation breaks `stats.py`'s house rule. Replaced by three exact tests:
-  the sign test (imported from `stats.py`, so there is one exact binomial), that
-  test **inverted over order statistics** for an exact distribution-free median
-  CI, and an exact permutation test capped on **DP STATES, not m**
-  (`min(2^m, span/gcd+1)`), declined past the cap. Never "add a CI" by
-  resampling.
+- **Four rules the closed steps left behind — each has a full body in `AUDIT`;
+  do not reopen one without reading it.** (a) **The judged gate is DERIVED**
+  (9a): `judge.status: calibrated` is necessary, not sufficient — the
+  `paths.judge_calibration` sidecar must back it, and every failure is a reason
+  on `unjudged`, never an exit code. (b) **`http` no longer carries a case to
+  `pass`** (Step 10): rollup rule 5 is non-`http`, so an all-`unscored` case
+  rolls up `unscored`, never `fail`. (c) **A series is not a pair** (9b):
+  `run_history.py` keys on `mode` + `selecting_split` + the enabled-layer set,
+  and **not** on the app `git_sha`; only `status: "ok"` runs join, and it never
+  says "better". (d) **Cost NEVER gates and its price table is a SIDECAR** (9c):
+  `cost_latency` is a capability, not a layer (contract **§5.7**, permanent);
+  `--prices` is per app and **not in `plan.json`**; an unknown model withholds
+  the dollars and keeps the tokens; **a trace-less run cannot be priced at
+  all**. Related: **§4.3's bootstrap is DECLINED** — never "add a CI" by
+  resampling; three exact tests replaced it.
 - **Five things are RESERVED and the validator WARNs on each:** `expect.state`,
   `seed_state`, `available_tools`, `excluded_tools` (+ `difficulty`, doc-only).
   `run_cases.py` calls `environment.seed/.reset/.snapshot_state` **nowhere** —
   seed out of band. Do not "wire up" one without a scorer to read it.
-- **The holdout ledger is a `.jsonl` sidecar** (`datasets/holdout-looks.jsonl`,
-  from `paths.holdout_ledger`), not the YAML dataset metadata — a stdlib-only
-  runner would corrupt the YAML. The total is a LINE COUNT.
-- **`__oos__` is `score_routing.py`'s canonical internal OOS label**, not a
-  data value; `--oos-route <name>` maps the profile's route onto it. **The
-  scorers' error contract:** errors go to **stdout** (not stderr) as JSON, exit
-  2 on malformed input — deliberate, see `_common.die()`.
+- **Three conventions that look arbitrary and are not:** the **holdout ledger**
+  is a `.jsonl` sidecar (`paths.holdout_ledger`), never the YAML metadata a
+  stdlib-only runner would corrupt, and its total is a LINE COUNT; **`__oos__`**
+  is `score_routing.py`'s internal label, never a data value (`--oos-route`
+  maps a profile's route onto it); and **the scorers' error contract** puts
+  errors on **stdout** as JSON with exit 2 (`_common.die()`), not stderr.
 - **`field-test-qa/.agent-eval/` is stale ON PURPOSE** — mixed layout, 36
-  validator errors, two fixtures depend on it; **read its `LAYOUT.md` before
-  migrating or copying it.** Not a good example, and nothing else is one either.
-- **The field test's app under test is READ-ONLY** and lives outside this repo
-  (`/path/to/reference-app`). Never modify it.
-- **The audit's token numbers are `words × 1.33` over `skills/**/*.md`, whole
-  file — `wc -l` is not their meter** (`AUDIT` §1 has the figures).
+  validator errors / 8 WARNs; **read its `LAYOUT.md` before touching it.**
+  **Exactly ONE test reads it** (`test_run_cases.py`:1859, the smoke report dir,
+  on a copy) — the "two fixtures" line was wrong. Its app under test is
+  **READ-ONLY** and outside this repo
+  (`/path/to/reference-app`) — never modify it.
+- **The conforming example is `agent-eval/examples/quickstart/`**, driven by
+  `tests/test_example.py`. Its inputs are committed and its run is NOT: edit any
+  YAML there and you must regenerate `converted.json` (the one-liner is in its
+  README) or a test fails. `validate_cases.py --strict` over it must stay at
+  **0 errors and 0 warnings**.
 - **`.github/workflows/ci.yml` has never run** — no git remote, so it is a
   specification (its header says so). The three commands above are the only
-  checked claim; **never report CI as green.**
-- Every audit finding has a copy-pasteable repro in `AUDIT-2026-09-06.md`.
-  Re-run rather than re-deriving.
+  checked claim; **never report CI as green.** The audit's token numbers are
+  `words × 1.33` over `skills/**/*.md`, whole file — `wc -l` is not their meter.
+  Every audit finding has a copy-pasteable repro: re-run it, don't re-derive it.

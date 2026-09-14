@@ -1,0 +1,27 @@
+# INV: the same question, phrased as a fragment. The expectation MUST NOT move
+# -- that is the whole assertion, and it is why this case is the cheapest
+# coverage in the grid: it inherits its parent's labels and gold answer.
+id: c-2d7c6a11
+unit: shifts
+split: [full, smoke]
+dataset_version_added: 1
+category: edge
+test_type: INV
+difficulty: medium
+template_id: headcount_for_role
+instantiation_params: { role: nurse, shift: night }
+origin: mutation-gap
+review: { status: accepted, by: mohamed-omar, at: 2026-09-10 }
+metamorphic_parent: c-8b13d0e5
+input:
+  messages:
+    - { role: user, content: "night shift - nurse headcount?" }
+  session: fresh
+expect:
+  http: { status: 200 }
+  route: shifts
+  result:
+    scalar: 7
+  answer:
+    must_contain: ["7"]
+gating: true

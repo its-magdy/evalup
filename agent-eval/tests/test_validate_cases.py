@@ -305,6 +305,73 @@ class TestErrorFindings(ValidateTest):
         self.assertNotIn("expect.http", f["message"])
 
 
+class TestExpectMapsToTheLayerTheRunnerScores(ValidateTest):
+    """`expect.tools` -> trajectory, `expect.args` -> tool_selection.
+
+    The pairing reads backwards and it is the contract's: runner-contract.md
+    SS5's trigger column scores `expect.tools` with trajectory_match.py on the
+    `trajectory` layer, and `expect.args` with score_args.py on
+    `tool_selection`. LAYER_OF_EXPECT had the two SWAPPED, so no_graded_layer
+    blamed a layer the runner never consults for that expectation -- the
+    linter called a case ungraded that the runner grades, and vice versa.
+    Nothing pinned the mapping, which is why the swap survived; these tests
+    are that pin, in both directions and against the runner itself.
+    """
+
+    def caps(self, **enabled):
+        matrix = {layer: {"enabled": False, "blocked_by": "off"} for layer in
+                  ("routing", "tool_selection", "trajectory", "execution",
+                   "authz", "answer_quality")}
+        for layer, on in enabled.items():
+            matrix[layer] = {"enabled": True} if on else matrix[layer]
+        return self.write_json(f"caps-{sorted(enabled)}.json", matrix)
+
+    def test_tools_is_graded_by_trajectory(self):
+        case = good_case(expect={"tools": {"subset": ["list_invoices"]}})
+        rc, out, _ = self.validate([case], "--capabilities",
+                                   self.caps(trajectory=True))
+        self.assertEqual(rc, 0, self.codes(out))
+        self.assertEqual(out["summary"]["by_graded_layer"]["trajectory"], 1)
+        self.assertEqual(out["summary"]["by_graded_layer"]["tool_selection"], 0)
+        # Mirror: with trajectory off it IS ungraded, and the ERROR says so.
+        f = self.assert_finds("no_graded_layer", [case], "--capabilities",
+                              self.caps(tool_selection=True))
+        self.assertIn("trajectory", f["message"])
+        self.assertNotIn("tool_selection", f["message"])
+
+    def test_args_is_graded_by_tool_selection(self):
+        case = good_case(expect={"args": {"list_invoices": {"limit": 10}}})
+        rc, out, _ = self.validate([case], "--capabilities",
+                                   self.caps(tool_selection=True))
+        self.assertEqual(rc, 0, self.codes(out))
+        self.assertEqual(out["summary"]["by_graded_layer"]["tool_selection"], 1)
+        self.assertEqual(out["summary"]["by_graded_layer"]["trajectory"], 0)
+        f = self.assert_finds("no_graded_layer", [case], "--capabilities",
+                              self.caps(trajectory=True))
+        self.assertIn("tool_selection", f["message"])
+
+    def test_the_map_agrees_with_run_cases_applicable_layers(self):
+        """Structural, so the two cannot drift again: every expect key the
+        linter maps must land on the layer the RUNNER makes applicable for a
+        case carrying only that key. Imported for its declared behaviour, the
+        way test_run_cases.py imports it for its constants."""
+        sys.path.insert(0, str(SCRIPT.parent))
+        try:
+            import run_cases
+            import validate_cases
+        finally:
+            sys.path.pop(0)
+        for key, layer in validate_cases.LAYER_OF_EXPECT.items():
+            with self.subTest(expect_key=key):
+                case = {"expect": {key: {}}}
+                applicable = run_cases.applicable_layers(
+                    case, trace_collected=True)
+                # `answer_quality` is the linter's name for the runner's
+                # `answer` row; every other layer name is shared verbatim.
+                expected = "answer" if layer == "answer_quality" else layer
+                self.assertIn(expected, applicable)
+
+
 class TestWarnFindings(ValidateTest):
     def test_no_op_pass(self):
         f = self.assert_finds("no_op_pass", [good_case(no_op_expectation="pass")],

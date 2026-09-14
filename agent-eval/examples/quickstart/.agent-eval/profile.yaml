@@ -1,0 +1,58 @@
+# Quickstart example — the profile `discover` would write for `helpdesk-demo`.
+#
+# The capability_matrix is the load-bearing part: it is copied VERBATIM into
+# plan.json, and it decides which layers may score at all. Four of the six
+# capabilities here are `false`, each with a `blocked_by` naming the concrete
+# thing that is missing -- not a hedge. A layer disabled with a reason is an
+# honest gap; a layer left enabled with nothing behind it prints a number that
+# reads as a measurement.
+profile_version: 1
+
+app:
+  name: helpdesk-demo
+  kind: single-agent-router      # one classifier, two domain handlers
+  domains: [invoices, shifts]
+  read_only: true                # the app answers questions; it mutates nothing
+
+capability_matrix:
+  answer_quality:  { enabled: true,  judged: uncalibrated }
+  routing:         { enabled: true }
+  execution:       { enabled: true }
+  authz:           { enabled: false, blocked_by: "app has one anonymous identity; no permission model to score against" }
+  tool_selection:  { enabled: false, blocked_by: "no trace store: tool calls are not observable" }
+  trajectory:      { enabled: false, blocked_by: "no trace store: tool calls are not observable" }
+  multi_turn:      { enabled: false, blocked_by: "reserved: no conversation driver in the harness" }
+  cost_latency:    { enabled: false, blocked_by: "no trace store, so no token counts; latency alone is still recorded in results.json" }
+
+# `answer_quality.judged: uncalibrated` matters. The judged gate is DERIVED
+# (Step 9a): `calibrated` here is necessary but NOT sufficient -- run_cases.py
+# also demands paths.judge_calibration's sidecar, written by
+# score_agreement.py --write. This example ships no judge and no sidecar, so
+# every rubric-judged claim would stay shut. The answer layer below is scored
+# by string assertions only (score_answer.py), which need no judge.
+
+confirmed_by_human:
+  by: mohamed-omar
+  at: 2026-09-10
+  notes: >-
+    Hand-authored for the plugin's quickstart example. The app is the fixture
+    in tests/test_example.py, so every fact below was read off its source
+    rather than assumed -- which is exactly what a real discover run must NOT
+    do against a real app (source-derived expectations grade the app against
+    itself). It is safe here only because the app IS the specification.
+
+business_rules:
+  - id: read-only
+    rule: "Never claim to have created, edited or deleted anything; say the assistant is read-only."
+    source: "app fixture, refuse_mutation branch"
+  - id: grounded-only
+    rule: "Never state a figure not present in a tool result."
+    source: "app fixture, answer templates"
+
+routing_contract:
+  - route: invoices
+    when: "billing, invoices, spend, amounts owed"
+  - route: shifts
+    when: "rosters, headcount, who is on shift"
+  - route: none
+    when: "anything outside both domains; the app answers HTTP 400"

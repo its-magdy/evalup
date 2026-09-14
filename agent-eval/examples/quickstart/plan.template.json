@@ -1,0 +1,68 @@
+{
+  "//": [
+    "The plan `run --smoke` builds for this example. run_cases.py takes JSON",
+    "and nothing else; the skill's YAML->JSON conversion IS the run's parse,",
+    "not a second opinion. docs/runner-contract.md SS2 is the authority for",
+    "every key below -- an unknown top-level key is exit 2, deliberately, so a",
+    "typo cannot silently disable a layer.",
+    "",
+    "The five <ANGLE_BRACKET> values are the ones that cannot be committed:",
+    "three are absolute paths that differ per machine, one is a timestamp, and",
+    "one is the case list, whose single source of truth is the YAML beside it.",
+    "tests/test_example.py substitutes all five and runs this for real."
+  ],
+
+  "plan_version": 1,
+
+  "run_id": "<RUN_ID>",
+  "mode": "smoke",
+  "k": 1,
+  "gate": "soft",
+  "selecting_split": "smoke",
+
+  "paths": {
+    "scripts_dir": "<PLUGIN_ROOT>/scripts",
+    "state_dir": "<STATE_DIR>",
+    "holdout_ledger": null,
+    "judge_calibration": null
+  },
+
+  "adapter": "<ADAPTER_YAML_AS_JSON>",
+  "capability_matrix": "<PROFILE_CAPABILITY_MATRIX>",
+  "cases": "<SUITE_JSON_CASES>",
+
+  "scoring": {
+    "oos_route": "none",
+    "id_pattern": null,
+    "float_tolerance": 0.0,
+    "repeat_threshold": 3,
+    "call_budget": 15,
+    "fail_on_errored_calls": false,
+    "scorer_timeout_s": 30
+  },
+
+  "execution": {
+    "timeout_s": 10,
+    "max_attempts": 3,
+    "backoff_s": [1, 4],
+    "infra_rate_abort": 0.25,
+    "insecure_tls": false
+  },
+
+  "manifest_extra": {
+    "dataset_version": 1,
+    "app": {
+      "name": "helpdesk-demo",
+      "repo": "tests/test_example.py",
+      "git_sha": null,
+      "git_tree": "n/a",
+      "model": {"classifier": "none (rule-based fixture)", "executor": "none (rule-based fixture)"}
+    },
+    "prompt_snapshot_hashes": {},
+    "judge": {"model": null, "status": "uncalibrated"},
+    "rubric_versions": "n/a (no rubrics: the answer layer is string assertions only)",
+    "temperature": "n/a (deterministic fixture)",
+    "environment_kind": "mocked",
+    "cost_estimate": {"note": "zero: the app under test is a local fixture, and it emits no tokens to price"}
+  }
+}

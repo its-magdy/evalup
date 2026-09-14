@@ -22,6 +22,13 @@ only the ~15 suspicious ones, and gives you your first scored run — typically
 a routing confusion matrix that tells you something you didn't know — in
 about an hour.
 
+Want to see what all of that produces before you install anything?
+**`examples/quickstart/`** is a complete, validated eval setup for a small
+two-domain app — profile, adapter, six cases, the plan, and the exact list of
+files a run writes. It is checked by `tests/test_example.py` on every test run,
+so it conforms to the current rules rather than to the rules of the day it was
+written.
+
 Lost at any point: `/agent-eval:help`.
 
 ## Commands
@@ -86,6 +93,9 @@ teammates who never open Claude Code.
 
 ## Docs
 
+- `examples/quickstart/README.md` — the worked end-to-end example: what
+  `discover`, `generate` and `run` actually write, and which layers a
+  trace-less app can still score
 - `docs/workflow.md` — day 1 → steady state → production, and who does what
 - `docs/concepts.md` — eval layers, staged rigor, ground truth, the judge
 - `skills/discover/references/adapter-contract.md` — the language-agnostic adapter

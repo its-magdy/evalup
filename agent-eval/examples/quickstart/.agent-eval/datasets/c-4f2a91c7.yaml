@@ -1,0 +1,29 @@
+# happy path, invoices. Four layers score on this one case: http (declared
+# status), routing (route_from_response), execution (result_from_response) and
+# answer (string assertions). No trace is needed for any of them.
+id: c-4f2a91c7
+unit: invoices
+split: [full, smoke]
+dataset_version_added: 1
+category: happy
+test_type: MFT
+difficulty: easy
+template_id: spend_for_month
+instantiation_params: { month: "2026-05" }
+origin: synthetic
+review: { status: accepted, by: mohamed-omar, at: 2026-09-10 }
+metamorphic_parent: null
+input:
+  messages:
+    - { role: user, content: "what did I spend on invoices in May 2026?" }
+  session: fresh
+expect:
+  http: { status: 200 }
+  route: invoices
+  result:
+    scalar: 412.5
+    reference_query: "SELECT sum(amount) FROM invoices WHERE month = '2026-05'"
+  answer:
+    must_contain: ["412.50"]
+    must_not_contain: ["I don't know"]
+gating: true

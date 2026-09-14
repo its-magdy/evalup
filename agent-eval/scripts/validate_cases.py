@@ -41,8 +41,13 @@ WHAT COUNTS AS GRADED (the no_graded_layer check):
 
 A case's expect keys map onto capability layers:
   route, route_acceptable -> routing        result -> execution
-  tools                   -> tool_selection authz  -> authz
-  args                    -> trajectory     answer, format -> answer_quality
+  tools                   -> trajectory     authz  -> authz
+  args                    -> tool_selection answer, format -> answer_quality
+The pairing is the contract's (docs/runner-contract.md §5) and run_cases.py's,
+and it reads backwards on purpose: `expect.tools` is scored by
+trajectory_match.py on the `trajectory` layer, `expect.args` by score_args.py
+on `tool_selection`. This map had the two swapped, which made no_graded_layer
+blame a layer the runner never consults for that expectation.
 `expect.http` maps to NOTHING. A status code is a liveness check: it says the
 request reached the app, not that the app did the right thing. A case whose
 only expectation is `http` is reported http-only and, having no graded layer,
@@ -114,8 +119,8 @@ SPLITS = ("full", "smoke", "holdout", "canary")
 LAYER_OF_EXPECT = {
     "route": "routing",
     "route_acceptable": "routing",
-    "tools": "tool_selection",
-    "args": "trajectory",
+    "tools": "trajectory",
+    "args": "tool_selection",
     "result": "execution",
     "authz": "authz",
     "answer": "answer_quality",

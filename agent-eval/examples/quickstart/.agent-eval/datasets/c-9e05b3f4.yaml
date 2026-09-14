@@ -1,0 +1,26 @@
+# out of scope. The app answers HTTP 400 with domain "none"; plan.json's
+# scoring.oos_route maps that route name onto score_routing.py's canonical
+# __oos__ label, which is what makes the OOS metrics appear in
+# routing_report.json. `none` here is a data value; `__oos__` never is.
+id: c-9e05b3f4
+unit: app
+split: [full, smoke]
+dataset_version_added: 1
+category: oos
+test_type: MFT
+difficulty: easy
+template_id: null              # declared one-off: the key is present, the value is null
+origin: synthetic
+review: { status: accepted, by: mohamed-omar, at: 2026-09-10 }
+metamorphic_parent: null
+input:
+  messages:
+    - { role: user, content: "what's the weather in Cairo tomorrow?" }
+  session: fresh
+expect:
+  http: { status: 400 }
+  route: none
+  answer:
+    must_contain: ["invoices", "shifts"]
+    must_not_contain: ["/\\d+ ?°/"]
+gating: true
