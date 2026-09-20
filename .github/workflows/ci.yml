@@ -28,7 +28,7 @@ defaults:
   run:
     # Everything lives in the plugin directory; the repo root also holds the
     # design/review docs and the field-test workspace, which are not code.
-    working-directory: agent-eval
+    working-directory: evalup
 
 jobs:
   # The real interpreter matrix. This is the check that does not exist locally
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # floor, dev pin (see agent-eval/.tool-versions), and a current
+        # floor, dev pin (see evalup/.tool-versions), and a current
         # release so the harness is not quietly pinned to old behaviour either.
         python-version: ["3.9", "3.11", "3.13"]
     steps:

@@ -1,11 +1,11 @@
-# agent-eval — session handoff / working state
+# evalup — session handoff / working state
 
 **Purpose:** this file is the single place a new session reads to pick up work
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-11 (the `LAYER_OF_EXPECT` swap FIXED — the last
-confirmed defect; `REVIEW` closed 2026-09-10, the wave at Step 9c)
+**Last updated:** 2026-09-20 (renamed `agent-eval` → `evalup`; the
+`LAYER_OF_EXPECT` swap FIXED 2026-09-11 was the last confirmed defect)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -15,14 +15,17 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 ## 1. Where things stand
 
 - **Repo:** `/path/to/workspace`;
-  plugin `agent-eval/` (v0.1.0); root also holds `research/`, `field-test-qa/`
-  and the review docs. Branch `run-layout-consistency`, main branch `main`.
+  plugin `evalup/` (v0.1.0; **renamed from `agent-eval` 2026-09-14** — dated
+  records and `field-test-qa/` keep the old name on purpose); root also holds
+  `research/`, `field-test-qa/` and the review docs. Branch `rename-to-evalup`
+  (off `run-layout-consistency`), main branch `main`.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
 - **Health:** **706** tests pass (~2min), ruff clean, all **17** CLI scripts
-  `--help` rc=0. Verified 2026-09-11 on **3.14 and 3.9** (the blessed
-  `unittest` command runs on whatever `python3` is — here 3.14 — so the uv 3.9
-  floor check below is not optional).
+  `--help` rc=0. Re-verified after the rename, 2026-09-20, on **3.13 and 3.9**
+  (the blessed `unittest` runs on whatever `python3` is, so the uv 3.9 floor
+  check below is not optional). **Known-red, and it predates the rename:** CI's
+  `cli-help` job asserts **14** CLIs and there are 17.
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
@@ -103,7 +106,7 @@ Each step is sized for a single low-usage session. Mark done as you go.
 
 - [x] **The worked example (`REVIEW` §10) — BUILT NEW. The FIRST work after the
       wave, and it CLOSES `REVIEW` entirely. DONE 2026-09-10.**
-      `agent-eval/examples/quickstart/` + `tests/test_example.py` (16 tests).
+      `evalup/examples/quickstart/` + `tests/test_example.py` (16 tests).
       Body in `AUDIT` §"RESOLVED … (the worked example)". **A SPLIT, and it is
       the answer to 8b:** the *inputs* are COMMITTED (readable before install,
       and they ship — a marketplace install copies the tree), the *run* is
@@ -141,7 +144,7 @@ its condition. Anything further is a NEW WAVE — see just above.
 
 ## 4. Gotchas a new session will otherwise rediscover the hard way
 
-- **Commands** (run from `agent-eval/`):
+- **Commands** (run from `evalup/`):
   - `python3 -m unittest discover -s tests` — 706 tests, ~2min, the blessed
     command. (`test_run_cases.py` is most of the time: a real HTTP server per
     test, and one test kills a runner mid-run.)
@@ -153,7 +156,7 @@ its condition. Anything further is a NEW WAVE — see just above.
 - **`validate_cases.py` and `run_cases.py` take JSON, not YAML**, deliberately
   — the skill's YAML→JSON conversion *is* the run's parse, not a second
   opinion. Read the docstrings before "fixing" that.
-- **The runner's spec is `agent-eval/docs/runner-contract.md` and it wins.** Its
+- **The runner's spec is `evalup/docs/runner-contract.md` and it wins.** Its
   nine decisions were confirmed 2026-09-08, with trade-offs — don't reopen one
   without reading it. **Three tests read the file at run time** (they exec
   §9(b)'s python block, parse §6's `# only when:` markers, and pin
@@ -185,12 +188,14 @@ its condition. Anything further is a NEW WAVE — see just above.
   maps a profile's route onto it); and **the scorers' error contract** puts
   errors on **stdout** as JSON with exit 2 (`_common.die()`), not stderr.
 - **`field-test-qa/.agent-eval/` is stale ON PURPOSE** — mixed layout, 36
-  validator errors / 8 WARNs; **read its `LAYOUT.md` before touching it.**
+  validator errors / 8 WARNs; **read its `LAYOUT.md` before touching it.** It
+  keeps the OLD state-dir name on purpose (live apps use `.evalup/`) — its
+  artifacts hold absolute `.agent-eval` paths.
   **Exactly ONE test reads it** (`test_run_cases.py`:1859, the smoke report dir,
   on a copy) — the "two fixtures" line was wrong. Its app under test is
   **READ-ONLY** and outside this repo
   (`/path/to/reference-app`) — never modify it.
-- **The conforming example is `agent-eval/examples/quickstart/`**, driven by
+- **The conforming example is `evalup/examples/quickstart/`**, driven by
   `tests/test_example.py`. Its inputs are committed and its run is NOT: edit any
   YAML there and you must regenerate `converted.json` (the one-liner is in its
   README) or a test fails. `validate_cases.py --strict` over it must stay at

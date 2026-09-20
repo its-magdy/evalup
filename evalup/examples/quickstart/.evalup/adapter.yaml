@@ -1,0 +1,70 @@
+# Quickstart example — the adapter `discover` would write for `helpdesk-demo`.
+#
+# This is the ONLY thing the harness knows about the app. Read it alongside
+# ${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapter-contract.md, which
+# is the authority; this file is one conforming instance of it, not a summary.
+#
+# The app is deliberately TRACE-LESS: no OTel collector, no queryable span
+# store. That is the most common starting position for a real app, and it is
+# what makes this example honest about which layers can be scored at all --
+# see profile.yaml's capability_matrix.
+adapter_version: 1
+
+app:
+  name: helpdesk-demo
+  repo: .
+  repo_access: read-only
+  git_pinned: false          # the demo app is a test fixture, not a git checkout
+
+state_location: .evalup/
+
+access_level: black          # HTTP in, JSON out; no source access assumed
+
+invocation:
+  mode: http
+  base_url: ${HELPDESK_BASE_URL}
+  auth: { type: none }
+
+  endpoint: "POST /api/chat/ask"
+  request_body: '{"sessionId": "<uuid>", "message": "<user turn>"}'
+  response_body: '{"message": "<answer>"}'
+
+  health_check:
+    method: GET
+    path: /healthz
+    expect_status: [200]
+
+  # --- what the runner may OBSERVE ---
+  # Both are DECLARED dotted paths into the response body. Nothing here is a
+  # heuristic: with these two lines a trace-less app still scores routing and
+  # execution, and without them both layers would be `unscored` with a reason.
+  route_from_response: "domain"        # §5.2 priority 1
+  result_from_response: "data.value"   # §5.3 priority 2
+
+  timeout_s: 10
+  max_concurrency: 1                   # >1 is refused at plan validation (D5)
+
+# Absence is DECLARED, never inferred. core code checks the declared value; a
+# missing key would leave a layer looking supported while nothing scored it.
+traces:
+  source: none                 # no collector -> tool_selection and trajectory are off
+  correlation: none
+
+oracle:
+  kind: none                   # expect.result is authored ground truth, not queried
+
+tools: []                      # not observable without traces; see the matrix
+
+environment:
+  kind: mocked                 # READ by run_cases.py (hard rule 2)
+  safe_to_attack: true         # READ: the app is a local fixture with no data
+                               # and no side effects. WITHOUT this line the
+                               # adversarial-refusal case is SKIPPED, not run --
+                               # which is the correct default against anything
+                               # real, and is why the field must be declared.
+
+prompts: []                    # black-box: nothing here is optimizable
+
+data:
+  may_contain_pii: false       # so no reports/.gitignore is written
+  judge_may_see_production_data: false

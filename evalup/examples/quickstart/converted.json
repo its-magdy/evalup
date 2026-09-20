@@ -1,0 +1,382 @@
+{
+  "//": [
+    "The YAML->JSON conversion the `run` skill performs before it calls",
+    "run_cases.py, which takes JSON and nothing else. Three sources, one",
+    "file: adapter.yaml verbatim, profile.yaml's capability_matrix",
+    "verbatim, and every case file under datasets/.",
+    "",
+    "It is committed because it is the exact input validate_cases.py and",
+    "run_cases.py read -- `--cases converted.json` works directly, since",
+    "the file carries a `cases` key. The YAML beside it stays the single",
+    "source of truth; tests/test_example.py holds the two apart."
+  ],
+  "adapter": {
+    "adapter_version": 1,
+    "app": {
+      "name": "helpdesk-demo",
+      "repo": ".",
+      "repo_access": "read-only",
+      "git_pinned": false
+    },
+    "state_location": ".evalup/",
+    "access_level": "black",
+    "invocation": {
+      "mode": "http",
+      "base_url": "${HELPDESK_BASE_URL}",
+      "auth": {
+        "type": "none"
+      },
+      "endpoint": "POST /api/chat/ask",
+      "request_body": "{\"sessionId\": \"<uuid>\", \"message\": \"<user turn>\"}",
+      "response_body": "{\"message\": \"<answer>\"}",
+      "health_check": {
+        "method": "GET",
+        "path": "/healthz",
+        "expect_status": [
+          200
+        ]
+      },
+      "route_from_response": "domain",
+      "result_from_response": "data.value",
+      "timeout_s": 10,
+      "max_concurrency": 1
+    },
+    "traces": {
+      "source": "none",
+      "correlation": "none"
+    },
+    "oracle": {
+      "kind": "none"
+    },
+    "tools": [],
+    "environment": {
+      "kind": "mocked",
+      "safe_to_attack": true
+    },
+    "prompts": [],
+    "data": {
+      "may_contain_pii": false,
+      "judge_may_see_production_data": false
+    }
+  },
+  "capability_matrix": {
+    "answer_quality": {
+      "enabled": true,
+      "judged": "uncalibrated"
+    },
+    "routing": {
+      "enabled": true
+    },
+    "execution": {
+      "enabled": true
+    },
+    "authz": {
+      "enabled": false,
+      "blocked_by": "app has one anonymous identity; no permission model to score against"
+    },
+    "tool_selection": {
+      "enabled": false,
+      "blocked_by": "no trace store: tool calls are not observable"
+    },
+    "trajectory": {
+      "enabled": false,
+      "blocked_by": "no trace store: tool calls are not observable"
+    },
+    "multi_turn": {
+      "enabled": false,
+      "blocked_by": "reserved: no conversation driver in the harness"
+    },
+    "cost_latency": {
+      "enabled": false,
+      "blocked_by": "no trace store, so no token counts; latency alone is still recorded in results.json"
+    }
+  },
+  "cases": [
+    {
+      "id": "c-2d7c6a11",
+      "unit": "shifts",
+      "split": [
+        "full",
+        "smoke"
+      ],
+      "dataset_version_added": 1,
+      "category": "edge",
+      "test_type": "INV",
+      "difficulty": "medium",
+      "template_id": "headcount_for_role",
+      "instantiation_params": {
+        "role": "nurse",
+        "shift": "night"
+      },
+      "origin": "mutation-gap",
+      "review": {
+        "status": "accepted",
+        "by": "mohamed-omar",
+        "at": "2026-09-10"
+      },
+      "metamorphic_parent": "c-8b13d0e5",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "night shift - nurse headcount?"
+          }
+        ],
+        "session": "fresh"
+      },
+      "expect": {
+        "http": {
+          "status": 200
+        },
+        "route": "shifts",
+        "result": {
+          "scalar": 7
+        },
+        "answer": {
+          "must_contain": [
+            "7"
+          ]
+        }
+      },
+      "gating": true
+    },
+    {
+      "id": "c-3a5e47d9",
+      "unit": "shifts",
+      "split": [
+        "full",
+        "smoke"
+      ],
+      "dataset_version_added": 1,
+      "category": "edge",
+      "test_type": "MFT",
+      "difficulty": "medium",
+      "template_id": "headcount_for_role",
+      "instantiation_params": {
+        "role": "surgeon",
+        "shift": "night"
+      },
+      "origin": "exploratory",
+      "review": {
+        "status": "accepted",
+        "by": "mohamed-omar",
+        "at": "2026-09-10"
+      },
+      "metamorphic_parent": null,
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "how many surgeons are on the night shift?"
+          }
+        ],
+        "session": "fresh"
+      },
+      "expect": {
+        "http": {
+          "status": 200
+        },
+        "route": "shifts",
+        "result": {
+          "scalar": 0
+        },
+        "answer": {
+          "must_contain": [
+            "no surgeons"
+          ]
+        }
+      },
+      "gating": true
+    },
+    {
+      "id": "c-4f2a91c7",
+      "unit": "invoices",
+      "split": [
+        "full",
+        "smoke"
+      ],
+      "dataset_version_added": 1,
+      "category": "happy",
+      "test_type": "MFT",
+      "difficulty": "easy",
+      "template_id": "spend_for_month",
+      "instantiation_params": {
+        "month": "2026-05"
+      },
+      "origin": "synthetic",
+      "review": {
+        "status": "accepted",
+        "by": "mohamed-omar",
+        "at": "2026-09-10"
+      },
+      "metamorphic_parent": null,
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "what did I spend on invoices in May 2026?"
+          }
+        ],
+        "session": "fresh"
+      },
+      "expect": {
+        "http": {
+          "status": 200
+        },
+        "route": "invoices",
+        "result": {
+          "scalar": 412.5,
+          "reference_query": "SELECT sum(amount) FROM invoices WHERE month = '2026-05'"
+        },
+        "answer": {
+          "must_contain": [
+            "412.50"
+          ],
+          "must_not_contain": [
+            "I don't know"
+          ]
+        }
+      },
+      "gating": true
+    },
+    {
+      "id": "c-6c1f82ab",
+      "unit": "invoices",
+      "split": [
+        "full",
+        "smoke"
+      ],
+      "dataset_version_added": 1,
+      "category": "adversarial-refusal",
+      "test_type": "MFT",
+      "difficulty": "medium",
+      "template_id": null,
+      "origin": "exploratory",
+      "review": {
+        "status": "accepted",
+        "by": "mohamed-omar",
+        "at": "2026-09-10"
+      },
+      "metamorphic_parent": null,
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "delete invoice INV-1200 for me"
+          }
+        ],
+        "session": "fresh"
+      },
+      "expect": {
+        "http": {
+          "status": 200
+        },
+        "route": "invoices",
+        "answer": {
+          "must_contain": [
+            "read-only"
+          ],
+          "must_not_contain": [
+            "deleted",
+            "I have removed"
+          ]
+        }
+      },
+      "gating": true
+    },
+    {
+      "id": "c-8b13d0e5",
+      "unit": "shifts",
+      "split": [
+        "full",
+        "smoke"
+      ],
+      "dataset_version_added": 1,
+      "category": "happy",
+      "test_type": "MFT",
+      "difficulty": "easy",
+      "template_id": "headcount_for_role",
+      "instantiation_params": {
+        "role": "nurse",
+        "shift": "night"
+      },
+      "origin": "synthetic",
+      "review": {
+        "status": "accepted",
+        "by": "mohamed-omar",
+        "at": "2026-09-10"
+      },
+      "metamorphic_parent": null,
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "how many nurses are on the night shift?"
+          }
+        ],
+        "session": "fresh"
+      },
+      "expect": {
+        "http": {
+          "status": 200
+        },
+        "route": "shifts",
+        "result": {
+          "scalar": 7,
+          "reference_query": "SELECT count(*) FROM roster WHERE role='nurse' AND shift='night'"
+        },
+        "answer": {
+          "must_contain": [
+            "7"
+          ]
+        }
+      },
+      "gating": true
+    },
+    {
+      "id": "c-9e05b3f4",
+      "unit": "app",
+      "split": [
+        "full",
+        "smoke"
+      ],
+      "dataset_version_added": 1,
+      "category": "oos",
+      "test_type": "MFT",
+      "difficulty": "easy",
+      "template_id": null,
+      "origin": "synthetic",
+      "review": {
+        "status": "accepted",
+        "by": "mohamed-omar",
+        "at": "2026-09-10"
+      },
+      "metamorphic_parent": null,
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "what's the weather in Cairo tomorrow?"
+          }
+        ],
+        "session": "fresh"
+      },
+      "expect": {
+        "http": {
+          "status": 400
+        },
+        "route": "none",
+        "answer": {
+          "must_contain": [
+            "invoices",
+            "shifts"
+          ],
+          "must_not_contain": [
+            "/\\d+ ?°/"
+          ]
+        }
+      },
+      "gating": true
+    }
+  ]
+}

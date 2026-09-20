@@ -1,0 +1,80 @@
+# Dev-tooling config for the evalup plugin. NOT a distribution manifest.
+#
+# WHAT THIS FILE IS FOR
+# ---------------------
+# There is deliberately no [project] table here, so this file declares no
+# package, no version, and no runtime dependencies. That is the point.
+# evalup ships as a Claude Code plugin -- `.claude-plugin/plugin.json` is
+# its real manifest, and a marketplace install copies the tree onto disk.
+# Nothing pip-installs it, so a [project] table would describe an artifact
+# that is never built.
+#
+# (Checked, not assumed: `pip install .` here does not error -- with no
+# [build-system] an installer falls back to legacy setuptools and produces an
+# empty wheel named after the directory. So the absence of [project] is not a
+# lock. It removes the temptation, not the possibility.)
+#
+# It matters more than tidiness: the harness is stdlib-only at runtime, and
+# that rule is load-bearing for every script under scripts/ (the scorers and
+# run_cases.py must work on whatever interpreter an enterprise box already
+# has, with nothing to install). A [project.dependencies] list is the one
+# place a runtime import could arrive looking legitimate. Leaving the table
+# out removes the slot.
+#
+# So this file holds two things and no others:
+#   1. the DEV dependencies -- test runner and linter, never imported by
+#      anything under scripts/;
+#   2. pytest's configuration.
+# Adding a runtime dependency here is a defect, not a feature.
+
+# PEP 735. Installed on demand rather than into a venv you have to remember:
+#   uv run --group dev python -m pytest tests -q
+#   uv run --group dev ruff check --config ruff.toml .
+#
+# This group is a convenience, not the blessed check. The authoritative
+# commands are in ../HANDOFF.md section 4 and README.md "Requirements"; the
+# 3.9 floor check in particular names its own --python and --with flags so it
+# stays conclusive regardless of what is resolved here.
+#
+# Known cosmetic wart: because there is no [project], uv prints "No
+# `requires-python` value found in the workspace. Defaulting to ..." on some
+# invocations. `requires-python` cannot be declared outside [project] --
+# putting it under [tool.uv] is silently ignored (verified against uv 0.9.24).
+# It is noise only: every command that cares about the floor passes --python
+# explicitly, and the floor is asserted in three places that do run --
+# PY_FLOOR in tests/test_scorers.py, target-version in ruff.toml, and the
+# 3.9 leg of the CI matrix. Do not add a [project] table to silence it.
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    # tests/ uses subTest-style parametrization through this plugin; without
+    # it the pytest path collects but reports subtests as one opaque pass.
+    "pytest-subtests>=0.11",
+    "ruff>=0.6",
+]
+
+# ruff's config is NOT here, on purpose: it stays in ruff.toml.
+#
+# That file is ~45 lines of which most are comments, and the comments are the
+# content -- every selected rule carries the defect class it catches or names
+# the comment in the code that already argues for it, and README.md
+# "Requirements" sends readers there to read it. Inlining that under
+# [tool.ruff] would bury an annotated document inside a file that is otherwise
+# 15 lines of dev-deps, and would force an edit to the blessed `ruff check
+# --config ruff.toml .` in both HANDOFF.md section 4 and README.md for no
+# functional gain.
+#
+# FOOTGUN, since both files now sit in this directory: when ruff.toml and
+# pyproject.toml are siblings, **ruff.toml wins and [tool.ruff] here is
+# silently ignored** -- verified by experiment against ruff 0.15.1, not read
+# off a docs page. Do not add [tool.ruff] to this file expecting it to apply.
+# Edit ruff.toml, or move the config wholesale and update both docs.
+
+[tool.pytest.ini_options]
+# The unittest suite is the blessed runner (`python3 -m unittest discover -s
+# tests`); pytest exists here only because it is how the 3.9 floor gets
+# checked under `uv run --python 3.9`. These settings just make the two agree
+# on what to collect, so the floor check and the everyday run cover the same
+# files rather than differing by discovery rules.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
