@@ -179,6 +179,27 @@ class TestR4Regressions(MdToHtmlTest):
         out = self.render('[click](javascript:alert(1))')
         self.assertNotIn('<a href="javascript', out)
 
+    def test_scheme_hidden_behind_a_control_byte_is_not_a_link(self):
+        # The browser strips leading C0 controls and drops tab/newline anywhere
+        # before reading the scheme, so each of these IS `javascript:` to it.
+        # A `^\s*` denylist cleared all of them (2026-09 audit).
+        for url in ("\x01javascript:alert(1)", "\x1fjavascript:alert(1)",
+                    "java\tscript:alert(1)", "​javascript:alert(1)",
+                    "﻿javascript:alert(1)", " javascript:alert(1)",
+                    "JaVaScRiPt:alert(1)"):
+            with self.subTest(url=url):
+                self.assertNotIn("<a ", self.render(f"[click]({url})"))
+
+    def test_only_allowlisted_schemes_become_links(self):
+        for url in ("data:text/html,x", "vbscript:x", "file:///etc/passwd",
+                    "blob:x", "ftp://h/x"):
+            with self.subTest(url=url):
+                self.assertNotIn("<a ", self.render(f"[t]({url})"))
+        for url in ("https://example.com/a?b=1", "http://h/", "mailto:a@b.c",
+                    "cases/c-1/verdict.json", "../report.md", "#section"):
+            with self.subTest(url=url):
+                self.assertIn("<a href=", self.render(f"[t]({url})"))
+
     def test_snake_case_is_not_italicized(self):
         # Underscore emphasis must not trigger intra-word — reports are full of
         # snake_case identifiers.

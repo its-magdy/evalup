@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-706 tests, ~2 min, the blessed command. `test_run_cases.py` is most of that: a
+744 tests, ~2 min, the blessed command. `test_run_cases.py` is most of that: a
 real HTTP server per test, and one test kills a runner mid-run.
 
 ```sh
@@ -31,20 +31,79 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 705 passed, 1 skipped, 78 subtests.
+whatever `python3` happens to be. Expect 736 passed, 8 skipped, 138 subtests.
+Seven of the eight skips are `convert_suite.py`'s tests, which need PyYAML; add
+`--with pyyaml` and they run (743 passed, 1 skipped) — do that before a release
+too, since it is the only floor check that script gets.
 **Run it before any release.**
 
-There are **17** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **19** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`
 is a shared module, not a CLI: it has no argparse, so `python _common.py --help`
 exits 0 having printed nothing, which is why the check tests for output and not
 just the exit code.
 
+## The toolchain, and why it looks like this
+
+The floor is checked at three depths, weakest to strongest:
+
+```sh
+python3 -m unittest discover -s tests   # grammar, on whatever interpreter you have
+ruff check --config ruff.toml .         # target-version = py39 bounds every UP fix
+uv run --python 3.9 --with pytest --with pytest-subtests \
+    python -m pytest tests -q           # the real thing: stdlib APIs + runtime typing
+```
+
+Only the third is conclusive. `PY_FLOOR` in `tests/test_scorers.py` compiles the
+scripts against the floor's *grammar*, and ruff's `target-version` stops `UP`
+from proposing a 3.10+ form — but neither rejects a newer stdlib API or a typing
+construct that only fails at runtime. `uv` fetches a real 3.9 in seconds, so
+there is no reason to skip it before a release.
+
+`ruff` and `uv` are development tools only — nothing the harness ships at
+runtime imports outside the stdlib. `ruff.toml` keeps a deliberately small rule
+set, and each entry carries a comment saying which defect class it catches or
+which comment in the code already argues for it; read it there before adding to
+it. `pyproject.toml` declares those dev tools and nothing else: it has no
+`[project]` table, because this plugin is installed by copy from
+`.claude-plugin/plugin.json`, never pip-installed, and the absent
+`[project.dependencies]` list is the one slot a runtime dependency could
+arrive through. Ruff's config deliberately stays in `ruff.toml` — note that
+when both files sit side by side, `ruff.toml` wins and a `[tool.ruff]` table
+in `pyproject.toml` is ignored silently.
+
+`.tool-versions` pins **3.11.11**, above the 3.9 floor, on purpose: you edit on
+a supported interpreter and check the floor with `uv`, which fetches a real 3.9
+without making you install an end-of-life one. The file says so in a comment.
+
+`.github/workflows/ci.yml` runs all three depths plus a `--help` check on a
+real 3.9/3.11/3.13 matrix — **but it has never executed.** This repository has
+no git remote, so nothing has ever evaluated that file; it is a specification
+parked for the day one is added, and its header says so. Until then the
+commands above are the only checked claim.
+
 ## Rules that look arbitrary and are not
 
 - **`validate_cases.py` and `run_cases.py` take JSON, not YAML**, deliberately —
-  the skill's YAML→JSON conversion *is* the run's parse, not a second opinion.
-  Read the docstrings before "fixing" that.
+  the YAML→JSON conversion *is* the run's parse, not a second opinion. Read the
+  docstrings before "fixing" that. What changed in 2026-09 is WHO converts:
+  `convert_suite.py`, never the model — a suite re-typed by an LLM is the
+  silent misparse those docstrings refuse, relocated.
+- **`convert_suite.py` is the only script that may import outside the stdlib**
+  (PyYAML, lazily, with an exit-2 message when absent). It is an authoring
+  step; the runner and every scorer still import nothing. Do not let a second
+  script follow it.
+- **A resolved env value never reaches disk — headers *or* body.** Headers are
+  redacted by name; `request_body`/`base_url`/`endpoint` refs are put back as
+  `${NAME}` in the recorded template *before* placeholders render
+  (`run_cases.unresolve`). A new place that records a request owes the same.
+- **A case id is a directory name.** `_common.unsafe_case_id` is the one rule,
+  enforced by both the linter and the runner; keep them on it.
+- **JSON in is strict** (`_common.loads_strict`): `NaN`/`Infinity`, recursion
+  blow-ups and the int-digit limit are all exit 2. Only the review viewer loads
+  leniently, because its job is to show whatever a run holds.
+- **`md_to_html.py` allowlists URL schemes.** Never go back to a denylist: the
+  one it replaced was bypassed by a leading control byte.
 - **`docs/runner-contract.md` is the runner's spec and it WINS** over any skill
   prose. Its nine decisions were confirmed 2026-09-08 with their trade-offs
   recorded; don't reopen one without reading it. **Three tests read that file at

@@ -7,9 +7,17 @@ description: >-
   or revert. Use when eval scores have plateaued or a failure cluster
   implicates a specific prompt or tool description.
 argument-hint: "[--surface <prompt-id|tool>] [--budget $N]"
+disable-model-invocation: true
 ---
 
 # Optimize — The Reflective Loop
+
+Arguments, when the user typed any: `$ARGUMENTS`
+
+User-invoked only (`disable-model-invocation`): this skill edits the user's
+prompts and spends sealed holdout looks, so it starts when they type
+`/evalup:optimize`, never because another step decided it was time. Other
+skills may recommend it; none may launch it.
 
 Methodology = GEPA's discipline implemented natively: natural-language
 reflection on trajectories, a candidate pool with per-case scores, a sealed

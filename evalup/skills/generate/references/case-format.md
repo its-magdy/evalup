@@ -6,6 +6,11 @@ case; everything a human reviews is readable without tooling.
 
 ```yaml
 id: c-3f9a2c1d                      # OPAQUE and stable forever: c-<hash8>.
+                                    # It names the cases/<id>/ directory, so it
+                                    # must be 1-128 of [A-Za-z0-9._-], start
+                                    # with a letter or digit, and hold no `..`:
+                                    # validate_cases.py errors (unsafe_id) and
+                                    # run_cases.py refuses the plan (exit 2).
                                     # Do NOT encode unit or category in the id.
                                     # Both are mutable classifications, and an id
                                     # declared "stable forever" that spells one of

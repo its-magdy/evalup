@@ -137,7 +137,7 @@ calibration_notes: >
   clarity, and vice versa — a double-barreled node can't be calibrated.
 status:                            # per-rubric calibration state — ALL active
   calibrated: true                 # rubrics must show calibrated: true before
-  labeled_cases: 34                # profile.yaml's global judge.status may be
+  labeled_cases: 134               # profile.yaml's global judge.status may be
   tpr: 0.91                        # set to calibrated (profile-schema.md's
   tnr: 0.93                        # judge.calibration block records the
   kappa: 0.84                      # aggregate; this block is the per-rubric
@@ -209,10 +209,7 @@ applied per rubric:
    the labelled lines and applies the floors: TPR and TNR ≥ 0.90 (this doc's
    number), κ ≥ 0.60 (Landis & Koch's "substantial" boundary — the docs set no
    κ floor, so it is deliberately the weakest of the three), ≥ 100 labelled
-   pairs and ≥ 10 in each class. **The §File shape example above is wrong on
-   its own terms**: `calibrated: true` at `labeled_cases: 34` is under step 2's
-   own ~100–200 validation pass, and the scorer follows the prose, not the
-   example.
+   pairs and ≥ 10 in each class.
 5. Until a rubric's `status.calibrated` is `true`, every verdict it produces
    is watermarked `PROVISIONAL` and the optimizer refuses to target it
    (`${CLAUDE_PLUGIN_ROOT}/skills/optimize`'s gate, not this doc's to restate

@@ -9,6 +9,29 @@ cases, diagnosing failures, proposing prompt/tool-description fixes).
 Deterministic Python scripts do the scoring, so numbers are cheap, fast, and
 reproducible. OpenTelemetry traces are the evidence.
 
+## What you need
+
+- **An app you can call**: an HTTP endpoint, or a Python `module:callable`.
+  That is the only hard requirement.
+- **Claude Code**, and Python 3.9+ on the machine. No packages to install; the
+  scoring scripts are stdlib-only.
+- **Nothing else to start.** No tracing, no existing tests, no API keys for a
+  judge (Claude Code subagents do the judging). Without OpenTelemetry GenAI
+  traces you still get routing and answer-level scores; tool-use, trajectory
+  and cost layers need traces, and `discover` can add them later if you want.
+
+## See it run first (30 seconds, no app, no Claude)
+
+```sh
+python3 examples/quickstart/demo.py            # a green run
+python3 examples/quickstart/demo.py --break    # a red one, and a closed gate
+```
+
+It starts a small two-domain demo app on a local port, runs six cases through
+the real runner and scorers, and prints the verdicts, the routing score, and
+the pass/fail line CI would see. `--keep` leaves the run directory and an HTML
+review page to open. `examples/quickstart/README.md` walks through every file.
+
 ## Quick start
 
 ```
@@ -16,32 +39,51 @@ claude --plugin-dir ./evalup     # try locally, or install via marketplace
 > /evalup:start path/to/your/app
 ```
 
-The wizard takes it from there: it profiles your app, patches missing
-instrumentation (with your approval), generates ~30 test cases, has you review
-only the ~15 suspicious ones, and gives you your first scored run — typically
-a routing confusion matrix that tells you something you didn't know — in
-about an hour.
+**The first session ends in a result, not a to-do list.** It reads your code,
+tells you what it can and cannot measure on your app as it stands, shows the
+top design findings (often worth more than the eval), writes about a dozen test
+cases, runs them, and shows what failed and where. It does not interview you or
+ask to change your source first.
 
-Want to see what all of that produces before you install anything?
-**`examples/quickstart/`** is a complete, validated eval setup for a small
-two-domain app — profile, adapter, six cases, the plan, and the exact list of
-files a run writes. It is checked by `tests/test_example.py` on every test run,
-so it conforms to the current rules rather than to the rules of the day it was
-written.
+Everything rigorous is a later step you ask for: tracing (tool-use and cost
+layers), a fuller suite with a sealed holdout (regression gating), judge
+calibration (judged answer quality), and the optimizer. `/evalup:start` always
+tells you what is unlocked, what is locked, and what unlocking costs.
+
+**Already have real conversations?** Skip the synthetic cases:
+`/evalup:analyze --transcripts path/to/logs` goes straight to looking at what
+your app actually did — no setup at all.
 
 Lost at any point: `/evalup:help`.
 
 ## Commands
 
+Three you will type:
+
 | Command | What it does |
 |---|---|
-| `/evalup:start` | Guided wizard — detects where you are, does the next step |
+| `/evalup:start` | Detects where you are and does the next step — setup, first run, or "here is what to do next" |
+| `/evalup:analyze` | Look at failures: cluster them, review real transcripts (`--transcripts`), calibrate the judge (`--label`), mine live traces (`--mine`); builds a hotkey review page |
+| `/evalup:optimize` | Failure-driven prompt/tool-description improvement with statistical keep/revert. Runs only when you type it; locked until its preconditions hold |
+
+And the steps `start` runs for you, callable directly once you know them:
+
+| Command | What it does |
+|---|---|
 | `/evalup:discover` | Profile the app; write adapter + profile; patch instrumentation; `--diff` after refactors |
 | `/evalup:generate` | Build/extend the eval dataset (coverage grid, targeted review, splits) |
 | `/evalup:run` | Execute + score all applicable layers; baseline diff. Modes: `--smoke` (fast subset) · `--regression` (full, pass^k) · `--targeted` (only what changed) · `--holdout` (sealed) · `--full` (release) |
-| `/evalup:analyze` | Cluster failures, calibrate the judge (`--label`), mine traces (`--mine`); builds a hotkey trace/annotation viewer for open→axial error analysis |
-| `/evalup:optimize` | Failure-driven prompt/tool-description improvement with statistical keep/revert |
 | `/evalup:help` | Explain any of this |
+
+Without Claude at all — CI, or a colleague who never opens it:
+`scripts/convert_suite.py` (YAML → JSON) → `scripts/run_cases.py` →
+`scripts/gate.py` (exit 0 pass / 1 fail, one-screen summary).
+
+**What this does not measure yet**, so you hear it here and not after setup:
+in a multi-agent app, tool-call expectations are whole-app, not per-agent — a
+call made by the *wrong* sub-agent still satisfies `expect.tools`. Retrieval/RAG
+quality is not scored. Runs are serial: ~100 cases × 3 repeats at 8s a call is
+about 40 minutes.
 
 ## What gets measured
 
@@ -131,51 +173,20 @@ repo-relative, for a human reading the source at the plugin root.
 
 ## Requirements
 
-Python 3.9+, stdlib only. 3.9 is past upstream end-of-life (October 2025) and
-is kept as the floor deliberately, not by default: RHEL 9 ships it with
-vendor-backported fixes, and long-lived enterprise environments are where this
-harness is meant to run. Run the suite any time with
-`python3 -m unittest discover -s tests`; `scripts/stats.py --version` reports
-the harness version a run manifest records.
-
-The floor is checked at three depths, weakest to strongest:
-
-```sh
-python3 -m unittest discover -s tests   # grammar, on whatever interpreter you have
-ruff check --config ruff.toml .         # target-version = py39 bounds every UP fix
-uv run --python 3.9 --with pytest --with pytest-subtests \
-    python -m pytest tests -q           # the real thing: stdlib APIs + runtime typing
-```
-
-Only the third is conclusive, and `CONTRIBUTING.md` is where these three live
-authoritatively. `PY_FLOOR` in `tests/test_scorers.py` compiles the
-scripts against the floor's *grammar*, and ruff's `target-version` stops `UP`
-from proposing a 3.10+ form — but neither rejects a newer stdlib API or a typing
-construct that only fails at runtime. `uv` fetches a real 3.9 in seconds, so
-there is no reason to skip it before a release.
-
-`ruff` and `uv` are development tools only — nothing the harness ships at
-runtime imports outside the stdlib. `ruff.toml` keeps a deliberately small rule
-set, and each entry carries a comment saying which defect class it catches or
-which comment in the code already argues for it; read it there before adding to
-it. `pyproject.toml` declares those dev tools and nothing else: it has no
-`[project]` table, because this plugin is installed by copy from
-`.claude-plugin/plugin.json`, never pip-installed, and the absent
-`[project.dependencies]` list is the one slot a runtime dependency could
-arrive through. Ruff's config deliberately stays in `ruff.toml` — note that
-when both files sit side by side, `ruff.toml` wins and a `[tool.ruff]` table
-in `pyproject.toml` is ignored silently.
-
-`.tool-versions` pins **3.11.11**, above the 3.9 floor, on purpose: you edit on
-a supported interpreter and check the floor with `uv`, which fetches a real 3.9
-without making you install an end-of-life one. The file says so in a comment.
-
-`.github/workflows/ci.yml` runs all three depths plus a `--help` check on a
-real 3.9/3.11/3.13 matrix — **but it has never executed.** This repository has
-no git remote, so nothing has ever evaluated that file; it is a specification
-parked for the day one is added, and its header says so. Until then the
-commands above are the only checked claim.
+Python 3.9+, stdlib only — nothing the harness runs imports a package. 3.9 is
+past upstream end-of-life (October 2025) and is kept as the floor deliberately:
+RHEL 9 ships it with vendor-backported fixes, and long-lived enterprise
+environments are where this harness is meant to run. The one exception is a
+convenience, not a runtime dependency: `scripts/convert_suite.py` uses PyYAML
+to turn your YAML into the JSON everything else reads.
 
 An app you can invoke programmatically. OpenTelemetry with GenAI spans is
-strongly recommended (discover offers to add it) — without traces, trajectory
-layers are unavailable and only answer-level evals run.
+recommended — without traces, trajectory layers are unavailable and only
+routing and answer-level evals run. The `gen_ai.*` conventions are still
+Development-status upstream, so `normalize_trace.py` tracks a moving spec.
+
+Changing the plugin? `CONTRIBUTING.md` has the three blessed checks, how the
+3.9 floor is verified, and why the toolchain files look the way they do.
+`scripts/stats.py --version` reports the harness version a run manifest
+records. `.github/workflows/ci.yml` **has never executed** — this repository
+has no git remote — so those local checks are the only checked claim.

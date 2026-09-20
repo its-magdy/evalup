@@ -43,9 +43,10 @@ where everything was evaluated. Exit 0 always; exit 2 on malformed input.
 import argparse
 import json
 import re
-import signal
 
 from _common import (
+    REGEX_TIMEOUT_S,
+    RegexTimeout,
     add_version_flag,
     load_object,
     load_text,
@@ -53,6 +54,7 @@ from _common import (
     optional_mapping,
     require_list,
     require_mapping,
+    run_bounded,
 )
 
 SCHEMA_TYPES = {"object": dict, "array": list, "string": str,
@@ -64,7 +66,6 @@ FENCE_RE = re.compile(r"```(?:[A-Za-z0-9_+-]*)\s*\n(.*?)(?:\n)?```", re.DOTALL)
 # catastrophic-backtracking pattern (/(a+)+$/) is a plausible accident rather
 # than an attack. `re` has no timeout, and nothing upstream bounds a scorer's
 # runtime, so an unguarded search hangs the whole scored run on one case.
-REGEX_TIMEOUT_S = 2.0
 
 
 def normalize_entry(entry):
@@ -102,27 +103,9 @@ def parse_json_answer(answer):
         return None, None, str(bare_err)
 
 
-class RegexTimeout(Exception):
-    pass
-
-
 def search_bounded(pattern, text):
-    """re.search with a wall-clock bound, so one pathological case regex
-    cannot hang the run. SIGALRM is Unix-only and main-thread-only; where it
-    is unavailable the search runs unguarded rather than not at all."""
-    if not hasattr(signal, "SIGALRM"):
-        return re.search(pattern, text)
-
-    def on_alarm(signum, frame):
-        raise RegexTimeout
-
-    previous = signal.signal(signal.SIGALRM, on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, REGEX_TIMEOUT_S)
-    try:
-        return re.search(pattern, text)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+    """re.search under _common.run_bounded's wall-clock bound."""
+    return run_bounded(lambda: re.search(pattern, text))
 
 
 FLAG_SUFFIX_RE = re.compile(r"^/(.*)/([aiLmsux]{1,4})$", re.DOTALL)

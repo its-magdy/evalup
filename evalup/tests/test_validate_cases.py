@@ -165,6 +165,16 @@ class TestErrorFindings(ValidateTest):
         del case["id"]
         self.assert_finds("missing_id", [case])
 
+    def test_unsafe_id(self):
+        # Same rule the runner enforces at exit 2 (_common.unsafe_case_id).
+        for bad in ("../../etc/x", "/abs/path", "a/b", ".hidden", "has space"):
+            with self.subTest(case_id=bad):
+                self.assert_finds("unsafe_id", [good_case(bad)])
+        for fine in ("c-9e05b3f4", "billing_refund.v2", "dup-happy-1"):
+            with self.subTest(case_id=fine):
+                _, out, err = self.validate([good_case(fine)])
+                self.assertNotIn("unsafe_id", self.codes(out), err)
+
     def test_bad_category(self):
         self.assert_finds("bad_category", [good_case(category="hapy")])
 

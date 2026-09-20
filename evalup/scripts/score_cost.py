@@ -177,6 +177,7 @@ reduce_repeats.py (one run, k repeats).
 """
 import argparse
 import json
+import math
 import os
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -372,17 +373,38 @@ def case_usage(run_dir, case_id):
             continue
         usage = call.get("usage")
         usage = usage if isinstance(usage, dict) else {}
-        calls.append((call.get("model"),
-                      int_or_zero(usage.get("input_tokens")),
-                      int_or_zero(usage.get("output_tokens"))))
+        n_in = token_count(usage.get("input_tokens"))
+        n_out = token_count(usage.get("output_tokens"))
+        calls.append((call.get("model"), n_in or 0, n_out or 0,
+                      n_in is None or n_out is None))
     return calls
 
 
-def int_or_zero(value):
-    """A token count that is not an int is not a token count. bool is excluded
-    because True would otherwise price as one token."""
-    return value if isinstance(value, int) and not isinstance(value, bool) \
-        else 0
+def token_count(value):
+    """A recorded token count as an int, or None when what was recorded cannot
+    be one.
+
+    Absent is 0, as it always was: a span with no usage attribute recorded
+    nothing to price. An integral float is the int it spells -- `1000.0` is
+    what a count looks like after a round trip through a JS number or a
+    float-typed metrics field, and it is still a thousand tokens. Everything
+    else -- a fractional float, a negative, a string, a bool (True would price
+    as one token) -- is None, and price_run WITHHOLDS the dollars over it.
+
+    This used to return 0 for all of those, so an exporter emitting floats
+    produced "status": "priced", "usd": 0.0, and a negative count priced to
+    negative dollars (2026-09 audit): the zero-imputation case_usage's
+    docstring forbids, one level down.
+    """
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
 
 
 def price_run(run_dir, cases, prices):
@@ -393,14 +415,15 @@ def price_run(run_dir, cases, prices):
     difference a partial total against a complete one.
     """
     by_model, per_case, with_trace, unpriced = {}, {}, 0, set()
-    tokens_in = tokens_out = 0
+    tokens_in = tokens_out = unusable = 0
     for case_id in cases:
         calls = case_usage(run_dir, case_id)
         if calls is None:
             continue
         with_trace += 1
         pico = 0
-        for model, n_in, n_out in calls:
+        for model, n_in, n_out, bad_count in calls:
+            unusable += bad_count
             tokens_in += n_in
             tokens_out += n_out
             key = model if isinstance(model, str) else None
@@ -450,6 +473,16 @@ def price_run(run_dir, cases, prices):
         block["reason"] = ("no price table declared; pass --prices <file>. "
                            "Tokens above are measured and stand on their own.")
         return None, block
+    if unusable:
+        block["status"] = "unpriced"
+        block["calls_with_unusable_token_count"] = unusable
+        block["reason"] = (
+            f"{unusable} LLM call(s) recorded a token count that is not a "
+            "non-negative whole number (a fractional float, a negative, a "
+            "string), so the dollar total is withheld: pricing those calls at "
+            "zero would read exactly like a cheap run. The token totals above "
+            "EXCLUDE them. Fix the exporter or the traces.mapping_shim.")
+        return None, block
     if unpriced:
         block["status"] = "unpriced"
         block["unpriced_models"] = sorted(unpriced)[:MAX_REPORTED]
@@ -493,6 +526,10 @@ def latency_ms(row):
     """
     value = row.get("latency_s")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    # NaN/Infinity parse as floats and int() of one is a traceback; a latency
+    # that is not a finite non-negative number was not measured.
+    if not math.isfinite(value) or value < 0:
         return None
     return int(round(value * 1000))
 

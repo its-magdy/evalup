@@ -67,7 +67,14 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-from _common import HARNESS_VERSION, add_version_flag, nfc
+from _common import (
+    HARNESS_VERSION,
+    BadJSON,
+    add_version_flag,
+    loads_strict,
+    nfc,
+    unsafe_case_id,
+)
 
 RUNNER_VERSION = 1
 PLAN_VERSION = 1
@@ -138,8 +145,15 @@ GATES = ("soft", "hard", "decision")
 # one of them is exit 2 rather than an uncounted look at sealed cases.
 SEAL_TOUCHING_SPLITS = ("holdout", "full")
 
+RETRY_AFTER_CAP_S = 60
 RUN_ID_RE = re.compile(r"^[a-z]+-\d{8}T\d{6}Z$")
 ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# The adapter fields whose resolved text is sent as-is AND recorded per case
+# (request.json's body and url, the manifest's url). Headers are not here: they
+# are redacted by name, in redact().
+SENT_VERBATIM_PATHS = ("adapter.invocation.request_body",
+                       "adapter.invocation.base_url",
+                       "adapter.invocation.endpoint")
 
 # SS7's vocabulary, unchanged from the rest of the harness.
 PASS, FAIL = "pass", "fail"
@@ -394,6 +408,11 @@ def validate_cases_block(plan):
         case_id = case.get("id")
         if not isinstance(case_id, str) or not case_id:
             bad_input(f"cases[{index}] has no id")
+        # Exit 2, before any spend and before any write: the id becomes a
+        # directory name a few hundred lines down.
+        reason = unsafe_case_id(case_id)
+        if reason:
+            bad_input(f"cases[{index}] id {case_id!r} {reason}")
         # A duplicate id would collide in cases/<case-id>/, so the second case
         # would overwrite the first's directory and the run would report N
         # cases from N-1 results.
@@ -501,6 +520,7 @@ def resolve_env(adapter):
     """
     missing = []
     secret_paths = set()
+    sent_refs = {}
 
     def walk(node, path):
         if isinstance(node, dict):
@@ -522,6 +542,8 @@ def resolve_env(adapter):
                 missing.append(name)
                 continue
             resolved = resolved.replace("${" + name + "}", value)
+            if path.startswith(SENT_VERBATIM_PATHS):
+                sent_refs[name] = value
         return resolved
 
     out = walk(adapter, "adapter")
@@ -550,7 +572,33 @@ def resolve_env(adapter):
             "unresolved env var(s) referenced by adapter: {}".format(
                 ", ".join(sorted(set(missing)))),
             missing_env=sorted(set(missing)))
-    return out, secret_paths, auth_values
+    return out, secret_paths, auth_values, sent_refs
+
+
+def unresolve(node, sent_refs):
+    """Put `${NAME}` back wherever a resolved env value sits, for the RECORD of
+    a request -- never for the request itself.
+
+    SS3 says a resolved value never reaches disk, and redact() only ever kept
+    that promise for headers. `${API_KEY}` inside `request_body` was resolved
+    into the template, sent, and then written verbatim into every
+    cases/<id>/request.json (2026-09 audit) -- and an API key in the body is an
+    ordinary way to authenticate. It is applied to the TEMPLATE before the
+    case's placeholders are rendered into it, never to the rendered body: a
+    short value (`EVAL_TENANT=42`) must not rewrite a user turn that happens to
+    say "42". Longest value first, so one value that contains another is not
+    split by it.
+    """
+    if isinstance(node, dict):
+        return {key: unresolve(value, sent_refs) for key, value in node.items()}
+    if isinstance(node, list):
+        return [unresolve(value, sent_refs) for value in node]
+    if not isinstance(node, str):
+        return node
+    for name, value in sorted(sent_refs.items(),
+                              key=lambda item: len(item[1]), reverse=True):
+        node = node.replace(value, "${" + name + "}")
+    return node
 
 
 def secret_header_names(adapter, secret_paths):
@@ -735,6 +783,27 @@ def ssl_context(insecure):
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
     return context
+
+
+def retry_wait(declared, result):
+    """The wait before the next attempt: the plan's backoff, or the server's
+    Retry-After when that is LONGER, capped at RETRY_AFTER_CAP_S.
+
+    A rate-limited app says how long to wait, and the fixed backoff ignored
+    it: three attempts inside five seconds cannot outlast a per-minute window,
+    so every case went to infra_error, infra_rate_abort fired, and the run
+    exited 5 -- "the service is degraded" -- when the truth was that the
+    runner would not wait (2026-09 audit). Only the delay-seconds form is
+    read; an HTTP-date is rare from an API and not worth a clock comparison.
+    Capped, so a hostile or mistaken header cannot park a run for an hour."""
+    if not result or result.get("status") not in (429, 503):
+        return declared
+    headers = {name.lower(): value
+               for name, value in (result.get("headers") or {}).items()}
+    value = str(headers.get("retry-after", "")).strip()
+    if not value.isdigit():
+        return declared
+    return max(declared, min(int(value), RETRY_AFTER_CAP_S))
 
 
 def send_http(url, method, headers, body, timeout, insecure):
@@ -1025,6 +1094,7 @@ class Runner:
 
         self.adapter = {}
         self.auth_values = {}
+        self.sent_refs = {}
         self.secret_names = set()
         self.identity_map = {}
         self.entrypoint = None
@@ -1032,6 +1102,8 @@ class Runner:
         self.answer_path = None
         self.trace_id_path = None
         self.url = None
+        self.record_url = None
+        self.record_template = None
         self.method = "POST"
 
         self.trace_state = {"source": None, "correlation": None,
@@ -1065,7 +1137,8 @@ class Runner:
     def preflight(self):
         """In order, and any failure is exit 3 with zero app calls billed."""
         adapter = self.plan["adapter"]
-        self.adapter, secret_paths, self.auth_values = resolve_env(adapter)
+        (self.adapter, secret_paths, self.auth_values,
+         self.sent_refs) = resolve_env(adapter)
         self.secret_names = secret_header_names(self.adapter, secret_paths)
         invocation = self.adapter.get("invocation", {})
         self.identity_map = invocation.get("identity_map") or {}
@@ -1079,6 +1152,10 @@ class Runner:
             preflight_fail(
                 "runner v1 implements invocation.mode: http and function "
                 f"only (got: {mode!r})")
+        # What request.json and the manifest RECORD, as opposed to what is
+        # sent: the same template and url with every env ref put back (SS3).
+        self.record_template = unresolve(self.request_template, self.sent_refs)
+        self.record_url = unresolve(self.url, self.sent_refs)
 
         self.check_old_layout()
         health = self.health_check(mode)
@@ -1364,7 +1441,7 @@ class Runner:
             "identity_headers": {"names": sorted(self.secret_names),
                                  "source": "env"},
             "invocation": {"mode": invocation.get("mode"),
-                           "url": self.url,
+                           "url": self.record_url,
                            "timeout_s": self.timeout(),
                            "timeout_enforced":
                                invocation.get("mode") != "function"},
@@ -1524,7 +1601,8 @@ class Runner:
                                 self.auth_values)
         request = {"case_id": case["id"], "repeat": repeat, "persona": persona,
                    "headers_sent": redact(headers, self.secret_names),
-                   "url": self.url, "method": self.method, "body": body,
+                   "url": self.record_url, "method": self.method,
+                   "body": render_template(self.record_template, values),
                    "sent_at": utc_now(), "sent": True}
 
         max_attempts = self.execution["max_attempts"]
@@ -1553,9 +1631,10 @@ class Runner:
                     break
                 error = f"HTTP {status}"
             if attempts < max_attempts:
+                wait = retry_wait(backoff[attempts - 1], result)
                 self.log("retry", case_id=case["id"], repeat=repeat,
-                         attempt=attempts, error=error)
-                time.sleep(backoff[attempts - 1])
+                         attempt=attempts, error=error, wait_s=wait)
+                time.sleep(wait)
 
         response = {"case_id": case["id"], "repeat": repeat,
                     "status": result["status"] if result else None,
@@ -1667,8 +1746,8 @@ class Runner:
                                 self.auth_values)
         request = {"case_id": case["id"], "repeat": 1, "persona": persona,
                    "headers_sent": redact(headers, self.secret_names),
-                   "url": self.url, "method": self.method,
-                   "body": render_template(self.request_template, values),
+                   "url": self.record_url, "method": self.method,
+                   "body": render_template(self.record_template, values),
                    "sent_at": None, "sent": False}
         response = {"case_id": case["id"], "repeat": 1, "status": None,
                     "latency_s": None, "attempts": 0, "retry_count": 0,
@@ -2845,8 +2924,8 @@ def load_plan(source):
     except OSError as exc:
         bad_input(f"cannot read plan: {exc}")
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
+        return loads_strict(text)
+    except BadJSON as exc:
         bad_input(f"plan is not valid JSON: {exc}")
 
 
@@ -2859,7 +2938,7 @@ def dry_run_report(runner):
         "selecting_split": plan["selecting_split"],
         "out": runner.out,
         "invocation": {"mode": (runner.adapter.get("invocation") or {})
-                       .get("mode"), "url": runner.url,
+                       .get("mode"), "url": runner.record_url,
                        "timeout_s": runner.timeout()},
         "traces": runner.trace_state,
         "cases": [{"id": case["id"], "category": case.get("category"),

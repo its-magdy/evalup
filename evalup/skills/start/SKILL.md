@@ -20,6 +20,52 @@ do (or delegate) exactly the next step, and always end by telling them their
 position ("step N of 5") and what comes next. Never dump all five steps of
 work on them at once.
 
+Arguments, when the user typed any: `$ARGUMENTS`
+
+## First session — a result before any homework
+
+A user with no state location has seen nothing yet, so nothing has earned an
+interview, a patch to their source, or a vocabulary lesson. **The first
+session's only goal is a first scored run and the top findings, fast.** Rigor
+is what the second session is for, and the user asks for it by name. When check
+1 below matches, run the steps in this shape, in ONE session, without stopping
+between them:
+
+1. **`discover`, lean.** Steps 1–4 and 8 of that skill only: access level,
+   topology, code archaeology, the 1–3 live validation requests, findings.
+   **Skip step 5 (patches), step 6's maturity question (default
+   `stage: pre-stability`) and step 7 (the interview)** — record each under
+   `deferred:` in findings.md so the next session offers them. The one thing
+   you may need from the user is how to reach the app (URL, or a command that
+   starts it); ask only that, and only if the code does not say.
+2. **Say what this app can and cannot have measured — before spending their
+   time.** One short paragraph from the capability matrix: "No traces, so I can
+   score routing and answers today; tool use and cost need tracing, which I can
+   add later if you want it." A user who came to evaluate tool calls must hear
+   that in minute two, not after the run.
+3. **Show the top 3 design findings now.** They are often worth more than the
+   eval, they cost the user nothing, and they are the reason to keep going.
+4. **`generate`, small: ~12 cases** (that skill's stated minimum), no holdout
+   (it says to skip one below 25), smoke + canary only. If the user has real
+   messages or transcripts to hand, take them first — 10 real ones beat 30
+   synthetic. Review stays targeted: only the hard-negative/OOS labels and the
+   cases the generator marked uncertain, in one batch, accept/fix/delete.
+5. **`run --smoke`**, then report per run/SKILL.md §5: what failed, where, and
+   what the suite could not see.
+6. **Close with the menu, not a lecture**: what unlocks next and what each
+   costs — tracing (tool/trajectory/cost layers), the interview (business
+   rules, rubric), a full suite with a sealed holdout (regression gating),
+   judge calibration (judged layers, then `optimize`). One line each.
+
+Vocabulary rule for this session: say "test cases", "a quick run", "checks that
+could not run", not `split`, `selecting_split`, `capability matrix`,
+`unscorable`. Introduce a term when the user first needs it, with its one-line
+meaning. `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` has them all; do not recite it.
+
+A user who asks for the full setup up front ("do it properly", a team with a
+QA owner) gets the full `discover` and a ~30-case suite instead — say what the
+lean path would have skipped and let them choose.
+
 ## Procedure
 
 1. **Locate the target app.** Use `$ARGUMENTS` if given; otherwise ask for the
@@ -38,7 +84,8 @@ work on them at once.
 
    | # | Check | Action if it matches |
    |---|---|---|
-   | 1 | No state location at all | Step 1: run the `discover` skill now (load it and follow it). |
+   | 0 | A `reports/<run-id>/` directory with a `manifest.yaml` but no `results.json`, or whose `results.json` has `summary.status: "running"` | **An interrupted run.** A killed session leaves exactly this. Say so, and offer `run --resume` under the SAME run id (run/SKILL.md §2) before anything else — routing on to a fresh run abandons the cases already paid for. If the user declines, leave the directory alone and continue down the table. |
+   | 1 | No state location at all | Step 1: the first session, above — `discover` (load it and follow it), lean. |
    | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Don't promise the user it will be preserved — offer to back it up first if they care about it. |
    | 3 | `reports/baseline.json` absent, but a sibling `baselines/` or `runs/` directory exists | **Pre-per-run layout: this dir DOES have a baseline.** Say so and point at `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`. Never report it as "no baseline run yet" — that is the misdiagnosis this ordering exists to prevent, and acting on it would abandon real eval history. |
    | 4 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). Read the scores from that run's `reports/<run-id>/results.json` — the pointer file itself holds no verdict data. If that directory is missing, say the pinned baseline's run was deleted and offer to pin a fresh one, rather than silently reading some other run. Also compare the pointer's `dataset_version`/`harness_version` against the current dataset and harness: if they differ, say the baseline's scores are not comparable to a run today and a fresh pin is needed — `run` §4 will refuse the diff anyway, so surfacing it here saves the user a wasted run. |
@@ -55,7 +102,7 @@ work on them at once.
    locked and why (`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Staged rigor has
    the stage table). Frame locks as "unlocks when X," never as missing features.
 
-   Naming the stage is not enough on its own — "stage: invariant" means nothing
+   Naming the stage is not enough on its own — "stage: pre-stability" means nothing
    to someone who has not read that table, so always spell out the one or
    two things it currently gates. Do this on every reply, including the ones
    that route to a blocked or broken state (checks 2, 3, and a dangling
@@ -65,15 +112,17 @@ work on them at once.
 4. **First-session extras** (only when the state location was just created):
    - Tell the user where everything was written and that it should be
      committed with the app (or versioned wherever it lives, if out-of-tree).
-   - Name the three roles (developer / reviewer / domain arbiter) and ask who
-     will be the domain arbiter — record the answer in `profile.yaml` under
-     `roles:`.
-   - Estimate the time to first useful result: "~1 hour to your first routing
-     confusion matrix" for a typical white-box app.
+   - On the full setup, name the three roles (developer / reviewer / domain
+     arbiter) and ask who will be the domain arbiter — record the answer in
+     `profile.yaml` under `roles:`. On the lean first session this is one of
+     the deferred interview questions, not a gate on the first run.
+   - Estimate the time to first useful result honestly: minutes for the lean
+     first session on a reachable app; about an hour for the full setup.
 
 ## Rules
 
-- One step per session unless the user pushes to continue.
+- One step per session unless the user pushes to continue — **except the
+  first session**, which runs discover → generate → run through to a result.
 - Every reply ends with: current step, next command, and rough time/cost of
   that next step.
 - If discover found design findings (e.g., "no out-of-scope route"), surface

@@ -14,6 +14,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
@@ -391,6 +392,21 @@ class TestIdPatternFlag(ScorerTest):
         self.assertEqual(rc, 2, err)
         self.assertIsNotNone(out, err)
         self.assertIn("--id-pattern", out["error"])
+        self.assertNotIn("Traceback", err)
+
+    def test_a_pattern_that_does_not_terminate_is_a_clean_error(self):
+        # score_answer.py had a watchdog and this scorer did not, though
+        # run_cases.py passes --id-pattern on every authz-scorable case:
+        # `(a+)+$` hung the CLI for good (2026-09 audit). The allowed id
+        # matches, so the hang is in the scan of the tool result.
+        started = time.time()
+        rc, out, err = run_script(
+            "score_authz.py", self.traj({"note": "a" * 40 + "!"}),
+            self.expect({"allowed_record_ids": ["aaa"]}),
+            "--id-pattern", r"(a+)+$")
+        self.assertLess(time.time() - started, 15)
+        self.assertEqual(rc, 2, err)
+        self.assertIn("did not terminate", out["error"])
         self.assertNotIn("Traceback", err)
 
 

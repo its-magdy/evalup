@@ -12,7 +12,9 @@ both work).
 """
 import json
 import re
+import signal
 import sys
+import threading
 import unicodedata
 from collections.abc import Hashable
 
@@ -197,6 +199,67 @@ def stringify(value):
                else json.dumps(value, ensure_ascii=False))
 
 
+REGEX_TIMEOUT_S = 2.0
+
+
+class RegexTimeout(Exception):
+    pass
+
+
+def run_bounded(fn):
+    """fn() under a wall-clock bound, so one pathological author-supplied regex
+    cannot hang a run.
+
+    Here, not in score_answer.py where it started, because a second scorer
+    takes a regex from the author -- score_authz.py's --id-pattern, which
+    run_cases.py passes on EVERY authz-scorable case from the profile's
+    record_id_pattern -- and it had no bound at all: `(a+)+$` stalled each case
+    for the runner's full 30s scorer timeout and hung the standalone CLI for
+    good (2026-09 audit). Same reason found_in lives here: two gates, one rule.
+
+    SIGALRM is Unix-only and main-thread-only. Where either fails the call
+    runs unguarded rather than not at all -- the docstring always said so, but
+    the guard tested only for SIGALRM, so off the main thread signal.signal
+    raised ValueError instead."""
+    if not hasattr(signal, "SIGALRM") or \
+            threading.current_thread() is not threading.main_thread():
+        return fn()
+
+    def on_alarm(signum, frame):
+        raise RegexTimeout
+
+    previous = signal.signal(signal.SIGALRM, on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, REGEX_TIMEOUT_S)
+    try:
+        return fn()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+CASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def unsafe_case_id(case_id):
+    """Why `case_id` cannot name a directory, or None when it can.
+
+    A case id IS a path segment: the runner writes cases/<id>/, and every
+    report and baseline diff keys on it. It was checked only for being a
+    non-empty unique string, so `../../../../X` -- or an absolute path, which
+    os.path.join lets replace the whole prefix -- wrote six files outside --out
+    before the completeness check noticed (2026-09 audit). Written once here
+    because the linter and the runner must refuse the same ids: the linter so
+    the author hears at authoring time, the runner because it is the one that
+    touches the disk and is not always preceded by the linter.
+
+    generate's own ids are `c-<hash8>`; this is deliberately looser than that,
+    so a hand-named `billing_refund.v2` stays legal."""
+    if not CASE_ID_RE.fullmatch(case_id) or ".." in case_id:
+        return ("must be 1-128 of [A-Za-z0-9._-], starting with a letter or "
+                "digit, with no '..' -- the id names the cases/<id>/ directory")
+    return None
+
+
 def found_in(needle, haystacks):
     """Is `needle` present in any haystack as a whole token?
 
@@ -261,11 +324,51 @@ def write_output(path, text, on_error=None):
         (on_error or die)(f"cannot write output: {e}")
 
 
-def load_json(path, on_error=None):
+class BadJSON(ValueError):
+    """Text that json.loads accepts or chokes on, and this package refuses."""
+
+
+def _reject_constant(name):
+    raise BadJSON(f"{name} is not JSON: a non-finite number has no strict-JSON "
+                  "spelling, so it cannot be compared, and one reaching "
+                  "verdict.json makes the review viewer's JSON.parse throw")
+
+
+def loads_strict(text):
+    """json.loads, minus the three inputs it handles in ways a caller that
+    catches only JSONDecodeError never sees (2026-09 audit):
+
+    - `NaN` / `Infinity` / `-Infinity` PARSE, by Python's default, and are then
+      re-emitted into artifacts a strict parser rejects. One `NaN` in one
+      expectation blanked the whole review viewer.
+    - an integer literal past the interpreter's digit limit raises a bare
+      ValueError, and
+    - nesting past the recursion limit raises RecursionError --
+    both of which left as a traceback, not as the {"error": ...}/exit-2 this
+    module's docstring promises. Same shape as load_text's UnicodeDecodeError.
+
+    Raises BadJSON (a ValueError) for all of them and for ordinary syntax
+    errors, so one except clause is the whole contract."""
+    try:
+        return json.loads(text, parse_constant=_reject_constant)
+    except RecursionError:
+        raise BadJSON("nested too deeply to parse") from None
+    except BadJSON:
+        raise
+    except ValueError as e:     # JSONDecodeError, and the int digit limit
+        raise BadJSON(str(e)) from None
+
+
+def load_json(path, on_error=None, strict=True):
+    """`strict=False` lets NaN/Infinity through, for the one caller whose job is
+    to DISPLAY whatever a run holds (build_review_viewer.py): an app's response
+    can carry a NaN no input check of ours polices, and a viewer that refuses
+    the whole run over it is worse than one that shows it."""
     fail = on_error or die
     try:
-        return json.loads(load_text(path, on_error=fail))
-    except json.JSONDecodeError as e:
+        text = load_text(path, on_error=fail)
+        return loads_strict(text) if strict else json.loads(text)
+    except (BadJSON, ValueError, RecursionError) as e:
         # The path, not just the exception: JSONDecodeError carries no filename,
         # so a directory scan reported "Expecting value: line 1 column 1"
         # without naming which of its files was bad.

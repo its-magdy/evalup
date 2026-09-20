@@ -4,7 +4,7 @@ description: >-
   Explain the evalup plugin and point the user at the one command or
   document that answers them: what evalup is and what it measures, how the
   workflow runs from first contact to steady state, where to start or resume,
-  which of the seven commands fits the situation they describe, what the modes
+  which of the commands fits the situation they describe, what the modes
   and flags mean, who has to be involved (developer, reviewer/QA, domain
   arbiter) and whether they need Claude Code, where eval state lives, what the
   scores can and cannot claim, and why something is locked, gated, refused, or
@@ -33,6 +33,8 @@ explanations on purpose, so anything you would "recall" from it is a guess.
 | Where does my eval state live? What is in it? | `${CLAUDE_PLUGIN_ROOT}/README.md` §Where state lives |
 | What must my app provide to be evaluated? | `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapter-contract.md` |
 | Why did a run refuse a diff, or halt on my state directory? | `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4 |
+| I already have real chats / logs — can I just see what is broken? | `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md` §`--transcripts` — no profile, cases or run needed. |
+| Did my run pass? How do I gate CI on it? | `${CLAUDE_PLUGIN_ROOT}/scripts/gate.py <reports/run-id>` (exit 0 open / 1 closed); `${CLAUDE_PLUGIN_ROOT}/skills/run/references/run-modes.md` "Headless/CI gate" |
 | What does a real dataset / adapter / run directory look like? Show me an example. | `${CLAUDE_PLUGIN_ROOT}/examples/quickstart/README.md` |
 
 Rules:
@@ -40,4 +42,6 @@ Rules:
 - Read only the rows the question needs — most questions are one row.
 - Answer in a few sentences, then name the single next command.
 - If the question is really a request to *do* eval work, stop routing and load
-  the skill that does it (`start` when the right one is unclear).
+  the skill that does it (`start` when the right one is unclear). The one
+  exception is `optimize`: it is user-invoked only, so tell them to type
+  `/evalup:optimize` rather than loading it.

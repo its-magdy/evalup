@@ -6,7 +6,7 @@ description: >-
   traces for new cases, and manage the sealed holdout. Use after runs to triage
   results, to calibrate the judge, or to promote real conversations into the
   dataset.
-argument-hint: "[--label] [--cluster] [--mine] [--unseal]"
+argument-hint: "[--cluster] [--transcripts <path>] [--label] [--mine] [--unseal]"
 ---
 
 # Analyze — Failures, Labels, and the Living Dataset
@@ -19,6 +19,25 @@ annotation JSONL, open→axial coding and its stopping rule),
 numbers), `${CLAUDE_PLUGIN_ROOT}/agents/judge.md` (judge runtime, model family)
 and `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md` (what a
 valid case is).
+
+Arguments, when the user typed any: `$ARGUMENTS`
+
+## `--transcripts <path>` — real conversations, before any dataset exists
+The error-analysis-first entry, and the one branch that needs **no profile, no
+cases and no run**: a user with exported chats, support logs or a folder of
+saved traces can learn what is broken today. Read them, and write one viewer
+record per conversation to a scratch JSON file — `{"case_id": "t-0001",
+"trace_id": ..., "answer": {"actual": <the app's reply>}, "tool_calls": [...]}`
+plus the user message; the record shape is loose by design
+(`build_review_viewer.py`'s docstring) and no field is required. Redact first
+when the data may hold PII, and show the redacted form. Build the viewer on
+that file and run annotation-ux.md's open→axial pass with the user: ~20–50
+conversations, free-text critique first, categories only once they repeat.
+End with the failure taxonomy by count and an offer to promote the clearest
+failures into cases (origin `real-trace:<id>`, expectation = what SHOULD have
+happened, `review.status: pending`) — which is `generate`'s "real seeds
+first" done literally. This is not `--mine`: that queries a live trace
+backend and needs `stage: traffic`; this reads files the user already has.
 
 ## First run — no prior data
 Check before clustering, labeling or mining an empty set, and name which empty
@@ -40,7 +59,8 @@ details. Pick the latest by the **timestamp segment** of the run id
 mode and hands you a stale `smoke-*`. Use the timestamp over mtime, which
 drifts when a report is regenerated or a directory copied.
 
-Launch the `trace-analyzer` agent per failed case, on its normalized trajectory
+Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
+the plugin is installed) per failed case, on its normalized trajectory
 (raw spans when that view is insufficient) and its violated expectations. Group
 its outputs by failure mode, not by metric: same wrong-route pair, same tool
 confusion, same rule violation, same missing clarification. Per cluster: count,
@@ -52,8 +72,9 @@ label is wrong. Label corrections feed back to the dataset (bump
 `dataset_version`).
 
 For a hands-on look, build the viewer:
-`${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py <run-path> [-a <annotations.jsonl>] -o <out.html>`
-— add `--glob 'cases/*/verdict.json'` for `run`'s nested records. On a
+`${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
+— a run directory is recognized and its `cases/*/verdict.json` records are
+read without a flag (`--glob` is for any other layout). On a
 `--full` or `--holdout` run, stage a filtered copy that excludes the sealed
 ids instead of pointing it at `cases/`. Both, and why: annotation-ux.md
 §"Which files it reads", worth reading before the first invocation. Its
@@ -112,8 +133,8 @@ short sessions until the numbers hold, so optimize for low friction per case.
 Run rubric-format.md's two passes: discovery, ~30 cases, then a stratified
 validation pass of ~100–200. Take every number from there — TPR and TNR and
 Cohen's κ, never raw accuracy, ≥90% on a slice the judge prompt never saw.
-Launch the `judge` agent with profile.yaml's `judge.model` as the model
-override (agents/judge.md). Calibration must measure the model runs will use.
+Launch the `judge` agent (`evalup:judge` when installed) with profile.yaml's
+`judge.model` as the model override (agents/judge.md). Calibration must measure the model runs will use.
 
 The judge executes one rubric node per call, so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:
@@ -195,9 +216,10 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
   --capabilities <profile.capability_matrix.json> --manifest <dataset-fields.json>
 ```
 
-You convert the cases and both JSON inputs from YAML; the script takes JSON on
-purpose (its docstring says why), and case-format.md owns the rules it
-enforces. `--manifest` matters most here: it catches the `dataset.yaml` counts
+`${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <tmp>`
+writes all three JSON inputs from the YAML — never transcribe them yourself
+(run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
+and case-format.md owns the rules it enforces. `--manifest` matters most here: it catches the `dataset.yaml` counts
 that a reclassification, a deleted case or a reseal leaves stale. A reseal must
 also come back clean on `holdout_not_sealed` and `missing_split`, the only
 mechanical evidence the seal still holds.

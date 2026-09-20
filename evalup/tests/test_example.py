@@ -428,11 +428,9 @@ class TestTheExampleRuns(ExampleCase):
         case["expect"]["tools"] = {"subset": ["get_invoice"]}
         self.invoke(plan)
         # `expect.tools` triggers the TRAJECTORY layer, not tool_selection --
-        # SS5's table, and the inverse of what validate_cases.py believes. That
-        # divergence is a real finding (AUDIT, the worked-example block); it
-        # cannot bite this example because the matrix disables both, and the
-        # assertion is written against the contract, which is what the runner
-        # implements.
+        # SS5's table. validate_cases.py once believed the inverse; its
+        # expect-key -> layer map now agrees with the runner, so this is a
+        # statement of the contract and no longer a note about a divergence.
         row = self.read("cases", "c-4f2a91c7",
                         "verdict.json")["layers"]["trajectory"]
         self.assertEqual(row["verdict"], "unscorable")
@@ -486,6 +484,29 @@ class TestTheExampleRuns(ExampleCase):
         verdict = self.read("cases", "c-4f2a91c7", "verdict.json")
         judged = verdict["layers"].get("judged")
         self.assertNotIn(judged.get("verdict"), ("pass", "fail"))
+
+
+class TestDemo(unittest.TestCase):
+    """examples/quickstart/demo.py is the example a HUMAN runs. It sits outside
+    scripts/ and tests/, so nothing else executes it -- including the 3.9 floor
+    run, which only reaches it through here."""
+
+    def demo(self, *argv):
+        return subprocess.run(
+            [sys.executable, str(EXAMPLE / "demo.py"), *argv],
+            capture_output=True, text=True, timeout=120)
+
+    def test_the_shipped_example_is_green_and_exits_0(self):
+        proc = self.demo()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("PASS", proc.stdout)
+        self.assertIn("6 pass, 0 fail", proc.stdout)
+
+    def test_a_broken_expectation_closes_the_gate(self):
+        proc = self.demo("--break")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("<- failed: answer", proc.stdout)
+        self.assertIn("gate closed: 1 gating failure(s)", proc.stdout)
 
 
 if __name__ == "__main__":

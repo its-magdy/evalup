@@ -55,6 +55,67 @@ break anyone who has been tracking this repository directly.
 - Python **3.9** floor, stdlib only, no runtime dependencies. Checked at three
   depths — see `CONTRIBUTING.md`.
 
+### Fixed — the 2026-09-20 audit
+
+Security and correctness, each with a regression test:
+
+- **XSS in `md_to_html.py`.** The `javascript:` filter was a three-scheme
+  denylist behind `^\s*`; a leading control byte (`\x01javascript:`) walked
+  past it and browsers strip that byte. Now an allowlist (`http`, `https`,
+  `mailto`, relative), and any URL carrying a control or invisible character is
+  refused.
+- **Secrets written to disk.** Only headers were redacted, so `${API_KEY}`
+  inside `request_body` landed verbatim in every `cases/<id>/request.json`.
+  Recorded requests (body, url, manifest, `--dry-run`) now carry the `${NAME}`
+  reference back.
+- **Path traversal through a case id.** `../../X` or an absolute id wrote files
+  outside `--out`. Ids are now validated as directory names by both
+  `validate_cases.py` (`unsafe_id`) and `run_cases.py` (exit 2, nothing
+  written).
+- **`agents/judge.md` had no parseable frontmatter** — the block had been
+  reflowed into a paragraph, so the judge agent never registered.
+  `tests/test_plugin_layout.py` now checks every skill and agent file.
+- **`score_cost.py` priced unusable token counts as $0.00** at
+  `status: priced` (a negative count as negative dollars). Dollars are now
+  withheld with a reason; an integral float (`1000.0`) is accepted as the count
+  it spells.
+- **`score_authz.py --id-pattern` had no ReDoS bound.** The regex watchdog
+  moved to `_common.run_bounded` and covers both scorers (and no longer raises
+  off the main thread).
+- **Non-finite numbers.** `NaN`/`Infinity` in any JSON input is exit 2; the
+  review viewer renders a run that holds one instead of a blank page. Deeply
+  nested JSON and over-long integers are exit 2, not tracebacks.
+- The runner honors `Retry-After` on 429/503 (capped at 60s); the review viewer
+  recognizes a run directory without `--glob`; `start` no longer cites a
+  non-existent `stage: invariant` and now routes an interrupted run to
+  `--resume`.
+
+### Added — the 2026-09-20 audit
+
+- **`scripts/gate.py`** — the CI gate as a script: exit 0 open / 1 closed, a
+  one-screen summary, every closing reason listed. The runner exits 0 on a red
+  suite by design; until this, so did everything else.
+- **`scripts/convert_suite.py`** — YAML → JSON for the whole state directory,
+  rejecting duplicate YAML keys. The model no longer transcribes a suite by
+  hand. The only script that imports outside the stdlib (PyYAML, lazily).
+- **`examples/quickstart/demo.py`** — the worked example, runnable by a human
+  in one command (`--break` shows a red run).
+- **`/evalup:analyze --transcripts <path>`** — error analysis over real
+  conversations with no profile, dataset or run.
+
+### Changed — the 2026-09-20 audit
+
+- **The first session is lean.** `/evalup:start` on a new app now runs a lean
+  `discover` (no source patches, no interview), ~12 cases and a smoke run in
+  one sitting, says up front what the app can and cannot have measured, and
+  ends with a menu of what to unlock. The full setup is unchanged and one
+  request away.
+- **`/evalup:optimize` is user-invoked only** (`disable-model-invocation`).
+- Skills read their arguments explicitly (`$ARGUMENTS`) rather than relying on
+  the harness's fallback.
+- The README leads with requirements, a 30-second demo and three commands;
+  maintainer toolchain notes moved to `CONTRIBUTING.md`.
+
 ### Changed — breaking, if you used this repo before 2026-09-20
 
 - **The plugin was renamed `agent-eval` → `evalup`.** Commands are now

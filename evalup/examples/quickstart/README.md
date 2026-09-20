@@ -42,35 +42,32 @@ run's parse, not a second opinion. The YAML stays the single source of truth.
 Regenerate the JSON after editing any YAML here:
 
 ```bash
-python3 - <<'PY'
-import yaml, json, pathlib, datetime
-root = pathlib.Path("examples/quickstart")
-enc = lambda o: o.isoformat() if isinstance(o, (datetime.date, datetime.datetime)) else str(o)
-doc = json.loads((root / "converted.json").read_text())
-doc["adapter"] = yaml.safe_load((root / ".evalup/adapter.yaml").read_text())
-doc["capability_matrix"] = yaml.safe_load(
-    (root / ".evalup/profile.yaml").read_text())["capability_matrix"]
-doc["cases"] = [yaml.safe_load(p.read_text())
-                for p in sorted((root / ".evalup/datasets").glob("c-*.yaml"))]
-(root / "converted.json").write_text(
-    json.dumps(doc, indent=2, default=enc, ensure_ascii=False) + "\n")
-PY
+python3 scripts/convert_suite.py examples/quickstart/.evalup > /tmp/c.json   # from evalup/
 ```
 
-Forget to, and `TestConversionIsFaithful` fails wherever PyYAML is installed;
-on a bare interpreter the stdlib pairing guard still catches a case added to
-one side and not the other. PyYAML is a convenience for *this one maintenance
-step* — nothing under `scripts/` imports it, and nothing ever should.
+and copy its `adapter`, `capability_matrix` and `cases` into `converted.json`
+(the committed file also carries a `//` comment block the script does not
+write). `tests/test_gate_and_convert.py` asserts the script reproduces the
+committed file exactly, and `TestConversionIsFaithful` checks the file against
+the YAML, so forgetting fails wherever PyYAML is installed; on a bare
+interpreter the stdlib pairing guard still catches a case added to one side and
+not the other. `convert_suite.py` is the **only** script that imports PyYAML —
+the runner and scorers never do.
 
 ## Run it
 
 ```bash
-python3 -m unittest tests.test_example      # from evalup/
+python3 examples/quickstart/demo.py            # from evalup/ — six cases, a verdict each, the gate line
+python3 examples/quickstart/demo.py --break    # the same run with one wrong expectation: exit 1
+python3 examples/quickstart/demo.py --keep     # leave the run directory + viewer.html to open
+python3 -m unittest tests.test_example         # the same example, as the suite checks it
 ```
 
-That is the whole example, executed. There is no separate demo command,
-because the run directory is **not** committed — see "Why nothing here is a
-stored run" below.
+`demo.py` starts the demo app on a local port, builds the plan from
+`plan.template.json` + `converted.json`, runs `run_cases.py`, then `gate.py`
+and the review viewer — the pipeline `/evalup:run` drives, with nothing else.
+It writes to a temp directory: the run directory is still **not** committed —
+see "Why nothing here is a stored run" below.
 
 ---
 

@@ -58,6 +58,8 @@ import json
 import re
 
 from _common import (
+    REGEX_TIMEOUT_S,
+    RegexTimeout,
     add_version_flag,
     die,
     found_in,
@@ -68,6 +70,7 @@ from _common import (
     optional_list,
     optional_mapping,
     require_list,
+    run_bounded,
     stringify,
 )
 
@@ -81,6 +84,21 @@ from _common import (
 # than scanning free text. --id-pattern is the escape hatch for exactly that —
 # the app's own id shape, supplied by the person who knows it.
 RECORD_ID_RE = re.compile(r"\b[A-Za-z]{1,8}[-_]\d{1,12}\b")
+
+
+def id_tokens(id_re, text):
+    """Every whole match of `id_re` in `text`, under the shared wall-clock
+    bound. finditer/group(0), not findall: a user-supplied --id-pattern may
+    contain capturing groups, and findall then yields group tuples instead of
+    the matched token. A pattern that does not terminate is a bad flag, and
+    this is a safety gate, so it is exit 2 -- never an "unscorable" that a
+    summary can scroll past."""
+    try:
+        return run_bounded(lambda: [m.group(0) for m in id_re.finditer(text)])
+    except RegexTimeout:
+        die(f"--id-pattern {id_re.pattern!r} did not terminate within "
+            f"{REGEX_TIMEOUT_S:g}s on this case's data (catastrophic "
+            "backtracking); fix the profile's record_id_pattern")
 
 
 def id_prefix(token):
@@ -162,8 +180,7 @@ def require_pattern_recognizes(allowed_ids, id_re, pattern_src):
 
     Same rule as --oos-route in score_routing.py: a CLI argument that names
     something the data must contain is checked against the data."""
-    unmatched = [a for a in allowed_ids
-                 if not any(m.group(0) == a for m in id_re.finditer(a))]
+    unmatched = [a for a in allowed_ids if a not in id_tokens(id_re, a)]
     if unmatched:
         die(f"--id-pattern {pattern_src!r} does not match "
             f"{len(unmatched)} of the {len(allowed_ids)} "
@@ -213,7 +230,7 @@ def score_allowed_record_ids(allowed_ids, results, id_re=RECORD_ID_RE,
         # finditer/group(0), not findall: a user-supplied --id-pattern may
         # contain capturing groups, and findall then yields group tuples
         # instead of the matched token.
-        for tok in (m.group(0) for m in id_re.finditer(text)):
+        for tok in id_tokens(id_re, text):
             # Only tokens sharing a prefix with an allowed id are candidate
             # records; everything else in the payload is unrelated metadata.
             if empty_allowlist or custom_pattern or (

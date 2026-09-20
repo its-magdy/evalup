@@ -304,6 +304,20 @@ class TestPlanValidation(RunnerCase):
                          cases=[make_case("c-0001"), make_case("c-0001")])
         self.assert_rejected(plan, "duplicate case id 'c-0001'")
 
+    def test_case_id_that_is_not_a_directory_name(self):
+        # The id becomes cases/<id>/. `../..` and an absolute path (which
+        # os.path.join lets replace the whole prefix) both wrote six files
+        # outside --out before exit 6 noticed (2026-09 audit). Exit 2 writes
+        # nothing at all, which assert_rejected checks.
+        escaped = pathlib.Path(self.state).parent / "ESCAPED"
+        for bad in ("../../../../ESCAPED", str(escaped), "a/b", "a\\b", "..",
+                    ".hidden", "has space", "x" * 129):
+            with self.subTest(case_id=bad):
+                plan = make_plan(self.state, self.app.base_url,
+                                 cases=[make_case(bad)])
+                self.assert_rejected(plan, "names the cases/<id>/ directory")
+        self.assertFalse(escaped.exists())
+
     def test_case_not_in_selecting_split(self):
         plan = make_plan(self.state, self.app.base_url,
                          cases=[make_case("c-0001", split=["full"])])
@@ -391,6 +405,29 @@ class TestEnvAndSecrets(RunnerCase):
         for path in tree:
             if path.is_file():
                 self.assertNotIn("s3cret",
+                                 path.read_text(encoding="utf-8",
+                                                errors="replace"),
+                                 f"secret leaked into {path.name}")
+
+    def test_env_ref_in_request_body_is_never_written(self):
+        # redact() only ever covered headers, so `${API_KEY}` inside
+        # request_body was resolved, sent, and written verbatim into every
+        # request.json (2026-09 audit). The app must still RECEIVE the value;
+        # the record must carry the reference back instead.
+        plan = make_plan(self.state, self.app.base_url)
+        invocation = plan["adapter"]["invocation"]
+        template = json.loads(invocation["request_body"])
+        template["api_key"] = "${APP_BODY_KEY}"
+        invocation["request_body"] = json.dumps(template)
+        rc, _, proc = self.invoke(plan, env={"APP_BODY_KEY": "sk-body-s3cret"})
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.app.calls[-1]["body"]["api_key"],
+                         "sk-body-s3cret")
+        request = self.read("cases", "c-0001", "request.json")
+        self.assertEqual(request["body"]["api_key"], "${APP_BODY_KEY}")
+        for path in self.out_dir().rglob("*"):
+            if path.is_file():
+                self.assertNotIn("sk-body-s3cret",
                                  path.read_text(encoding="utf-8",
                                                 errors="replace"),
                                  f"secret leaked into {path.name}")
@@ -1908,6 +1945,39 @@ class TestVerify(RunnerCase):
         rc, payload, _ = self.verify(self.tmp / "nope")
         self.assertEqual(rc, 2)
         self.assertIn("not a directory", payload["error"])
+
+
+class TestRetryWait(unittest.TestCase):
+    """retry_wait is pure, so it is tested as a function: sleeping a real
+    Retry-After in a subprocess run would cost the suite the seconds it
+    asserts on. `run_cases` is imported at the top for exactly this."""
+
+    def test_a_longer_retry_after_wins_on_429_and_503(self):
+        for status in (429, 503):
+            result = {"status": status, "headers": {"Retry-After": "7"}}
+            self.assertEqual(run_cases.retry_wait(1, result), 7)
+
+    def test_the_header_name_is_case_insensitive(self):
+        result = {"status": 429, "headers": {"retry-after": " 7 "}}
+        self.assertEqual(run_cases.retry_wait(1, result), 7)
+
+    def test_the_declared_backoff_is_a_floor(self):
+        result = {"status": 429, "headers": {"Retry-After": "1"}}
+        self.assertEqual(run_cases.retry_wait(4, result), 4)
+
+    def test_it_is_capped(self):
+        result = {"status": 429, "headers": {"Retry-After": "86400"}}
+        self.assertEqual(run_cases.retry_wait(1, result),
+                         run_cases.RETRY_AFTER_CAP_S)
+
+    def test_everything_else_keeps_the_declared_backoff(self):
+        for result in (None, {"status": 500, "headers": {"Retry-After": "9"}},
+                       {"status": 429, "headers": {}},
+                       {"status": 429, "headers": {
+                           "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}},
+                       {"status": 429, "headers": {"Retry-After": "-5"}}):
+            with self.subTest(result=result):
+                self.assertEqual(run_cases.retry_wait(2, result), 2)
 
 
 if __name__ == "__main__":

@@ -188,6 +188,13 @@ property, so the thing at runtime has to check it.
   env ref, or whose name appears in the adapter's auth block. Non-secret headers
   (`Content-Type`) are recorded literally. This matches what the shipped run did
   by hand.
+- The same holds for what is sent **verbatim**: an env ref inside
+  `request_body`, `base_url` or `endpoint` is resolved for the wire and put back
+  as `${NAME}` in the record — `request.json`'s `body` and `url`, the manifest's
+  `invocation.url`, and `--dry-run`'s output. Header redaction alone left an API
+  key carried in the body in plain text in every `request.json` (2026-09 audit).
+  The reference is restored in the *template*, before the case's placeholders
+  are rendered, so a short value never rewrites a user turn that contains it.
 
 ---
 
@@ -683,7 +690,7 @@ Exit 2 makes the gap loud at the one moment someone can act on it.
 
 | Condition | Handling |
 |---|---|
-| connection error, timeout, HTTP 429, HTTP 5xx | retry up to `max_attempts` with `backoff_s`; on exhaustion → `infra_error`, `retry_count` recorded in `response.json` |
+| connection error, timeout, HTTP 429, HTTP 5xx | retry up to `max_attempts` with `backoff_s` (a 429/503 `Retry-After: <seconds>` longer than the declared wait is honored, capped at 60s); on exhaustion → `infra_error`, `retry_count` recorded in `response.json` |
 | HTTP 4xx other than 429 | **not** retried — it is a response, and often the expected one (the field test asserts a deliberate 400 on OOS) |
 | app crash / connection reset on a `noise` or `adversarial-refusal` case | `infra_error` **and** increments `summary.crash_rate`'s numerator — a first-class number, not just an excluded row |
 | trace requested, quiescence not reached by `max_wait_s` | `infra_incomplete`; the case's non-trace layers still score |

@@ -173,22 +173,24 @@ jq -e 'select(.type=="system" and .subtype=="init")
          and (.mcp_server_errors // [] | length == 0)' \
   run-output.json >/dev/null || { echo "plugin/mcp load errors — run untrusted"; exit 2; }
 
-# The actual gate: a plain script reads the verdict, no LLM involved. Find
-# the run this invocation just wrote — its manifest.yaml is the newest one
-# under reports/, and manifest.yaml's own `run_id` field (SKILL.md §1) is the
-# source of truth, not stdout-parsing this CLI call's own text reply — then
-# pull results.json from that same run directory (SKILL.md §5), since
-# results.json is the durable file that also survives past this one CI
-# invocation.
-manifest=$(ls -t reports/*/manifest.yaml | head -1)
-run_id=$(yq -r '.run_id' "$manifest")   # or python -c 'import yaml,sys; ...' if yq isn't available
-gating_failures=$(jq '.summary.gating_failures' "reports/$run_id/results.json")
-infra_rate=$(jq '.summary.infra_rate' "reports/$run_id/results.json")
-if [ "$gating_failures" -gt 0 ] || awk "BEGIN{exit !($infra_rate > 0.05)}"; then
-  exit 1
-fi
-exit 0
+# The actual gate: a plain script reads the verdict, no LLM involved. It
+# finds the run this invocation just wrote by the TIMESTAMP in the run id
+# (never mtime, which drifts when a directory is copied or a report
+# regenerated), reads that run's results.json -- the durable file that
+# survives past this one CI invocation -- and exits 0 open / 1 closed / 2 bad
+# input. Stdlib Python: no jq, no yq.
+python3 "$EVALUP_ROOT/scripts/gate.py" reports/ --latest --mode regression \
+  --max-infra-rate 0.05
 ```
+
+`gate.py` closes on any gating failure (the sealed holdout's aggregate
+included), on a run whose `summary.status` is not `ok` or whose own
+`exit_code` is non-zero — "0 gating failures" from an aborted run is not a
+pass — and on `infra_rate` above the threshold, and lists **every** reason.
+`--json` prints the same facts for a dashboard. Deterministic-only CI needs no
+`claude -p` at all: `convert_suite.py` → `run_cases.py` → `gate.py` is three
+plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
+pipeline, runnable).
 
 - `--bare` skips plugin/skill auto-discovery, so the same command produces
   the same behavior on every CI runner — reproducibility over convenience.
@@ -199,11 +201,10 @@ exit 0
   optional: a run that launched under a broken plugin load can produce a
   clean-looking JSON verdict for the wrong reason (e.g. every case silently
   skipped a layer), and the gate script would happily green-light it.
-- `ls -t reports/*/manifest.yaml | head -1` assumes this CI job has an
-  otherwise-empty `reports/` (or is the only writer racing at that moment) —
-  a shared `reports/` directory with concurrent runs needs the run id passed
-  through explicitly (e.g. captured from the invoking job's own arguments)
-  rather than inferred by recency.
+- `--latest` assumes this CI job is the only writer of that mode at that
+  moment — a shared `reports/` directory with concurrent runs needs the run
+  directory passed explicitly (`gate.py reports/<run-id>`) rather than
+  inferred by recency.
 - Honesty check on both practices above: `--bare` is a real, working flag but
   is currently absent from the official CLI reference (an open documentation
   gap, not a plugin quirk), and gating on `system/init`'s `plugin_errors`

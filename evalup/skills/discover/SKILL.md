@@ -11,6 +11,15 @@ argument-hint: "[path-or-url] [--diff]"
 
 # Discover — Profile the App
 
+Arguments, when the user typed any: `$ARGUMENTS`
+
+**Lean mode** — when `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first
+session sent you here: do steps 1–4 and 8, set `stage: pre-stability`, and list
+steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
+with what each unlocks. Do not offer a patch to the user's source and do not
+interview them before they have seen a result. Everything below is the full
+procedure; a later `/evalup:discover` runs the deferred steps.
+
 Write three artifacts to the state location (default `<app>/.evalup/`, or
 the adapter's `state_location`): `profile.yaml` (what the app is — fields in
 [references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`

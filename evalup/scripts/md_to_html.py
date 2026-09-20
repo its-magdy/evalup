@@ -65,7 +65,20 @@ BOLD_RE = re.compile(
     rf"|(?<!\w)__{_OPEN}((?:[^_]|_(?!_))+?){_CLOSE}__(?!\w)")
 ITALIC_RE = re.compile(
     rf"\*{_OPEN}([^*]+?){_CLOSE}\*|(?<!\w)_{_OPEN}([^_]+?){_CLOSE}_(?!\w)")
-_DANGEROUS_SCHEME = re.compile(r"^\s*(javascript|data|vbscript):", re.IGNORECASE)
+# An ALLOWLIST, not a denylist. The denylist this replaced named three schemes
+# behind `^\s*`, and a leading C0 control byte (`\x01javascript:`) walked past
+# it: `\x01` is not `\s`, but the WHATWG URL parser strips leading C0 controls
+# and drops tab/newline anywhere BEFORE it reads the scheme, so the browser saw a
+# live `javascript:` URL the filter had cleared. A denylist has to enumerate
+# every way a browser normalizes a URL; an allowlist only has to know what a
+# report legitimately links to. (2026-09 audit.)
+_SAFE_SCHEMES = frozenset({"http", "https", "mailto"})
+_SCHEME_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*):")
+# C0 + DEL + C1 controls, and the invisible formatting characters a scheme can
+# hide behind. No legitimate report link carries one, so a URL that does is
+# refused outright rather than cleaned — cleaning is the step that gets it wrong.
+_URL_FORBIDDEN = re.compile(
+    "[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]")
 # A private-use codepoint, never present in real Markdown/HTML input, used to
 # stash code-span HTML so later link/bold/italic substitutions cannot reach
 # inside it (a `**` inside inline code must stay literal, not become <strong>).
@@ -78,9 +91,14 @@ def safe_href(url):
     """The URL has already been html.escape(quote=False)'d by render_inline, so
     &<> are entities but quotes are raw. A raw `"` would break out of the href
     attribute and inject a live one (a report renders untrusted model output),
-    so neutralize the quote chars quote=False left through, and refuse script-y
-    schemes. Returns None to signal 'not a safe link' (render it as text)."""
-    if _DANGEROUS_SCHEME.match(url):
+    so neutralize the quote chars quote=False left through, and allow only the
+    schemes in _SAFE_SCHEMES. A URL with no scheme at all (`cases/x/verdict.json`,
+    `#section`, `../report.md`) is relative and stays a link. Returns None to
+    signal 'not a safe link' (render it as text)."""
+    if _URL_FORBIDDEN.search(url):
+        return None
+    scheme = _SCHEME_RE.match(url.strip(" "))
+    if scheme and scheme.group(1).lower() not in _SAFE_SCHEMES:
         return None
     return url.replace('"', "&quot;").replace("'", "&#39;")
 

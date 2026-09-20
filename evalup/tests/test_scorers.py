@@ -1041,15 +1041,18 @@ SCORERS = ("normalize_trace.py", "score_routing.py", "trajectory_match.py",
 # it scores nothing.
 # score_agreement.py and run_history.py score no case, but both parse JSON
 # read off a run and both were outside this sweep until Step 9b noticed.
+# gate.py reads results.json off a run, so it is in the sweep for the same
+# reason.
 JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py", "score_agreement.py",
-                              "run_history.py", "score_cost.py")
+                              "run_history.py", "score_cost.py", "gate.py")
 
 # Every script with a CLI owes --version/--help — both non-scorers stamp the
 # harness version into artifacts that runs get compared against, so a silent
 # drift there is a comparability bug. md_to_html.py is only in THIS set: it
 # reads Markdown, not JSON, so malformed JSON is not malformed input to it
 # ("{not json" is valid Markdown and converting it is the correct behavior).
-CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("md_to_html.py",)
+# convert_suite.py likewise: its input is a directory of YAML.
+CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("md_to_html.py", "convert_suite.py")
 
 
 class TestHarnessVersion(ScorerTest):

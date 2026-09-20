@@ -92,10 +92,9 @@ THRESHOLDS (all overridable; the defaults are the house numbers, not invented):
     the DENOMINATOR, not a fix for thin evidence in general: 9 of 10 does clear
     0.90, and it is `tpr_ci_exact` -- reported, never gating -- that says how
     little that is worth.
-Known doc inconsistency, NOT silently accommodated: rubric-format.md's §File
-shape example carries `calibrated: true` with `labeled_cases: 34`, under 100.
-Its own §Calibration workflow and its §Worked template (112) say otherwise, so
-the floor follows the prose and the example is wrong. Flagged, not lowered.
+(rubric-format.md's §File shape example once showed `calibrated: true` at
+`labeled_cases: 34`, under this floor; the floor followed the prose and the
+example was corrected to match, not the other way round.)
 
 OUTPUT: JSON on stdout. Per rubric: the 2x2 counts, tpr/tnr/kappa, exact CIs,
 and `calibrated` with the reasons it is not. Plus an aggregate `status`, which

@@ -11,10 +11,15 @@ argument-hint: "[--layer routing|tools|answer] [--count N]"
 
 # Generate — Build the Dataset
 
+Arguments, when the user typed any: `$ARGUMENTS`
+
 Precondition: `profile.yaml` exists with verified core entries. If not, stop
-and route to discover. Delegate bulk generation to the `test-generator` agent;
+and route to discover. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
+when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
-the budget: ~30 cases is a good default, ~12 a legitimate minimum.
+the budget: ~30 cases is a good default, ~12 a legitimate minimum — and ~12 is
+what `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for,
+so a new user sees a result before they are asked to review thirty cases.
 
 Four documents own what they name, and this file never restates their rules:
 [case-format.md](references/case-format.md) (schema + `validate_cases.py`'s
@@ -144,9 +149,12 @@ unit nor category. Content hash per case; `dataset_version` bumps on any change
 because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
-Run `${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json>
---capabilities <profile.capability_matrix.json> --manifest
-<dataset.yaml-fields.json>`. It fails the generate step on structural errors
+First `${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
+<tmp>` — it writes those three JSON files from the YAML, and refuses a
+duplicate YAML key or one id in two files; never transcribe a suite by hand.
+Then run `${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases
+<tmp>/suite.json --capabilities <tmp>/capabilities.json --manifest
+<tmp>/manifest.json`. It fails the generate step on structural errors
 and warns on the vacuity patterns; case-format.md has the field rules and the
 error/warning line. `--capabilities` is required — pass `--no-capabilities`
 only with genuinely no profile, and expect `capabilities_unchecked`.

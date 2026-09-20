@@ -1,0 +1,77 @@
+"""The plugin as Claude Code loads it: manifest, skills, agents.
+
+Every other test here exercises `scripts/`. None of them ever opened a
+SKILL.md or an agent file the way the harness does, which is how
+`agents/judge.md` shipped for weeks with its whole frontmatter reflowed into
+one paragraph — `--- name: judge description: ...` on a single line — so
+`name`, `model` and `tools` never registered and the judge agent did not
+exist as far as Claude Code was concerned (2026-09 audit; `claude plugin
+validate` reports it as "No frontmatter block found").
+
+Stdlib only, so no YAML parser: these check the frontmatter's SHAPE — the
+delimiters on their own lines, the keys at column zero — which is exactly
+what broke. `claude plugin validate` is the fuller check; it is not run here
+because the suite must pass on a machine without the CLI.
+"""
+import json
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+KEY_RE = re.compile(r"^([A-Za-z][\w-]*):")
+
+
+def frontmatter_keys(path):
+    """Top-level keys of a `---`-delimited block, or None when there is no
+    block. A delimiter only counts when it is the WHOLE line."""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    if not lines or lines[0] != "---":
+        return None
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return None
+    return {m.group(1): line[m.end():].strip()
+            for line in lines[1:end] for m in [KEY_RE.match(line)] if m}
+
+
+class TestPluginLayout(unittest.TestCase):
+    def setUp(self):
+        self.manifest = json.loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+
+    def test_every_skill_has_parseable_frontmatter(self):
+        skills = sorted((ROOT / "skills").glob("*/SKILL.md"))
+        self.assertTrue(skills)
+        for path in skills:
+            with self.subTest(skill=path.parent.name):
+                keys = frontmatter_keys(path)
+                self.assertIsNotNone(keys, "no frontmatter block")
+                self.assertEqual(keys.get("name"), path.parent.name)
+                self.assertIn("description", keys)
+
+    def test_every_agent_has_parseable_frontmatter(self):
+        agents = sorted((ROOT / "agents").glob("*.md"))
+        self.assertTrue(agents)
+        for path in agents:
+            with self.subTest(agent=path.name):
+                keys = frontmatter_keys(path)
+                self.assertIsNotNone(keys, "no frontmatter block")
+                self.assertEqual(keys.get("name"), path.stem)
+                for key in ("description", "model", "tools"):
+                    self.assertIn(key, keys)
+
+    def test_manifest_lists_exactly_the_agents_on_disk(self):
+        listed = sorted(Path(p).name for p in self.manifest["agents"])
+        on_disk = sorted(p.name for p in (ROOT / "agents").glob("*.md"))
+        self.assertEqual(listed, on_disk)
+        for rel in self.manifest["agents"]:
+            self.assertTrue((ROOT / rel).is_file(), rel)
+
+    def test_manifest_skills_path_exists(self):
+        self.assertTrue((ROOT / self.manifest["skills"]).is_dir())
+
+
+if __name__ == "__main__":
+    unittest.main()

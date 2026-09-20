@@ -308,6 +308,31 @@ class TestPriceTable(CostCase):
         self.assertNotIn("usd", cost)
         self.assertEqual(cost["tokens"]["total"], 1100)
 
+    def test_a_token_count_that_is_not_a_count_withholds_the_dollars(self):
+        """Each of these used to be priced as ZERO tokens at "status":
+        "priced" -- a negative one as negative dollars (2026-09 audit). That is
+        the zero-imputation case_usage's docstring forbids, one level down."""
+        for bad in (1000.5, -1000, "1000", True):
+            with self.subTest(input_tokens=bad):
+                run = self.write_run("smoke-20260901T120000Z",
+                                     [("c-1", "pass", 1.0, bad, 100)])
+                rc, payload, err = run_script(run, "--prices", self.prices())
+                self.assertEqual(rc, 0, err)
+                cost = payload["cost"]
+                self.assertEqual(cost["status"], "unpriced")
+                self.assertEqual(cost["calls_with_unusable_token_count"], 1)
+                self.assertNotIn("usd", cost)
+                shutil.rmtree(run)
+
+    def test_an_integral_float_is_the_count_it_spells(self):
+        """1000.0 is a thousand tokens after a JS-number round trip."""
+        run = self.write_run("smoke-20260901T120000Z",
+                             [("c-1", "pass", 1.0, 1_000_000.0, 100_000.0)])
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["cost"]["status"], "priced")
+        self.assertEqual(payload["cost"]["tokens"]["total"], 1_100_000)
+
     def test_the_model_match_is_exact_and_an_alias_is_a_declaration(self):
         """Decision D2: inference is DECLARED per app, never guessed. `m-1` and
         `m-1-2026-08-06` are different prices, so no prefix match -- but an

@@ -17,6 +17,9 @@ every app call, every scorer, the artifacts, the completeness check and the
 baseline diff. **Never hand-orchestrate a run; never eyeball-score anything.**
 Yours is that contract's §13, below.
 
+Arguments, when the user typed any: `$ARGUMENTS` — the mode flag is in there.
+`--holdout` and `--full` spend a sealed look (§4), so read it before you plan.
+
 ## 0. Run modes
 
 Five selections + gate policies over one engine. Mechanics and worked examples:
@@ -49,11 +52,20 @@ valid case is.
 - **`cases`, `selecting_split`, `k`, `gate`**: resolved from the mode flag via
   §0. `selecting_split` becomes `set` in `verdicts.jsonl`, and a selected case
   that does not carry it is exit 2.
-- **YAML → JSON**: you convert the cases, `adapter.yaml` and `profile.yaml`'s
-  `capability_matrix` with your own parser. **That conversion is the run's
-  parse, not a second opinion** — mis-convert a case and that is the case that
-  ran. Leave `${VAR}` refs in `adapter` unresolved; the runner resolves them,
-  so no secret reaches the plan file.
+- **YAML → JSON is a script's job, never yours**:
+  `${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o
+  <tmp>/converted.json --split-dir <tmp>` writes the combined document plus
+  `suite.json`, `capabilities.json`, `adapter.json` and `manifest.json` — the
+  files the flags above and below take. **That conversion is the run's parse,
+  not a second opinion**, which is exactly why you do not re-type it: a suite
+  transcribed by hand is unreproducible, and the linter reads the same
+  transcription, so a drifted number is invisible to it. Build `plan.json` by
+  loading that JSON with a script (`python3 -c` or `jq`), filtering `cases` to
+  the selected split, and writing the file — do not paste case bodies through
+  your own output. It leaves `${VAR}` refs unresolved; the runner resolves
+  them, so no secret reaches the plan file. It needs PyYAML (the only script
+  that does); if it is absent the error names the one-line fix, and `uv run
+  --with pyyaml python …` needs no install.
 - **`scoring`**: `oos_route` from the profile's `oos_handling` route,
   `id_pattern` from its `record_id_pattern`, rest defaulted. `--layer X` sets
   every other `capability_matrix` layer to `{"enabled": false, "blocked_by":
@@ -161,8 +173,12 @@ open Claude Code. Never hand-write HTML.
 ## 6. Headless / CI gate
 
 `regression` and `full` run unattended, and **the LLM is never in the gate
-path**: it produces the run, then a separate tokenless shell step reads
-`results.json` and sets the exit code. That step, the
+path**: it produces the run, then a separate tokenless step —
+`${CLAUDE_PLUGIN_ROOT}/scripts/gate.py reports/<run-id>` (or `reports/
+--latest --mode regression`) — reads `results.json`, prints a one-screen
+summary and exits 0 open / 1 closed. Run it after every interactive run too:
+it is the fastest honest summary, and the runner's own exit 0 says nothing
+about pass/fail (§3). That step, the
 `claude -p ... --bare --permission-mode dontAsk` invocation, and the
 `system/init` `plugin_errors` check that must precede trusting either:
 [references/run-modes.md](references/run-modes.md) "Headless/CI gate". Under

@@ -102,7 +102,15 @@ import json
 import re
 import sys
 
-from _common import HARNESS_VERSION, add_version_flag, die, load_text
+from _common import (
+    HARNESS_VERSION,
+    BadJSON,
+    add_version_flag,
+    die,
+    load_text,
+    loads_strict,
+    unsafe_case_id,
+)
 
 CATEGORIES = ("happy", "multistep", "edge", "ambiguous", "oos",
               "adversarial-refusal", "noise")
@@ -224,16 +232,16 @@ def load_cases(path):
     if not text.strip():
         die(f"bad input: {path}: no cases (empty input)")
     try:
-        doc = json.loads(text)
-    except json.JSONDecodeError as whole_err:
+        doc = loads_strict(text)
+    except BadJSON as whole_err:
         rows = []
         for lineno, line in enumerate(text.splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
             try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
+                row = loads_strict(line)
+            except BadJSON:
                 # Not valid as one document and not valid as JSONL: report the
                 # whole-document error, which is the one an author who meant to
                 # pass JSON can act on.
@@ -270,8 +278,8 @@ def load_enabled_layers(path):
     if path is None:
         return set(LAYERS)
     try:
-        doc = json.loads(load_text(path))
-    except json.JSONDecodeError as e:
+        doc = loads_strict(load_text(path))
+    except BadJSON as e:
         die(f"bad input: {path}: {e}")
     if not isinstance(doc, dict):
         die(f"{path}: expected a JSON object (a capability_matrix), got "
@@ -557,6 +565,10 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   "case has no non-empty string `id`; the id is what every "
                   "per-case report, baseline diff, and metamorphic parent "
                   "reference keys on")
+    elif unsafe_case_id(case_id):
+        rep.error(label, "unsafe_id",
+                  f"id {unsafe_case_id(case_id)}; run_cases.py refuses the "
+                  "whole plan over it (exit 2)")
 
     splits = case.get("split")
     if splits is None or splits == []:
@@ -728,9 +740,9 @@ def check_manifest(rep, cases, records, manifest):
     """Cross-check dataset.yaml's hand-written summary against the case files
     it describes. dataset.yaml is authored prose, not generated, and nothing
     else re-derives it — a hand-edit to a case file (a reclassification, a
-    deleted case, a split change, exactly the kind of edit REVIEW.md documents
-    happening directly on cases/*.yaml) can leave it stale with nothing to
-    say so. This is the same stale-metadata failure the id scheme was
+    deleted case, a split change, exactly the kind of edit the 2026-08 review
+    documents happening directly on cases/*.yaml) can leave it stale with
+    nothing to say so. This is the same stale-metadata failure the id scheme was
     designed to avoid, one level up, so it gets the same treatment: check it
     or don't claim it. `manifest` is JSON the caller extracted from
     dataset.yaml with its own YAML parser (mirrors --cases/--capabilities:
@@ -934,8 +946,8 @@ def main():
     if a.manifest:
         text = sys.stdin.read() if a.manifest == "-" else load_text(a.manifest)
         try:
-            manifest = json.loads(text)
-        except json.JSONDecodeError as e:
+            manifest = loads_strict(text)
+        except BadJSON as e:
             die(f"bad input: {a.manifest}: {e}")
         if not isinstance(manifest, dict):
             die(f"{a.manifest}: expected a JSON object (dataset.yaml's "

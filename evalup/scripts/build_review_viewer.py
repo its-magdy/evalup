@@ -72,6 +72,7 @@ import argparse
 import difflib
 import html
 import json
+import math
 import pathlib
 import sys
 
@@ -105,7 +106,10 @@ def is_record(doc):
         k in doc for k in (*RECORD_KEYS, *RECORD_SHAPE))
 
 
-def load_records(run_path, pattern="*.json"):
+RUN_DIR_GLOB = "cases/*/verdict.json"
+
+
+def load_records(run_path, pattern=None):
     """Return (records, source_note). Distinguishes a structurally bad input
     (wrong path, unreadable JSON, a directory whose matched files hold no case
     records at all — likely the wrong depth) from a valid input that simply
@@ -115,10 +119,18 @@ def load_records(run_path, pattern="*.json"):
     `pattern` is a glob relative to the directory, so a run layout that keeps
     records one level down (reports/<id>/cases/<case-id>/verdict.json) is
     addressable without this script guessing at the depth: --glob
-    'cases/*/verdict.json'. The default stays a flat *.json scan."""
+    'cases/*/verdict.json'. The default stays a flat *.json scan -- except for
+    the one layout this package writes itself: a directory holding
+    manifest.yaml and cases/ IS a run_cases.py run directory, so its records
+    are at RUN_DIR_GLOB and no flag is needed. That is recognition of our own
+    output, not a guess at someone else's depth; the viewer used to fail by
+    default on the very thing `run` produces (2026-09 audit)."""
     p = pathlib.Path(run_path)
     if not p.exists():
         die(f"bad input: {run_path}: no such file or directory")
+    if pattern is None:
+        is_run_dir = (p / "manifest.yaml").is_file() and (p / "cases").is_dir()
+        pattern = RUN_DIR_GLOB if is_run_dir else "*.json"
     if p.is_dir():
         return _load_dir(p, run_path, pattern)
     return _load_file(p, run_path)
@@ -147,7 +159,7 @@ def _load_dir(p, run_path, pattern):
             f"records one level down (e.g. --glob 'cases/*/verdict.json')")
     records, skipped = [], []
     for f in files:
-        doc = load_json(f)
+        doc = load_json(f, strict=False)
         # One is_record filter for both shapes. It used to guard only the
         # dict branch, so a run artifact that happens to be a top-level
         # JSON array — a manifest holding a list of stage entries — walked
@@ -187,7 +199,7 @@ def _load_dir(p, run_path, pattern):
 
 
 def _load_file(p, run_path):
-    doc = load_json(p)
+    doc = load_json(p, strict=False)
     if isinstance(doc, list):
         return as_dicts(doc), str(run_path)
     if isinstance(doc, dict):
@@ -898,6 +910,25 @@ def _no_script_break(s):
     return s.translate(_JSON_SCRIPT_TABLE)
 
 
+def _finite(node):
+    """The same tree with every non-finite float spelled as a string.
+
+    Python's json emits NaN/Infinity bare and the page's JSON.parse throws on
+    them, so ONE such number anywhere in a run -- an expectation, or an app
+    response, which no input check of ours can police -- aborted the script and
+    rendered an empty page (2026-09 audit). The viewer shows what the run
+    holds; "NaN" as text is the faithful rendering of a value that has no JSON
+    one. allow_nan=False below turns any path this misses into a build error
+    instead of a blank page."""
+    if isinstance(node, float) and not math.isfinite(node):
+        return str(node)
+    if isinstance(node, dict):
+        return {key: _finite(value) for key, value in node.items()}
+    if isinstance(node, (list, tuple)):
+        return [_finite(value) for value in node]
+    return node
+
+
 def build_page(records, annotations, title, source):
     if not records:
         return EMPTY_PAGE.format(title=esc(title), source=esc(source))
@@ -946,8 +977,10 @@ def build_page(records, annotations, title, source):
                 f'<b>{esc(r["trace_id"])}</b>; that suffix is this viewer\'s, '
                 f'not the dataset\'s.</div>')
         taken.add(r["trace_id"])
-    trace_data = _no_script_break(json.dumps({"records": records}))
-    annotation_data = _no_script_break(json.dumps(annotations))
+    trace_data = _no_script_break(
+        json.dumps(_finite({"records": records}), allow_nan=False))
+    annotation_data = _no_script_break(
+        json.dumps(_finite(annotations), allow_nan=False))
     return PAGE.format(title=esc(title), css=CSS, js=JS,
                        trace_data=trace_data,
                        annotation_data=annotation_data)
@@ -972,11 +1005,12 @@ def main():
                     help="destination .html path (default: print to stdout)")
     ap.add_argument("--title", default=None,
                     help="page title (default: derived from run_path)")
-    ap.add_argument("--glob", default="*.json", dest="glob_pattern",
+    ap.add_argument("--glob", default=None, dest="glob_pattern",
                     help="when run_path is a directory, which files hold case "
-                         "records (default: %(default)s). Use this for a run "
-                         "layout that nests them, e.g. "
-                         "'cases/*/verdict.json'")
+                         "records. Default: 'cases/*/verdict.json' for a "
+                         "run_cases.py run directory (one holding "
+                         "manifest.yaml and cases/), otherwise a flat "
+                         "'*.json' scan")
     a = ap.parse_args()
 
     records, source = load_records(a.run_path, a.glob_pattern)
