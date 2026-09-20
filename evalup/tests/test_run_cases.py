@@ -1856,7 +1856,7 @@ class TestVerify(RunnerCase):
         The shape is built by finishing a real run and deleting the two
         rollups. It used to be read from the 2026-07-18 field-test archive
         that shipped at the repo root; that archive was removed 2026-09-20
-        (`git show 034d16b` still has it) and the assertion got stricter in
+        (`git show de9641a` still has it) and the assertion got stricter in
         the move -- the archived run was missing other artifacts too, so it
         could only ever be checked with assertIn.
         """
