@@ -86,7 +86,7 @@ jobs:
   # Every CLI answers --help with rc=0.
   #
   # TRAP, and the reason this does not just loop over scripts/*.py: there are
-  # 15 files in scripts/ but only 14 CLIs. scripts/_common.py is a shared
+  # 18 files in scripts/ but only 17 CLIs. scripts/_common.py is a shared
   # module with no argparse and no __main__ block, so `python _common.py
   # --help` exits 0 having printed NOTHING -- a naive loop passes on it for
   # entirely the wrong reason, and would keep passing if a real CLI regressed
@@ -94,7 +94,7 @@ jobs:
   #
   # So two guards, not one: skip underscore-prefixed modules, and require
   # actual output. The count assertion is the third -- if someone adds a
-  # sixteenth file, this fails and forces a decision about which set it joins
+  # nineteenth file, this fails and forces a decision about which set it joins
   # rather than silently widening or narrowing the check.
   cli-help:
     runs-on: ubuntu-latest
@@ -119,7 +119,7 @@ jobs:
             n=$((n + 1))
           done
           echo "checked $n CLIs"
-          [ "$n" -eq 14 ] || {
-            echo "expected 14 CLIs, found $n -- update this count and say why" >&2
+          [ "$n" -eq 17 ] || {
+            echo "expected 17 CLIs, found $n -- update this count and say why" >&2
             exit 1
           }

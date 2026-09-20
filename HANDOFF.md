@@ -24,8 +24,7 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 - **Health:** **706** tests pass (~2min), ruff clean, all **17** CLI scripts
   `--help` rc=0. Re-verified after the rename, 2026-09-20, on **3.13 and 3.9**
   (the blessed `unittest` runs on whatever `python3` is, so the uv 3.9 floor
-  check below is not optional). **Known-red, and it predates the rename:** CI's
-  `cli-help` job asserts **14** CLIs and there are 17.
+  check below is not optional).
 
 ### Documents, in the order a newcomer should read them
 | File | What it is |
