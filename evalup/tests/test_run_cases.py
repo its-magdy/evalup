@@ -1843,33 +1843,34 @@ class TestVerify(RunnerCase):
             payload = None
         return proc.returncode, payload, proc
 
-    def test_the_shipped_run_is_the_regression_test(self):
+    def test_a_run_missing_its_verdict_rollups_is_incomplete(self):
         """THE audit finding, as a test.
 
-        field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/ is the
-        hand-orchestrated run that looks finished and has no verdicts.jsonl and
-        no verdicts_for_stats.jsonl -- so stats.py has nothing to pair and it
-        can never be a baseline. Nothing failed and nothing warned at the time.
-        --verify must exit 6 and name both files.
+        The hand-orchestrated runs this engine replaced looked finished and
+        had no verdicts.jsonl and no verdicts_for_stats.jsonl -- so stats.py
+        had nothing to pair and they could never be a baseline. Nothing
+        failed and nothing warned at the time. --verify must exit 6 and name
+        both files, and name ONLY those two: everything else is complete,
+        which is exactly why the gap stayed invisible.
 
-        Verified on a COPY: the shipped run is a committed artifact and the
-        check writes nothing, but a test that could corrupt the evidence it
-        asserts on is not a test worth keeping.
+        The shape is built by finishing a real run and deleting the two
+        rollups. It used to be read from the 2026-07-18 field-test archive
+        that shipped at the repo root; that archive was removed 2026-09-20
+        (`git show 034d16b` still has it) and the assertion got stricter in
+        the move -- the archived run was missing other artifacts too, so it
+        could only ever be checked with assertIn.
         """
-        shipped = (pathlib.Path(__file__).resolve().parents[2] / "field-test-qa"
-                   / ".agent-eval" / "reports" / "smoke-20260818T183920Z")
-        self.assertTrue(shipped.is_dir(), f"missing fixture: {shipped}")
-        copy = self.tmp / shipped.name
-        shutil.copytree(shipped, copy)
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        for name in ("verdicts.jsonl", "verdicts_for_stats.jsonl"):
+            (self.out_dir() / name).unlink()
 
-        rc, payload, proc = self.verify(copy)
+        rc, payload, proc = self.verify(self.out_dir())
         self.assertEqual(rc, 6, proc.stdout + proc.stderr)
-        self.assertIn("verdicts.jsonl", payload["missing_artifacts"])
-        self.assertIn("verdicts_for_stats.jsonl",
-                      payload["missing_artifacts"])
-        # Read-only, per SS1: the dir is byte-identical afterwards.
-        self.assertEqual(sorted(p.name for p in copy.iterdir()),
-                         sorted(p.name for p in shipped.iterdir()))
+        self.assertEqual(sorted(payload["missing_artifacts"]),
+                         ["verdicts.jsonl", "verdicts_for_stats.jsonl"])
 
     def test_verify_passes_a_complete_run(self):
         plan = make_plan(self.state, self.app.base_url,

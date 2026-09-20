@@ -362,9 +362,9 @@ class TestWhichRunsPrice(CostCase):
     cost input is conditional and the latency input is not."""
 
     def test_a_traceless_run_has_no_cost_input_and_a_full_latency_block(self):
-        """This is the field test's shape: `field-test-qa/.agent-eval/`
-        declares `correlation: none`, so run_cases.py puts cost_latency in
-        traces.disabled_layers and writes no trajectory.json at all."""
+        """This is the shape of an adapter declaring `correlation: none`:
+        run_cases.py puts cost_latency in traces.disabled_layers and writes no
+        trajectory.json at all. A real July 2026 field test did exactly this."""
         run = self.simple("smoke-20260901T120000Z", n=6, trace=False)
         rc, payload, err = run_script(run, "--prices", self.prices())
         self.assertEqual(rc, 0, err)

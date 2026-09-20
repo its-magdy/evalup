@@ -62,10 +62,10 @@ collected for this case`. So:
     than `none`, and the `gen_ai` convention (or a `mapping_shim`) can be
     priced, for those cases whose trace actually joined;
   - a TRACE-LESS run cannot be priced at all -- there is no token count
-    anywhere in its output tree. That includes the only shipped example in this
-    repo: `field-test-qa/.agent-eval/` declares `correlation: none`, so
-    `run_cases.py` puts `cost_latency` in `traces.disabled_layers` and no
-    `trajectory.json` is ever written. Such a run reports `status:
+    anywhere in its output tree. An adapter that declares `correlation: none`
+    is exactly this case: `run_cases.py` puts `cost_latency` in
+    `traces.disabled_layers` and no `trajectory.json` is ever written, which
+    is what a real field test did. Such a run reports `status:
     "unpriced"` with that reason, and its LATENCY block is still complete.
 LATENCY NEEDS NO TRACE. `results.json.cases[].latency_s` is written on every
 run (SS10), so every run gets the latency half, priced or not.

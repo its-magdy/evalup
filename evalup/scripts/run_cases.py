@@ -7,10 +7,9 @@ re-argue it. Section markers below (SS2, SS4, ...) point at it.
 
 WHY THIS EXISTS. run/SKILL.md SS2 "Execute" used to be hand-orchestrated by the
 LLM on every run: not reproducible, expensive, and it silently dropped required
-outputs. The proof is the shipped run at
-field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/, which looks finished
-and has no verdicts.jsonl and no verdicts_for_stats.jsonl -- so stats.py has
-nothing to pair and that run can never be a baseline. The mechanism that makes
+outputs. The proof was a real run from July 2026 that looked finished and had
+no verdicts.jsonl and no verdicts_for_stats.jsonl -- so stats.py had nothing to
+pair and that run could never be a baseline. The mechanism that makes
 that unreachable is SS9: both jsonl files are DERIVED from the completed case
 directories after every case, and a required-artifact table is checked before
 the terminal status is written. "The run finished" and "the run's required
@@ -2928,9 +2927,9 @@ def verify_command(out_dir):
     """SS1: the completeness check alone, over an existing run directory.
 
     No app calls, no scoring, no writes -- so it can be pointed at any run,
-    including one produced before this runner existed. The shipped
-    hand-orchestrated run is expected to exit 6 here and name both missing
-    files; that is the audit finding turned into a check anyone can re-run.
+    including one produced before this runner existed. A hand-orchestrated run
+    missing its verdict rollups exits 6 here and names both files; that is the
+    audit finding turned into a check anyone can re-run.
     """
     if not os.path.isdir(out_dir):
         bad_input(f"--verify {out_dir} is not a directory")

@@ -52,10 +52,9 @@ degradation the reader needs to see.
 WHICH RUNS COUNT. Only `summary.status == "ok"`. That is not a new rule: SS9(c)
 writes `"ok"` only after the completeness check passes, and `run/SKILL.md` SS3
 says an incomplete run is "not quotable, not a baseline". A run that predates
-the runner has no `summary.status` at all -- the shipped
-`field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/` is exactly that,
-and it is also missing `selecting_split` and `capability_matrix` from its
-manifest, so it could not be placed in a series even if it were quotable.
+the runner has no `summary.status` at all, and the ones this engine replaced
+were also missing `selecting_split` and `capability_matrix` from their
+manifests, so they could not be placed in a series even if they were quotable.
 Excluded runs are NAMED with their reason, never dropped silently.
 
 WHAT A TIME SERIES CAN ACTUALLY READ, per run, field by field. `REVIEW` SS4.9

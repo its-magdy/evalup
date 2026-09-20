@@ -11,11 +11,6 @@ runs it for real against a live HTTP server and re-checks the output with the
 runner's own completeness check. If a rule changes and this example stops
 conforming, that test fails.
 
-> **`field-test-qa/.agent-eval/` is not this.** It is the real, dated record of
-> a July 2026 field test, kept deliberately stale (36 validator errors, splits
-> as directories, ids that encode unit and category). Its `LAYOUT.md` says so.
-> Read it as evidence, never as a template.
-
 ---
 
 ## The app

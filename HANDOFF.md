@@ -4,8 +4,8 @@
 without re-deriving anything. It is deliberately small. The *findings* live in
 `AUDIT-2026-09-06.md`; this file holds **state, plan, and gotchas only**.
 
-**Last updated:** 2026-09-20 (renamed `agent-eval` → `evalup`; the
-`LAYER_OF_EXPECT` swap FIXED 2026-09-11 was the last confirmed defect)
+**Last updated:** 2026-09-20 (renamed `agent-eval` → `evalup`; `field-test-qa/`
+deleted; the `LAYER_OF_EXPECT` swap FIXED 2026-09-11 was the last defect)
 **Update rule:** whenever you finish a step, edit §3 (mark it done, add what you
 actually did + the commit sha) and bump the date above. Do not let this file
 grow past ~200 lines; move detail into the audit doc or a commit message.
@@ -15,10 +15,15 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 ## 1. Where things stand
 
 - **Repo:** `/path/to/workspace`;
-  plugin `evalup/` (v0.1.0; **renamed from `agent-eval` 2026-09-14** — dated
-  records and `field-test-qa/` keep the old name on purpose); root also holds
-  `research/`, `field-test-qa/` and the review docs. Branch `rename-to-evalup`
-  (off `run-layout-consistency`), main branch `main`.
+  plugin `evalup/` (v0.1.0; **renamed from `agent-eval` 2026-09-14** — the
+  dated docs below keep the old name on purpose); root also holds `research/`
+  and the review docs. Branch `rename-to-evalup` (off
+  `run-layout-consistency`), main branch `main`.
+- **`field-test-qa/` was DELETED 2026-09-20** — the 2026-07-18 QA archive (82
+  files) and its stale `.agent-eval/` state dir. Findings already folded into
+  `AUDIT`; the one test that read it now builds its shape synthetically. It is
+  in history from the initial commit: **`git show 034d16b`**. Dated docs still
+  cite its paths; that is a record of where the evidence was, not a live link.
 - **Baseline commit `6c7d286`** holds the whole prior review wave, so every
   later diff is readable against it.
 - **Health:** **706** tests pass (~2min), ruff clean, all **17** CLI scripts
@@ -32,7 +37,6 @@ grow past ~200 lines; move detail into the audit doc or a commit message.
 | `HANDOFF.md` (this) | state + plan. Start here. |
 | `AUDIT-2026-09-06.md` | **current** audit. All findings, all verified. |
 | `REVIEW-2026-08-08.md` | prior review; it was the source for the whole plan and is now **fully dispositioned and CLOSED**. §2 bugs, §3 packaging, §6 slimming, §9 metrics and §10's doc fixes are DONE; all TEN of §4's gaps are built or RESERVED (`AUDIT` §"Step 9 recon" has the table); **§5 is out of plan by decision**; §7's order is superseded by §3 below. §10's worked example was **built new** (not regenerated — it never could be). **Nothing in it is open.** |
-| `field-test-qa/qa-report.md` | 2026-07-18 real-user QA field test. Most of its items are fixed; useful for the user's-eye view. |
 | `EVAL-DESIGN-RECOMMENDATION.md` | 2026-08-02 design synthesis. Authoritative for *direction*, not for current state. |
 
 ---
@@ -111,13 +115,8 @@ Each step is sized for a single low-usage session. Mark done as you go.
       and they ship — a marketplace install copies the tree), the *run* is
       GENERATED into a temp dir on every test run against a real HTTP server,
       so it can never be stale. `validate_cases.py --strict` over the shipped
-      suite must be **0 errors AND 0 warnings**. Two handed-down claims were
-      wrong again: **only ONE test reads `field-test-qa/.agent-eval/`**, not
-      two (the halt branch builds its shape synthetically), and it is **36
-      ERROR / 8 WARN** today, not 7 — Step 10 added a WARN under 8b. Both
-      corrected in place in that dir's `LAYOUT.md`; **no artifact under it was
-      touched.** No new CLI script — the fixture app lives in `tests/`, so the
-      count stays **17**.
+      suite must be **0 errors AND 0 warnings**. No new CLI script — the
+      fixture app lives in `tests/`, so the count stays **17**.
 
 **The plan is DONE and `REVIEW` is CLOSED. What is deliberately OUT** — decided,
 not dropped: **§4.6 RAG/retrieval** and **§5's five "ideas worth stealing"** are
@@ -131,13 +130,12 @@ wire one up without one.
 **The `LAYER_OF_EXPECT` swap — FIXED 2026-09-11, and NOTHING IS OPEN.**
 `validate_cases.py` mapped `expect.tools`/`expect.args` onto the OPPOSITE layers
 from `run_cases.py` and contract §5; two map lines + the docstring repeating it.
-Body in `AUDIT` §"RESOLVED … (the LAYER_OF_EXPECT swap)". **Both suites
-re-measured and both HELD** — `field-test-qa/` 36/8, `quickstart/` 0/0, each
-blind to it for a different reason. A test pins the pairing now (one
-structural, against `run_cases.applicable_layers`) — nothing did, which is why
-it survived.
-**Number six:** `machine_accepted` fires 6× there, not 7, and `gating` is not
-its condition. Anything further is a NEW WAVE — see just above.
+Body in `AUDIT` §"RESOLVED … (the LAYER_OF_EXPECT swap)". **Both suites in the
+repo at the time were re-measured and both HELD** — `quickstart/` 0/0, and the
+field-test suite 36/8, each blind to it for a different reason. A test pins the
+pairing now (one structural, against `run_cases.applicable_layers`) — nothing
+did, which is why it survived. Anything further is a NEW WAVE — see just
+above.
 
 ---
 
@@ -186,14 +184,6 @@ its condition. Anything further is a NEW WAVE — see just above.
   is `score_routing.py`'s internal label, never a data value (`--oos-route`
   maps a profile's route onto it); and **the scorers' error contract** puts
   errors on **stdout** as JSON with exit 2 (`_common.die()`), not stderr.
-- **`field-test-qa/.agent-eval/` is stale ON PURPOSE** — mixed layout, 36
-  validator errors / 8 WARNs; **read its `LAYOUT.md` before touching it.** It
-  keeps the OLD state-dir name on purpose (live apps use `.evalup/`) — its
-  artifacts hold absolute `.agent-eval` paths.
-  **Exactly ONE test reads it** (`test_run_cases.py`:1859, the smoke report dir,
-  on a copy) — the "two fixtures" line was wrong. Its app under test is
-  **READ-ONLY** and outside this repo
-  (`/path/to/reference-app`) — never modify it.
 - **The conforming example is `evalup/examples/quickstart/`**, driven by
   `tests/test_example.py`. Its inputs are committed and its run is NOT: edit any
   YAML there and you must regenerate `converted.json` (the one-liner is in its

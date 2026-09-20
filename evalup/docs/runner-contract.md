@@ -20,11 +20,11 @@ right** and the code is the bug.
 
 **What this is.** `run/SKILL.md` §2 "Execute" used to be hand-orchestrated by
 the LLM on every run. That is the audit's first conclusion: not reproducible,
-expensive, and it silently drops required outputs. The proof is the shipped run
-at `field-test-qa/.agent-eval/reports/smoke-20260818T183920Z/`, which has
-`manifest.yaml`, `results.json`, `report.md`, `report.html`, and four complete
-`cases/<id>/` folders — and **no `verdicts.jsonl` and no
-`verdicts_for_stats.jsonl`**, both of which §4 marks required. Nothing failed.
+expensive, and it silently drops required outputs. The proof was a real run
+from July 2026 which had `manifest.yaml`, `results.json`, `report.md`,
+`report.html`, and four complete `cases/<id>/` folders — and **no
+`verdicts.jsonl` and no `verdicts_for_stats.jsonl`**, both of which §4 marks
+required. Nothing failed.
 Nothing warned. The run looks finished. `stats.py` simply has nothing to pair,
 so that run can never be a baseline for anything.
 
