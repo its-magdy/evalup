@@ -107,6 +107,9 @@ teammates who never open Claude Code.
 - `docs/migrate-run-layout.md` — moving a pre-`reports/<run-id>` state dir onto
   the per-run layout (and what `run` does when it finds the old one)
 - `docs/research.md` — pointer to the research behind the design decisions
+- `CONTRIBUTING.md` — **read this before changing the plugin**: the three
+  blessed checks, and the conventions that look arbitrary until you break one
+- `CHANGELOG.md` — what changed, release by release
 
 ### Path convention
 
@@ -144,7 +147,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests \
     python -m pytest tests -q           # the real thing: stdlib APIs + runtime typing
 ```
 
-Only the third is conclusive. `PY_FLOOR` in `tests/test_scorers.py` compiles the
+Only the third is conclusive, and `CONTRIBUTING.md` is where these three live
+authoritatively. `PY_FLOOR` in `tests/test_scorers.py` compiles the
 scripts against the floor's *grammar*, and ruff's `target-version` stops `UP`
 from proposing a 3.10+ form — but neither rejects a newer stdlib API or a typing
 construct that only fails at runtime. `uv` fetches a real 3.9 in seconds, so
