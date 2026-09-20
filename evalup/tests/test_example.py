@@ -1,10 +1,10 @@
 """The plugin's worked example, executed rather than asserted about.
 
-`REVIEW-2026-08-08.md` SS10 asked for a conforming end-to-end example. The
-artifact it asked to "regenerate" could not be: the field test's app is
-read-only, outside this repo, and pinned at a dirty sha, so no rerun can ever
-reproduce it (`AUDIT-2026-09-06.md`, Step 8b). This builds a new one instead,
-and splits it the way the staleness argument demands:
+A 2026-08 review asked for a conforming end-to-end example. The artifact it
+asked to "regenerate" could not be: the field test's app was read-only,
+outside this repo, and pinned at a dirty sha, so no rerun could ever reproduce
+it. This builds a new one instead, and splits it the way the staleness
+argument demands:
 
   COMMITTED, because a user must be able to READ it before installing anything
   -- examples/quickstart/{.evalup/*.yaml, converted.json,

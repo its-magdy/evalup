@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cost and latency for evalup runs, and the paired diff. Stdlib only.
 
-`REVIEW-2026-08-08.md` SS4.3: "the viewer renders a `cost_usd` column nothing
+The 2026-08 review, SS4.3: "the viewer renders a `cost_usd` column nothing
 computes; no price table, no cached-token accounting, no TTFT, no percentiles.
 `stats.py` compares only binary verdicts -- '2% better but 3x more expensive'
 is indistinguishable from a free win." This script is the missing half. It
@@ -964,7 +964,7 @@ def main():
         "read these numbers beside stats.py's verdict and make the trade "
         "yourself.")
     out["declined"] = (
-        "REVIEW-2026-08-08.md SS4.3 recommends a bootstrap. A bootstrap is a "
+        "The 2026-08 review SS4.3 recommends a bootstrap. A bootstrap is a "
         "Monte Carlo approximation whose answer moves with B and the seed, "
         "and stats.py's standing rule is that no approximation appears in a "
         "decision or a reported test. The exact sign test, the exact "

@@ -32,7 +32,7 @@
 #   uv run --group dev ruff check --config ruff.toml .
 #
 # This group is a convenience, not the blessed check. The authoritative
-# commands are in ../HANDOFF.md section 4 and README.md "Requirements"; the
+# commands are in CONTRIBUTING.md and README.md "Requirements"; the
 # 3.9 floor check in particular names its own --python and --with flags so it
 # stays conclusive regardless of what is resolved here.
 #
@@ -61,7 +61,7 @@ dev = [
 # "Requirements" sends readers there to read it. Inlining that under
 # [tool.ruff] would bury an annotated document inside a file that is otherwise
 # 15 lines of dev-deps, and would force an edit to the blessed `ruff check
-# --config ruff.toml .` in both HANDOFF.md section 4 and README.md for no
+# --config ruff.toml .` in both CONTRIBUTING.md and README.md for no
 # functional gain.
 #
 # FOOTGUN, since both files now sit in this directory: when ruff.toml and

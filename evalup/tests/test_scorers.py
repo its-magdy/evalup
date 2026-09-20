@@ -2834,7 +2834,7 @@ class TestStatsSubMdeKeep(ScorerTest):
         b, c = self.paired(90, 95, 100)
         rc, out, err = run_script("stats.py", b, c)
         self.assertEqual(rc, 0, err)
-        # The exact shape from AUDIT-2026-09-06.md 9b(1), asserted so a future
+        # The exact shape the 2026-09 audit found, asserted so a future
         # change to the MDE or the posterior cannot quietly move this run out
         # of the sub-MDE band and leave the test passing vacuously.
         self.assertTrue(out["keep"])
@@ -2918,7 +2918,7 @@ class TestUnicodeNormalization(ScorerTest):
                                                                 expect))
 
     def test_must_contain_nfd_matches_an_nfc_answer(self):
-        # AUDIT-2026-09-06.md 9b(2), verbatim: this returned `fail`.
+        # A 2026-09 audit finding, verbatim: this returned `fail`.
         rc, out, err = self.answer_case(
             f"We visited the {self.NFC} downtown.",
             {"answer": {"must_contain": [self.NFD]}})
@@ -3099,7 +3099,7 @@ class TestOosRouteValidation(ScorerTest):
     name that matches nothing renamed nothing: the OOS leakage block reported
     precision/recall null and a note claiming "0 OOS case(s) in this run" over
     data holding two. Exit 0, a security-adjacent metric silently off, and a
-    report factually wrong about its own input (AUDIT-2026-09-06.md 6)."""
+    report factually wrong about its own input. A 2026-09 audit finding."""
 
     ROWS = [{"case_id": "r1", "expected": "billing", "observed": "billing"},
             {"case_id": "r2", "expected": "support", "observed": "support"},

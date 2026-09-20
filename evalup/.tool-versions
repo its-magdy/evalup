@@ -14,8 +14,8 @@
 # end-of-life interpreter for daily work in order to check a property that a
 # throwaway environment checks better: `uv run --python 3.9 ...` fetches a
 # real 3.9 in seconds without touching what asdf has installed, and that
-# command -- not this file -- is the conclusive floor check (HANDOFF.md
-# section 4, README.md "Requirements").
+# command -- not this file -- is the conclusive floor check (CONTRIBUTING.md,
+# README.md "Requirements").
 #
 # The harness is stdlib-only, so nothing is installed for either number.
 python 3.11.11

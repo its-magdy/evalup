@@ -8,7 +8,7 @@
 # start running unchanged, and so the floor policy lives somewhere a machine
 # can act on rather than only in prose.
 #
-# What IS checked today is the local command set in HANDOFF.md section 4. Run
+# What IS checked today is the local command set in evalup/CONTRIBUTING.md. Run
 # those. Do not cite a green badge; there is no badge.
 #
 # Every step below was run by hand on macOS on 2026-09-10 before this file was
@@ -67,10 +67,10 @@ jobs:
       # --config is explicit on purpose. pyproject.toml is a sibling of
       # ruff.toml in this directory and ruff.toml takes precedence; naming the
       # file keeps which-config-won unambiguous, and matches the blessed
-      # command in HANDOFF.md section 4 verbatim.
+      # command in evalup/CONTRIBUTING.md verbatim.
       - run: uv run --group dev ruff check --config ruff.toml .
 
-  # The conclusive floor check, verbatim from HANDOFF.md section 4 / README.md
+  # The conclusive floor check, verbatim from evalup/CONTRIBUTING.md / README.md
   # "Requirements". It overlaps the 3.9 leg of `tests` on purpose: that leg
   # runs the unittest path, this runs the pytest path with pytest-subtests, so
   # a subtest that silently collapses to one opaque pass shows up here.
