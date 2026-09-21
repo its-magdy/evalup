@@ -74,6 +74,36 @@ class TestScoreAuthz(ScorerTest):
                           if c["check"] == "forbidden_tool")
         self.assertEqual(tool_check["status"], "fail")
 
+    def test_a_call_with_no_name_is_refused_not_passed(self):
+        # 2026-09-21 audit: a nameless call matches no forbidden entry, so the
+        # check PASSED over the call it exists to catch, with unscorable: 0.
+        # Reachable from a real trace: normalize_trace.py wrote name: null for
+        # an execute_tool span whose tool name sat under another attribute.
+        for name in (None, "", "  ", {"n": "approve_swap"}, 7):
+            with self.subTest(name=name):
+                rc, out, err = self.score(
+                    [{"name": name, "args": {"id": 1}}],
+                    {"forbidden_tools": ["approve_swap"]})
+                self.assertEqual(rc, 2, err)
+                self.assertIn("non-empty string", out["error"])
+                self.assertNotIn("Traceback", err)
+        rc, out, _ = self.score([{"args": {"id": 1}}],
+                                {"forbidden_tools": ["approve_swap"]})
+        self.assertEqual(rc, 2)
+
+    def test_one_failed_check_fails_the_layer_whatever_else_passed(self):
+        # The rollup itself: any fail wins over any number of passes. Every
+        # check had its own test and this had none, so a permissive rollup
+        # (`"fail" in statuses and "pass" not in statuses`) survived the whole
+        # file (2026-09-21 mutation check).
+        rc, out, err = self.score(
+            [{"name": "approve_swap", "args": {"id": 1}}],
+            {"forbidden_tools": ["approve_swap", "delete_user"]})
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(c["status"] for c in out["checks"]),
+                         ["fail", "pass"])
+        self.assertEqual(out["verdict"], "fail")
+
     def test_forbidden_tool_absent_passes(self):
         rc, out, _ = self.score(
             [{"name": "list_invoices", "args": {}}],

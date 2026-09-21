@@ -63,6 +63,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -607,8 +608,11 @@ def secret_header_names(adapter, secret_paths):
     Two sources, union: a header whose value came from an env ref, and any
     header named by the adapter's auth block regardless of where its value came
     from. The second half matters because an auth header with an inline value
-    is a schema violation the adapter validator catches, but this runner must
-    not be the thing that writes it into every request.json in the meantime.
+    breaks adapter-contract.md's rule and NOTHING checks that rule -- there is
+    no adapter validator -- so this runner must not be the thing that writes
+    it into every request.json. The same is not true of request_body: an
+    inline literal there is recorded as written, because the runner cannot
+    tell a secret from a tenant id. Only `${VAR}` refs are protected.
     """
     names = set()
     auth = adapter.get("invocation", {}).get("auth") or {}
@@ -1179,6 +1183,14 @@ class Runner:
         if not isinstance(base, str) or not base:
             preflight_fail("adapter.invocation.base_url is required for "
                            "invocation.mode: http")
+        # An ALLOWLIST, like md_to_html.py's: urlopen also speaks file:// and
+        # ftp://, so `base_url: file:///etc/...` read a local file into every
+        # response.json (2026-09-21 audit). Only the scheme is quoted back --
+        # by now the value is resolved and may hold a credential.
+        scheme = urllib.parse.urlsplit(base).scheme.lower()
+        if scheme not in ("http", "https"):
+            preflight_fail("adapter.invocation.base_url must be an http:// or "
+                           f"https:// URL (its scheme is {scheme!r})")
         self.method, path = parse_endpoint(invocation)
         self.url = base.rstrip("/") + path
         self.request_template = load_body_template(invocation, "request_body")
@@ -1249,15 +1261,22 @@ class Runner:
             method, url, expect_status = "GET", \
                 self.adapter["invocation"]["base_url"], []
         headers = redact({}, set())
+        # `url` is RESOLVED and these messages go to stdout, CI logs and an
+        # agent's transcript: a credential in base_url
+        # (https://user:${TOKEN}@host, ?key=${KEY}) was printed in clear by a
+        # failed health check while every other path used record_url
+        # (2026-09-21 audit). SS3 covers a message as much as a file.
+        shown = unresolve(url, self.sent_refs)
         try:
             result = send_http(url, method, headers, None,
                                self.timeout(), self.execution["insecure_tls"])
         except TransportError as exc:
-            preflight_fail(f"health check {method} {url} failed: {exc.message}")
+            preflight_fail(f"health check {method} {shown} failed: "
+                           + unresolve(exc.message, self.sent_refs))
         if expect_status and result["status"] not in expect_status:
             preflight_fail(
                 "health check {} {} returned {}, expected one of {}".format(
-                    method, url, result["status"], expect_status))
+                    method, shown, result["status"], expect_status))
         return {"ok": True, "detail": "{} {}".format(method, result["status"]),
                 "trace_id": self.read_trace_id(result)}
 

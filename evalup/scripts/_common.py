@@ -406,6 +406,22 @@ def load_trajectory(path):
         if not isinstance(call, dict):
             die(f"{path}: tool_calls[{i}] must be an object, got "
                 f"{type(call).__name__}")
+        # And the NAME. Every forbidden-tool check asks "is this name among the
+        # calls?", so a call with no usable name matches nothing and the check
+        # PASSES over the very call it exists to catch, with unscorable: 0
+        # (2026-09-21 audit: an execute_tool span whose name sat under another
+        # attribute key normalized to name: null, and score_authz reported
+        # pass over a delete_user call). A call the harness cannot name is not
+        # evidence of absence, so it is refused here, once, for all consumers.
+        name = call.get("name")
+        if not isinstance(name, str) or not name.strip():
+            die(f"{path}: tool_calls[{i}].name must be a non-empty string, got "
+                f"{name!r} -- a call with no name matches no forbidden-tool or "
+                "expected-tool entry, so scoring it would pass by omission. "
+                "From a trace this means the execute_tool span lacks "
+                "gen_ai.tool.name (normalize_trace.py reports it as "
+                "checks.unnamed_tool_spans); fix the instrumentation or the "
+                "adapter's mapping_shim")
     return doc["tool_calls"]
 
 

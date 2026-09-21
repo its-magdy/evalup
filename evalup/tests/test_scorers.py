@@ -343,6 +343,19 @@ class TestNormalizeTrace(ScorerTest):
         self.assertEqual(out["trajectory"]["tool_calls"][0]["name"],
                          "get_invoice")
 
+    def test_a_tool_span_with_no_name_is_incomplete_not_ok(self):
+        # The tool name under a non-GenAI attribute key: the call is real and
+        # unnameable, so no forbidden/expected-tool check can see it. "ok"
+        # here became authz PASS over a delete_user call (2026-09-21 audit).
+        spans = [self.span("t1", "b", "execute_tool", extra_attrs=[
+            {"key": "my.tool.name", "value": {"stringValue": "delete_user"}}])]
+        rc, out, _ = run_script("normalize_trace.py", self.doc(spans),
+                                "--trace-id", "t1")
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["status"], "incomplete")
+        self.assertEqual(out["checks"]["unnamed_tool_spans"], 1)
+        self.assertIn("gen_ai.tool.name", out["checks"]["unnamed_tool_note"])
+
     def test_orphaned_parent_is_incomplete(self):
         spans = [self.span("t1", "b", "execute_tool", parent="missing",
                            extra_attrs=[{"key": "gen_ai.tool.name",
@@ -881,6 +894,46 @@ class TestScoreAnswerRobustness(ScorerTest):
         p = self.tmp / "a.txt"
         p.write_text(text, encoding="utf-8")
         return p
+
+    def test_a_malformed_sub_schema_is_an_error_at_every_depth(self):
+        # 2026-09-21 audit. Each of these produced a VERDICT: the first passed
+        # an integer `age` (the constraint was skipped, unscorable: 0), the
+        # next two failed a correct answer, the fourth was a traceback.
+        answer = self.answer('{"name": "bob", "age": 3, "tags": ["a"]}')
+        for label, schema in (
+                ("bare type as sub-schema",
+                 {"type": "object", "properties": {"age": "string"}}),
+                ("required as a bare string",
+                 {"type": "object", "required": "name"}),
+                ("unknown type name", {"type": "str"}),
+                ("properties as a string", {"properties": "name"}),
+                ("nested one level further",
+                 {"properties": {"tags": {"items": {"type": "strng"}}}}),
+                ("items as a string", {"properties": {"tags": {"items": "x"}}}),
+                ("enum as a scalar", {"properties": {"age": {"enum": 3}}})):
+            with self.subTest(label):
+                rc, out, err = run_script(
+                    "score_answer.py", answer,
+                    self.write_json("e.json", {"format": {"json_schema":
+                                                          schema}}))
+                self.assertEqual(rc, 2, (out, err))
+                self.assertIn("json_schema", out["error"])
+                self.assertNotIn("Traceback", err)
+
+    def test_a_well_formed_nested_schema_still_scores(self):
+        answer = self.answer('{"name": "bob", "age": 3, "tags": ["a"]}')
+        schema = {"type": "object", "required": ["name"], "properties": {
+            "age": {"type": ["integer", "null"]},
+            "tags": {"type": "array", "items": {"type": "string"}}}}
+        rc, out, err = run_script(
+            "score_answer.py", answer,
+            self.write_json("e.json", {"format": {"json_schema": schema}}))
+        self.assertEqual((rc, out["verdict"]), (0, "pass"), err)
+        schema["properties"]["age"] = {"type": "string"}
+        rc, out, _ = run_script(
+            "score_answer.py", answer,
+            self.write_json("e.json", {"format": {"json_schema": schema}}))
+        self.assertEqual((rc, out["verdict"]), (0, "fail"))
 
     def test_unquoted_number_entry_is_coerced_not_crash(self):
         rc, out, err = run_script(

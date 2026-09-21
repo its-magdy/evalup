@@ -48,6 +48,7 @@ from _common import (
     REGEX_TIMEOUT_S,
     RegexTimeout,
     add_version_flag,
+    die,
     load_object,
     load_text,
     nfc,
@@ -195,6 +196,39 @@ def validate_schema(value, schema, path="$"):
     return errors
 
 
+def check_schema_shape(schema, field="expect.format.json_schema"):
+    """Every level of the schema is the shape validate_schema assumes, or it is
+    an input error -- the rule require_list/require_mapping apply one level up,
+    applied recursively.
+
+    Each slip below used to produce a verdict instead of an error (2026-09-21
+    audit). `properties: {age: string}` -- the natural YAML slip for
+    `{age: {type: string}}` -- was skipped and PASSED an integer age with
+    unscorable: 0; `required: email` was iterated by character and FAILED a
+    correct answer on "$.e: required key missing"; `type: str` failed every
+    answer forever; `properties: name` was a traceback and exit 1.
+    """
+    require_mapping(field, schema)
+    declared = schema.get("type")
+    if declared is not None:
+        names = declared if isinstance(declared, list) else [declared]
+        for name in names:
+            if not isinstance(name, str) or name not in SCHEMA_TYPES:
+                die(f"{field}.type: {name!r} is not a JSON Schema type -- one "
+                    f"of {sorted(SCHEMA_TYPES)}")
+    if "required" in schema:
+        require_list(f"{field}.required", schema["required"], item="key")
+    if "enum" in schema:
+        require_list(f"{field}.enum", schema["enum"], item="value",
+                     of_strings=False)
+    if "properties" in schema:
+        require_mapping(f"{field}.properties", schema["properties"])
+        for key, sub in schema["properties"].items():
+            check_schema_shape(sub, f"{field}.properties.{key}")
+    if "items" in schema:
+        check_schema_shape(schema["items"], f"{field}.items")
+
+
 def unsupported_keywords(schema, acc):
     acc.update(k for k in schema if k not in SUPPORTED_KEYWORDS)
     for sub in (schema.get("properties") or {}).values():
@@ -308,6 +342,7 @@ def main():
             checks.append(content_check(kind, entry, answer))
 
     if json_schema:
+        check_schema_shape(json_schema)
         ignored = set()
         unsupported_keywords(json_schema, ignored)
         notes = [f"unsupported keywords ignored: {sorted(ignored)}"

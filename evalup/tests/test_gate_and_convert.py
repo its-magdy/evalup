@@ -42,27 +42,30 @@ class TestGate(TempDirTest):
                 "missing_artifacts": []}
         base.update(summary)
         out = self.tmp / "reports" / run_id
-        out.mkdir(parents=True)
+        out.mkdir(parents=True, exist_ok=True)      # subtests rewrite one run
         (out / "results.json").write_text(json.dumps(
             {"run_id": run_id, "mode": run_id.split("-")[0], "cases": [],
              "summary": base, "exit_code": exit_code}), encoding="utf-8")
         return str(out)
 
+    # write_run() fabricates a results.json with no run directory around it,
+    # so these tests gate it with --no-verify; TestGateVerifiesTheRunDirectory
+    # below covers the default.
     def test_a_green_run_is_0_and_says_what_it_could_not_see(self):
-        rc, out, err = run("gate.py", self.write_run())
+        rc, out, err = run("gate.py", "--no-verify", self.write_run())
         self.assertEqual(rc, 0, out + err)
         self.assertIn("PASS", out)
         self.assertIn("NOT scored this run: trajectory", out)
 
     def test_a_red_run_is_1(self):
         # The whole point: run_cases.py exits 0 on this, by design.
-        rc, out, _ = run("gate.py", self.write_run(
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
             passes=0, failures=6, gating_failures=6))
         self.assertEqual(rc, 1)
         self.assertIn("6 gating failure(s)", out)
 
     def test_every_closing_reason_is_listed_not_the_first(self):
-        rc, out, _ = run("gate.py", "--json", self.write_run(
+        rc, out, _ = run("gate.py", "--json", "--no-verify", self.write_run(
             exit_code=7, status="incomplete", gating_failures=1,
             infra_rate=0.5, missing_artifacts=["verdicts.jsonl"],
             holdout={"n": 2, "passes": 1, "gating_failures": 1}))
@@ -73,14 +76,15 @@ class TestGate(TempDirTest):
         self.assertEqual(payload["gating_failures"], 2)
 
     def test_zero_failures_from_an_aborted_run_is_not_a_pass(self):
-        rc, _, _ = run("gate.py", self.write_run(status="aborted_infra",
-                                                 exit_code=5))
+        rc, _, _ = run("gate.py", "--no-verify",
+                       self.write_run(status="aborted_infra", exit_code=5))
         self.assertEqual(rc, 1)
 
     def test_the_infra_threshold_is_a_flag(self):
         path = self.write_run(infra_rate=0.2)
-        self.assertEqual(run("gate.py", path)[0], 1)
-        self.assertEqual(run("gate.py", path, "--max-infra-rate", "0.25")[0], 0)
+        self.assertEqual(run("gate.py", "--no-verify", path)[0], 1)
+        self.assertEqual(run("gate.py", "--no-verify", path,
+                             "--max-infra-rate", "0.25")[0], 0)
 
     def test_latest_is_by_the_run_ids_timestamp_never_mtime(self):
         self.write_run("regression-20260902T120000Z", gating_failures=3)
@@ -89,10 +93,11 @@ class TestGate(TempDirTest):
         # Touch the OLDER run last: an mtime pick would choose it and pass.
         pathlib.Path(older, "results.json").touch()
         reports = str(self.tmp / "reports")
-        rc, out, _ = run("gate.py", reports, "--latest", "--mode", "regression")
+        rc, out, _ = run("gate.py", "--no-verify", reports, "--latest",
+                         "--mode", "regression")
         self.assertEqual(rc, 1)
         self.assertIn("regression-20260902T120000Z", out)
-        rc, out, _ = run("gate.py", reports, "--latest")
+        rc, out, _ = run("gate.py", "--no-verify", reports, "--latest")
         self.assertIn("smoke-20260903T120000Z", out)
 
     def test_bad_input_is_the_shared_error_contract(self):
@@ -105,6 +110,103 @@ class TestGate(TempDirTest):
                 self.assertEqual(rc, 2, out + err)
                 self.assertIn("error", json.loads(out))
                 self.assertNotIn("Traceback", err)
+
+    def test_nothing_measured_is_not_a_pass(self):
+        # 2026-09-21 audit: a suite of multi-turn cases is skipped whole, by
+        # design, and gated green forever. skipped/unscored are never a
+        # failure -- which is why only they cannot be a pass either.
+        for label, summary in (
+                ("all skipped", {"passes": 0, "skipped": 6}),
+                ("all unscored", {"passes": 0, "unscored": 6}),
+                ("no cases", {"n": 0, "passes": 0})):
+            with self.subTest(label):
+                rc, out, _ = run("gate.py", "--no-verify",
+                                 self.write_run(**summary))
+                self.assertEqual(rc, 1, out)
+                self.assertIn("nothing was measured", out)
+
+    def test_a_count_that_is_not_an_int_closes_the_gate(self):
+        # `"gating_failures": "10"` used to read as 0: ten failures, PASS.
+        for value in ("10", 10.0, None, True, -1):
+            with self.subTest(value=value):
+                rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+                    passes=0, failures=10, gating_failures=value))
+                self.assertEqual(rc, 1, out)
+                self.assertIn("summary.gating_failures", out)
+
+    def test_a_two_key_results_json_is_not_a_pass(self):
+        out_dir = self.tmp / "reports" / "regression-20260901T120000Z"
+        out_dir.mkdir(parents=True)
+        (out_dir / "results.json").write_text(json.dumps(
+            {"run_id": out_dir.name, "summary": {"status": "ok"}}),
+            encoding="utf-8")
+        self.assertEqual(run("gate.py", "--no-verify", str(out_dir))[0], 1)
+
+    def test_a_closed_gate_names_the_failing_cases(self):
+        path = self.write_run(passes=5, failures=1, gating_failures=1)
+        results = json.loads(
+            pathlib.Path(path, "results.json").read_text(encoding="utf-8"))
+        results["cases"] = [
+            {"case_id": "c-aaaaaaaa", "verdict": "pass", "gating": True,
+             "layers": {"answer": "pass"}},
+            {"case_id": "c-bbbbbbbb", "verdict": "fail", "gating": True,
+             "layers": {"routing": "pass", "answer": "fail"}},
+            {"case_id": "c-cccccccc", "verdict": "fail", "gating": False,
+             "layers": {"answer": "fail"}}]
+        pathlib.Path(path, "results.json").write_text(json.dumps(results),
+                                                      encoding="utf-8")
+        rc, out, _ = run("gate.py", "--no-verify", path)
+        self.assertEqual(rc, 1)
+        self.assertIn("c-bbbbbbbb (answer)", out)
+        self.assertNotIn("c-cccccccc", out)
+
+    def test_no_verify_says_so(self):
+        _, out, _ = run("gate.py", "--no-verify", self.write_run())
+        self.assertIn("artifacts NOT verified", out)
+
+
+class TestGateVerifiesTheRunDirectory(TempDirTest):
+    """results.json is the file under audit, so its own `missing_artifacts: []`
+    is not evidence. The gate recounts from cases/*/verdict.json by calling
+    run_cases.py --verify (2026-09-21 audit: --verify caught a doctored run and
+    gate.py said PASS over the same directory)."""
+
+    def real_run(self):
+        proc = subprocess.run(
+            [sys.executable, str(QUICKSTART / "demo.py"), "--keep"],
+            capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        line = next(ln for ln in proc.stdout.splitlines()
+                    if ln.startswith("run directory:"))
+        run_dir = pathlib.Path(line.split(":", 1)[1].strip())
+        self.addCleanup(shutil.rmtree, run_dir.parents[2], True)
+        return run_dir
+
+    def test_a_real_run_gates_green_with_verification_on(self):
+        rc, out, err = run("gate.py", str(self.real_run()))
+        self.assertEqual(rc, 0, out + err)
+        self.assertNotIn("NOT verified", out)
+
+    def test_a_verdict_that_disagrees_with_results_json_closes_the_gate(self):
+        run_dir = self.real_run()
+        verdict_path = next((run_dir / "cases").iterdir()) / "verdict.json"
+        verdict = json.loads(verdict_path.read_text(encoding="utf-8"))
+        verdict["verdict"] = "fail"
+        verdict_path.write_text(json.dumps(verdict), encoding="utf-8")
+        rc, out, _ = run("gate.py", str(run_dir))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("fails run_cases.py --verify", out)
+
+    def test_a_fabricated_results_json_does_not_verify(self):
+        out_dir = self.tmp / "reports" / "regression-20260901T120000Z"
+        out_dir.mkdir(parents=True)
+        (out_dir / "results.json").write_text(json.dumps(
+            {"run_id": out_dir.name, "mode": "regression", "cases": [],
+             "exit_code": 0,
+             "summary": {"status": "ok", "n": 6, "passes": 6, "failures": 0,
+                         "gating_failures": 0, "missing_artifacts": []}}),
+            encoding="utf-8")
+        self.assertEqual(run("gate.py", str(out_dir))[0], 1)
 
 
 def have_yaml():

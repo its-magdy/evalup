@@ -775,3 +775,58 @@ class TestAnnotationJoinOnLoad(BootedPage):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestARealRunDirectoryIsReadable(ViewerTest):
+    """verdict.json is a verdict, not a record: pointed at a run_cases.py run,
+    every case used to render "No trajectory data / Nothing to diff"
+    (2026-09-21 audit). The viewer joins each verdict with its siblings."""
+
+    def run_dir(self, holdout=False, message="night shift headcount?",
+                answer="There are 7 nurses."):
+        root = self.tmp / "reports" / "smoke-20260901T120000Z"
+        case = root / "cases" / "c-0a0a0a0a"
+        case.mkdir(parents=True)
+        (root / "manifest.yaml").write_text("{}", encoding="utf-8")
+        (case / "verdict.json").write_text(json.dumps({
+            "case_id": "c-0a0a0a0a", "verdict": "fail", "holdout": holdout,
+            "latency_s": 0.25, "layers": {
+                "routing": {"layer": "routing", "verdict": "pass", "row": {
+                    "expected": "shifts", "observed": "shifts"}},
+                "answer": {"layer": "answer", "verdict": "fail", "checks": [
+                    {"check": "must_contain", "entry": "$999.99",
+                     "status": "fail", "reason": "not found in answer"}]},
+                "authz": {"layer": "authz", "verdict": "n/a"}}}),
+            encoding="utf-8")
+        (case / "request.json").write_text(json.dumps(
+            {"body": {"message": message}}), encoding="utf-8")
+        (case / "expect.json").write_text(json.dumps(
+            {"result": {"scalar": 7}}), encoding="utf-8")
+        (case / "actual.json").write_text(json.dumps({"scalar": 3}),
+                                          encoding="utf-8")
+        (case / "answer.txt").write_text(answer, encoding="utf-8")
+        return root
+
+    def test_the_request_the_answer_and_the_reason_are_on_the_page(self):
+        rc, page, err = run_viewer(self.run_dir())
+        self.assertEqual(rc, 0, err)
+        for needle in ("night shift headcount?", "There are 7 nurses.",
+                       "not found in answer", "Checks that did not pass",
+                       "Router decision", "250 ms"):
+            self.assertIn(needle, page)
+        self.assertNotIn("Nothing to diff", page)
+        self.assertNotIn("No trajectory data", page)
+
+    def test_joined_material_is_escaped_like_everything_else(self):
+        rc, page, err = run_viewer(self.run_dir(message=XSS, answer=IMG))
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn(XSS, page)
+        self.assertNotIn(IMG, page)
+
+    def test_a_sealed_holdout_case_is_never_put_on_the_page(self):
+        rc, page, err = run_viewer(self.run_dir(
+            holdout=True, message="SEALED-QUESTION", answer="SEALED-ANSWER"))
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("SEALED-QUESTION", page)
+        self.assertNotIn("SEALED-ANSWER", page)
+        self.assertIn("holdout", err)

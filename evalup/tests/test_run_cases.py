@@ -637,6 +637,33 @@ class TestPreflight(RunnerCase):
         self.assertEqual(rc, 3)
         self.assertIn("health check", payload["error"])
 
+    def test_a_failed_health_check_never_prints_a_resolved_credential(self):
+        # 2026-09-21 audit: every recording path used record_url and this
+        # message used the RESOLVED base_url -- on stdout, so in CI logs and an
+        # agent's transcript. SS3 covers a message as much as a file.
+        plan = make_plan(self.state, self.app.base_url)
+        plan["adapter"]["invocation"]["base_url"] = \
+            "http://user:${APP_URL_TOKEN}@127.0.0.1:1"
+        rc, payload, proc = self.invoke(plan,
+                                        env={"APP_URL_TOKEN": "tok-s3cret"})
+        self.assertEqual(rc, 3)
+        self.assertIn("${APP_URL_TOKEN}", payload["error"])
+        self.assertNotIn("tok-s3cret", proc.stdout + proc.stderr)
+
+    def test_base_url_must_be_http_or_https(self):
+        # urlopen also reads file://, so a base_url could put a local file in
+        # every response.json. An allowlist, as in md_to_html.py.
+        secret = self.state / "local-secret.txt"
+        secret.write_text("LOCAL-FILE-CONTENT", encoding="utf-8")
+        for base in (secret.as_uri(), "ftp://127.0.0.1/x", "127.0.0.1:8080"):
+            with self.subTest(base=base):
+                plan = make_plan(self.state, self.app.base_url)
+                plan["adapter"]["invocation"]["base_url"] = base
+                rc, payload, proc = self.invoke(plan)
+                self.assertEqual(rc, 3, proc.stdout + proc.stderr)
+                self.assertIn("http:// or https://", payload["error"])
+                self.assertNotIn("LOCAL-FILE-CONTENT", proc.stdout)
+
     def test_declared_health_check_status_is_enforced(self):
         plan = make_plan(self.state, self.app.base_url)
         plan["adapter"]["invocation"]["health_check"] = {

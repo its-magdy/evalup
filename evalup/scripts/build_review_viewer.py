@@ -136,6 +136,70 @@ def load_records(run_path, pattern=None):
     return _load_file(p, run_path)
 
 
+def _sibling(case_dir, name):
+    """A per-case artifact next to verdict.json, or None. Lenient like every
+    load here: a missing or unreadable sibling is evidence not shown, never a
+    reason to withhold the rest of the record."""
+    path = case_dir / name
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not name.endswith(".json"):
+        return text
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def from_case_dir(verdict, case_dir):
+    """A run_cases.py verdict.json, joined with its siblings into the record
+    shape this page renders.
+
+    verdict.json is a VERDICT: it carries layers and nothing a reviewer can
+    read -- no request, no answer, no expected/actual pair. Pointed at a real
+    run, every case rendered "No trajectory data / Nothing to diff / No
+    latency" (2026-09-21 audit): the error-analysis screen worked only on
+    hand-written records, never on the thing `run` produces. The material was
+    always one directory away (runner-contract.md SS6), so it is joined here
+    rather than in a staging step a model would have to perform.
+
+    The verdict's own keys win; nothing here overwrites what the runner wrote.
+    """
+    rec = dict(verdict)
+    layers = as_dict(verdict.get("layers"))
+    # Badges read a verdict word; the runner's per-layer objects (checks,
+    # reasons) stay available to render_failed_checks under layer_detail.
+    rec["layer_detail"] = layers
+    rec["layers"] = {name: as_dict(body).get("verdict", body)
+                     if isinstance(body, dict) else body
+                     for name, body in layers.items()}
+    request = as_dict(_sibling(case_dir, "request.json"))
+    if request.get("body") is not None:
+        rec.setdefault("request", request["body"])
+    expect = as_dict(_sibling(case_dir, "expect.json"))
+    row = as_dict(as_dict(layers.get("routing")).get("row"))
+    if row:
+        rec.setdefault("route", {"expected": row.get("expected"),
+                                 "actual": row.get("observed")})
+    answer = _sibling(case_dir, "answer.txt")
+    if answer is not None:
+        rec.setdefault("answer", {"actual": answer})
+    actual = _sibling(case_dir, "actual.json")
+    if expect.get("result") is not None or actual is not None:
+        rec.setdefault("result", {"expected": expect.get("result"),
+                                  "actual": actual})
+    trajectory = as_dict(_sibling(case_dir, "trajectory.json"))
+    trajectory = as_dict(trajectory.get("trajectory")) or trajectory
+    if isinstance(trajectory.get("tool_calls"), list):
+        rec.setdefault("tool_calls", trajectory["tool_calls"])
+    latency = verdict.get("latency_s")
+    if isinstance(latency, (int, float)) and not isinstance(latency, bool):
+        rec.setdefault("latency_ms", round(latency * 1000))
+    return rec
+
+
 def _load_dir(p, run_path, pattern):
     # Path.glob rejects some patterns outright — an absolute one
     # ("Non-relative patterns are unsupported") and an empty one
@@ -158,6 +222,7 @@ def _load_dir(p, run_path, pattern):
             f"directory — check the path, or pass --glob if the run keeps "
             f"records one level down (e.g. --glob 'cases/*/verdict.json')")
     records, skipped = [], []
+    holdout_dropped = 0
     for f in files:
         doc = load_json(f, strict=False)
         # One is_record filter for both shapes. It used to guard only the
@@ -173,6 +238,17 @@ def _load_dir(p, run_path, pattern):
             die(f"bad input: {f}: expected a JSON object or array of "
                 f"objects, got {type(doc).__name__}")
         found = [d for d in doc if is_record(d)]
+        if f.name == "verdict.json" and (f.parent / "request.json").is_file():
+            # THE HOLDOUT SEAL (annotation-ux.md): a sealed case's material is
+            # never put on a review page. The runner marks it on the verdict,
+            # so it is dropped here instead of by a hand-staged copy.
+            sealed = [d for d in found if d.get("holdout") is True]
+            if sealed:
+                holdout_dropped += len(sealed)
+            found = [from_case_dir(d, f.parent) for d in found
+                     if d.get("holdout") is not True]
+            if sealed and not found:
+                continue
         records.extend(found)
         if not found:
             skipped.append(f.name)
@@ -188,6 +264,10 @@ def _load_dir(p, run_path, pattern):
             f"the records are usually one level down: "
             f"--glob 'cases/*/verdict.json'")
     note = f"{len(files)} file(s) under {run_path}"
+    if holdout_dropped:
+        note += f" ({holdout_dropped} sealed holdout case(s) not shown)"
+        print(f"note: {holdout_dropped} holdout case(s) left off the page -- "
+              "the holdout is aggregate-only", file=sys.stderr)
     if skipped:
         # Dropped evidence is reported, never silent — same rule as
         # offshape_fields. stderr, not stdout: stdout may be the page.
@@ -392,6 +472,43 @@ def render_diff_section(rec):
           'pair present).</p>'
 
 
+def render_request(rec):
+    request = rec.get("request")
+    if request is None:
+        return ""
+    return (f'<section><h3>Request sent</h3>'
+            f'<pre>{esc(truncate(as_text(request) or ""))}</pre></section>')
+
+
+def render_failed_checks(rec):
+    """Why a layer failed, in the scorer's own words. "answer: fail" is a
+    badge; `must_contain "$999.99": not found in answer` is what the reviewer
+    came for, and it was only ever in verdict.json."""
+    rows = []
+    for name, body in as_dict(rec.get("layer_detail")).items():
+        body = as_dict(body)
+        if body.get("verdict") in (None, "pass", "n/a"):
+            continue
+        checks = [c for c in as_dicts(body.get("checks"))
+                  if c.get("status") not in ("pass", None)]
+        if not checks and body.get("reason"):
+            checks = [{"status": body.get("verdict"),
+                       "reason": body.get("reason")}]
+        for check in checks:
+            what = " ".join(as_text(check[k]) for k in ("check", "entry", "tool")
+                            if check.get(k) is not None)
+            rows.append(f'<tr><td>{esc(name)}</td>'
+                        f'<td>{badge(check.get("status"))}</td>'
+                        f'<td>{esc(what)}</td>'
+                        f'<td>{esc(check.get("reason") or "")}</td></tr>')
+    if not rows:
+        return ""
+    return ('<section><h3>Checks that did not pass</h3>'
+            '<table class="cost-table"><thead><tr><th>Layer</th><th>Status'
+            '</th><th>Check</th><th>Reason</th></tr></thead><tbody>'
+            + "".join(rows) + '</tbody></table></section>')
+
+
 def render_cost_table(rec):
     stages = as_dicts(rec.get("stage_costs"))
     if stages:
@@ -441,6 +558,8 @@ def render_record(rec, idx):
   </header>
   {surface_html}
   {offshape_html}
+  {render_request(rec)}
+  {render_failed_checks(rec)}
   <section>
     <h3>Span tree</h3>
     {render_span_tree(rec)}

@@ -23,7 +23,19 @@ The gate closes when any of these holds:
     "0 gating failures" from one is not a pass);
   - summary.gating_failures > 0, or the sealed holdout's aggregate has any;
   - summary.infra_rate is above --max-infra-rate (a run that mostly could not
-    reach the app passed nothing; default 0.05, the snippet's own number).
+    reach the app passed nothing; default 0.05, the snippet's own number);
+  - no case was scored pass or fail. `skipped` and `unscored` are never a
+    failure (runner-contract.md SS5), and that is exactly why a suite made only
+    of them must not open the gate: "0 gating failures" over zero measurements
+    is not a pass, it is an absence (2026-09-21 audit: an all-multi-turn suite
+    gated green forever);
+  - a count the gate reads is missing or is not an integer. Reading
+    `"gating_failures": "10"` as 0 opened the gate over ten failures;
+  - the run directory fails run_cases.py --verify. results.json is the file
+    being audited, so its own `missing_artifacts: []` is not evidence: the
+    verdicts are recounted from cases/*/verdict.json. --no-verify skips this
+    for a results.json shipped without its run directory, and the summary says
+    so.
 
 `--latest` takes a reports/ directory and picks the newest run by the
 TIMESTAMP SEGMENT of its run id (<mode>-<YYYYMMDDTHHMMSSZ>), never by mtime,
@@ -32,13 +44,15 @@ narrows it, because the newest run is often a smoke and the gate wants the
 regression.
 
 Usage:
-  gate.py <reports/<run-id>> [--max-infra-rate 0.05] [--json]
+  gate.py <reports/<run-id>> [--max-infra-rate 0.05] [--no-verify] [--json]
   gate.py <reports/> --latest [--mode regression] [--json]
 """
 import argparse
 import json
 import os
 import re
+import subprocess
+import sys
 
 from _common import add_version_flag, die, load_object, require_range
 
@@ -62,9 +76,72 @@ def latest_run(reports_dir, mode):
     return os.path.join(reports_dir, max(runs)[1])
 
 
+REQUIRED_COUNTS = ("n", "passes", "failures", "gating_failures")
+
+
 def count(summary, key):
     value = summary.get(key)
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def malformed_counts(summary):
+    """A count that is absent or not an int closes the gate; it is never 0.
+
+    count() reads such a value as 0 so the summary line can still print, which
+    is only safe because this runs first. The optional counts may be absent
+    (an older run) but may not be a string or a float either.
+    """
+    bad = []
+    for key in REQUIRED_COUNTS + ("unscored", "skipped", "scorer_errors"):
+        value = summary.get(key)
+        if value is None and key not in REQUIRED_COUNTS:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            bad.append(f"summary.{key} is {value!r}, not a count")
+    return bad
+
+
+def verify_reasons(run_dir):
+    """run_cases.py --verify, as a subprocess like every scorer call here: the
+    runner owns the definition of a complete, self-consistent run directory."""
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "run_cases.py")
+    try:
+        proc = subprocess.run([sys.executable, runner, "--verify", run_dir],
+                              capture_output=True, text=True, timeout=120,
+                              check=False)
+        payload = json.loads(proc.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return [f"run_cases.py --verify could not check {run_dir}: {exc}"]
+    if proc.returncode == 0:
+        return []
+    items = payload.get("missing_artifacts") if isinstance(payload, dict) \
+        else None
+    detail = "; ".join(map(str, items)) if items else str(
+        payload.get("error") if isinstance(payload, dict) else payload)
+    return [f"the run directory fails run_cases.py --verify: {detail}"]
+
+
+def gating_rows(results, limit=5):
+    """The first few gating failures, as "<case id> (<failed layers>)".
+
+    In CI this line is often all a developer sees. Holdout cases have no row in
+    results.json (the seal, runner-contract.md SS9), so nothing sealed can be
+    named here.
+    """
+    rows = results.get("cases")
+    named = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or row.get("verdict") != "fail" \
+                or not row.get("gating"):
+            continue
+        layers = row.get("layers")
+        failed = sorted(name for name, verdict in layers.items()
+                        if verdict == "fail") if isinstance(layers, dict) else []
+        named.append("{} ({})".format(row.get("case_id"),
+                                      ", ".join(failed) or "no failed layer"))
+    more = len(named) - limit
+    return named[:limit] + ([f"and {more} more"] if more > 0 else [])
 
 
 def evaluate(results, max_infra_rate):
@@ -72,7 +149,7 @@ def evaluate(results, max_infra_rate):
     summary = results.get("summary")
     if not isinstance(summary, dict):
         die("bad input: results.json has no summary object")
-    reasons = []
+    reasons = malformed_counts(summary)
     status = summary.get("status")
     if status != "ok":
         reasons.append(f"run status is {status!r}, not 'ok' -- its numbers are "
@@ -83,7 +160,9 @@ def evaluate(results, max_infra_rate):
                        "SS11)")
     gating = count(summary, "gating_failures")
     if gating:
-        reasons.append(f"{gating} gating failure(s)")
+        rows = gating_rows(results)
+        reasons.append(f"{gating} gating failure(s)"
+                       + (": " + "; ".join(rows) if rows else ""))
     holdout = summary.get("holdout")
     holdout_gating = count(holdout, "gating_failures") \
         if isinstance(holdout, dict) else 0
@@ -98,6 +177,13 @@ def evaluate(results, max_infra_rate):
     missing = summary.get("missing_artifacts") or []
     if missing:
         reasons.append("missing artifacts: " + ", ".join(map(str, missing)))
+    scored = count(summary, "passes") + count(summary, "failures")
+    if not scored:
+        reasons.append(
+            "no case was scored pass or fail ({} skipped, {} unscored of {}) "
+            "-- nothing was measured, so there is nothing to pass".format(
+                count(summary, "skipped"), count(summary, "unscored"),
+                count(summary, "n")))
 
     facts = {
         "run_id": results.get("run_id"), "mode": results.get("mode"),
@@ -145,6 +231,9 @@ def render(facts, reasons):
                      + ", ".join(map(str, facts["unscorable_layers"])))
     if facts["unjudged"]:
         lines.append(f"  judged layers: unjudged ({facts['unjudged']})")
+    if not facts.get("verified", True):
+        lines.append("  artifacts NOT verified (--no-verify): this verdict "
+                     "rests on results.json alone")
     lines.extend(f"  gate closed: {reason}" for reason in reasons)
     return "\n".join(lines)
 
@@ -165,6 +254,11 @@ def main():
     ap.add_argument("--max-infra-rate", type=float, default=0.05,
                     help="close the gate above this infra_rate "
                          "(default: %(default)s)")
+    ap.add_argument("--no-verify", action="store_true",
+                    help="skip run_cases.py --verify over the run directory "
+                         "(for a results.json shipped without its cases/); "
+                         "the summary then says the artifacts were not "
+                         "checked")
     ap.add_argument("--json", action="store_true",
                     help="print the summary as JSON instead of text")
     a = ap.parse_args()
@@ -179,6 +273,9 @@ def main():
             "reports/<run-id>; pass --latest to gate the newest run under a "
             "reports/ directory")
     reasons, facts = evaluate(load_object(results_path), a.max_infra_rate)
+    if not a.no_verify:
+        reasons.extend(verify_reasons(run_dir))
+    facts["verified"] = not a.no_verify
     if a.json:
         print(json.dumps(dict(facts, gate="closed" if reasons else "open",
                               reasons=reasons), ensure_ascii=False))

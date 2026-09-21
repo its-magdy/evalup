@@ -345,7 +345,21 @@ def main():
             f"{len({s.get('traceId') for s in all_spans})} other trace id(s) "
             "— check --trace-id (a mistyped or wrong-run id looks exactly "
             "like an empty trace here)")
-    incomplete = (not spans) or bool(orphans)
+    # An execute_tool span with no gen_ai.tool.name is a tool call the scorers
+    # cannot name, and a nameless call matches no forbidden-tool entry: left
+    # "ok" it scored authz and trajectory as PASS over the call itself
+    # (2026-09-21 audit). The trace cannot support the tool layers, which is
+    # what "incomplete" means -- infra_incomplete for them, never a verdict.
+    unnamed = [i for i, call in enumerate(tool_calls)
+               if not isinstance(call["name"], str) or not call["name"].strip()]
+    if unnamed:
+        checks["unnamed_tool_spans"] = len(unnamed)
+        checks["unnamed_tool_note"] = (
+            f"{len(unnamed)} execute_tool span(s) carry no gen_ai.tool.name, "
+            "so the tool they called cannot be checked against any expected "
+            "or forbidden tool -- the instrumentation (or the adapter's "
+            "mapping_shim) records the tool name under another attribute")
+    incomplete = (not spans) or bool(orphans) or bool(unnamed)
 
     print(json.dumps({
         "status": "incomplete" if incomplete else "ok",
