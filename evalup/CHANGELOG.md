@@ -116,6 +116,72 @@ Security and correctness, each with a regression test:
 - The README leads with requirements, a 30-second demo and three commands;
   maintainer toolchain notes moved to `CONTRIBUTING.md`.
 
+### Fixed — the 2026-09-21 audit
+
+Six auditors and the first live headless session. Every item below was
+reproduced before it was fixed, and each has a test.
+
+- **`gate.py` could pass a run that measured nothing.** It opened on zero
+  scored cases (a suite of multi-turn cases is skipped whole, so it gated green
+  forever), read `"gating_failures": "10"` as 0, and trusted `results.json`'s
+  own `missing_artifacts: []`. It now closes on zero scored cases and on any
+  count that is not an integer, runs `run_cases.py --verify` over the run
+  directory (`--no-verify` opts out, and the summary says so), and names the
+  failing cases and layers.
+- **A tool call with no name passed the forbidden-tool checks.** It matched no
+  entry, so `score_authz.py` and `trajectory_match.py` reported `pass` with
+  `unscorable: 0` over the call itself — reachable from a real trace whose tool
+  name sat under a non-GenAI attribute. The shared loader refuses a nameless
+  call (exit 2) and `normalize_trace.py` reports such a trace `incomplete`.
+- **`score_answer.py`'s `json_schema`** skipped a malformed sub-schema and
+  passed, iterated `required: "email"` by character and failed a correct
+  answer, and crashed on `properties: "x"`. The schema's shape is now checked
+  at every depth; all are exit 2.
+- **A failed health check printed the resolved `base_url`**, credential
+  included. It prints the `${VAR}` form, as every recording path already did.
+- **`base_url` accepted `file://`.** http/https allowlist.
+- **Every `regression` run spent a holdout look.** The seal check compared one
+  tuple against both the mode and the *split name*, and `regression` selects
+  the split named `full`; five CI runs forced a reseal without reading a sealed
+  case. `runner-contract.md` §6 said the same and is corrected with it.
+- **The review viewer was empty on a real run** — `verdict.json` carries no
+  request, answer or expected/actual pair. Pointed at a run directory it now
+  joins each verdict with its sibling artifacts, shows why each check failed,
+  and leaves sealed holdout cases off the page.
+- 17 of 19 scripts were not executable while the skills invoked them as bare
+  paths. All are, and every invocation is written `python3 <path>`.
+
+### Added — the 2026-09-21 audit
+
+- **`scripts/make_plan.py`** (the 20th CLI) builds `plan.json` from
+  `convert_suite.py`'s document: mode → selection, `k`, gate; every required
+  key; `${VAR}` refs left unresolved; and the exact runner command. The plan
+  was the last artifact a model assembled by hand — about half the first live
+  session's 75 tool calls. It refuses `--mode full`: one plan carries one
+  `selecting_split`, so release validation is a `regression` and a `holdout`
+  run.
+- **`allowed-tools` on every skill**, scoped to the plugin's own scripts, in
+  both the quoted and unquoted spelling (a live session showed an unquoted-only
+  rule matching nothing when the path holds a space). Never a blanket `Bash`.
+- `.claude-plugin/marketplace.json` and a `LICENSE` at the repository root.
+- A completion line on **stderr** from `run_cases.py`; stdout stays reserved
+  for the error payload.
+
+### Changed — the 2026-09-21 audit
+
+- **`start` asks for real conversations first** and routes to `analyze
+  --transcripts` when there are any; `analyze`'s description no longer says
+  "use after runs" for the one branch that needs no setup.
+- **The docs now say what a run does not score**: the judged layer and business
+  rules have no scorer, in the runner or any skill, and multi-turn cases are
+  skipped. The README says both up front.
+- **`optimize` and `discover` revert through git, never from memory**: a dirty
+  surface file stops the edit, the pre-edit blob is recorded, revert is `git
+  checkout` verified against it.
+- The judge and trace-analyzer agents treat everything they read as untrusted
+  data; `trace-analyzer` lost `Bash`; the judge's "temperature 0" claim, which
+  nothing can set for a subagent, is gone.
+
 ### Changed — breaking, if you used this repo before 2026-09-20
 
 - **The plugin was renamed `agent-eval` → `evalup`.** Commands are now

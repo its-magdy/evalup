@@ -11,8 +11,10 @@ reproducible. OpenTelemetry traces are the evidence.
 
 ## What you need
 
-- **An app you can call**: an HTTP endpoint, or a Python `module:callable`.
-  That is the only hard requirement.
+- **An app you can call**: an HTTP endpoint that answers with one JSON body,
+  or a Python `module:callable`. That is the only hard requirement.
+  **Single-turn only:** a test case with more than one user turn is skipped,
+  and streaming (SSE), WebSocket and CLI apps are not driven.
 - **Claude Code**, and Python 3.9+ on the machine. No packages to install; the
   scoring scripts are stdlib-only.
 - **Nothing else to start.** No tracing, no existing tests, no API keys for a
@@ -35,7 +37,7 @@ review page to open. `examples/quickstart/README.md` walks through every file.
 ## Quick start
 
 ```
-claude --plugin-dir ./evalup     # try locally, or install via marketplace
+claude --plugin-dir ./evalup     # from a clone of this repo
 > /evalup:start path/to/your/app
 ```
 
@@ -76,11 +78,17 @@ And the steps `start` runs for you, callable directly once you know them:
 | `/evalup:help` | Explain any of this |
 
 Without Claude at all — CI, or a colleague who never opens it:
-`scripts/convert_suite.py` (YAML → JSON) → `scripts/run_cases.py` →
-`scripts/gate.py` (exit 0 pass / 1 fail, one-screen summary).
+`scripts/convert_suite.py` (YAML → JSON) → `scripts/make_plan.py` (the run's
+plan, and the exact command to run next) → `scripts/run_cases.py` →
+`scripts/gate.py` (exit 0 pass / 1 fail, one-screen summary naming what
+failed).
 
 **What this does not measure yet**, so you hear it here and not after setup:
-in a multi-agent app, tool-call expectations are whole-app, not per-agent — a
+**multi-turn conversations** (such cases are skipped, and a suite made only of
+them closes the gate rather than passing it); **judged answer quality and
+business rules inside a run** — the judge agent and its calibration flow exist,
+but no run scores those two layers yet, so they are reported "not measured".
+In a multi-agent app, tool-call expectations are whole-app, not per-agent — a
 call made by the *wrong* sub-agent still satisfies `expect.tools`. Retrieval/RAG
 quality is not scored. Runs are serial: ~100 cases × 3 repeats at 8s a call is
 about 40 minutes.
@@ -96,8 +104,9 @@ Layered, so a failure tells you *which prompt to fix*:
   (deterministic)
 - **Answer quality** — must-contain/regex and JSON-format checks
   (deterministic), faithfulness to tool results, completeness, business
-  rules (rules are deterministic; judged dimensions use a decomposed-binary,
-  reference-guided judge, watermarked PROVISIONAL until calibrated)
+  rules. Only the deterministic checks are scored in a run today; the
+  decomposed-binary, reference-guided judge is used in the labeling and
+  calibration flow (`analyze --label`), and its run-time layer is not built
 - **Execution accuracy** (data-Q&A) — grades the actual result set, not the
   prose: result-set comparison (order-insensitive, float-tolerant) and GAIA-style
   scalar quasi-exact-match, against ground truth from a read-only oracle

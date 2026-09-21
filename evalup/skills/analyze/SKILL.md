@@ -3,9 +3,11 @@ name: analyze
 description: >-
   Understand failures and improve the eval assets: cluster failures, label
   judge-calibration cases (15-minute flow), edit rubrics while grading, mine
-  traces for new cases, and manage the sealed holdout. Use after runs to triage
-  results, to calibrate the judge, or to promote real conversations into the
-  dataset.
+  traces for new cases, and manage the sealed holdout. Use with --transcripts
+  when the user has exported chats, support logs or saved traces and wants to
+  know what is going wrong — that branch needs NO eval setup: no profile, no
+  cases, no run. Otherwise use after runs to triage results, to calibrate the
+  judge, or to promote real conversations into the dataset.
 argument-hint: "[--cluster] [--transcripts <path>] [--label] [--mine] [--unseal]"
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)

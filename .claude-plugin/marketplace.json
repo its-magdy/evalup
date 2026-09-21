@@ -1,0 +1,14 @@
+{
+  "name": "evalup",
+  "description": "The evalup plugin: evaluate and improve LLM chat/agent applications from inside Claude Code.",
+  "owner": {
+    "name": "Mohamed Magdy Omar"
+  },
+  "plugins": [
+    {
+      "name": "evalup",
+      "source": "./evalup",
+      "description": "Evaluate and improve LLM chat/agent applications: discover the app's architecture, generate eval datasets, run layered deterministic scoring, analyze failures, and optimize prompts with statistical keep/revert gates."
+    }
+  ]
+}

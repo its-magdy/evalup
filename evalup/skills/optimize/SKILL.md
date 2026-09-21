@@ -64,7 +64,23 @@ make gains real instead of overfit.
 3. **Propose ONE candidate** (one surface, one coherent change). Write it to
    `candidates/<id>/` with: the diff, the reflection (why this failure ←
    this cause ← this fix), predicted affected cases.
-4. **Measure**: apply to a working copy and run the training split — that is
+4. **Make the edit revertible BEFORE you make it.** You are about to change
+   the user's prompts and then run a suite — long enough for your memory of
+   the original text to be summarized away. Revert is never a re-edit from
+   memory:
+   - Run `git -C <app> status --porcelain -- <surface file(s)>`. **If a
+     surface file has uncommitted changes, stop and say so**: a later
+     `git checkout` would destroy the user's own work along with your edit.
+     Ask them to commit or stash it, or to let you work on a copy.
+   - Record the pre-edit blob in `candidates/<id>/before.sha`
+     (`git -C <app> rev-parse HEAD:<path>`), one line per file.
+   - **Not a git checkout?** Copy each file you will touch to
+     `candidates/<id>/before/` first, and restore from there.
+   - Revert is `git -C <app> checkout -- <path>` (or the copy back), then
+     confirm `git hash-object <path>` equals the recorded blob. Say which
+     files you restored.
+
+   **Then measure**: apply the edit and run the training split — that is
    `/evalup:run --regression` (whose selection is every case whose `split`
    field contains `full`, which by construction excludes the sealed holdout —
    the two splits are mutually exclusive), or `--targeted --tag <component>`
@@ -82,10 +98,13 @@ make gains real instead of overfit.
    posterior bar while the sign test is not significant) and `sub_mde_keep`
    (the observed delta is smaller than the run's own minimum detectable
    effect — the direction is evidenced, the SIZE is not, so do not quote the
-   delta as a measured improvement). Pass → keep (apply for real, pin the keeper
-   run as the new baseline by overwriting `reports/baseline.json`, log
-   candidate as champion). Fail → revert, keep the reflection (it prunes the
-   next hypothesis). Always report regressions on any layer, not just the
+   delta as a measured improvement). Pass → keep: leave the edit in the working
+   tree, log the candidate as champion, and pin the keeper run by writing
+   `reports/baseline.json` as exactly `{"run_id", "dataset_version",
+   "harness_version"}` — copy the last two from that run's `manifest.yaml`,
+   never from memory (a partial object silently breaks every later diff).
+   Fail → revert as step 4 says, verify the blob, keep the reflection (it
+   prunes the next hypothesis). Always report regressions on any layer, not just the
    target metric.
 6. **Stop conditions**: budget spent; two consecutive candidates rejected on
    the same cluster (→ the lever is probably wrong — escalate to a code/

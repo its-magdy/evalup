@@ -61,7 +61,7 @@ on an app that clearly returns ids, this is the reason. `validate_cases.py`
 warns (`unrecognizable_record_ids`) at generate time on exactly these cases.
 Gate: if the case's `category` is `adversarial-*` and the adapter's
 `environment.safe_to_attack` is not true (the runner reads this at pre-flight,
-`${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` §4.6), skip the case for
+`${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` §4 item 6), skip the case for
 this layer and report it `skipped` (with the reason), the same
 never-invoke-an-uncleared-probe discipline as any other red-team check — do not
 silently fail it and do not run it anyway. Non-adversarial `expect.authz` cases

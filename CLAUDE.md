@@ -11,7 +11,7 @@ documents named below, not here.
 ## Layout
 
 - **`evalup/`** — the plugin (v0.1.0). 7 skills (`start`, `discover`,
-  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 19 CLI scripts
+  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 20 CLI scripts
   in `scripts/`, specs in `docs/`, the worked example in `examples/quickstart/`.
 - **`EVAL-DESIGN-RECOMMENDATION.md`** + **`research/`** — why the plugin works
   the way it does. Authoritative for *direction*, not for current state.
@@ -26,7 +26,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 744 tests, ~2min
+python3 -m unittest discover -s tests                    # 772 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -34,13 +34,22 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 ## State
 
 - **`main`** holds the remediation wave, the worked example, the rename and the
-  doc cleanup. Branch **`audit-fixes-2026-09`** holds the 2026-09-20 audit's
-  fixes and the front-door re-default (`evalup/CHANGELOG.md` lists them) —
-  uncommitted until reviewed. Nothing is pushed; **there is still no remote**,
-  so nothing here has ever been checked by CI.
-- **Health:** 744 tests pass on 3.14, 736 + 8 skips + 138 subtests on the 3.9
-  floor (7 of the skips are `convert_suite.py`'s and run with `--with pyyaml`),
-  ruff clean, 19 CLIs answer `--help`. Verified 2026-09-20.
+  doc cleanup. Branch **`audit-fixes-2026-09`** holds the 2026-09-20 and
+  2026-09-21 audits' fixes, **committed, not merged** (`evalup/CHANGELOG.md`
+  lists them). Nothing is pushed; **there is still no remote**, so nothing here
+  has ever been checked by CI.
+- **Health:** 772 tests pass on 3.14; 764 + 8 skips + 216 subtests on the 3.9
+  floor (all 8 skips need PyYAML: 772 pass with `--with pyyaml`), ruff clean,
+  20 CLIs answer `--help`, `claude plugin validate` clean for the plugin and
+  the root marketplace. Verified 2026-09-21.
+- **A live session works** (2026-09-21, headless `/evalup:start` on an unseen
+  app: first scored run in 14 min, planted flaws found) and `allowed-tools`
+  was verified live to pre-approve the plugin's scripts. **Not yet re-run since
+  `make_plan.py` landed** — do that before publishing; it is the measure of
+  whether the first session got shorter.
+- **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
+  cases are skipped); the judged layer and business rules have no run-time
+  scorer; `--mode full` is two runs.
 - **Renamed `agent-eval` → `evalup` on 2026-09-14** (committed 2026-09-20).
   A cursory 2026-09-20 web check found PyPI, npm and the GitHub handle free,
   but **a live French SaaS trades as "EvalUp" (evalup.fr)** and `evalup.com` is

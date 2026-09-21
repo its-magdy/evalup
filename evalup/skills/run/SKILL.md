@@ -38,7 +38,7 @@ Five selections + gate policies over one engine. Mechanics and worked examples:
 | `regression` | cases with `full` in `split` | ≥3, pass^k | hard | pre-merge / nightly |
 | `targeted` | component-tag filter (+ `--filter-failing`) | per-case | soft | after optimizing one surface |
 | `holdout` | sealed `holdout` split | per-case | decision | optimizer's keep/revert step |
-| `full` | `full` + `holdout` | ≥3, pass^k | hard | release validation |
+| `full` | `full` + `holdout`, as **two runs**: `regression`, then `holdout` | ≥3, pass^k | hard | release validation |
 
 No mode flag → `regression`, the old unqualified default. **Selection reads the
 case's `split` field, never a directory** — the field is owned by
@@ -69,8 +69,11 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <tmp>/converted.json --mode <
   `--out` directory and the exact runner command. Its flags are the mode's:
   `--tag <unit-or-route>` and `--failing-in <run-dir>` for `targeted`, `--k N`
   (not under smoke), `--layer X` (every other layer becomes `unscorable` with
-  `blocked_by: "--layer X"`, never `pass`), `--oos-route <name>` when the
-  profile's `oos_handling` is not `route:<name>`. It refuses `--mode full`:
+  `blocked_by: "--layer X"`, never `pass`). `scoring.oos_route` comes from the
+  profile's `oos_handling: route:<name>`; pass `--oos-route <name>` when the
+  app's out-of-scope route is declared any other way, or OOS metrics go
+  unreported. `--filter-failing` is `--failing-in reports/<last comparable
+  run>`. It refuses `--mode full`:
   one plan carries one `selecting_split`, so release validation is a
   `regression` run and a `holdout` run.
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
@@ -153,6 +156,19 @@ beside them, then `report.html` via
 reports/<run-id>/report.html` — self-contained, shareable with people who never
 open Claude Code. Never hand-write HTML.
 
+- **What a run does not score today.** `run_cases.py` has no scorer for the
+  **judged** layer (`expect.answer.rubric`) or for **business rules**
+  (`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`,
+  and nothing else scores them either. The judge agent runs only inside
+  `analyze --label`, where a human labels beside it; its verdicts live in the
+  calibration record, never in a run's pass/fail. So
+  **report both as "not measured in this run"**, even when the rubric is
+  calibrated and the runner's reason reads `deferred to skill` — there is no
+  step that picks that deferral up, and scoring them yourself is the
+  eyeball-scoring this file forbids.
+- **Before quoting any app response**, check the adapter's
+  `data.may_contain_pii`. If true, redact the excerpts and say they are
+  redacted: reports are written to be shared and committed.
 - **Page one = the top-3 failure clusters**, each with 1–2 expected-vs-actual
   excerpts, the implicated surface (router prompt, tool description X, missing
   OOS route) and an effort tag. That narrative is what the LLM here is for.

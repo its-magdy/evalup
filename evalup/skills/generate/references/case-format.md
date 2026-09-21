@@ -307,9 +307,11 @@ expect:
                                      # pattern is NOT normalized (that would rewrite
                                      # your pattern) — write patterns in NFC; the
                                      # check's note warns when one is not.
-    rules: [no-uncatalogued-prices]  # business-rule oracle ids from profile.yaml —
-                                     # evaluated by the run skill against the
-                                     # profile's rule definitions, not by a script
+    rules: [no-uncatalogued-prices]  # business-rule oracle ids from profile.yaml.
+                                     # NOT SCORED TODAY: no script evaluates them and
+                                     # the runner reports the layer `unscored`. Write a
+                                     # rule you can state as must_contain /
+                                     # must_not_contain / json_schema there instead.
     rubric: billing-answer-v2        # judged dimensions — only if calibrated. Format is
                                      # <rubric_id>-v<version>, resolved against the rubric
                                      # file's `rubric_id`/`version` fields (a version PIN, so

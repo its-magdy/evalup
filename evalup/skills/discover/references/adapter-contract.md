@@ -26,7 +26,7 @@ state_location: .evalup/   # where all eval state lives. Default: `.evalup/`
 access_level: white | gray | black
 
 invocation:
-  mode: http | function | cli
+  mode: http | function       # `cli` is reserved: runner v1 refuses it (exit 3)
   # http mode
   base_url: ${APP_BASE_URL}
   # auth — one of these shapes (env refs only, never literals):
@@ -132,7 +132,9 @@ invocation:
                                # worse than one that says no.
 
 traces:
-  source: otlp-file | jaeger | tempo | clickhouse | view-only | none
+  source: otlp-file | view-only | none   # jaeger | tempo | clickhouse are reserved:
+                                         # runner v1 refuses them (exit 3) rather than
+                                         # silently scoring trace-less
   # view-only: traces exist but are not programmatically readable (e.g. a
   # human-only dashboard). Treated as trace-less for scoring; discover records
   # it as a finding with the unlock path (queryable exporter or trace-id echo).

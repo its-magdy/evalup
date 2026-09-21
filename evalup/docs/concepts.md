@@ -84,6 +84,15 @@ matching fails correct agents and teaches people to ignore the suite.
 
 ## The judge
 
+**What a run does not score today.** `run_cases.py` has no scorer for the
+**judged** layer (`expect.answer.rubric`) or for **business rules**
+(`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`, and
+nothing else scores them either. The judge agent runs only inside `analyze
+--label`, where a human labels beside it; its verdicts live in the calibration
+record, never in a run's pass/fail. Calibration is therefore groundwork: it
+tells you whether the judge could be trusted, and the run-time judged layer it
+would unlock is not built.
+
 - One strong judge, one rubric dimension per call, binary verdicts,
   reasoning first, "unknown" allowed.
 - **Calibrated against a human** in two passes: ~30 labeled cases to discover

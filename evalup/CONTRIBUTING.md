@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-744 tests, ~2 min, the blessed command. `test_run_cases.py` is most of that: a
+772 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
 real HTTP server per test, and one test kills a runner mid-run.
 
 ```sh
@@ -31,13 +31,15 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 736 passed, 8 skipped, 138 subtests.
-Seven of the eight skips are `convert_suite.py`'s tests, which need PyYAML; add
-`--with pyyaml` and they run (743 passed, 1 skipped) — do that before a release
-too, since it is the only floor check that script gets.
+whatever `python3` happens to be. Expect 764 passed, 8 skipped, 216 subtests.
+All eight skips need PyYAML (seven are `convert_suite.py`'s, one is the
+example's fidelity check); add `--with pyyaml` and they run (772 passed, none
+skipped) — do that before a release too, since it is the only floor check that
+script gets. Eleven review-viewer tests also skip when `node` is absent: they
+boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
-There are **19** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **20** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`
 is a shared module, not a CLI: it has no argparse, so `python _common.py --help`
 exits 0 having printed nothing, which is why the check tests for output and not
@@ -89,6 +91,21 @@ commands above are the only checked claim.
   docstrings before "fixing" that. What changed in 2026-09 is WHO converts:
   `convert_suite.py`, never the model — a suite re-typed by an LLM is the
   silent misparse those docstrings refuse, relocated.
+- **`plan.json` is built by `make_plan.py`, never by the model.** Same rule,
+  one step later: a plan assembled by hand cost the first live session half
+  its tool calls. It refuses `--mode full` because one plan carries one
+  `selecting_split`.
+- **`gate.py` fails closed.** Zero scored cases, a count that is not an int, or
+  a run directory that fails `--verify` closes the gate. `results.json` is the
+  file under audit; never let the gate take its word for its own integrity.
+- **A tool call the harness cannot name is never evidence of absence.**
+  `_common.load_trajectory` refuses it, for every consumer at once.
+- **Only the MODES `holdout`/`full` and the SPLIT `holdout` touch the seal**
+  (`run_cases.touches_seal`). The split named `full` is the unsealed set.
+- **Skills invoke scripts as `python3 <path>` and pre-approve them in
+  `allowed-tools`, in both the quoted and unquoted spelling.**
+  `tests/test_plugin_layout.py` pins it; a live session is what found that the
+  unquoted rule alone matches nothing.
 - **`convert_suite.py` is the only script that may import outside the stdlib**
   (PyYAML, lazily, with an exit-2 message when absent). It is an authoring
   step; the runner and every scorer still import nothing. Do not let a second

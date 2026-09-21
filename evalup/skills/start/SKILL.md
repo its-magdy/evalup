@@ -4,12 +4,14 @@ description: >-
   Guided entry point for evalup: detects the current state of a target
   app's eval setup (profile.yaml, datasets, pinned baseline) and routes the
   user to exactly the next step — discover, generate, run, analyze, or
-  optimize — telling them where they are ("step 2 of 5"). Use this whenever
-  the user wants to begin or resume evaluating an LLM app, asks to set up
-  evalup, says they are unsure what to do next, mentions eval setup /
-  baseline / test cases for an agent or chatbot, or types a bare
-  /evalup:start. Prefer this over guessing a specific sub-skill when the
-  state of the app's eval setup is unknown.
+  optimize (which it names; the user invokes that one) — telling them where
+  they are ("step 2 of 5"). Use this whenever the user wants eval work DONE on
+  an app: to begin or resume evaluating it, to set up evalup, to get test
+  cases or a baseline for an agent or chatbot, to find out what is wrong from
+  exported chats or logs, or when they type a bare /evalup:start. Prefer this
+  over guessing a specific sub-skill when the state of the app's eval setup is
+  unknown. For a QUESTION about evalup itself (what is it, which command, what
+  does a term mean, why is something locked) use help instead.
 argument-hint: "[path-to-app]"
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
@@ -38,6 +40,14 @@ is what the second session is for, and the user asks for it by name. When check
 1 below matches, run the steps in this shape, in ONE session, without stopping
 between them:
 
+0. **Ask one question first: "Do you have real conversations with this app —
+   exported chats, support logs, saved traces, bug reports?"** Real failures
+   beat imagined ones, and it is the one thing you cannot find in the code.
+   **Yes →** run `analyze --transcripts <path>` FIRST (it needs no profile, no
+   cases and no run): the failure taxonomy it produces is a result in its own
+   right, and its conversations seed step 4 in place of synthetic cases. Then
+   continue from step 1. **No →** carry on; say that synthetic cases test the
+   failures you can imagine, and that real ones can be added any time.
 1. **`discover`, lean.** Steps 1–4 and 8 of that skill only: access level,
    topology, code archaeology, the 1–3 live validation requests, findings.
    **Skip step 5 (patches), step 6's maturity question (default
@@ -62,7 +72,9 @@ between them:
 6. **Close with the menu, not a lecture**: what unlocks next and what each
    costs — tracing (tool/trajectory/cost layers), the interview (business
    rules, rubric), a full suite with a sealed holdout (regression gating),
-   judge calibration (judged layers, then `optimize`). One line each.
+   judge calibration (judged layers, then `optimize`). One line each. Be
+   straight about the distance to `optimize`: it needs ~100 cases, a sealed
+   holdout and a stable app — several sessions away from a 12-case first run.
 
 Vocabulary rule for this session: say "test cases", "a quick run", "checks that
 could not run", not `split`, `selecting_split`, `capability matrix`,

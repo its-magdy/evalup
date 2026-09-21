@@ -86,8 +86,16 @@ every profile entry `verified: true|false`. Generation must not proceed on
 unverified core entries: say so, and fix first.
 
 ### 5. Patch, don't assign homework
-For each gap found, OFFER to fix it now. It is the user's code: get a yes, then
-edit. A "no" is fine — see Read-only mode below.
+For each gap found, OFFER to fix it now. It is the user's code, so before any
+edit:
+- Run `git -C <app> status --porcelain`. **On a dirty tree, do not edit** — a
+  patch mixed into the user's uncommitted work cannot be reviewed or undone on
+  its own. Show the patch text and let them apply it, or wait for a commit.
+- Show the full diff and get a yes **per file**, not one yes for the step.
+- After editing, say exactly which files changed and that
+  `git -C <app> checkout -- <path>` undoes each. Commit nothing.
+
+A "no" is fine — see Read-only mode below.
 - No GenAI spans → instrument their stack: a span per LLM call, `invoke_agent`
   per agent stage with `gen_ai.agent.name`, `execute_tool` per tool with
   `gen_ai.tool.name`.

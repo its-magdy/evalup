@@ -175,9 +175,7 @@ nodes:
 Note the case-format.md example `answer.rubric: billing-answer-v2` is exactly
 this pinning convention: `<rubric_id>-v<version>` as the reference string,
 resolved against the `rubric_id`/`version` fields inside the rubric file
-itself. (Flagged for the coordinator: case-format.md doesn't currently spell
-out the pinning convention on its side — worth a one-line cross-reference to
-this doc when the two are reconciled.)
+itself. case-format.md states the same convention on the case's side.
 
 ## Calibration workflow
 

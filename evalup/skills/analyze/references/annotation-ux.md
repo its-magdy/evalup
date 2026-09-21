@@ -25,24 +25,27 @@ exact record shape it reads.
 **Which files it reads.** A directory scan defaults to `*.json` at the top
 level and keeps only files carrying at least one case-record field, so a run
 root's `results.json` and canary artifacts are skipped — the skip is reported
-on stderr, never silently (`manifest.yaml` is not matched by the scan at all). When `run` nests records one level down
-(`reports/<run-id>/cases/<case-id>/verdict.json`), pass `--glob
-'cases/*/verdict.json'`; without it the top-level scan finds only run
-artifacts and exits 2 naming that fix. The glob is explicit rather than
+on stderr, never silently (`manifest.yaml` is not matched by the scan at all).
+A `run_cases.py` run directory (one holding `manifest.yaml` and `cases/`) is
+recognized without a flag: its records are read from
+`cases/<case-id>/verdict.json`, **each joined with its sibling `request.json`,
+`answer.txt`, `expect.json`, `actual.json` and `trajectory.json`** so the page
+shows the request, the answer, the expected-vs-actual result and why each check
+failed — and a case the runner marked `holdout` is left off the page, so you
+never stage a filtered copy by hand. For any other nested layout pass `--glob`.
+The glob is explicit rather than
 recursive-by-default because `cases/<case-id>/` also holds `response.json`,
 which carries the same `case_id` and would otherwise double every case. This
 paragraph and the script's docstring are the contract: if `run` changes where
 it writes records, change it here too.
 
-**The seal.** `--glob` takes one pattern and has no exclude syntax. So on a
-`--full` or `--holdout` run, pointing the viewer at `cases/` renders the sealed
-holdout records too. Their `request.json`/`response.json` are exactly the
-content `run/SKILL.md` §4 keeps out of the aggregate report and out of
-`results.json`'s per-case rows. An unfiltered page silently spends a look
-against the N=5 reseal budget, without going through `analyze --unseal`. Stage
-a filtered copy first: cross-reference the case files for the ids whose `split`
-contains `holdout`, symlink every other `cases/<case-id>/verdict.json` into a
-scratch directory, and glob that directory instead.
+**The seal.** A sealed holdout case's `request.json`/`response.json` are exactly
+the content `run/SKILL.md` §4 keeps out of the report and out of
+`results.json`'s rows, and putting one on a review page spends a look against
+the N=5 reseal budget without going through `analyze --unseal`. Pointed at a run
+directory the viewer drops every case whose `verdict.json` says `holdout: true`
+and reports the count on stderr. **With an explicit `--glob` you own that
+filter**: do not glob a `--holdout` run's `cases/` yourself.
 
 ## Storage format — plain JSONL, one line per annotation event
 
