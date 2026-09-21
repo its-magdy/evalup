@@ -11,9 +11,16 @@ description: >-
   watermarked PROVISIONAL. Use for any "what is / how do I / where do I start /
   which command / what does this mean / who does / why is this locked" question
   about evalup, rather than a request to do eval work.
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # evalup — Help
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 You are a router, not an explainer. Match the question to a row, read the
 document that row names, and answer out of that document. This file holds no
@@ -34,7 +41,7 @@ explanations on purpose, so anything you would "recall" from it is a guess.
 | What must my app provide to be evaluated? | `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapter-contract.md` |
 | Why did a run refuse a diff, or halt on my state directory? | `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4 |
 | I already have real chats / logs — can I just see what is broken? | `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md` §`--transcripts` — no profile, cases or run needed. |
-| Did my run pass? How do I gate CI on it? | `${CLAUDE_PLUGIN_ROOT}/scripts/gate.py <reports/run-id>` (exit 0 open / 1 closed); `${CLAUDE_PLUGIN_ROOT}/skills/run/references/run-modes.md` "Headless/CI gate" |
+| Did my run pass? How do I gate CI on it? | `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gate.py <reports/run-id>` (exit 0 open / 1 closed); `${CLAUDE_PLUGIN_ROOT}/skills/run/references/run-modes.md` "Headless/CI gate" |
 | What does a real dataset / adapter / run directory look like? Show me an example. | `${CLAUDE_PLUGIN_ROOT}/examples/quickstart/README.md` |
 
 Rules:

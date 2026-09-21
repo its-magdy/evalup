@@ -647,8 +647,8 @@ outside the tree the completeness check walks.
 - Canary cases get ordinary directories too, with `canary: true` in
   `verdict.json`, and are excluded from every denominator in `results.json`.
 
-**Holdout ledger** (decision **D8**). When `selecting_split` or `mode` is
-`holdout` or `full`, the runner appends one line —
+**Holdout ledger** (decision **D8**). When `mode` is `holdout` or `full`, or
+`selecting_split` is `holdout`, the runner appends one line —
 `{run_id, date, mode, reason: "run"}` — to `paths.holdout_ledger` and writes the
 running count to **stderr** (stdout carries the machine-readable `{"error": …}`
 payload, and a caller parsing one shape must not find prose there; the count is
@@ -656,7 +656,9 @@ also in `results.json`'s `summary.holdout.looks_recorded`). The runner does
 this, not the skill: it is the only component that knows for certain the
 selection touched sealed ids, and an uncounted holdout run makes the N=5 reseal
 trigger a number nobody is keeping. `holdout_ledger: null` with a
-holdout-touching mode is exit 2 at plan validation.
+holdout-touching mode is exit 2 at plan validation. The **split** named `full`
+is not one: it is the unsealed set `regression` selects, so an everyday
+regression run records no look and needs no ledger.
 
 **The ledger is a `.jsonl` file**, and a path that is not is exit 2. The
 harness's dataset metadata is YAML, but this runner is stdlib-only: appending a

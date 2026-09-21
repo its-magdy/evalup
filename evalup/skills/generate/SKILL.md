@@ -7,9 +7,16 @@ description: >-
   the app has a verified profile and needs test cases, or to expand coverage
   for a specific layer or domain.
 argument-hint: "[--layer routing|tools|answer] [--count N]"
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Generate — Build the Dataset
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 Arguments, when the user typed any: `$ARGUMENTS`
 
@@ -149,10 +156,10 @@ unit nor category. Content hash per case; `dataset_version` bumps on any change
 because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
-First `${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
+First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
 <tmp>` — it writes those three JSON files from the YAML, and refuses a
 duplicate YAML key or one id in two files; never transcribe a suite by hand.
-Then run `${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases
+Then run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases
 <tmp>/suite.json --capabilities <tmp>/capabilities.json --manifest
 <tmp>/manifest.json`. It fails the generate step on structural errors
 and warns on the vacuity patterns; case-format.md has the field rules and the

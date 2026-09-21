@@ -7,9 +7,16 @@ description: >-
   and what the numbers mean. Five modes — smoke, regression, targeted, holdout,
   full — cover everyday edits through release validation, plus a CI gate.
 argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--baseline]"
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Run — Execute and Score
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 `${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py` executes the run;
 `${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` is its spec. It owns pre-flight,
@@ -41,53 +48,46 @@ and `holdout` are mutually exclusive there, so the seal travels with the case.
 ## 1. Build `plan.json`
 
 The plan is the whole interface. The runner reads no YAML, no `adapter.yaml`,
-no `datasets/**`, and does not know what `--smoke` means. Full shape and
-defaults: runner-contract §2. **The runner does not re-lint the suite** — run
-`${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json>
---capabilities <matrix.json>` over the converted JSON first; it owns what a
-valid case is.
+no `datasets/**`, and does not know what `--smoke` means. **You never write the
+plan, or any case body, by hand** — three scripts do it, in this order:
 
-- **`run_id`**: `<mode>-<UTC YYYYMMDDTHHMMSSZ>`, e.g. `smoke-20260818T183920Z`.
-  It names `reports/<run-id>/`, which is `--out`.
-- **`cases`, `selecting_split`, `k`, `gate`**: resolved from the mode flag via
-  §0. `selecting_split` becomes `set` in `verdicts.jsonl`, and a selected case
-  that does not carry it is exit 2.
-- **YAML → JSON is a script's job, never yours**:
-  `${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o
-  <tmp>/converted.json --split-dir <tmp>` writes the combined document plus
-  `suite.json`, `capabilities.json`, `adapter.json` and `manifest.json` — the
-  files the flags above and below take. **That conversion is the run's parse,
-  not a second opinion**, which is exactly why you do not re-type it: a suite
-  transcribed by hand is unreproducible, and the linter reads the same
-  transcription, so a drifted number is invisible to it. Build `plan.json` by
-  loading that JSON with a script (`python3 -c` or `jq`), filtering `cases` to
-  the selected split, and writing the file — do not paste case bodies through
-  your own output. It leaves `${VAR}` refs unresolved; the runner resolves
-  them, so no secret reaches the plan file. It needs PyYAML (the only script
-  that does); if it is absent the error names the one-line fix, and `uv run
-  --with pyyaml python …` needs no install.
-- **`scoring`**: `oos_route` from the profile's `oos_handling` route,
-  `id_pattern` from its `record_id_pattern`, rest defaulted. `--layer X` sets
-  every other `capability_matrix` layer to `{"enabled": false, "blocked_by":
-  "--layer X"}`, so those layers report `unscorable`, never `pass`.
-- **`paths.holdout_ledger`**: the **`.jsonl` sidecar** (e.g.
-  `datasets/holdout-looks.jsonl`), relative to `state_dir` — not the dataset
-  YAML, which a stdlib-only appender would corrupt. Required by `--holdout`
-  and `--full` (§4).
-- **`paths.judge_calibration`**: the **`.json` sidecar** `score_agreement.py
-  --write` produced (e.g. `judge/calibration.json`), relative to `state_dir`.
-  `judge.status: calibrated` alone no longer opens the judged gate — without
-  this file the runner reports `unjudged (judge calibration not recorded)`,
-  because that flag is DERIVED and nothing but this sidecar derives it.
-- **`manifest_extra`**: what only you know — `dataset_version`, app repo, git
-  SHA, models, prompt snapshot hashes, judge model + status, rubric versions,
-  temperature, environment kind, cost estimate. Without it the run compares to
-  nothing.
+```
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <tmp>/converted.json --split-dir <tmp>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json --capabilities <tmp>/capabilities.json [--manifest <tmp>/manifest.json]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <tmp>/converted.json --mode <mode> --state-dir <state-dir> -o <tmp>/plan.json
+```
+
+- **`convert_suite.py`** is the run's parse of the YAML, not a second opinion,
+  which is why you do not re-type it. It leaves `${VAR}` refs unresolved (the
+  runner resolves them, so no secret reaches a file). It needs PyYAML, the only
+  script that does; if absent, the error names the fix, and `uv run --with
+  pyyaml python …` needs no install.
+- **`validate_cases.py`** owns what a valid case is; the runner does not
+  re-lint. Fix errors in the YAML and re-convert — never in the JSON.
+- **`make_plan.py`** resolves the mode via §0 into `cases`, `selecting_split`,
+  `k` and `gate`, fills every required key, and prints the `run_id`, the
+  `--out` directory and the exact runner command. Its flags are the mode's:
+  `--tag <unit-or-route>` and `--failing-in <run-dir>` for `targeted`, `--k N`
+  (not under smoke), `--layer X` (every other layer becomes `unscorable` with
+  `blocked_by: "--layer X"`, never `pass`), `--oos-route <name>` when the
+  profile's `oos_handling` is not `route:<name>`. It refuses `--mode full`:
+  one plan carries one `selecting_split`, so release validation is a
+  `regression` run and a `holdout` run.
+- **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
+  `datasets/holdout-looks.jsonl`); **`paths.judge_calibration`** is set when
+  `judge/calibration.json` exists. `judge.status: calibrated` alone does not
+  open the judged gate — that flag is DERIVED and only the sidecar derives it.
+- **`--manifest-extra <file.json>`** carries what only you know — models,
+  prompt snapshot hashes, rubric versions, temperature, environment kind, cost
+  estimate. The script fills `dataset_version`, the app's git SHA and
+  clean/dirty itself. Without these the run compares to nothing.
+
+Full shape and defaults, if you need them: runner-contract §2.
 
 ## 2. Run it
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan plan.json --out reports/<run-id> \
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan plan.json --out reports/<run-id> \
   [--baseline-verdicts reports/<baseline-run-id>/verdicts_for_stats.jsonl] [--resume]
 ```
 
@@ -149,7 +149,7 @@ per-case record), `verdicts_for_stats.jsonl` (its `pass`/`fail` subset, exactly
 what `stats.py` pairs), `routing_report.json`, `reliability.json` and
 `comparison.json`. Every number you quote comes from those. You add `report.md`
 beside them, then `report.html` via
-`${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
 reports/<run-id>/report.html` — self-contained, shareable with people who never
 open Claude Code. Never hand-write HTML.
 
@@ -174,7 +174,7 @@ open Claude Code. Never hand-write HTML.
 
 `regression` and `full` run unattended, and **the LLM is never in the gate
 path**: it produces the run, then a separate tokenless step —
-`${CLAUDE_PLUGIN_ROOT}/scripts/gate.py reports/<run-id>` (or `reports/
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gate.py reports/<run-id>` (or `reports/
 --latest --mode regression`) — reads `results.json`, prints a one-screen
 summary and exits 0 open / 1 closed. Run it after every interactive run too:
 it is the fastest honest summary, and the runner's own exit 0 says nothing

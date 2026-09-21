@@ -342,7 +342,7 @@ notes: ""                            # reviewer's one-liner: why this case exist
 ```
 
 Validation: run
-`${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json>`
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json>`
 before handing a dataset over. It is the load-time schema check this format
 previously lacked — the "hard error, never a silent fallback" rules below
 (`order_mode`, args `calls` scope, empty `columns`) were enforced only inside

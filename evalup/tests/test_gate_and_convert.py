@@ -1,4 +1,5 @@
-"""gate.py and convert_suite.py: the two steps that used to be the model's.
+"""gate.py, convert_suite.py and make_plan.py: the steps that used to be the
+model's.
 
 Both exist because of the same finding (2026-09 audit): a mechanical step left
 to prose. The CI gate was a bash snippet needing jq and yq, so at the shell a
@@ -6,6 +7,7 @@ red suite and a green one were both rc 0 with nothing printed; and the
 YAML -> JSON conversion was the model re-typing the suite on every run.
 """
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -207,6 +209,119 @@ class TestGateVerifiesTheRunDirectory(TempDirTest):
                          "gating_failures": 0, "missing_artifacts": []}}),
             encoding="utf-8")
         self.assertEqual(run("gate.py", str(out_dir))[0], 1)
+
+
+class TestMakePlan(TempDirTest):
+    """The plan was the last artifact a model assembled by hand: in the first
+    live session (2026-09-21) about half of 75 tool calls were ad-hoc scripts
+    and failed runner starts on plan.json. Runs off the committed
+    converted.json, so it needs no PyYAML."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = self.tmp / ".evalup"
+        self.state.mkdir()
+        self.converted = str(QUICKSTART / "converted.json")
+
+    def plan(self, *argv, converted=None):
+        rc, out, err = run("make_plan.py", converted or self.converted,
+                           "--state-dir", str(self.state), *argv)
+        self.assertNotIn("Traceback", err)
+        return rc, json.loads(out)
+
+    def with_cases(self, mutate):
+        doc = json.loads(pathlib.Path(self.converted).read_text("utf-8"))
+        doc.pop("//", None)
+        mutate(doc["cases"])
+        path = self.tmp / "converted.json"
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        return str(path)
+
+    def test_the_smoke_plan_is_one_the_runner_accepts(self):
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none")
+        self.assertEqual(rc, 0)
+        self.assertEqual((plan["mode"], plan["k"], plan["gate"],
+                          plan["selecting_split"]), ("smoke", 1, "soft", "smoke"))
+        self.assertEqual(len(plan["cases"]), 6)
+        self.assertEqual(plan["paths"]["scripts_dir"], str(SCRIPTS))
+        self.assertIsNone(plan["paths"]["holdout_ledger"])
+        # A secret must not reach the plan file: refs stay as written.
+        self.assertEqual(plan["adapter"]["invocation"]["base_url"],
+                         "${HELPDESK_BASE_URL}")
+        plan_path = self.tmp / "plan.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "run_cases.py"), "--plan",
+             str(plan_path), "--out",
+             str(self.state / "reports" / plan["run_id"]), "--dry-run"],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ,
+                     HELPDESK_BASE_URL="http://127.0.0.1:9"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_dash_o_prints_the_command_to_run_next(self):
+        out_path = self.tmp / "plan.json"
+        rc, summary = self.plan("--mode", "regression", "-o", str(out_path))
+        self.assertEqual(rc, 0)
+        self.assertEqual((summary["k"], summary["gate"]), (3, "hard"))
+        self.assertIn("run_cases.py", summary["run"])
+        self.assertTrue(summary["out"].endswith(summary["run_id"]))
+        self.assertEqual(json.loads(out_path.read_text("utf-8"))["run_id"],
+                         summary["run_id"])
+
+    def test_targeted_selects_on_unit_or_route_never_on_id(self):
+        rc, plan = self.plan("--mode", "targeted", "--tag", "shifts")
+        self.assertEqual(rc, 0)
+        self.assertTrue(plan["cases"])
+        for case in plan["cases"]:
+            self.assertIn("shifts", (case.get("unit"),
+                                     case["expect"].get("route")))
+        rc, payload = self.plan("--mode", "targeted")
+        self.assertEqual(rc, 2)
+        self.assertIn("--tag", payload["error"])
+
+    def test_holdout_gets_the_ledger_and_regression_does_not(self):
+        def seal_one(cases):
+            cases[0]["split"] = ["holdout"]
+        converted = self.with_cases(seal_one)
+        rc, plan = self.plan("--mode", "holdout", converted=converted)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(plan["cases"]), 1)
+        self.assertEqual(plan["gate"], "decision")
+        self.assertEqual(plan["paths"]["holdout_ledger"],
+                         "datasets/holdout-looks.jsonl")
+        rc, plan = self.plan("--mode", "regression", converted=converted)
+        self.assertEqual(len(plan["cases"]), 5)       # the sealed one is out
+        self.assertIsNone(plan["paths"]["holdout_ledger"])
+
+    def test_layer_disables_the_others_with_a_reason(self):
+        rc, plan = self.plan("--mode", "smoke", "--layer", "routing")
+        self.assertEqual(rc, 0)
+        for name, body in plan["capability_matrix"].items():
+            if name != "routing":
+                self.assertEqual(body, {"enabled": False,
+                                        "blocked_by": "--layer routing"})
+
+    def test_what_it_refuses(self):
+        def no_smoke(cases):
+            for case in cases:
+                case["split"] = ["full"]
+        for label, argv, needle, converted in (
+                ("full is two runs", ["--mode", "full"], "regression", None),
+                ("unknown mode", ["--mode", "nightly"], "--mode", None),
+                ("k under smoke", ["--mode", "smoke", "--k", "3"], "--k", None),
+                ("unknown layer", ["--mode", "smoke", "--layer", "vibes"],
+                 "capability matrix", None),
+                ("tag outside targeted", ["--mode", "smoke", "--tag", "x"],
+                 "targeted", None),
+                ("nothing selected", ["--mode", "smoke"], "no case selected",
+                 self.with_cases(no_smoke)),
+                ("not a converted document", ["--mode", "smoke"], "cases",
+                 str(QUICKSTART / "plan.template.json"))):
+            with self.subTest(label):
+                rc, payload = self.plan(*argv, converted=converted)
+                self.assertEqual(rc, 2, payload)
+                self.assertIn(needle, payload["error"])
 
 
 def have_yaml():

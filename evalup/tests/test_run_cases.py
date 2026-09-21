@@ -951,6 +951,23 @@ class TestHoldoutSeal(RunnerCase):
         self.assertEqual(rows[0]["reason"], "run")
         self.assertEqual(rows[0]["run_id"], "holdout-20260908T120000Z")
 
+    def test_an_everyday_regression_run_does_not_spend_a_look(self):
+        # `regression` selects the split NAMED "full", and the seal check
+        # compared that name against the MODE names ("holdout", "full"): every
+        # pre-merge run recorded a holdout look without reading one sealed
+        # case, so five ordinary CI runs forced a reseal (2026-09-21 audit).
+        # The `full` split and the `holdout` split are mutually exclusive
+        # (case-format.md); only the mode `full` reaches sealed cases.
+        plan = make_plan(self.state, self.app.base_url,
+                         run_id="regression-20260908T120000Z",
+                         mode="regression", selecting_split="full",
+                         cases=[make_case("c-0001", split=["full"])])
+        plan["paths"]["holdout_ledger"] = None      # and none is needed
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertFalse((self.state / "datasets"
+                          / "holdout-looks.jsonl").exists())
+
     def test_a_smoke_run_does_not_spend_a_look(self):
         self.invoke(make_plan(self.state, self.app.base_url))
         self.assertFalse((self.state / "datasets"

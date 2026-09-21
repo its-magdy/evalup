@@ -8,9 +8,16 @@ description: >-
   implicates a specific prompt or tool description.
 argument-hint: "[--surface <prompt-id|tool>] [--budget $N]"
 disable-model-invocation: true
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Optimize — The Reflective Loop
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 Arguments, when the user typed any: `$ARGUMENTS`
 

@@ -11,9 +11,16 @@ description: >-
   /evalup:start. Prefer this over guessing a specific sub-skill when the
   state of the app's eval setup is unknown.
 argument-hint: "[path-to-app]"
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # evalup Start Wizard
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 You are the wizard. Your job: figure out where the user is in the lifecycle,
 do (or delegate) exactly the next step, and always end by telling them their

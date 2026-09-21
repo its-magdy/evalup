@@ -7,9 +7,16 @@ description: >-
   results, to calibrate the judge, or to promote real conversations into the
   dataset.
 argument-hint: "[--cluster] [--transcripts <path>] [--label] [--mine] [--unseal]"
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Analyze — Failures, Labels, and the Living Dataset
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 Every branch here reads a run and edits the dataset. Four documents own what
 they name, and this file never restates their rules:
@@ -72,7 +79,7 @@ label is wrong. Label corrections feed back to the dataset (bump
 `dataset_version`).
 
 For a hands-on look, build the viewer:
-`${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
 — a run directory is recognized and its `cases/*/verdict.json` records are
 read without a flag (`--glob` is for any other layout). On a
 `--full` or `--holdout` run, stage a filtered copy that excludes the sealed
@@ -91,7 +98,7 @@ Zero gating failures → produce insight, not silence:
   cannot see get caught.
 
 ### Across runs, not just this one
-`${CLAUDE_PLUGIN_ROOT}/scripts/run_history.py reports/ [-o reports/history.json]`
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_history.py reports/ [-o reports/history.json]`
 — every other comparison here is pairwise, so five consecutive "within noise"
 diffs can hide a ten-point erosion. It groups `reports/` into comparable series
 (`run/SKILL.md` §4's diff rules, plus the split and the enabled layers), flags a
@@ -102,7 +109,7 @@ none. Read `excluded_runs` first: a run without `summary.status: ok` is not in
 the series, which is usually why a series looks short.
 
 ### What it cost, beside whether it worked
-`${CLAUDE_PLUGIN_ROOT}/scripts/score_cost.py <run> [--baseline <run>]
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_cost.py <run> [--baseline <run>]
 [--prices <state>/prices.json] [-o reports/cost.json]` — `stats.py` compares
 binary verdicts only, so "2% better but 3× more expensive" reads there exactly
 like a free win. This prices the tokens the trace already recorded and
@@ -153,7 +160,7 @@ case-level agree/disagree cannot say which criterion drifted. Per case:
 Do not compute the numbers yourself. Append one JSONL line per labelled node —
 `{case_id, rubric_id, node_id, label, judge_label, critique, reviewer, ts}`
 (annotation-ux.md §"The calibration fields") — then run
-`${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
 <state>/judge/calibration.json`. That sidecar is what the runner reads; a
 `calibrated` profile with no sidecar behind it no longer opens the judged gate.
 
@@ -212,11 +219,11 @@ validation step in sight. So run the same check, after the edit and before the
 next run:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
   --capabilities <profile.capability_matrix.json> --manifest <dataset-fields.json>
 ```
 
-`${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <tmp>`
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <tmp>`
 writes all three JSON inputs from the YAML — never transcribe them yourself
 (run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
 and case-format.md owns the rules it enforces. `--manifest` matters most here: it catches the `dataset.yaml` counts

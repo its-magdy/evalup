@@ -41,7 +41,8 @@ Reads, under <state-dir>:
                                        a generation template, not a case.
 
 Writes one JSON document (stdout, or -o <file>):
-  {"adapter", "capability_matrix", "scoring", "manifest", "cases", "sources"}
+  {"adapter", "capability_matrix", "scoring", "profile", "manifest", "cases",
+   "sources"}
 `sources` maps each case id to the file it came from, so a finding about
 c-3f9a2c1d names a file to open. With --split-dir <dir> it ALSO writes the
 four files the other CLIs take as separate flags: suite.json (--cases),
@@ -204,6 +205,10 @@ def main():
 
     doc = {"adapter": adapter, "capability_matrix": matrix,
            "scoring": {key: profile[key] for key in SCORING_FIELDS
+                       if key in profile},
+           # make_plan.py copies this into manifest_extra; the judged gate
+           # is still DERIVED from the calibration sidecar, never this word.
+           "profile": {key: profile[key] for key in ("stage", "judge")
                        if key in profile},
            "manifest": manifest, "cases": cases, "sources": sources}
     dump(doc, a.output)

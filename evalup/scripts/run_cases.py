@@ -142,9 +142,26 @@ REQUIRED_KEYS = (
 
 MODES = ("smoke", "regression", "targeted", "holdout", "full")
 GATES = ("soft", "hard", "decision")
-# SS6: the holdout ledger is appended for these, and holdout_ledger: null with
-# one of them is exit 2 rather than an uncounted look at sealed cases.
-SEAL_TOUCHING_SPLITS = ("holdout", "full")
+# SS6: the holdout ledger is appended for a run that reaches sealed cases, and
+# holdout_ledger: null with one is exit 2 rather than an uncounted look.
+SEAL_TOUCHING_MODES = ("holdout", "full")
+HOLDOUT_SPLIT = "holdout"
+
+
+def touches_seal(plan):
+    """Does this run read a sealed case?
+
+    The MODES `holdout` and `full` do, and so does any selection on the
+    `holdout` split. The SPLIT named "full" does not: it is the reviewed,
+    unsealed set that `regression` selects, mutually exclusive with `holdout`
+    (case-format.md). One tuple used to be compared against both the mode and
+    the split name, so every everyday regression run -- selecting_split "full"
+    -- spent a holdout look and needed a ledger, and five pre-merge CI runs
+    forced a reseal without one sealed case having been read (2026-09-21).
+    """
+    return (plan["mode"] in SEAL_TOUCHING_MODES
+            or plan["selecting_split"] == HOLDOUT_SPLIT)
+
 
 RETRY_AFTER_CAP_S = 60
 RUN_ID_RE = re.compile(r"^[a-z]+-\d{8}T\d{6}Z$")
@@ -430,9 +447,7 @@ def validate_cases_block(plan):
                       f"selecting_split {selecting!r} -- the skill selected wrong")
 
     ledger = plan["paths"].get("holdout_ledger")
-    touches_seal = (selecting in SEAL_TOUCHING_SPLITS
-                    or plan["mode"] in SEAL_TOUCHING_SPLITS)
-    if touches_seal and not ledger:
+    if touches_seal(plan) and not ledger:
         bad_input("paths.holdout_ledger is null but selecting_split/mode is "
                   f"{selecting!r}: an uncounted holdout run makes the reseal trigger a "
                   "number nobody is keeping")
@@ -1389,9 +1404,7 @@ class Runner:
         best available answer to the second-writer problem (`analyze --unseal`)
         without a lock file, since a single short append is atomic on POSIX.
         """
-        selecting = self.plan["selecting_split"]
-        if selecting not in SEAL_TOUCHING_SPLITS \
-                and self.plan["mode"] not in SEAL_TOUCHING_SPLITS:
+        if not touches_seal(self.plan):
             return
         ledger = self.plan["paths"]["holdout_ledger"]
         path = ledger if os.path.isabs(ledger) \
@@ -2705,6 +2718,16 @@ class Runner:
                 f"{self.scorer_errors} scorer invocation(s) failed; the "
                 "run's artifacts are complete but its numbers are not "
                 "quotable")
+        # stderr, like the holdout-look count: stdout stays reserved for the
+        # machine-readable {"error": ...} payload, so a clean run still prints
+        # nothing THERE. But exit 0 and total silence read as "did that work?"
+        # at a terminal (2026-09-21 audit), and exit 0 is not a verdict -- a
+        # red suite exits 0 too -- so the line names the step that gives one.
+        sys.stderr.write(
+            "run {} complete: {} case(s) in {} -- exit 0 means the RUN "
+            "finished, not that it passed; gate.py {} gives the "
+            "verdict\n".format(self.plan["run_id"], len(self.plan["cases"]),
+                               self.out, self.out))
         return EXIT_OK
 
 

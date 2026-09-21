@@ -14,6 +14,7 @@ what broke. `claude plugin validate` is the fuller check; it is not run here
 because the suite must pass on a machine without the CLI.
 """
 import json
+import os
 import re
 import unittest
 from pathlib import Path
@@ -71,6 +72,46 @@ class TestPluginLayout(unittest.TestCase):
 
     def test_manifest_skills_path_exists(self):
         self.assertTrue((ROOT / self.manifest["skills"]).is_dir())
+
+    # --- how a skill reaches a script (2026-09-21 audit + live test) ---------
+
+    def test_every_cli_is_executable(self):
+        # Git stores the mode, so a 644 script ships as 644 to every install;
+        # 17 of 19 did, while the skills invoked them as bare paths.
+        for path in sorted((ROOT / "scripts").glob("*.py")):
+            if path.name.startswith("_"):
+                continue
+            with self.subTest(script=path.name):
+                self.assertTrue(os.access(path, os.X_OK), "not executable")
+                self.assertTrue(path.read_text(encoding="utf-8").startswith(
+                    "#!/usr/bin/env python3"))
+
+    def test_skills_invoke_scripts_through_python3(self):
+        # `python3 <path>` works whatever the mode bit and on every platform,
+        # and it is the form the skills' allowed-tools rule pre-approves.
+        bare = re.compile(r"(?<!python3 )(?<!python3 \")\$\{CLAUDE_PLUGIN_ROOT\}"
+                          r"/scripts/[a-z_]+\.py (?:<|-|\[|reports)")
+        docs = [*(ROOT / "skills").rglob("*.md"), *(ROOT / "agents").glob("*.md")]
+        for path in docs:
+            with self.subTest(doc=str(path.relative_to(ROOT))):
+                self.assertEqual(bare.findall(path.read_text(encoding="utf-8")),
+                                 [])
+
+    def test_every_skill_pre_approves_the_plugins_own_scripts(self):
+        # Without this every script call is a permission prompt (~13 before a
+        # first score). Both spellings are needed: a model quotes the path when
+        # it holds a space, and a live session showed an unquoted-only rule
+        # matching nothing. Never a blanket `Bash`.
+        for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
+            with self.subTest(skill=path.parent.name):
+                text = path.read_text(encoding="utf-8")
+                block = text.split("\n---\n", 1)[0]
+                self.assertIn("allowed-tools:", block)
+                self.assertIn("Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*)",
+                              block)
+                self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)',
+                              block)
+                self.assertNotRegex(block, r"allowed-tools:.*\bBash\b(?!\()")
 
 
 if __name__ == "__main__":

@@ -7,9 +7,16 @@ description: >-
   when pointing evalup at an app for the first time, or with --diff after
   the app changed to find stale eval cases.
 argument-hint: "[path-or-url] [--diff]"
+allowed-tools: >-
+  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Discover — Profile the App
+
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted here), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
 
 Arguments, when the user typed any: `$ARGUMENTS`
 

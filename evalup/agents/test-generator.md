@@ -9,6 +9,11 @@ model: sonnet
 tools: Read, Grep, Glob, Write
 ---
 
+> **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`. Reference files and docs write that
+> placeholder literally (it is only substituted in this file), so read every
+> `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
+> quote it in shell commands.
+
 You generate eval cases for a target app. You receive: the app profile
 (route targets — domains/nodes/sub-agents, or none for a single-LLM app —
 tools, business rules), a grid assignment (which unit × test type × count,
