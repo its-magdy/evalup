@@ -23,11 +23,9 @@ id: c-3f9a2c1d                      # OPAQUE and stable forever: c-<hash8>.
                                     # the id identifies, it does not describe.)
 unit: billing                       # route target (domain/node/sub-agent), or the
                                     # primary tool for a tool_agent, or "app".
-                                    # A FIELD now — see the id note above.
+                                    # A field, never part of the id — see the id note above.
 split: [full, smoke]                # which splits this case belongs to. A FIELD,
-                                    # not a directory copy. run-modes.md already
-                                    # calls smoke membership "a durable tag"; this
-                                    # makes it literally one. Copying the file into
+                                    # not a directory copy. Copying the file into
                                     # smoke/ and canary/ creates two files with the
                                     # same id and no single source of truth — an
                                     # in-place rewrite updates one and silently
@@ -229,11 +227,10 @@ expect:
                                      # only that a tool was called, use expect.tools.
   state:                             # end-state assertion. RESERVED: no scorer compares
     null                             # environment snapshots, so this key is graded by NOTHING.
-                                     # It no longer counts toward the trajectory layer either —
-                                     # a case whose ONLY expectation is `state` is a
-                                     # `no_graded_layer` ERROR, because it used to pass off its
-                                     # http row alone. Alongside real expectations it is a WARN
-                                     # and simply contributes nothing to the verdict.
+                                     # It counts toward no layer: a case whose ONLY expectation
+                                     # is `state` is a `no_graded_layer` ERROR (its http row alone
+                                     # would otherwise pass it). Alongside real expectations it
+                                     # is a WARN and simply contributes nothing to the verdict.
   authz:                             # PERMISSION/SCOPE cases — scored by score_authz.py
                                      # DETERMINISTICALLY against the trace's tool-call log and
                                      # returned record IDs. The refusal verdict is NEVER an LLM
@@ -297,10 +294,7 @@ expect:
                                      # JS-style) is NOT this convention — only bare
                                      # /pattern/ is recognized. Case-insensitivity
                                      # goes INLINE: "/(?i:pattern)/". A trailing /i
-                                     # is caught and reported "unscorable" (found
-                                     # live: 6 cases shipped with /i and the check
-                                     # either always failed or vacuously always
-                                     # passed before this was caught).
+                                     # is caught and reported "unscorable".
                                      # UNICODE: entry and answer are compared in
                                      # NFC, so an accented or Arabic string matches
                                      # whichever form the app produced. A REGEX
@@ -329,13 +323,13 @@ no_op_expectation: fail              # pass | fail. Sanity check: if an agent ca
                                      # vacuous (reconsider it rather than accepting `pass` as the
                                      # default). Not scored by a runner flag; it's a
                                      # generation-time and review-time sanity label — but
-                                     # validate_cases.py DOES check it (warning: no_op_pass),
-                                     # so it is no longer advisory-only prose.
-no_op_justification: null            # REQUIRED when no_op_expectation is `pass`: one line on
+                                     # validate_cases.py checks it (warning: no_op_pass when
+                                     # `pass` has no justification).
+no_op_justification: null            # Expected when no_op_expectation is `pass` (validate_cases.py
+                                     # warns `no_op_pass` without it): one line on
                                      # why this case is the exception. Without it the `pass`
                                      # is just an assertion that the case need not work, and
-                                     # a suite quietly accumulates them (a quarter of a real
-                                     # 31-case suite carried `pass` before this check existed).
+                                     # a suite quietly accumulates them.
                                      # Writing the reason down is the whole gate — it forces
                                      # the author to notice they are exempting a case.
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
@@ -345,11 +339,10 @@ notes: ""                            # reviewer's one-liner: why this case exist
 
 Validation: run
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json>`
-before handing a dataset over. It is the load-time schema check this format
-previously lacked — the "hard error, never a silent fallback" rules below
-(`order_mode`, args `calls` scope, empty `columns`) were enforced only inside
-individual scorers at RUN time, which is long after a suite is authored and
-reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
+before handing a dataset over. It checks at load time the "hard error, never a
+silent fallback" rules above (`order_mode`, args `calls` scope, empty
+`columns`), which the scorers would otherwise only hit at RUN time — long after
+a suite is authored and reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
 
 `--capabilities` is **required**. Without the profile's matrix every layer
 counts as enabled, which turns off the one check that catches a case asserting
@@ -381,8 +374,9 @@ Scoring semantics:
 - **Reserved fields, in one place** — `expect.state`, `seed_state`,
   `available_tools`, `excluded_tools` and `difficulty` are all declared here and
   scored by nothing. Each is safe to record (the provenance is unrecoverable
-  later) and each earns a `validate_cases.py` WARN so no one mistakes it for a
-  measurement. Multi-turn (`>1` user turn) is reserved harder still: those cases
+  later); the first four earn a `validate_cases.py` WARN so no one mistakes
+  them for a measurement, and `difficulty` is read by no script at all.
+  Multi-turn (`>1` user turn) is reserved harder still: those cases
   are SKIPPED.
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
 - Judged dimensions are skipped (reported as `unjudged`) while the judge is

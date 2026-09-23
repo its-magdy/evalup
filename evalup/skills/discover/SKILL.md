@@ -85,7 +85,7 @@ conversation/session handling, OTel setup. Record as you go:
   live, and whether a seeded staging environment or read replica already exists.
   You cannot offer a fixture in step 5 without knowing what there is to seed.
 
-### 4. Validate the profile against reality — MANDATORY before generate
+### 4. Validate the profile against reality — before generate
 Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
 tool registration, feature flags). Send 1–3 harmless requests through the adapter
 and compare observed agent names, tool names and `invoke_agent` span shape

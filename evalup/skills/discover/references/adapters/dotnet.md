@@ -15,11 +15,14 @@ scope creep in the tool itself.
 
 ## Invoke
 
-- **Fast inner loop:** `WebApplicationFactory<Program>`
-  (`Microsoft.AspNetCore.Mvc.Testing`) — in-process, no real Kestrel, fastest
-  iteration. Requires `public partial class Program {}` if top-level
-  statements left `Program` internal (add it if missing; it's a no-op for the
-  app).
+- **Test host:** the harness's `function` mode imports a Python callable, so
+  a .NET app is always `invocation.mode: http` against something listening on
+  a port — real Kestrel, or a test host started from
+  `WebApplicationFactory<Program>` (`Microsoft.AspNetCore.Mvc.Testing`) with
+  a bound URL. The latter needs `public partial class Program {}` if top-level
+  statements left `Program` internal (a no-op for the app). In-process
+  `WebApplicationFactory` without a port is for the team's own .NET tests, not
+  for the harness.
 - **Per-persona auth without minting real JWTs:** register a
   `TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>` via
   `builder.ConfigureTestServices(...)` so each authz case (§ `expect.authz`)
@@ -36,8 +39,13 @@ scope creep in the tool itself.
 - **adapter.yaml mapping:**
   ```yaml
   invocation:
-    mode: function            # WebApplicationFactory in-process, or http for real Kestrel
-    entrypoint: "RefApp.Program"     # partial-class marker for WebApplicationFactory<Program>
+    mode: http                # the harness's `function` mode imports a Python
+                              # callable, so a .NET app is always http: real
+                              # Kestrel, or a test host listening on a port
+    base_url: ${APP_BASE_URL}
+    endpoint: "POST /api/chat/ask"
+    request_body: '{"sessionId": "<uuid>", "message": "<user turn>"}'
+    response_body: '{"message": "<answer>"}'
     auth: { type: headers, headers: { X-Test-Persona: ${TEST_PERSONA} } }
     # TestAuthHandler reads X-Test-Persona and swaps claims accordingly
   ```
@@ -72,9 +80,9 @@ scope creep in the tool itself.
   `correlation`. Incoming W3C `traceparent` is auto-parsed into
   `Activity.Current` since .NET 5, so multi-hop correlation needs no extra
   code.
-- **Anthropic models from .NET:** no official SDK; the community
-  `Anthropic.SDK` implements `IChatClient` and drops into the same
-  `.UseOpenTelemetry()` pipeline unchanged.
+- **Anthropic models from .NET:** any `IChatClient` implementation (the
+  official Anthropic C# SDK, or the community `Anthropic.SDK`) drops into the
+  same `.UseOpenTelemetry()` pipeline unchanged.
 - **adapter.yaml mapping:**
   ```yaml
   traces:
@@ -210,8 +218,11 @@ state_location: .evalup/
 access_level: white
 
 invocation:
-  mode: function
-  entrypoint: "RefApp.Program"
+  mode: http
+  base_url: ${APP_BASE_URL}
+  endpoint: "POST /api/chat/ask"
+  request_body: '{"sessionId": "<uuid>", "message": "<user turn>"}'
+  response_body: '{"message": "<answer>"}'
   auth: { type: headers, headers: { X-Test-Persona: ${TEST_PERSONA} } }
   # No `streaming:`. The app streams SSE to its real UI; the harness reads a
   # complete response and measures no TTFT, so declaring it here would teach a

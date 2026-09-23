@@ -117,11 +117,8 @@ invocation:
   # NO session block. Multi-turn is RESERVED (hard rule 3): the harness has no
   # conversation driver, so there is nothing for start/send_turn/end to feed.
   # Declaring one is not forward-compatible, it is harmful -- see hard rule 3.
-  # NO streaming field. It declared "how to detect response complete; capture
-  # TTFT" and did neither: nothing in run_cases.py reads it, no TTFT is
-  # recorded anywhere, and completion is EOF (http) or return (function).
-  # Declaring it bought a worked example (dotnet.md shipped `streaming: sse`)
-  # that taught a setting with no effect. If the app answers ONLY over SSE,
+  # NO streaming field: completion is EOF (http) or return (function), and
+  # no TTFT is recorded anywhere. If the app answers ONLY over SSE,
   # the runner reads the raw event-stream text as the body, so point the
   # adapter at a non-streaming route or expect answer extraction to fail
   # `unscored`. Wall-clock `latency_s` IS recorded per case; TTFT is not.
@@ -191,11 +188,10 @@ data:
 3. **Multi-turn is RESERVED.** Any case with more than one user turn is
    skipped and reported as skipped, not failed — unconditionally. The check
    does not look at the adapter, because there is no adapter field that can
-   satisfy it: nothing in the harness drives a conversation. An earlier
-   `invocation.session` block was accepted here and made things *worse* — the
-   runner treated its presence as permission to proceed and then sent only the
-   case's last user message, scoring a truncated conversation as a real
-   verdict. An honest skip beats a number built from two-thirds of a
+   satisfy it: nothing in the harness drives a conversation. Declaring a
+   session block would not unlock it — the runner sends only the case's last
+   user message, so the result would be a truncated conversation scored as a
+   real verdict. An honest skip beats a number built from two-thirds of a
    conversation.
 4. Env-var refs unresolved at runtime → pre-flight failure before any spend.
 5. `traces.convention` other than `gen_ai` with no `traces.mapping_shim` →
@@ -217,7 +213,7 @@ and every scorer/skill keeps working unmodified. See
 
 | Capability | Adapter provides to core | adapter.yaml field(s) |
 |---|---|---|
-| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One turn per case; the session-shaped triple this row once named is reserved with the rest of multi-turn (hard rule 3). | `invocation.*` |
+| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One turn per case; multi-turn is reserved (hard rule 3). | `invocation.*` |
 | **Traces** | a trace-id-addressable span tree in `gen_ai.*` keys (native or shimmed) | `traces.*` (`convention`, `mapping_shim`, `correlation`) |
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
 | **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit, plus whether editing needs a rebuild | `prompts[]` |
@@ -228,7 +224,7 @@ and every scorer/skill keeps working unmodified. See
 
 If an adapter cannot fill a row, it says so explicitly (`traces.source: none`,
 `oracle.kind: none`, empty `prompts:`) and the capability matrix in
-`profile.yaml` (A7-owned) turns the dependent layers off with a
+`profile.yaml` (written by discover) turns the dependent layers off with a
 `blocked_by` reason — core code never infers absence from a missing key, it
 checks the declared value.
 
@@ -318,9 +314,13 @@ handoff:
 
 ## Safe-to-attack + per-tool side-effect enforcement
 
-Two independent gates, both enforced **in code, in the tool-execution
-wrapper** — never left to a prompt instruction, and never inferred from
-context:
+Two independent gates. The runner enforces both **at the case level**: an
+attack-category case is skipped unless `environment.safe_to_attack` is true,
+and a case naming a `never-live` tool under `environment.kind: live-*` is
+skipped (hard rule 2), with the reason recorded. Per-call interception — mock
+substitution, refusing one call — is a wrapper the app's own team builds; the
+runner neither provides nor observes it. Neither gate is ever left to a prompt
+instruction or inferred from context:
 
 1. **Per-tool side-effect class** (`tools[].side_effects`, discover-inferred,
    human-confirmed):
@@ -337,15 +337,13 @@ context:
    classes — belt-and-suspenders for the case where a `needs-mock`
    classification turns out to be wrong.
 
-The enforcement point is a single wrapper around every tool invocation (not
-scattered checks): before dispatching a call, it looks up the tool's
+When the app does build a per-call wrapper, put it in one place (not
+scattered checks): before dispatching a call, look up the tool's
 `side_effects` class and the environment's `kind`/`safe_to_attack`, and
-either passes the call through, substitutes the mock, or raises — and that
-decision is recorded on the case result so a blocked call is visible, not
-silently swallowed. Because the check lives in the wrapper rather than the
-adapter's language runtime, this rule is identical for every adapter; only
-*how* a given adapter's wrapper intercepts a call (middleware, decorator,
-DI interceptor) differs, and that mechanics detail belongs in the per-adapter
-doc (see `adapters/dotnet.md` for the .NET instance: static analysis of
+either pass the call through, substitute the mock, or raise — and log that
+decision so a blocked call is visible, not silently swallowed. The classes
+above are identical for every adapter; only *how* a wrapper intercepts a call
+(middleware, decorator, DI interceptor) differs, and that mechanics detail
+belongs in the per-adapter doc (see `adapters/dotnet.md` for the .NET instance: static analysis of
 `SaveChangesAsync`/`ExecuteUpdate`/`ExecuteDelete` or a `[SideEffect]`
 attribute convention feeding the same wrapper contract).

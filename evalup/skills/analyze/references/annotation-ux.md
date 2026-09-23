@@ -44,13 +44,14 @@ the content `run/SKILL.md` §4 keeps out of the report and out of
 `results.json`'s rows, and putting one on a review page spends a look against
 the N=5 reseal budget without going through `analyze --unseal`. Pointed at a run
 directory the viewer drops every case whose `verdict.json` says `holdout: true`
-and reports the count on stderr. **With an explicit `--glob` you own that
-filter**: do not glob a `--holdout` run's `cases/` yourself.
+and reports the count on stderr. The filter reads only `verdict.json`, so
+**a `--glob` that matches other per-case files (`cases/*/*.json`) puts sealed
+material on the page** — never glob a `--holdout` run's `cases/` that way.
 
 ## Storage format — plain JSONL, one line per annotation event
 
 ```jsonc
-{"trace_id": "4bf92f...", "case_id": "billing-happy-3f9a2c1d",
+{"trace_id": "4bf92f...", "case_id": "c-3f9a2c1d",
  "label": "fail", "category": "hallucinated-count",
  "critique": "Answer says 0 expiring licences; get_licences returned [] \
 (stub tool) but the true count from the seed fixture is 3. Model should \
@@ -63,7 +64,7 @@ three more, and `${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py` counts only
 lines that have the first of them:
 
 ```jsonc
-{"case_id": "billing-happy-3f9a2c1d", "label": "fail",
+{"case_id": "c-3f9a2c1d", "label": "fail",
  "judge_label": "pass",              // the judge's verdict for the SAME node:
                                      //   pass | fail | unknown
  "rubric_id": "billing_answer",      // groups the numbers — calibration is per rubric
@@ -120,8 +121,7 @@ splits.
 
 ## Why manual-edit, not a sidecar
 
-The recommendation (§22) offers two write paths for a git-native, file-based
-plugin: a tiny localhost sidecar process, or a documented manual-edit flow.
+There are two write paths for a git-native, file-based plugin: a tiny localhost sidecar process, or a documented manual-edit flow.
 This build takes **manual-edit**: the viewer is a single static HTML file
 that opens with no server, no port, no process to manage, and no dependency
 beyond a browser — matching the plugin's stdlib-only, zero-install posture
@@ -185,8 +185,10 @@ traces has told you what it has to tell you.
 
 When the judge has a provisional rubric, use the same viewer (or
 `analyze --label`'s one-at-a-time flow, which walks the identical steps
-conversationally) to run the calibration pass: for 25–50 examples, the judge's
-provisional per-dimension verdict sits beside a blank human column; the
+conversationally) to run the calibration passes (rubric-format.md: a ~30-case
+discovery pass, then a ~100–200 validation pass — `score_agreement.py` requires
+≥100 labelled pairs per rubric): the judge's provisional per-node verdict sits
+beside a blank human column; the
 reviewer marks agree / disagree / edit-rubric, with a critique on every
 disagreement. Score the pass with
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
@@ -212,7 +214,7 @@ spend the critique:
 1. **Judge few-shots.** A critique detailed enough to explain *why* a verdict
    was right or wrong, spliced as an `<input><output><critique>` example into
    the judge prompt, is the single measured lever for judge-human agreement
-   (+15–20pp, §22). Write critiques as if they'll be read by the judge, not
+   Write critiques as if they'll be read by the judge, not
    just by you.
 2. **New regression cases.** Every axial category that gets a name should
    mint at least one permanent case reproducing it — a failure mode you can

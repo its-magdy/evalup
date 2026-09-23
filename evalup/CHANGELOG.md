@@ -182,6 +182,50 @@ reproduced before it was fixed, and each has a test.
   data; `trace-analyzer` lost `Bash`; the judge's "temperature 0" claim, which
   nothing can set for a subagent, is gone.
 
+### Fixed — the 2026-09-24 prompt audit
+
+A pass over everything the model reads — seven skills, three agents, eleven
+reference files, `CONTRIBUTING.md` — for text written against an earlier state
+of the plugin, and for claims the scripts no longer back. No scorer changed.
+
+- **Skill text that described flags and behaviour the scripts do not have**:
+  `k` is plan-level (`make_plan.py`'s per-mode default, `--k N` overrides),
+  never per-case; `--k` under `--smoke` is refused, not ignored, and nothing
+  warns at `k < 3`; `run_cases.py` has no `--baseline` flag, so escaping the
+  old layout means moving `baselines/`/`runs/` away first (the runner's own
+  message said the same wrong thing and now does not); `routing_report.json`,
+  `reliability.json` and `comparison.json` are conditional artifacts; the
+  judge is launched by `analyze --label` only, never by a run;
+  `convert_suite.py` writes `manifest.json` only when `dataset.yaml` exists,
+  so `--manifest` is bracketed wherever a skill spells the validator out;
+  `difficulty` earns no validator warning; the viewer's seal filter reads only
+  `verdict.json`, so a broader `--glob` is what leaks.
+- **`adapters/dotnet.md` taught an adapter the runner rejects**: `mode:
+  function` with a .NET entrypoint, when function mode imports a Python
+  callable. Both blocks are `mode: http` now. Its "no official Anthropic SDK
+  for .NET" claim was stale too.
+- **`adapter-contract.md` described a per-call tool-execution wrapper the
+  runner does not have**; the section now says what the runner enforces (case
+  skips) and what the app's own wrapper would.
+- **`annotation-ux.md` sized the calibration pass at 25–50** where
+  `score_agreement.py` requires ≥100 labelled pairs; its example ids used the
+  `<unit>-<category>-<hash>` shape case-format.md forbids.
+
+### Changed — the 2026-09-24 prompt audit
+
+- Migration-relative phrasing ("no longer", "used to", "A FIELD now", "the old
+  unqualified default", "the pre-existing flag", "A7-owned") and incident
+  parentheticals are rewritten as the current rule; the reasoning stays where
+  it was load-bearing.
+- The judge agent keeps its rules and loses what was addressed to the
+  operator or the reader: research figures and arXiv ids (rubric-format.md
+  holds them), the description of how its verdicts are scored, the
+  same-family paperwork that `analyze --label` owns. Its reasoning length is
+  qualitative, not "two to four sentences".
+- Scattered capitalised emphasis in `test-generator.md`, one "MANDATORY", one
+  "non-negotiable" and one "MUST" dialled back to plain statements with their
+  reasons beside them.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

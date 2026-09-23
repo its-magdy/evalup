@@ -43,12 +43,14 @@ Five selections + gate policies over one engine. Mechanics and worked examples:
 | Mode | Selection | k | Gate | When |
 |---|---|---|---|---|
 | `smoke` | cases with `smoke` in `split` | 1 | soft | every prompt/code edit (hook) |
-| `regression` | cases with `full` in `split` | ≥3, pass^k | hard | pre-merge / nightly |
-| `targeted` | component-tag filter (+ `--filter-failing`) | per-case | soft | after optimizing one surface |
-| `holdout` | sealed `holdout` split | per-case | decision | optimizer's keep/revert step |
-| `full` | `full` + `holdout`, as **two runs**: `regression`, then `holdout` | ≥3, pass^k | hard | release validation |
+| `regression` | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
+| `targeted` | component-tag filter (+ `--filter-failing`) | 1 by default (`--k N`) | soft | after optimizing one surface |
+| `holdout` | sealed `holdout` split | 1 by default (`--k N`) | decision | optimizer's keep/revert step |
+| `full` | `full` + `holdout`, as **two runs**: `regression`, then `holdout` | 3 by default (`--k N`), pass^k | hard | release validation |
 
-No mode flag → `regression`, the old unqualified default. **Selection reads the
+No mode flag → `regression`. `k` is a plan-level value: `make_plan.py` sets
+the mode's default and `--k N` overrides it; no script reads a per-case `k`.
+**Selection reads the
 case's `split` field, never a directory** — the field is owned by
 `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md`, and `full`
 and `holdout` are mutually exclusive there, so the seal travels with the case.
@@ -139,8 +141,10 @@ A red suite exits **0** — gating is §6's job, not the runner's.
 - **Old layout, checked before you conclude "first run"**: no `baseline.json`
   but a sibling `baselines/` or `runs/` means the state dir predates the
   per-run layout and does have a baseline. Say so — migrate with
-  `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`, or pass `--baseline` to
-  pin this run and abandon the old one. (The runner also refuses it, exit 3.)
+  `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`, or abandon it: move or
+  delete `baselines/` and `runs/` (the runner refuses to start while they exist
+  without `reports/baseline.json`, exit 3), then run with `--baseline` to pin
+  this run.
 - **First run** — no pointer, no old layout — is a branch, not an error. Run
   without `--baseline-verdicts`, write `baseline.json` at this run, print
   "baseline established (run <id>); future runs diff against this."
@@ -155,10 +159,12 @@ A red suite exits **0** — gating is §6's job, not the runner's.
 
 ## 5. Report
 
-The runner leaves `manifest.yaml`, `results.json`, `verdicts.jsonl` (the durable
-per-case record), `verdicts_for_stats.jsonl` (its `pass`/`fail` subset, exactly
-what `stats.py` pairs), `routing_report.json`, `reliability.json` and
-`comparison.json`. Every number you quote comes from those. You add `report.md`
+The runner always leaves `manifest.yaml`, `results.json`, `verdicts.jsonl` (the
+durable per-case record) and `verdicts_for_stats.jsonl` (its `pass`/`fail`
+subset, exactly what `stats.py` pairs), and, when they apply,
+`routing_report.json` (routing was scored), `reliability.json` (k > 1, so never
+under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
+number you quote comes from those. You add `report.md`
 beside them, then `report.html` via
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
 reports/<run-id>/report.html` — self-contained, shareable with people who never

@@ -43,7 +43,7 @@ make gains real instead of overfit.
 ## Preconditions — check, and refuse with the unlock path if unmet
 1. `judge.status: calibrated` — if any objective dimension is judge-scored.
    An uncalibrated judge as an optimization target produces a confidently
-   worse app; this is non-negotiable. Check the flag's **evidence**, not the
+   worse app. Check the flag's **evidence**, not the
    flag: `paths.judge_calibration`'s sidecar (`score_agreement.py`) is what
    derives it, and a `calibrated` profile with no sidecar behind it is a
    hand-set flag — the runner already refuses it.

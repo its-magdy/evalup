@@ -26,7 +26,7 @@ architecture:
   #                       records no prompt or response text at all, and tool calls carry
   #                       no owning agent, so no expectation can be scoped to one
   #                       sub-agent. What DOES ship per agent: the `agents[]` stage list
-  #                       with duration and rolled-up tokens (normalize_trace.py:232-281).
+  #                       with duration and rolled-up tokens (normalize_trace.py's `agents[]` output).
   #   workflow        -> path *set* fixed at design time -> per-node golden-behavior
   #                       regression instead of open-ended trajectory scoring.
   framework: langgraph | crewai | autogen | openai-agents-sdk | custom | none
@@ -63,8 +63,7 @@ tools:
     args: [invoice_id]
     verified: true
 
-# No `conversation:` block. Multi-turn is RESERVED (capability_matrix below) and
-# `streaming` is read by nothing -- see adapter-contract.md's invocation notes.
+# No `conversation:` block. Multi-turn is RESERVED (capability_matrix below).
 
 record_id_pattern: "INV-[0-9]+"  # regex for the app's own record identifiers.
                                  # Passed by run to `score_authz.py --id-pattern`.

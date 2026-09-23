@@ -157,8 +157,10 @@ training pool, never both, and that exclusivity is what the seal rests on.
   reseal is due after N=5 looks. Optimization never trains on it.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
-  there signals an app/model/judge change, not a traffic shift. **A canary MUST
-  assert content** — `expect.result` or `expect.answer` (suite-sizing.md).
+  there signals an app/model/judge change, not a traffic shift. A canary
+  asserts content — `expect.result` or `expect.answer` — because drift shows
+  up in the answer and `http: 200` comes back either way (suite-sizing.md,
+  which also says when the floor applies).
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither
@@ -167,11 +169,14 @@ because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
 First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
-<tmp>` — it writes those three JSON files from the YAML, and refuses a
-duplicate YAML key or one id in two files; never transcribe a suite by hand.
-Then run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases
-<tmp>/suite.json --capabilities <tmp>/capabilities.json --manifest
-<tmp>/manifest.json`. It fails the generate step on structural errors
+<tmp>` — it writes the JSON inputs from the YAML (`suite.json`,
+`capabilities.json`, `adapter.json`, and `manifest.json` only when
+`datasets/dataset.yaml` exists), and refuses a duplicate YAML key or one id in
+two files; never transcribe a suite by hand. Then run
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json
+--capabilities <tmp>/capabilities.json [--manifest <tmp>/manifest.json]` —
+pass `--manifest` only when that file was written, since a missing path is
+exit 2. It fails the generate step on structural errors
 and warns on the vacuity patterns; case-format.md has the field rules and the
 error/warning line. `--capabilities` is required — pass `--no-capabilities`
 only with genuinely no profile, and expect `capabilities_unchecked`.
@@ -186,7 +191,7 @@ checked against the case files:
 ```yaml
 dataset_version: 1          # int; make_plan.py pins it into the run manifest
 cases: 12                   # total case files
-splits: { full: 12, smoke: 8 }
+splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
     billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values

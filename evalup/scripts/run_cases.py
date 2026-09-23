@@ -1245,9 +1245,11 @@ class Runner:
             preflight_fail(
                 "state dir uses the pre-reports/<run-id> layout ({} present, "
                 "reports/baseline.json absent); migrate with "
-                "${{CLAUDE_PLUGIN_ROOT}}/docs/migrate-run-layout.md, or pass "
-                "--baseline to deliberately pin this run and abandon the old "
-                "one".format(", ".join(name + "/" for name in stale)))
+                "${{CLAUDE_PLUGIN_ROOT}}/docs/migrate-run-layout.md, or move "
+                "{} away and run with --baseline to deliberately pin this run "
+                "and abandon the old one".format(
+                    ", ".join(name + "/" for name in stale),
+                    " and ".join(name + "/" for name in stale)))
 
     def health_check(self, mode):
         """SS4.4. One trivial request, or the entrypoint import.

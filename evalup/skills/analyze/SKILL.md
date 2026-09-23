@@ -72,7 +72,7 @@ out the state that only *looks* empty before calling it a start.
 ## `--cluster` (default after a run)
 Read the latest run's failed cases from `reports/<run-id>/`, never the holdout
 details. Pick the latest by the **timestamp segment** of the run id
-(`<mode>-<YYYYMMDDTHHMMSSZ>`, `run/SKILL.md` §1). A whole-string sort ranks by
+(`<mode>-<YYYYMMDDTHHMMSSZ>`, as `make_plan.py` builds it). A whole-string sort ranks by
 mode and hands you a stale `smoke-*`. Use the timestamp over mtime, which
 drifts when a report is regenerated or a directory copied.
 
@@ -93,8 +93,10 @@ For a hands-on look, build the viewer:
 — a run directory is recognized and its `cases/*/verdict.json` records are
 read without a flag (`--glob` is for any other layout). Pointed at a run
 directory the viewer leaves every sealed holdout case off the page itself, so
-never stage a filtered copy by hand — and never `--glob` a `--holdout` run's
-`cases/`, which bypasses that filter. Both, and why: annotation-ux.md
+never stage a filtered copy by hand — and never pass a `--glob` that matches
+files other than `verdict.json` under a `--holdout` run's `cases/` (e.g.
+`cases/*/*.json`): the seal filter reads only `verdict.json`, so any other
+per-case file would put sealed material on the page. Both, and why: annotation-ux.md
 §"Which files it reads", worth reading before the first invocation. Its
 §"Theoretical-saturation stopping rule" owns the cadence — ≥100 traces, and
 stop a sitting after ~20 that add nothing. `--label` runs on that same rule.
@@ -152,7 +154,9 @@ Run rubric-format.md's two passes: discovery, ~30 cases, then a stratified
 validation pass of ~100–200. Take every number from there — TPR and TNR and
 Cohen's κ, never raw accuracy, ≥90% on a slice the judge prompt never saw.
 Launch the `judge` agent (`evalup:judge` when installed) with profile.yaml's
-`judge.model` as the model override (agents/judge.md). Calibration must measure the model runs will use.
+`judge.model` as the model override (agents/judge.md), and record that model
+in the calibration notes: calibration must measure the model a judged run would
+use, not the agent's default.
 
 The judge executes one rubric node per call, so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:
@@ -173,7 +177,7 @@ Do not compute the numbers yourself. Append one JSONL line per labelled node —
 (annotation-ux.md §"The calibration fields") — then run
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
 <state>/judge/calibration.json`. That sidecar is what the runner reads; a
-`calibrated` profile with no sidecar behind it no longer opens the judged gate.
+`calibrated` profile with no sidecar behind it does not open the judged gate.
 
 Record the result **per rubric first**: `status.calibrated` and that rubric's
 own numbers **as the scorer computed them**, in its own file (rubric-format.md
@@ -231,14 +235,16 @@ next run:
 
 ```
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
-  --capabilities <profile.capability_matrix.json> --manifest <dataset-fields.json>
+  --capabilities <profile.capability_matrix.json> [--manifest <dataset-fields.json>]
 ```
 
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <tmp>`
-writes all three JSON inputs from the YAML — never transcribe them yourself
+writes the JSON inputs from the YAML — never transcribe them yourself
 (run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
-and case-format.md owns the rules it enforces. `--manifest` matters most here: it catches the `dataset.yaml` counts
-that a reclassification, a deleted case or a reseal leaves stale. A reseal must
+and case-format.md owns the rules it enforces. `--manifest` matters most here
+(pass it whenever `datasets/dataset.yaml` exists — convert_suite writes
+`manifest.json` only then): it catches the `dataset.yaml` counts that a
+reclassification, a deleted case or a reseal leaves stale. A reseal must
 also come back clean on `holdout_not_sealed` and `missing_split`, the only
 mechanical evidence the seal still holds.
 

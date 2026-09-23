@@ -3,19 +3,17 @@
 One execution engine — `${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py`, spec in
 `${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md`. These five modes are named
 selections + gate policies the skill resolves into that runner's `plan.json`
-(SKILL.md §1); nothing else about the engine changes per mode. This run-mode
-taxonomy maps onto the plugin's pre-existing `--smoke` flag.
+(SKILL.md §1); nothing else about the engine changes per mode.
 
 | Mode | Flag | Selection | k | Gate | When |
 |---|---|---|---|---|---|
 | smoke | `--smoke` | cases with `smoke` in `split` | 1 (fixed) | soft | every prompt/code edit |
-| regression | `--regression` (or no mode flag) | cases with `full` in `split` | ≥3, pass^k | hard | pre-merge / nightly |
-| targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | per-case `k` | soft | right after optimizing one surface |
-| holdout | `--holdout` | sealed `holdout` split | per-case `k` | decision | optimizer's keep/revert step |
-| full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`), judged layers forced on | ≥3, pass^k | hard | release validation |
+| regression | `--regression` (or no mode flag) | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
+| targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | 1 by default (`--k N`) | soft | right after optimizing one surface |
+| holdout | `--holdout` | sealed `holdout` split | 1 by default (`--k N`) | decision | optimizer's keep/revert step |
+| full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`), judged layers forced on | 3 by default (`--k N`), pass^k | hard | release validation |
 
-No mode flag behaves as `regression` (the pre-existing unqualified default:
-full suite, hard gate) so old invocations without a mode flag keep working.
+No mode flag behaves as `regression` (full suite, hard gate).
 
 ---
 
@@ -29,9 +27,9 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   moving target and the run non-diffable across edits; the whole point of a
   fixed tag is that "smoke got worse" means the app changed, not that the
   sample changed.
-- **k**: fixed at 1. `--k` is ignored under `--smoke` (reliability isn't what
-  this cadence buys you — speed is); pass `--regression --k N` instead if you
-  want repeats.
+- **k**: fixed at 1. `--k` is refused under `--smoke` (`make_plan.py` exits 2:
+  reliability isn't what this cadence buys you — speed is); pass
+  `--regression --k N` instead if you want repeats.
 - **Gate**: soft. The caller (a human, or the debounced PostToolUse hook —
   `${CLAUDE_PLUGIN_ROOT}/docs/hooks-example.json` +
   `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example`) proceeds regardless of the
@@ -55,8 +53,8 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   number; a single-run pass rate hides flakiness) is meaningful; computed by
   `${CLAUDE_PLUGIN_ROOT}/scripts/reduce_repeats.py` over the per-case repeated
   verdicts (also emits pass@k and the pass@k−pass^k flakiness gap). `--k` may
-  override, but `--k` < 3 under `--regression` prints a warning that pass^k
-  loses meaning below that, it does not refuse.
+  override with any k ≥ 1 and nothing warns; below 3, pass^k loses meaning,
+  so say so in the report.
 - **Gate**: hard. The CI step exits nonzero on gating failures — this is the
   mode CI runs pre-merge/nightly (SKILL.md §6; the runner itself always exits 0
   on a red suite).
@@ -88,7 +86,7 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   the full tag-filtered set and say so ("no comparable prior run for tag
   `billing` — running all N tagged cases instead of just prior failures"),
   never error.
-- **k**: whatever each case specifies; targeted does not force repeats.
+- **k**: 1 by default; `--k N` overrides. Targeted does not force repeats.
 - **Gate**: soft. This is a developer feedback loop ("did my tool-description
   edit fix what I think it fixed?"), not a merge gate.
 - **When**: immediately after `optimize` (or a manual edit) touches one
@@ -106,7 +104,7 @@ full suite, hard gate) so old invocations without a mode flag keep working.
   for human inspection is `analyze --unseal`, a deliberately inconvenient,
   logged, counted action — see `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md`
   §"`--unseal`").
-- **k**: per-case, unchanged.
+- **k**: 1 by default; `--k N` overrides.
 - **Gate**: **decision**, not pass/fail against a fixed floor. `stats.py`'s
   output on the aggregate paired verdicts (exact Bayesian P(improvement) +
   exact one-sided sign test) **is** the keep/revert call that
@@ -179,6 +177,7 @@ jq -e 'select(.type=="system" and .subtype=="init")
 # regenerated), reads that run's results.json -- the durable file that
 # survives past this one CI invocation -- and exits 0 open / 1 closed / 2 bad
 # input. Stdlib Python: no jq, no yq.
+EVALUP_ROOT=/path/to/the/installed/evalup   # CLAUDE_PLUGIN_ROOT is not set outside a Claude session
 python3 "$EVALUP_ROOT/scripts/gate.py" reports/ --latest --mode regression \
   --max-infra-rate 0.05
 ```

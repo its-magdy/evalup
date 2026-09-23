@@ -88,9 +88,9 @@ commands above are the only checked claim.
 
 - **`validate_cases.py` and `run_cases.py` take JSON, not YAML**, deliberately —
   the YAML→JSON conversion *is* the run's parse, not a second opinion. Read the
-  docstrings before "fixing" that. What changed in 2026-09 is WHO converts:
-  `convert_suite.py`, never the model — a suite re-typed by an LLM is the
-  silent misparse those docstrings refuse, relocated.
+  docstrings before "fixing" that. And `convert_suite.py` does the converting,
+  never the model — a suite re-typed by an LLM is the silent misparse those
+  docstrings refuse, relocated.
 - **`plan.json` is built by `make_plan.py`, never by the model.** Same rule,
   one step later: a plan assembled by hand cost the first live session half
   its tool calls. It refuses `--mode full` because one plan carries one
@@ -150,7 +150,7 @@ Do not reopen one without reading that commit.
 1. **The judged gate is DERIVED.** `judge.status: calibrated` is necessary, not
    sufficient — the `paths.judge_calibration` sidecar must back it, and every
    failure is a reason on `unjudged`, never an exit code.
-2. **`http` no longer carries a case to `pass`.** Rollup rule 5 is non-`http`,
+2. **`http` alone never carries a case to `pass`.** Rollup rule 5 is non-`http`,
    so an all-`unscored` case rolls up `unscored`, never `fail`.
 3. **A series is not a pair.** `run_history.py` keys on `mode` +
    `selecting_split` + the enabled-layer set, and **not** on the app `git_sha`;
