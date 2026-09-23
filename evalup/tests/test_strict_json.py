@@ -57,6 +57,14 @@ class TestStrictJson(unittest.TestCase):
         self.assertIn("is not JSON", error)
         self.assertFalse((self.tmp / "out").exists())
 
+    def test_a_jsonl_row_carrying_one_is_refused_with_its_line_number(self):
+        rows = self.write(
+            "r.jsonl", '{"case_id": "c-1", "verdict": "pass"}\n'
+            '{"case_id": "c-2", "verdict": "pass", "score": NaN}\n')
+        error = self.assert_clean_exit_2("reduce_repeats.py", rows)
+        self.assertIn("is not JSON", error)
+        self.assertIn(":2:", error)
+
     def test_nesting_past_the_recursion_limit_is_not_a_traceback(self):
         suite = self.write("deep.json", "[" * 200_000 + "]" * 200_000)
         self.assert_clean_exit_2(

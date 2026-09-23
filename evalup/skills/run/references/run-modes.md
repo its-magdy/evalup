@@ -12,7 +12,7 @@ taxonomy maps onto the plugin's pre-existing `--smoke` flag.
 | regression | `--regression` (or no mode flag) | cases with `full` in `split` | ≥3, pass^k | hard | pre-merge / nightly |
 | targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | per-case `k` | soft | right after optimizing one surface |
 | holdout | `--holdout` | sealed `holdout` split | per-case `k` | decision | optimizer's keep/revert step |
-| full | `--full` | `full` + `holdout` splits, judged layers forced on | ≥3, pass^k | hard | release validation |
+| full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`), judged layers forced on | ≥3, pass^k | hard | release validation |
 
 No mode flag behaves as `regression` (the pre-existing unqualified default:
 full suite, hard gate) so old invocations without a mode flag keep working.
@@ -131,12 +131,12 @@ full suite, hard gate) so old invocations without a mode flag keep working.
 
 ## `full`
 
-- **Selection**: everything — the `full` **and** `holdout` splits combined. This is
-  the one mode where a holdout look is implied by scope rather than asked
-  for explicitly; it still counts against the same N=5 budget as `--holdout`
-  (see above), and holdout-split cases inside a `--full` run are still
-  reported aggregate-only, never per-case — running `--full` does not weaken
-  the seal.
+- **Selection**: everything — the `full` **and** `holdout` splits, as **two
+  runs**: `regression`, then `holdout`. One plan cannot carry both
+  (`make_plan.py --mode full` refuses, exit 2: every case is labelled with one
+  `selecting_split`). The holdout run counts against the same N=5 budget as any
+  `--holdout` (see above) and is still reported aggregate-only — `full` does
+  not weaken the seal.
 - **k**: ≥3 default, same reasoning as `regression`.
 - **Gate**: hard.
 - **Judged layers**: forced on regardless of mode-for-speed skipping —
@@ -183,13 +183,12 @@ python3 "$EVALUP_ROOT/scripts/gate.py" reports/ --latest --mode regression \
   --max-infra-rate 0.05
 ```
 
-`gate.py` closes on any gating failure (the sealed holdout's aggregate
-included), on a run whose `summary.status` is not `ok` or whose own
-`exit_code` is non-zero — "0 gating failures" from an aborted run is not a
-pass — and on `infra_rate` above the threshold, and lists **every** reason.
+`gate.py` lists **every** reason it closed; the docstring at the top of
+`${CLAUDE_PLUGIN_ROOT}/scripts/gate.py` owns the list of closing conditions (a gating failure is one; so are an aborted run, a run that
+scored nothing, and a run directory that fails `run_cases.py --verify`).
 `--json` prints the same facts for a dashboard. Deterministic-only CI needs no
-`claude -p` at all: `convert_suite.py` → `run_cases.py` → `gate.py` is three
-plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
+`claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
+`gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
 pipeline, runnable).
 
 - `--bare` skips plugin/skill auto-discovery, so the same command produces
@@ -213,6 +212,6 @@ pipeline, runnable).
   kept here as best-effort practice; re-verify against the current Claude
   Code docs when actually wiring this into CI.
 - Note the zero-failure branch (SKILL.md §5) surfaces here as
-  `gating_failures == 0` — a legitimate, common, good outcome, not an edge
-  case the gate script needs to special-case beyond "0 is not greater than
-  0."
+  `gating_failures == 0` — a legitimate, common, good outcome. The one
+  special case is `gate.py`'s own: zero failures over zero scored cases is an
+  absence, not a pass, and closes the gate.

@@ -50,13 +50,16 @@ Usage:
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 
-from _common import add_version_flag, die, load_object, require_range
-
-RUN_ID_RE = re.compile(r"^([a-z]+)-(\d{8}T\d{6}Z)$")
+from _common import (
+    RUN_ID_RE,
+    add_version_flag,
+    die,
+    load_object,
+    require_range,
+)
 
 
 def latest_run(reports_dir, mode):
@@ -64,7 +67,7 @@ def latest_run(reports_dir, mode):
         die(f"bad input: {reports_dir}: not a directory")
     runs = []
     for name in os.listdir(reports_dir):
-        match = RUN_ID_RE.match(name)
+        match = RUN_ID_RE.fullmatch(name)
         if not match or (mode and match.group(1) != mode):
             continue
         if os.path.isfile(os.path.join(reports_dir, name, "results.json")):
@@ -77,6 +80,8 @@ def latest_run(reports_dir, mode):
 
 
 REQUIRED_COUNTS = ("n", "passes", "failures", "gating_failures")
+# May be absent (an older run), but never a string or a float.
+OPTIONAL_COUNTS = ("unscored", "skipped", "scorer_errors")
 
 
 def count(summary, key):
@@ -92,9 +97,9 @@ def malformed_counts(summary):
     (an older run) but may not be a string or a float either.
     """
     bad = []
-    for key in REQUIRED_COUNTS + ("unscored", "skipped", "scorer_errors"):
+    for key in REQUIRED_COUNTS + OPTIONAL_COUNTS:
         value = summary.get(key)
-        if value is None and key not in REQUIRED_COUNTS:
+        if value is None and key in OPTIONAL_COUNTS:
             continue
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             bad.append(f"summary.{key} is {value!r}, not a count")
@@ -115,10 +120,10 @@ def verify_reasons(run_dir):
         return [f"run_cases.py --verify could not check {run_dir}: {exc}"]
     if proc.returncode == 0:
         return []
-    items = payload.get("missing_artifacts") if isinstance(payload, dict) \
-        else None
+    obj = payload if isinstance(payload, dict) else {}
+    items = obj.get("missing_artifacts")
     detail = "; ".join(map(str, items)) if items else str(
-        payload.get("error") if isinstance(payload, dict) else payload)
+        obj.get("error") if obj else payload)
     return [f"the run directory fails run_cases.py --verify: {detail}"]
 
 
@@ -231,7 +236,7 @@ def render(facts, reasons):
                      + ", ".join(map(str, facts["unscorable_layers"])))
     if facts["unjudged"]:
         lines.append(f"  judged layers: unjudged ({facts['unjudged']})")
-    if not facts.get("verified", True):
+    if not facts["verified"]:
         lines.append("  artifacts NOT verified (--no-verify): this verdict "
                      "rests on results.json alone")
     lines.extend(f"  gate closed: {reason}" for reason in reasons)

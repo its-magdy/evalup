@@ -26,27 +26,31 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 772 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 774 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 ## State
 
-- **`main`** holds the remediation wave, the worked example, the rename and the
-  doc cleanup. Branch **`audit-fixes-2026-09`** holds the 2026-09-20 and
-  2026-09-21 audits' fixes, **committed, not merged** (`evalup/CHANGELOG.md`
-  lists them). Nothing is pushed; **there is still no remote**, so nothing here
+- **`main`** holds everything: the remediation wave, the worked example, the
+  rename, the doc cleanup and all three September audits' fixes
+  (`evalup/CHANGELOG.md` lists them; merged 2026-09-24). It is the only
+  branch. Nothing is pushed; **there is still no remote**, so nothing here
   has ever been checked by CI.
-- **Health:** 772 tests pass on 3.14; 764 + 8 skips + 216 subtests on the 3.9
-  floor (all 8 skips need PyYAML: 772 pass with `--with pyyaml`), ruff clean,
+- **Health:** 774 tests pass on 3.14; 766 + 8 skips on the 3.9 floor (all 8
+  skips need PyYAML: 774 pass, 224 subtests, with `--with pyyaml`), ruff clean,
   20 CLIs answer `--help`, `claude plugin validate` clean for the plugin and
-  the root marketplace. Verified 2026-09-21.
-- **A live session works** (2026-09-21, headless `/evalup:start` on an unseen
-  app: first scored run in 14 min, planted flaws found) and `allowed-tools`
-  was verified live to pre-approve the plugin's scripts. **Not yet re-run since
-  `make_plan.py` landed** — do that before publishing; it is the measure of
-  whether the first session got shorter.
+  the root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-24.
+- **A live session works**, re-run twice 2026-09-21 after `make_plan.py`:
+  headless `/evalup:start` on an unseen toy app reached a scored run in 4.5 min
+  (was 14), 3/3 planted flaws found, no script failures. That run needed
+  `--dangerously-skip-permissions`; after the permission fixes (uncommitted) a
+  second run completed under `--permission-mode acceptEdits` + `Bash(curl *)`
+  alone, 4 harmless denials. **Known limit, by platform design:** a skill's
+  pre-approvals last one turn, so a headless `--resume` turn is denied — put
+  the whole request in one prompt (README §Permissions). Toy app, single
+  samples; not yet tried on a real LLM app.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
@@ -54,8 +58,13 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   A cursory 2026-09-20 web check found PyPI, npm and the GitHub handle free,
   but **a live French SaaS trades as "EvalUp" (evalup.fr)** and `evalup.com` is
   parked. No trademark register was searched — do INPI/EUIPO/USPTO before any
-  branded launch. Marketplaces already carry other eval plugins (`evalloop`,
-  `evalview`), so the name is also a discoverability question.
+  branded launch. The neighbour that matters is **`hamelsmu/evals-skills`**
+  (checked via the GitHub API 2026-09-21: 1.7k stars, 7 Claude Code skills —
+  error analysis, synthetic data, judge prompts, evaluator validation, RAG,
+  review UI, eval audit). It overlaps evalup's methodology skills and ships no
+  runner, scorers, statistics or holdout — which is where evalup is alone.
+  (`evalloop`/`evalview` exist only as tiny GitHub projects; an earlier note
+  calling them marketplace plugins was never confirmed.)
 - **History was rewritten 2026-09-20** to carry a personal author email rather
   than a work one. Every SHA therefore changed; SHAs quoted in commit messages
   written before that date refer to the pre-rewrite history and will not

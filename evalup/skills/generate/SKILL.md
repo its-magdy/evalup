@@ -17,6 +17,14 @@ allowed-tools: >-
 > placeholder literally (it is only substituted here), so read every
 > `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
 > quote it in shell commands.
+>
+> **Calling the plugin.** Open its files with Read — never `cd` into the
+> plugin or `cat` them. Run each script as its own Bash call, spelled
+> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
+> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
+> that literal form only, and it lapses when the user next replies — a prompt
+> after that is expected, not a fault. If a call is **denied**, stop and tell
+> the user which permission is missing; never work around it by hand.
 
 Arguments, when the user typed any: `$ARGUMENTS`
 
@@ -121,7 +129,9 @@ still spend suite slots, so hold them to §1's ratio and floor.
 ## 3. Targeted review — 15 minutes, not 100 cases
 Never ask the user to review everything; they won't, and silent label errors
 become a permanent noise floor. Send only three kinds: hard-negative and OOS
-labels (quarantined from scored runs until reviewed), cases the generator
+labels (`review.status: quarantined` with `gating: false` — the case still
+runs and is reported, but cannot close the gate until a human accepts it and
+flips `gating`; no script drops it for you), cases the generator
 marked uncertain, and cases a cheap probe run shows the app disagreeing with.
 Present each as the message, the expected label, and a one-line why — accept /
 fix / delete — and write the review status per case.
@@ -167,6 +177,20 @@ error/warning line. `--capabilities` is required — pass `--no-capabilities`
 only with genuinely no profile, and expect `capabilities_unchecked`.
 `--manifest` catches a stale `dataset.yaml`, so re-run it after ANY later
 hand-edit to a case file.
+
+`datasets/dataset.yaml` is the suite's hand-written summary, and it is
+optional (absent → `dataset_version` 1, nothing cross-checked). Every key is
+optional too; the ones the scripts read are exactly these, and each count is
+checked against the case files:
+
+```yaml
+dataset_version: 1          # int; make_plan.py pins it into the run manifest
+cases: 12                   # total case files
+splits: { full: 12, smoke: 8 }
+coverage_grid:
+  by_unit:
+    billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
+```
 
 ## 5. Suite adequacy (periodic, not per-generate)
 Offer mutation testing of the suite: inject 3–5 deliberate bugs into a COPY of

@@ -70,6 +70,7 @@ from datetime import datetime, timezone
 
 from _common import (
     HARNESS_VERSION,
+    RUN_ID_RE,
     BadJSON,
     add_version_flag,
     loads_strict,
@@ -164,7 +165,6 @@ def touches_seal(plan):
 
 
 RETRY_AFTER_CAP_S = 60
-RUN_ID_RE = re.compile(r"^[a-z]+-\d{8}T\d{6}Z$")
 ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # The adapter fields whose resolved text is sent as-is AND recorded per case
 # (request.json's body and url, the manifest's url). Headers are not here: they
@@ -369,7 +369,7 @@ def validate_plan(plan, out_dir):
             PLAN_VERSION, plan["plan_version"]))
 
     run_id = plan["run_id"]
-    if not isinstance(run_id, str) or not RUN_ID_RE.match(run_id):
+    if not isinstance(run_id, str) or not RUN_ID_RE.fullmatch(run_id):
         bad_input("run_id must match <mode>-<UTC YYYYMMDDTHHMMSSZ>, got "
                   f"{run_id!r}")
     # The directory name IS the run id everywhere else in the harness (the CI

@@ -173,24 +173,28 @@ class TestGateVerifiesTheRunDirectory(TempDirTest):
     run_cases.py --verify (2026-09-21 audit: --verify caught a doctored run and
     gate.py said PASS over the same directory)."""
 
-    def real_run(self):
+    @classmethod
+    def setUpClass(cls):
+        # One demo run serves the class (it is a whole quickstart run); the
+        # test that doctors it works on a copy.
+        super().setUpClass()
         proc = subprocess.run(
             [sys.executable, str(QUICKSTART / "demo.py"), "--keep"],
             capture_output=True, text=True, timeout=120)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
         line = next(ln for ln in proc.stdout.splitlines()
                     if ln.startswith("run directory:"))
-        run_dir = pathlib.Path(line.split(":", 1)[1].strip())
-        self.addCleanup(shutil.rmtree, run_dir.parents[2], True)
-        return run_dir
+        cls.run_dir = pathlib.Path(line.split(":", 1)[1].strip())
+        cls.addClassCleanup(shutil.rmtree, cls.run_dir.parents[2], True)
 
     def test_a_real_run_gates_green_with_verification_on(self):
-        rc, out, err = run("gate.py", str(self.real_run()))
+        rc, out, err = run("gate.py", str(self.run_dir))
         self.assertEqual(rc, 0, out + err)
         self.assertNotIn("NOT verified", out)
 
     def test_a_verdict_that_disagrees_with_results_json_closes_the_gate(self):
-        run_dir = self.real_run()
+        run_dir = self.tmp / self.run_dir.name
+        shutil.copytree(self.run_dir, run_dir)
         verdict_path = next((run_dir / "cases").iterdir()) / "verdict.json"
         verdict = json.loads(verdict_path.read_text(encoding="utf-8"))
         verdict["verdict"] = "fail"

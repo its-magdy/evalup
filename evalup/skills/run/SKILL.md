@@ -17,6 +17,14 @@ allowed-tools: >-
 > placeholder literally (it is only substituted here), so read every
 > `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
 > quote it in shell commands.
+>
+> **Calling the plugin.** Open its files with Read — never `cd` into the
+> plugin or `cat` them. Run each script as its own Bash call, spelled
+> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
+> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
+> that literal form only, and it lapses when the user next replies — a prompt
+> after that is expected, not a fault. If a call is **denied**, stop and tell
+> the user which permission is missing; never work around it by hand.
 
 `${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py` executes the run;
 `${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` is its spec. It owns pre-flight,
@@ -169,6 +177,12 @@ open Claude Code. Never hand-write HTML.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
   redacted: reports are written to be shared and committed.
+- **Count cases the way `results.json` does, and say which count you mean.**
+  `summary.n` is the GRADED cases; canaries are counted apart under
+  `summary.canaries`, and `summary.attempted` is every case that was not
+  skipped, canaries included. "6 test cases and 2 canaries ran; 1 failed" — never
+  "8 ran" beside an `n` of 6. A failure on a `gating: false` case is reported
+  as a failure that did not close the gate.
 - **Page one = the top-3 failure clusters**, each with 1–2 expected-vs-actual
   excerpts, the implicated surface (router prompt, tool description X, missing
   OOS route) and an effort tag. That narrative is what the LLM here is for.

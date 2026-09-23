@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-772 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
+774 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
 real HTTP server per test, and one test kills a runner mid-run.
 
 ```sh
@@ -31,9 +31,9 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 764 passed, 8 skipped, 216 subtests.
+whatever `python3` happens to be. Expect 766 passed, 8 skipped, 221 subtests.
 All eight skips need PyYAML (seven are `convert_suite.py`'s, one is the
-example's fidelity check); add `--with pyyaml` and they run (772 passed, none
+example's fidelity check); add `--with pyyaml` and they run (774 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -105,7 +105,14 @@ commands above are the only checked claim.
 - **Skills invoke scripts as `python3 <path>` and pre-approve them in
   `allowed-tools`, in both the quoted and unquoted spelling.**
   `tests/test_plugin_layout.py` pins it; a live session is what found that the
-  unquoted rule alone matches nothing.
+  unquoted rule alone matches nothing. The rule matches ONE literal command:
+  a `cd … &&` prefix or a shell variable holding the path falls outside it, so
+  every skill's preamble forbids both. The grant also lapses at the user's
+  next message (documented behaviour, confirmed live).
+- **A skill that loads another lists it as `Skill(evalup:<name>)`** in its
+  `allowed-tools` — loading a skill that has its own `allowed-tools` needs
+  approval, and headless a prompt is a silent denial. Pinned by the same test.
+  `optimize` is never listed; only the user launches it.
 - **`convert_suite.py` is the only script that may import outside the stdlib**
   (PyYAML, lazily, with an exit-2 message when absent). It is an authoring
   step; the runner and every scorer still import nothing. Do not let a second

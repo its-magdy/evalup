@@ -13,6 +13,7 @@ description: >-
   about evalup, rather than a request to do eval work.
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Skill(evalup:start)
 ---
 
 # evalup — Help
@@ -21,6 +22,14 @@ allowed-tools: >-
 > placeholder literally (it is only substituted here), so read every
 > `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
 > quote it in shell commands.
+>
+> **Calling the plugin.** Open its files with Read — never `cd` into the
+> plugin or `cat` them. Run each script as its own Bash call, spelled
+> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
+> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
+> that literal form only, and it lapses when the user next replies — a prompt
+> after that is expected, not a fault. If a call is **denied**, stop and tell
+> the user which permission is missing; never work around it by hand.
 
 You are a router, not an explainer. Match the question to a row, read the
 document that row names, and answer out of that document. This file holds no

@@ -243,8 +243,7 @@ def _load_dir(p, run_path, pattern):
             # never put on a review page. The runner marks it on the verdict,
             # so it is dropped here instead of by a hand-staged copy.
             sealed = [d for d in found if d.get("holdout") is True]
-            if sealed:
-                holdout_dropped += len(sealed)
+            holdout_dropped += len(sealed)
             found = [from_case_dir(d, f.parent) for d in found
                      if d.get("holdout") is not True]
             if sealed and not found:

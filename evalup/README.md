@@ -48,7 +48,8 @@ cases, runs them, and shows what failed and where. It does not interview you or
 ask to change your source first.
 
 Everything rigorous is a later step you ask for: tracing (tool-use and cost
-layers), a fuller suite with a sealed holdout (regression gating), judge
+layers), a fuller suite with a sealed holdout — test cases set aside and never
+looked at while you tune, so the final check is honest — (regression gating), judge
 calibration (judged answer quality), and the optimizer. `/evalup:start` always
 tells you what is unlocked, what is locked, and what unlocking costs.
 
@@ -57,6 +58,27 @@ tells you what is unlocked, what is locked, and what unlocking costs.
 your app actually did — no setup at all.
 
 Lost at any point: `/evalup:help`.
+
+### Permissions
+
+The skills pre-approve two things and nothing else: running the plugin's own
+scripts (`python3 <plugin>/scripts/*`) and `start`/`help` loading the skill
+they route to. Everything that touches *your* side still asks: writing
+`.evalup/`, sending a request to your app, editing a prompt. That is
+deliberate. Two things worth knowing:
+
+- A skill's pre-approval lasts until your next message, so after you answer
+  a question the next script run may prompt once. "Yes, and don't ask again"
+  settles it for the project.
+- **Headless (`claude -p`, CI): a prompt nobody answers is a denial.** Allow
+  what the run needs up front — `--permission-mode acceptEdits` plus
+  `--allowedTools` for the script rule above and for reaching your app — or
+  use the scripts directly (`docs/workflow.md`), which need no Claude at all.
+  Put everything in the one prompt (`/evalup:start <app> — no transcripts,
+  don't ask, run the first session`): the pre-approvals belong to the turn
+  that invoked the skill, so a second `--resume` turn starts without them.
+  The skills stop and say so when a call is denied rather than working
+  around it.
 
 ## Commands
 
@@ -138,7 +160,8 @@ Layered, so a failure tells you *which prompt to fix*:
 The plugin is reusable methodology. Everything about *your* app lives in
 `your-app/.evalup/` (adapter, profile, datasets, and `reports/` — one
 `reports/<run-id>/` folder per run with its manifest, per-case raw material,
-and report, plus `reports/baseline.json` pointing at the pinned baseline
+and results (`/evalup:run` adds the written `report.md`/`.html`; a scripts-only
+run has `results.json` and the review page), plus `reports/baseline.json` pointing at the pinned baseline
 run) — plain YAML/Markdown/JSON, versioned with your app, readable by
 teammates who never open Claude Code.
 

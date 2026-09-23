@@ -49,13 +49,14 @@ import argparse
 import datetime
 import json
 import os
-import re
 import subprocess
 
 from _common import (
     HARNESS_VERSION,
+    RUN_ID_RE,
     add_version_flag,
     die,
+    load_jsonl,
     load_object,
     write_output,
 )
@@ -69,7 +70,6 @@ MODES = {
 }
 DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
 DEFAULT_CALIBRATION = "judge/calibration.json"
-RUN_ID_RE = re.compile(r"^[a-z]+-\d{8}T\d{6}Z$")
 
 
 def select(cases, split, tag):
@@ -94,18 +94,8 @@ def failing_ids(run_dir, dataset_version):
     if manifest.get("dataset_version") != dataset_version \
             or manifest.get("harness_version") != HARNESS_VERSION:
         return None
-    ids = set()
-    path = os.path.join(run_dir, "verdicts.jsonl")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                if line.strip():
-                    row = json.loads(line)
-                    if isinstance(row, dict) and row.get("verdict") == "fail":
-                        ids.add(row.get("case_id"))
-    except (OSError, ValueError) as exc:
-        die(f"bad input: {path}: {exc}")
-    return ids
+    rows = load_jsonl(os.path.join(run_dir, "verdicts.jsonl"))
+    return {row.get("case_id") for row in rows if row.get("verdict") == "fail"}
 
 
 def git_state(repo):
@@ -193,7 +183,7 @@ def main():
             die("--k does not apply to --mode smoke (k is 1 by definition); "
                 "use --mode regression --k N for repeats")
         k = a.k
-    if a.run_id and not RUN_ID_RE.match(a.run_id):
+    if a.run_id and not RUN_ID_RE.fullmatch(a.run_id):
         die(f"--run-id must match <mode>-<YYYYMMDDTHHMMSSZ>, got {a.run_id!r}")
     if not os.path.isdir(a.state_dir):
         die(f"bad input: {a.state_dir}: not a directory")
@@ -254,7 +244,7 @@ def main():
         calibration = DEFAULT_CALIBRATION
 
     adapter = converted["adapter"]
-    app = dict((adapter.get("app") or {}) if isinstance(adapter, dict) else {})
+    app = (adapter.get("app") or {}) if isinstance(adapter, dict) else {}
     repo = app.get("repo")
     repo_path = repo if isinstance(repo, str) and os.path.isabs(repo) \
         else os.path.normpath(os.path.join(state_dir, repo or "."))

@@ -238,6 +238,9 @@ def run_bounded(fn):
 
 
 CASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+# <mode>-<YYYYMMDDTHHMMSSZ>: run_cases.py mints it, make_plan.py accepts it,
+# gate.py --latest parses it. Use fullmatch; the groups are (mode, stamp).
+RUN_ID_RE = re.compile(r"([a-z]+)-(\d{8}T\d{6}Z)")
 
 
 def unsafe_case_id(case_id):
@@ -368,7 +371,7 @@ def load_json(path, on_error=None, strict=True):
     try:
         text = load_text(path, on_error=fail)
         return loads_strict(text) if strict else json.loads(text)
-    except (BadJSON, ValueError, RecursionError) as e:
+    except (ValueError, RecursionError) as e:
         # The path, not just the exception: JSONDecodeError carries no filename,
         # so a directory scan reported "Expecting value: line 1 column 1"
         # without naming which of its files was bad.
@@ -433,8 +436,8 @@ def load_jsonl(path, unique_key=None, required_keys=()):
         if not line:
             continue
         try:
-            row = json.loads(line)
-        except json.JSONDecodeError as e:
+            row = loads_strict(line)
+        except BadJSON as e:
             die(f"{path}:{lineno}: {e}")
         if not isinstance(row, dict):
             die(f"{path}:{lineno}: expected a JSON object, got "

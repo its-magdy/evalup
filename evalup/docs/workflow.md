@@ -88,7 +88,7 @@ for your backlog instead of being silently attempted.
 - Release habit worth copying from industry: a launch is validated by a
   monitoring window on real traffic (days–weeks), not by the merge-time run.
 - CI: run the deterministic layers on PRs with plain scripts, no Claude
-  needed — `convert_suite.py` → `run_cases.py` → `gate.py` (exit 0 open / 1
+  needed — `convert_suite.py` → `make_plan.py` → `run_cases.py` → `gate.py` (exit 0 open / 1
   closed; run-modes.md "Headless/CI gate"); judged layers nightly; gate on absolute floor + statistical delta
   vs the rolling baseline.
 

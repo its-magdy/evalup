@@ -50,7 +50,8 @@ Rules:
    (no route targets, nothing to route).
 3. Flag your uncertainty. Any case where you are not sure of the expected
    label gets `review.status: pending` and a note saying why. Hard-negative
-   and OOS cases are ALWAYS `quarantined` pending human review.
+   and OOS cases are ALWAYS `quarantined` pending human review, and carry
+   `gating: false` until then — the case still runs; it cannot close the gate.
    **You may never write `review.status: accepted`.** That value means a
    human looked; you are not one. Everything you emit is `pending` or
    `quarantined`, and `review.by` stays null for a human to fill in.

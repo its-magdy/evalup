@@ -113,6 +113,22 @@ class TestPluginLayout(unittest.TestCase):
                               block)
                 self.assertNotRegex(block, r"allowed-tools:.*\bBash\b(?!\()")
 
+    def test_a_skill_that_loads_another_pre_approves_it(self):
+        # Loading a skill that carries its own `allowed-tools` needs approval.
+        # Headless, that is a silent denial: `start` could not load `discover`
+        # and carried on by reading the file by hand (live test, 2026-09-21).
+        # A `Skill(evalup:<name>)` rule on the loader is what was shown to fix
+        # it. `optimize` is never listed: only the user may launch it.
+        loads = {"start": ("discover", "generate", "run", "analyze"),
+                 "help": ("start",)}
+        for loader, loaded in loads.items():
+            block = (ROOT / "skills" / loader / "SKILL.md").read_text(
+                encoding="utf-8").split("\n---\n", 1)[0]
+            for name in loaded:
+                with self.subTest(loader=loader, loaded=name):
+                    self.assertIn(f"Skill(evalup:{name})", block)
+            self.assertNotIn("Skill(evalup:optimize)", block)
+
 
 if __name__ == "__main__":
     unittest.main()

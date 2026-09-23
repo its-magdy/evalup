@@ -565,10 +565,12 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   "case has no non-empty string `id`; the id is what every "
                   "per-case report, baseline diff, and metamorphic parent "
                   "reference keys on")
-    elif unsafe_case_id(case_id):
-        rep.error(label, "unsafe_id",
-                  f"id {unsafe_case_id(case_id)}; run_cases.py refuses the "
-                  "whole plan over it (exit 2)")
+    else:
+        unsafe = unsafe_case_id(case_id)
+        if unsafe:
+            rep.error(label, "unsafe_id",
+                      f"id {unsafe}; run_cases.py refuses the whole plan "
+                      "over it (exit 2)")
 
     splits = case.get("split")
     if splits is None or splits == []:

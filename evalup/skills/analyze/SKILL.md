@@ -19,6 +19,14 @@ allowed-tools: >-
 > placeholder literally (it is only substituted here), so read every
 > `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
 > quote it in shell commands.
+>
+> **Calling the plugin.** Open its files with Read — never `cd` into the
+> plugin or `cat` them. Run each script as its own Bash call, spelled
+> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
+> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
+> that literal form only, and it lapses when the user next replies — a prompt
+> after that is expected, not a fault. If a call is **denied**, stop and tell
+> the user which permission is missing; never work around it by hand.
 
 Every branch here reads a run and edits the dataset. Four documents own what
 they name, and this file never restates their rules:
@@ -83,9 +91,10 @@ label is wrong. Label corrections feed back to the dataset (bump
 For a hands-on look, build the viewer:
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
 — a run directory is recognized and its `cases/*/verdict.json` records are
-read without a flag (`--glob` is for any other layout). On a
-`--full` or `--holdout` run, stage a filtered copy that excludes the sealed
-ids instead of pointing it at `cases/`. Both, and why: annotation-ux.md
+read without a flag (`--glob` is for any other layout). Pointed at a run
+directory the viewer leaves every sealed holdout case off the page itself, so
+never stage a filtered copy by hand — and never `--glob` a `--holdout` run's
+`cases/`, which bypasses that filter. Both, and why: annotation-ux.md
 §"Which files it reads", worth reading before the first invocation. Its
 §"Theoretical-saturation stopping rule" owns the cadence — ≥100 traces, and
 stop a sitting after ~20 that add nothing. `--label` runs on that same rule.

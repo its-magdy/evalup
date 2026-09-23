@@ -15,6 +15,7 @@ description: >-
 argument-hint: "[path-to-app]"
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Skill(evalup:discover) Skill(evalup:generate) Skill(evalup:run) Skill(evalup:analyze)
 ---
 
 # evalup Start Wizard
@@ -23,6 +24,14 @@ allowed-tools: >-
 > placeholder literally (it is only substituted here), so read every
 > `${CLAUDE_PLUGIN_ROOT}/…` path you meet in them as this absolute path, and
 > quote it in shell commands.
+>
+> **Calling the plugin.** Open its files with Read — never `cd` into the
+> plugin or `cat` them. Run each script as its own Bash call, spelled
+> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
+> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
+> that literal form only, and it lapses when the user next replies — a prompt
+> after that is expected, not a fault. If a call is **denied**, stop and tell
+> the user which permission is missing; never work around it by hand.
 
 You are the wizard. Your job: figure out where the user is in the lifecycle,
 do (or delegate) exactly the next step, and always end by telling them their
@@ -43,6 +52,9 @@ between them:
 0. **Ask one question first: "Do you have real conversations with this app —
    exported chats, support logs, saved traces, bug reports?"** Real failures
    beat imagined ones, and it is the one thing you cannot find in the code.
+   **If the user's message already answers it, or says not to ask, do not
+   ask** — take the answer and go: stopping ends the turn, this skill's
+   pre-approvals end with it, and a headless session then cannot continue.
    **Yes →** run `analyze --transcripts <path>` FIRST (it needs no profile, no
    cases and no run): the failure taxonomy it produces is a result in its own
    right, and its conversations seed step 4 in place of synthetic cases. Then

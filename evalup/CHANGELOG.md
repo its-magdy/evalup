@@ -182,6 +182,40 @@ reproduced before it was fixed, and each has a test.
   data; `trace-analyzer` lost `Bash`; the judge's "temperature 0" claim, which
   nothing can set for a subagent, is gone.
 
+### Fixed — the 2026-09-21 shape audit
+
+A third audit asked whether the plugin's *shape* was right, and re-ran a live
+headless first session (unseen app to a scored run in 4.5 minutes, three planted
+flaws found). Its verdict was to keep the seven skills; these are the defects it
+reproduced.
+
+- **`start` could not load `discover` without a prompt, and headless that was a
+  silent denial** — it carried on by reading the skill file by hand. A skill
+  that carries its own `allowed-tools` needs approval to load; `start` and
+  `help` now pre-approve the skills they route to with `Skill(evalup:<name>)`
+  (shown live to work). Never `optimize`.
+- **Every skill now says how to call the plugin**: Read for its files, one
+  script per Bash call with the path written out. The live session `cd`-ed into
+  the plugin, chained with `&&` and held the scripts path in a shell variable —
+  none of which the pre-approval can match — and a denied call is now a stop,
+  not something to work around.
+- **`analyze` told the model to stage a filtered copy of a holdout run by
+  hand**, contradicting its own reference: the viewer already drops sealed
+  cases, and a hand-built glob is the one way past that filter.
+- **"Quarantined from scored runs" was not true** — no script drops a
+  quarantined case. `generate` and the generator agent now say what the
+  validator enforces: `gating: false` until a human accepts it; it still runs.
+- **`dataset.yaml` had no documented format** — the live session read
+  `validate_cases.py` to find one. `generate` §4 now lists the keys the scripts
+  read.
+- **A report said "8 ran, 2 failed" beside `summary.n: 6`.** `run` §5 now says
+  which count is which (graded, canaries, attempted).
+- **`TestResume` raced its own kill** and failed under load: the derived files
+  are rebuilt just after the `verdict.json` the test waits on.
+- The README gained a Permissions section (what is pre-approved, why a prompt
+  can return mid-session, what headless needs) and no longer implies a
+  scripts-only run writes `report.md`.
+
 ### Changed — breaking, if you used this repo before 2026-09-20
 
 - **The plugin was renamed `agent-eval` → `evalup`.** Commands are now
