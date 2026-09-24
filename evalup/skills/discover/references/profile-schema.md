@@ -46,7 +46,6 @@ route_targets:                   # the things the app dispatches between, if any
                                  # (router_executor), nodes (workflow), sub-agents
                                  # (multi_agent). OMIT entirely for single_llm and
                                  # tool_agent — no dispatch step, routing is N/A.
-                                 # (legacy alias: `domains:` — still read.)
   - name: billing               # e.g. a domain, for a router_executor app
     description: "...",
     tools: [get_invoice, list_invoices]
