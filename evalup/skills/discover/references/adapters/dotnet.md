@@ -6,9 +6,9 @@ here is special-cased into core: every scorer, the judge, `stats.py`, and the
 skills consume only the normalized capability values the contract defines
 (invoke, traces, content-capture, optimizable surfaces, seed/reset/snapshot,
 oracle, tool-catalog+side-effects, access-level+safe-to-attack). A Python
-adapter (FastAPI/Flask, OTel SDK auto-instrumentation honoring
-`OTEL_..._CAPTURE_MESSAGE_CONTENT`, pytest fixtures / testcontainers-python,
-prompts in `.py`/`.jinja`/`.yaml` files) fills the exact same table with
+adapter (FastAPI/Flask, OTel SDK auto-instrumentation, pytest fixtures /
+testcontainers-python, prompts in `.py`/`.jinja`/`.yaml` files) fills the
+exact same table with
 different mechanics and nothing outside this file changes. Treat this doc as
 the template to clone when writing the second adapter, not as .NET-specific
 scope creep in the tool itself.
@@ -52,27 +52,41 @@ scope creep in the tool itself.
 
 ## Traces (content capture, tool spans, correlation)
 
+The three bullets below were verified on 2026-09-24 against
+`Microsoft.Extensions.AI` 10.10.0 (released 2026-09-14) and the
+`dotnet/extensions` sources at tagged releases; the version numbers say when
+each behaviour arrived, so an app pinned to an older package reads differently.
+
 - **Modern path:** `Microsoft.Extensions.AI` `ChatClientBuilder` →
-  `.UseFunctionInvocation()` → `.UseOpenTelemetry(sourceName, c =>
-  c.EnableSensitiveData = true)`, registered with
-  `.AddSource("RefApp.Chat")`.
-- **`EnableSensitiveData` is the .NET content-capture toggle — it is a CODE
-  FLAG, not the `OTEL_..._CAPTURE_MESSAGE_CONTENT` env var.** .NET does not
-  honor that env var at all. If you want an environment-driven toggle (the
-  contract's "content capture: on/off"), read your own env var at startup and
-  set `EnableSensitiveData` from it — this is app code you write once, not
-  something the harness can flip from outside.
-- **Gotcha — tool calls are NOT auto-spanned.** The built-in
-  `OpenTelemetryChatClient` only emits the `chat` span. Wrap every
-  `AIFunction.InvokeAsync` call with your own
-  `ActivitySource.StartActivity("execute_tool " + name)` +
-  `gen_ai.tool.name` / `gen_ai.tool.call.id` tags to get real `execute_tool`
-  spans. Without this wrapper, trajectory/tool-selection/args layers have
-  nothing to score — this is the single most common reason a .NET target
-  looks trace-less on first discovery. (Semantic Kernel auto-spans function
-  executions under source name `"Microsoft.SemanticKernel"`; its sensitive
-  data gate is the `ILogger` `Trace` level, not a flag — different knob, same
-  concept.)
+  `.UseFunctionInvocation()` → `.UseOpenTelemetry(sourceName: "RefApp.Chat",
+  configure: c => c.EnableSensitiveData = true)`, with the tracer provider
+  subscribed via `.AddSource("RefApp.Chat")`. Name the arguments:
+  `UseOpenTelemetry`'s first positional parameter is an `ILoggerFactory`, so
+  passing the source name positionally does not compile. Keep this builder
+  order — `FunctionInvokingChatClient` takes its `ActivitySource` from the
+  client inside it, so `UseOpenTelemetry` after `UseFunctionInvocation` is
+  what gives the tool spans below a source; reverse it and they vanish.
+- **Content capture: `EnableSensitiveData`, which since 9.10.0 (2025-10)
+  defaults from `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`.** Only
+  the literal value `true` is honored, it is read once at startup, and setting
+  the property in code overrides it. So the contract's "content capture:
+  on/off" can be an environment toggle after all — provided nothing in the
+  app sets the property explicitly. On 9.9.0 or earlier the env var is
+  ignored and the property is the only switch.
+- **Tool spans come built in since 9.5.0 (2025-05).** `OpenTelemetryChatClient`
+  itself emits only the `chat` span, but `FunctionInvokingChatClient` starts
+  an `execute_tool <name>` activity per call, tagged `gen_ai.operation.name`,
+  `gen_ai.tool.name` and `gen_ai.tool.call.id` (arguments and result only
+  under `EnableSensitiveData`), and since 9.10.0 wraps the loop in an
+  `orchestrate_tools` span. Do not add your own `execute_tool` wrapper on
+  those versions — it duplicates every span. A .NET target that still looks
+  trace-less on first discovery usually has the builder order above reversed,
+  a source name that `AddSource` does not match, or a pre-9.5.0 package.
+  (Semantic Kernel auto-spans function executions under source name
+  `"Microsoft.SemanticKernel"`; function arguments/results are gated by the
+  `ILogger` `Trace` level and model prompts/completions by the
+  `Microsoft.SemanticKernel.Experimental.GenAI.EnableOTelDiagnosticsSensitive`
+  AppContext switch — different knobs, same concept.)
 - **Trace-id echo:** middleware setting
   `Response.Headers["X-Trace-Id"] = Activity.Current?.TraceId.ToString()` in
   `OnStarting`. Do **not** use `HttpContext.TraceIdentifier` — it is an
@@ -88,7 +102,7 @@ scope creep in the tool itself.
   traces:
     source: otlp-file            # or your OTel collector's export target
     location: ${TRACE_URL_OR_PATH}
-    convention: gen_ai            # native once execute_tool spans are wrapped in
+    convention: gen_ai            # native: MEAI >= 9.5.0 emits execute_tool spans
     correlation: response-field:trace_id   # the X-Trace-Id echo above
   ```
 
