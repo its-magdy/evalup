@@ -64,7 +64,7 @@ run_cases.py --verify <reports/<run-id>>
 | `--out DIR` | the run directory to write. Must equal `<state>/reports/<run_id>` where `run_id` is the plan's. Required except with `--verify`. |
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
-| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.4) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var, an old-layout state dir, or a malformed body template. |
+| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
 | `--version` | `evalup harness <HARNESS_VERSION>`, via `_common.add_version_flag`, same string as every scorer. |
 
@@ -215,11 +215,7 @@ beyond the health check.
    would be a lie about the state of the world. The callable owns its own
    timeout; `manifest.invocation.timeout_enforced` records `false` so no reader
    has to infer it.
-3. **Old-layout check.** If `<state>/reports/baseline.json` is absent but a
-   sibling `baselines/` or `runs/` exists, exit 3 with the migration message
-   from `run/SKILL.md` §4. This check lives here, not in the skill, because it
-   must fire before spend. (The field-test state dir is exactly this case.)
-4. **Health check**: one trivial request through the adapter. With no declared
+3. **Health check**: one trivial request through the adapter. With no declared
    `invocation.health_check`, this is a `GET` of `base_url` and **any** response
    counts as reachable — including a 404. The question here is "is the host
    up", and inventing a plausible API call instead would both spend money and
@@ -229,7 +225,7 @@ beyond the health check.
    status outside `expect_status` is exit 3. In `function` mode the health
    check is the entrypoint import, which is also why an unimportable entrypoint
    is exit 3 with nothing billed rather than N identical infra errors.
-5. **Trace branch**, off `adapter.traces`. The queryable set in v1 is
+4. **Trace branch**, off `adapter.traces`. The queryable set in v1 is
    **`otlp-file` only**; `jaeger`, `tempo` and `clickhouse` each need their own
    client and exit 3 with
    `runner v1 queries traces.source: otlp-file only (got: 'jaeger'); declare
@@ -247,17 +243,17 @@ beyond the health check.
      whole run. Record `traces.collected: false` plus `disabled_layers` in the
      manifest. Raw non-`gen_ai` spans are never passed to `normalize_trace.py`
      (adapter hard rule 5).
-6. **Safety gates**: record `environment.safe_to_attack` and the per-tool
+5. **Safety gates**: record `environment.safe_to_attack` and the per-tool
    `side_effects` classes. `never-live` tools present with
    `environment.kind: live-*` → categories that could trigger them are
    `skipped`, not run (adapter hard rule 2).
-7. If `adapter.data.may_contain_pii` is true, write
+6. If `adapter.data.may_contain_pii` is true, write
    `<state>/reports/.gitignore` containing `*/cases/` **now** — before the first
    case file of the run exists.
-8. `mkdir -p <out>/cases`, then write `<out>/manifest.yaml` (§10). The manifest
+7. `mkdir -p <out>/cases`, then write `<out>/manifest.yaml` (§10). The manifest
    is written before the first case, unconditionally, whether or not a baseline
    exists.
-9. Write `<out>/results.json` with `summary.status: "running"` and an empty
+8. Write `<out>/results.json` with `summary.status: "running"` and an empty
    `cases` list. A run directory therefore never exists without a results.json;
    §9's check has something to fail on from the first second.
 
@@ -996,7 +992,7 @@ record, not the shareable summary) does carry it, since a paired diff needs it.
 | 0 | Ran to completion; §9's completeness check passed. Says **nothing** about pass/fail. | complete |
 | 1 | Unhandled internal error. Traceback to stderr, `{"error": …}` to stdout. | whatever completed |
 | 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest mismatch on resume. | none written |
-| 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, old-layout state dir, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
+| 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
 | 4 | Canary failed — harness/judge drift; run stopped. | complete for cases finished |
 | 5 | Infra rate exceeded `infra_rate_abort`; run stopped. | complete for cases finished |
 | 6 | **Completeness check failed** — a required artifact is missing or inconsistent. `summary.missing_artifacts` names them. | incomplete, by definition |
@@ -1057,7 +1053,7 @@ trade-off in front of them.
 
 | # | Question | Answer |
 |---|---|---|
-| **D1** | `manifest.yaml` holds JSON bytes, or rename to `manifest.json`? | **Keep the name.** JSON is valid YAML 1.2, so `yq -r '.run_id'` in the CI example reads it unchanged and the stdlib (which has no YAML writer) can still produce it. Renaming costs ~6 references across `run/SKILL.md`, `run-modes.md` and `migrate-run-layout.md` for a cosmetic gain. The extension lies a little; the alternative churns three documents. |
+| **D1** | `manifest.yaml` holds JSON bytes, or rename to `manifest.json`? | **Keep the name.** JSON is valid YAML 1.2, so `yq -r '.run_id'` in the CI example reads it unchanged and the stdlib (which has no YAML writer) can still produce it. Renaming costs several references across `run/SKILL.md` and `run-modes.md` for a cosmetic gain. The extension lies a little; the alternative churns three documents. |
 | **D2** | Trace-less runs score no routing layer, or add a status→route adapter block? | **Add the block now** (§5.2). Refusing outright takes the field-test app's only interesting layer dark — status *is* its sole routing observable — and a real regression against what the shipped run reported by hand. `invocation.route_from_status` makes the inference **declared and per-app** rather than universal and implicit, which was the actual objection. |
 | **D3** | Does the runner run `stats.py`? | **Fold it in** as `--baseline-verdicts` (§5.6). The diff has real rules and they decide whether a change ships; leaving them in LLM hands is the category of thing this step exists to end. ~30 lines, and it closes the loop. |
 | **D4** | Seven exit codes, or collapse 4/5/7 into 1? | **Keep seven.** 6 is the one that makes the shipped run's failure mode nameable, and once 6 exists the rest cost nothing to distinguish. A CI script that only checks `!= 0` loses nothing. |

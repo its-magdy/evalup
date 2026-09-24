@@ -265,8 +265,7 @@ def discover(paths):
                 found.append(os.path.abspath(child))
     if not found:
         die("no run directory found under {} -- a run directory is one "
-            "containing {}. If these runs predate the per-run layout, see "
-            "docs/migrate-run-layout.md.".format(
+            "containing {}.".format(
                 ", ".join(roots) or ", ".join(paths), MANIFEST))
     # De-duplicated because `reports/ reports/<id>` names the same run twice.
     return sorted(set(found))

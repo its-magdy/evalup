@@ -121,7 +121,7 @@ code, not to "non-zero".
 | 0 | Complete. Says nothing about pass/fail. | Report (§5). |
 | 1 | Internal error. | Harness bug; report the traceback, don't retry blind. |
 | 2 | Bad plan or usage. **Nothing was written.** | Fix the plan, re-run. Free. |
-| 3 | Pre-flight abort: env var, health check, trace store, old layout, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. |
+| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. |
 | 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. |
 | 5 | Infra rate above `infra_rate_abort`. | The service is degraded. Re-run when healthy; never report the partial pass rate. |
 | 6 | Completeness check failed: **a required artifact is missing or inconsistent**. | Read `summary.missing_artifacts`. Not quotable, not a baseline. `--resume` or re-run; never write a report over it. |
@@ -138,14 +138,7 @@ A red suite exits **0** — gating is §6's job, not the runner's.
   dataset and harness version, same `k` — before any spend. **Never prune
   `reports/` by age without reading this pointer**: deleting the pinned run
   costs every future diff.
-- **Old layout, checked before you conclude "first run"**: no `baseline.json`
-  but a sibling `baselines/` or `runs/` means the state dir predates the
-  per-run layout and does have a baseline. Say so — migrate with
-  `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`, or abandon it: move or
-  delete `baselines/` and `runs/` (the runner refuses to start while they exist
-  without `reports/baseline.json`, exit 3), then run with `--baseline` to pin
-  this run.
-- **First run** — no pointer, no old layout — is a branch, not an error. Run
+- **First run** — no pointer — is a branch, not an error. Run
   without `--baseline-verdicts`, write `baseline.json` at this run, print
   "baseline established (run <id>); future runs diff against this."
   `--baseline` does that deliberately. **Pinning is yours; the runner never

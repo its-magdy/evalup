@@ -612,24 +612,6 @@ class TestPreflight(RunnerCase):
         self.assertIn("http and function only", payload["error"])
         self.assertEqual(self.app.calls, [])
 
-    def test_old_layout_state_dir_halts_before_spend(self):
-        """SS4.3. The field-test state dir is exactly this shape."""
-        (self.state / "baselines").mkdir()
-        plan = make_plan(self.state, self.app.base_url)
-        rc, payload, _ = self.invoke(plan)
-        self.assertEqual(rc, 3)
-        self.assertIn("pre-reports/<run-id> layout", payload["error"])
-        self.assertIn("migrate-run-layout.md", payload["error"])
-        self.assertEqual(self.app.calls, [])
-        self.assertFalse(self.out_dir().exists())
-
-    def test_old_layout_is_not_flagged_once_a_baseline_pointer_exists(self):
-        (self.state / "runs").mkdir()
-        (self.state / "reports" / "baseline.json").write_text(
-            '{"run_id": "x"}', encoding="utf-8")
-        rc, _, proc = self.invoke(make_plan(self.state, self.app.base_url))
-        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
-
     def test_health_check_failure(self):
         plan = make_plan(self.state, self.app.base_url)
         plan["adapter"]["invocation"]["base_url"] = "http://127.0.0.1:1"
@@ -703,7 +685,7 @@ class TestPreflight(RunnerCase):
         self.assertIn("hard rule 5", manifest["traces"]["reason"])
 
     def test_gitignore_is_written_before_the_first_case(self):
-        """SS4.7. Raw per-case material stays local when PII is possible."""
+        """SS4.6. Raw per-case material stays local when PII is possible."""
         plan = make_plan(self.state, self.app.base_url)
         plan["adapter"]["data"] = {"may_contain_pii": True}
         rc, _, proc = self.invoke(plan)
@@ -1756,7 +1738,7 @@ class TestTrajectoryLayers(RunnerCase):
         # A span whose declared parent is not in the trace: normalize_trace.py
         # reports it under orphaned_parents and returns status "incomplete".
         # The trace id still has to be PRESENT, or pre-flight's join check
-        # would refuse the run before any of this (SS4.5).
+        # would refuse the run before any of this (SS4.4).
         orphan = span(self.TRACE_ID, "bbbbbbbbbbbbbbb1", "execute_tool",
                       "list_invoices")
         orphan["parentSpanId"] = "cccccccccccccccc"

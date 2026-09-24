@@ -118,10 +118,9 @@ lean path would have skipped and let them choose.
    | 0 | A `reports/<run-id>/` directory with a `manifest.yaml` but no `results.json`, or whose `results.json` has `summary.status: "running"` | **An interrupted run.** A killed session leaves exactly this. Say so, and offer `run --resume` under the SAME run id (run/SKILL.md §2) before anything else — routing on to a fresh run abandons the cases already paid for. If the user declines, leave the directory alone and continue down the table. |
    | 1 | No state location at all | Step 1: the first session, above — `discover` (load it and follow it), lean. |
    | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Don't promise the user it will be preserved — offer to back it up first if they care about it. |
-   | 3 | `reports/baseline.json` absent, but a sibling `baselines/` or `runs/` directory exists | **Pre-per-run layout: this dir DOES have a baseline.** Say so and point at `${CLAUDE_PLUGIN_ROOT}/docs/migrate-run-layout.md`. Never report it as "no baseline run yet" — that is the misdiagnosis this ordering exists to prevent, and acting on it would abandon real eval history. |
-   | 4 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). Read the scores from that run's `reports/<run-id>/results.json` — the pointer file itself holds no verdict data. If that directory is missing, say the pinned baseline's run was deleted and offer to pin a fresh one, rather than silently reading some other run. Also compare the pointer's `dataset_version`/`harness_version` against the current dataset and harness: if they differ, say the baseline's scores are not comparable to a run today and a fresh pin is needed — `run` §4 will refuse the diff anyway, so surfacing it here saves the user a wasted run. |
-   | 5 | Datasets exist, no baseline (and check 3 did not match) | Step 3: run `run` to establish the baseline. |
-   | 6 | `profile.yaml` exists, no datasets | Step 2: run `generate`. |
+   | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). Read the scores from that run's `reports/<run-id>/results.json` — the pointer file itself holds no verdict data. If that directory is missing, say the pinned baseline's run was deleted and offer to pin a fresh one, rather than silently reading some other run. Also compare the pointer's `dataset_version`/`harness_version` against the current dataset and harness: if they differ, say the baseline's scores are not comparable to a run today and a fresh pin is needed — `run` §4 will refuse the diff anyway, so surfacing it here saves the user a wasted run. |
+   | 4 | Datasets exist, no baseline | Step 3: run `run` to establish the baseline. |
+   | 5 | `profile.yaml` exists, no datasets | Step 2: run `generate`. |
 
    Independent of the above, if `profile.yaml` looks older than the app's recent
    git history suggests, offer `discover --diff` to detect staleness before
@@ -136,8 +135,8 @@ lean path would have skipped and let them choose.
    Naming the stage is not enough on its own — "stage: pre-stability" means nothing
    to someone who has not read that table, so always spell out the one or
    two things it currently gates. Do this on every reply, including the ones
-   that route to a blocked or broken state (checks 2, 3, and a dangling
-   baseline pointer in 4). Those are precisely the moments a user is deciding
+   that route to a blocked or broken state (check 2 and a dangling
+   baseline pointer in 3). Those are precisely the moments a user is deciding
    how much more to invest, and the stage tells them what the work will buy.
 
 4. **First-session extras** (only when the state location was just created):

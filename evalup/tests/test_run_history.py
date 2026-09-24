@@ -426,7 +426,6 @@ class TestRunSelection(HistoryCase):
         rc, payload, _ = run_script(self.reports)
         self.assertEqual(rc, 2)
         self.assertIn("no run directory", payload["error"])
-        self.assertIn("migrate-run-layout.md", payload["error"])
 
 
 class TestMetrics(HistoryCase):

@@ -740,8 +740,7 @@ def load_run(run_dir):
             f"containing {MANIFEST})")
     if not os.path.isfile(os.path.join(run_dir, MANIFEST)):
         die(f"{run_dir} holds no {MANIFEST} -- a run directory is one "
-            "containing it. If this run predates the per-run layout, see "
-            "docs/migrate-run-layout.md.")
+            "containing it.")
     manifest = read_run_json(os.path.join(run_dir, MANIFEST))
     try:
         results, summary, cases = visible_cases(run_dir)

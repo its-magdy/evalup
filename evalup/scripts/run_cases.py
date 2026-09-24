@@ -213,7 +213,7 @@ RUBRIC_PIN = re.compile(r"-v\d+$")
 # than pass.
 TRAJECTORY_LAYERS = ("trajectory", "tool_selection", "loops", "authz")
 
-# Categories the environment.safe_to_attack gate refuses outright (SS4.6/SS7).
+# Categories the environment.safe_to_attack gate refuses outright (SS4.5/SS7).
 # adversarial-refusal is the only attack-shaped category case-format.md
 # defines; red-team/chaos are run kinds, not case categories.
 ATTACK_CATEGORIES = ("adversarial-refusal",)
@@ -1176,7 +1176,6 @@ class Runner:
         self.record_template = unresolve(self.request_template, self.sent_refs)
         self.record_url = unresolve(self.url, self.sent_refs)
 
-        self.check_old_layout()
         health = self.health_check(mode)
         self.trace_branch(health)
         self.safety_gates()
@@ -1233,26 +1232,8 @@ class Runner:
             else {"message": "<user turn>", "session_id": "<uuid>"}
         self.answer_path = ("text",)
 
-    def check_old_layout(self):
-        """SS4.3. Lives here, not in the skill, because it must fire before
-        spend -- and the field-test state dir is exactly this case."""
-        reports = os.path.join(self.state_dir, "reports")
-        if os.path.exists(os.path.join(reports, "baseline.json")):
-            return
-        stale = [name for name in ("baselines", "runs")
-                 if os.path.isdir(os.path.join(self.state_dir, name))]
-        if stale:
-            preflight_fail(
-                "state dir uses the pre-reports/<run-id> layout ({} present, "
-                "reports/baseline.json absent); migrate with "
-                "${{CLAUDE_PLUGIN_ROOT}}/docs/migrate-run-layout.md, or move "
-                "{} away and run with --baseline to deliberately pin this run "
-                "and abandon the old one".format(
-                    ", ".join(name + "/" for name in stale),
-                    " and ".join(name + "/" for name in stale)))
-
     def health_check(self, mode):
-        """SS4.4. One trivial request, or the entrypoint import.
+        """SS4.3. One trivial request, or the entrypoint import.
 
         With no declared `invocation.health_check`, this is a GET of base_url
         and ANY response counts as reachable -- including a 404. The check the
@@ -1304,7 +1285,7 @@ class Runner:
         return (self.adapter.get("invocation") or {}).get("timeout_s") or 60
 
     def trace_branch(self, health):
-        """SS4.5. Decide, once for the whole run, whether traces are usable.
+        """SS4.4. Decide, once for the whole run, whether traces are usable.
 
         The three trace-less triggers are declarations, not guesses: a
         view-only/absent store, no correlation (adapter hard rule 1 -- heuristic
@@ -1344,7 +1325,7 @@ class Runner:
             self.trace_state["location"] = location
             self.trace_state["join_verified"] = False
             return
-        # SS4.5's join check needs a real app call to join ON. Without a
+        # SS4.4's join check needs a real app call to join ON. Without a
         # declared health_check there is no such call, and inventing one is
         # spend the adapter never authorized -- so demand the declaration
         # rather than recording an unverified join as verified.
@@ -1374,7 +1355,7 @@ class Runner:
                 "rule 5)")
 
     def safety_gates(self):
-        """SS4.6. Record what the environment forbids; SS7 acts on it."""
+        """SS4.5. Record what the environment forbids; SS7 acts on it."""
         environment = self.adapter.get("environment") or {}
         kind = environment.get("kind") or ""
         tools = self.adapter.get("tools") or []
@@ -1385,7 +1366,7 @@ class Runner:
                 and tool.get("side_effects") == "never-live"}
 
     def write_gitignore(self):
-        """SS4.7. Written BEFORE the first case file of the run exists.
+        """SS4.6. Written BEFORE the first case file of the run exists.
 
         Raw per-case material (prompts, answers, traces) stays local when the
         adapter says the data may contain PII; manifest.yaml, results.json and
@@ -2000,7 +1981,7 @@ class Runner:
                     trace_collected = False
         else:
             # No trace was expected at all: the run is trace-less by
-            # declaration (SS4.5), so the gap is that declaration.
+            # declaration (SS4.4), so the gap is that declaration.
             trajectory_gap = self.trace_state.get(
                 "reason", "no trace collected for this run")
 
