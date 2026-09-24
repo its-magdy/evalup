@@ -34,7 +34,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 ## State
 
 - **`main`** holds everything: the remediation wave, the worked example, the
-  rename, the doc cleanup and all three September audits' fixes
+  rename, the doc cleanup and all four September audits' fixes, the
+  2026-09-24 prompt audit and its five follow-ups included
   (`evalup/CHANGELOG.md` lists them; merged 2026-09-24). It is the only
   branch. Nothing is pushed; **there is still no remote**, so nothing here
   has ever been checked by CI.
