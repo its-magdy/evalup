@@ -26,7 +26,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 774 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 772 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -38,8 +38,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   (`evalup/CHANGELOG.md` lists them; merged 2026-09-24). It is the only
   branch. Nothing is pushed; **there is still no remote**, so nothing here
   has ever been checked by CI.
-- **Health:** 774 tests pass on 3.14; 766 + 8 skips on the 3.9 floor (all 8
-  skips need PyYAML: 774 pass, 224 subtests, with `--with pyyaml`), ruff clean,
+- **Health:** 772 tests pass on 3.14; 764 + 8 skips on the 3.9 floor (all 8
+  skips need PyYAML: 772 pass, 224 subtests, with `--with pyyaml`), ruff clean,
   20 CLIs answer `--help`, `claude plugin validate` clean for the plugin and
   the root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-24.
 - **A live session works**, re-run twice 2026-09-21 after `make_plan.py`:

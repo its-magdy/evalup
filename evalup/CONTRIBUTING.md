@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-774 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
+772 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
 real HTTP server per test, and one test kills a runner mid-run.
 
 ```sh
@@ -31,9 +31,9 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 766 passed, 8 skipped, 221 subtests.
+whatever `python3` happens to be. Expect 764 passed, 8 skipped, 221 subtests.
 All eight skips need PyYAML (seven are `convert_suite.py`'s, one is the
-example's fidelity check); add `--with pyyaml` and they run (774 passed, none
+example's fidelity check); add `--with pyyaml` and they run (772 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -130,10 +130,12 @@ commands above are the only checked claim.
   one it replaced was bypassed by a leading control byte.
 - **`docs/runner-contract.md` is the runner's spec and it WINS** over any skill
   prose. Its nine decisions were confirmed 2026-09-08 with their trade-offs
-  recorded; don't reopen one without reading it. **Three tests read that file at
+  recorded; don't reopen one without reading it. **Four tests read that file at
   run time** — they exec §9(b)'s python block, parse §6's `# only when:`
-  markers, and pin `--oos-route`'s precondition — so editing it fails the suite
-  until the code follows. Deliberate, not brittle.
+  markers, pin `--oos-route`'s precondition, and assert §5.7 still names
+  `score_cost.py` — so editing those passages fails the suite until the code
+  follows. Prose elsewhere in the file is free to change. Deliberate, not
+  brittle.
 - **The holdout ledger is a `.jsonl` sidecar** (`paths.holdout_ledger`), never
   the YAML metadata a stdlib-only runner would corrupt, and its total is a LINE
   COUNT.

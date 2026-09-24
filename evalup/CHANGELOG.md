@@ -191,9 +191,7 @@ of the plugin, and for claims the scripts no longer back. No scorer changed.
 - **Skill text that described flags and behaviour the scripts do not have**:
   `k` is plan-level (`make_plan.py`'s per-mode default, `--k N` overrides),
   never per-case; `--k` under `--smoke` is refused, not ignored, and nothing
-  warns at `k < 3`; `run_cases.py` has no `--baseline` flag, so escaping the
-  old layout means moving `baselines/`/`runs/` away first (the runner's own
-  message said the same wrong thing and now does not); `routing_report.json`,
+  warns at `k < 3`; `run_cases.py` has no `--baseline` flag; `routing_report.json`,
   `reliability.json` and `comparison.json` are conditional artifacts; the
   judge is launched by `analyze --label` only, never by a run;
   `convert_suite.py` writes `manifest.json` only when `dataset.yaml` exists,
@@ -210,6 +208,20 @@ of the plugin, and for claims the scripts no longer back. No scorer changed.
 - **`annotation-ux.md` sized the calibration pass at 25–50** where
   `score_agreement.py` requires ≥100 labelled pairs; its example ids used the
   `<unit>-<category>-<hash>` shape case-format.md forbids.
+- **The headless CI recipe in `run-modes.md` could not work as written**
+  (checked against Claude Code 2.1.281): `--output-format json` has no
+  `system/init` event, so its own plugin-load guard rejected every healthy
+  run; `--bare` skips installed plugins, so `/evalup:run` did not resolve
+  without `--plugin-dir`, and it accepts only `ANTHROPIC_API_KEY`;
+  `--permission-mode dontAsk` denies the report write. The recipe now uses
+  `stream-json --verbose`, names the plugin, states the key, and runs under
+  `acceptEdits`.
+- **`adapters/dotnet.md` described Microsoft.Extensions.AI as it was in
+  early 2025**: tool calls have been auto-spanned as `execute_tool` since
+  9.5.0, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` has been
+  honoured since 9.10.0, and the `UseOpenTelemetry` sample did not compile.
+  Each claim now carries the version it applies from and the section says
+  when it was checked (2026-09-24, against 10.10.0).
 
 ### Changed — the 2026-09-24 prompt audit
 
@@ -225,6 +237,18 @@ of the plugin, and for claims the scripts no longer back. No scorer changed.
 - Scattered capitalised emphasis in `test-generator.md`, one "MANDATORY", one
   "non-negotiable" and one "MUST" dialled back to plain statements with their
   reasons beside them.
+- `profile-schema.md` no longer calls `domains:` a "legacy alias — still
+  read": no script reads it, or `route_targets:`.
+
+### Removed — the 2026-09-24 prompt audit
+
+- **The old-layout compatibility branch**: `docs/migrate-run-layout.md`,
+  `start`'s route check for a `baselines/`/`runs/` sibling, `run`'s "Old
+  layout" bullet, `run_cases.py`'s pre-flight `check_old_layout` (exit 3) and
+  the contract's §4 step for it, plus the two tests that pinned them. The
+  layout was produced once, by this plugin's July 2026 version in the
+  field test archived in the initial commit and since deleted; the plugin
+  has never been published, so no state dir can hold it.
 
 ### Fixed — the 2026-09-21 shape audit
 
@@ -268,8 +292,10 @@ reproduced.
   `EVALUP_STATE`. **There is no automatic migration** — rename the state
   directory by hand.
 - **Run output moved to a per-run layout**, `reports/<run-id>/`, replacing the
-  older sibling `runs/` + `baselines/` directories. `run` halts rather than
-  misreading an old state dir; `docs/migrate-run-layout.md` is the migration.
+  older sibling `runs/` + `baselines/` directories. The check that halted
+  `run` on an old state dir, and its migration doc, were removed on
+  2026-09-24 (see Removed): nothing outside the deleted field-test archive
+  ever used the old layout.
 - **`split` is a case field, not a directory.** Suites that kept
   `datasets/{full,holdout,smoke}/` need the field added.
 - **`judge.status: calibrated` is necessary but no longer sufficient** — a
