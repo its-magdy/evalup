@@ -1,222 +1,327 @@
 # evalup
 
-A Claude Code plugin that **evaluates and improves LLM chat/agent
-applications** — any app it can invoke programmatically: simple chat,
-router→executor, multi-agent orchestrators.
+> A Claude Code plugin that measures what your LLM chat or agent app gets wrong, and which prompt to fix.
 
-Claude Code does the intelligent work (profiling your app, generating test
-cases, diagnosing failures, proposing prompt/tool-description fixes).
-Deterministic Python scripts do the scoring, so numbers are cheap, fast, and
-reproducible. OpenTelemetry traces are the evidence.
+evalup reads your app's code, writes test cases for it, runs them, and scores
+each answer in layers — routing, tool use, answer checks — so a failure points
+at one prompt or tool description. It works on anything it can call: a single
+chat endpoint, a router→executor, a multi-agent orchestrator.
 
-## What you need
+Claude Code does the judgment work: profiling the app, writing cases,
+diagnosing failures, proposing edits. Stdlib-only Python scripts do the
+scoring, so every number is cheap, fast and reproducible, and CI can gate on
+it without Claude.
 
-- **An app you can call**: an HTTP endpoint that answers with one JSON body,
-  or a Python `module:callable`. That is the only hard requirement.
-  **Single-turn only:** a test case with more than one user turn is skipped,
-  and streaming (SSE), WebSocket and CLI apps are not driven.
-- **Claude Code**, and Python 3.9+ on the machine. No packages to install; the
-  scoring scripts are stdlib-only.
-- **Nothing else to start.** No tracing, no existing tests, no API keys for a
-  judge (Claude Code subagents do the judging). Without OpenTelemetry GenAI
-  traces you still get routing and answer-level scores; tool-use, trajectory
-  and cost layers need traces, and `discover` can add them later if you want.
+---
 
-## See it run first (30 seconds, no app, no Claude)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Commands](#commands)
+- [What gets measured](#what-gets-measured)
+- [Limits](#limits)
+- [Running tests](#running-tests)
+- [Docs](#docs)
+- [Contributing](#contributing)
+- [License](#license)
 
-```sh
-python3 examples/quickstart/demo.py            # a green run
-python3 examples/quickstart/demo.py --break    # a red one, and a closed gate
+---
+
+## Prerequisites
+
+- **Claude Code**
+- **Python 3.9+**. No packages: the harness imports only the stdlib. The one
+  exception, `scripts/convert_suite.py`, needs PyYAML to turn your YAML suite
+  into JSON.
+- **An app you can call**: an HTTP endpoint that returns one JSON body, or a
+  Python `module:callable`.
+- **Optional:** OpenTelemetry GenAI traces. Without them, routing and answer
+  checks still score; the tool-use, trajectory and cost layers need traces,
+  and `/evalup:discover` can add them later.
+
+No existing tests and no judge API key are needed — Claude Code subagents do
+the judging.
+
+Python 3.9 is past upstream end-of-life and is the floor on purpose: RHEL 9
+ships it with backported fixes, and long-lived enterprise environments are
+where this harness is meant to run.
+
+---
+
+## Installation
+
+evalup is not published yet. Install it from a clone.
+
+**Load it for one session:**
+
+```bash
+git clone <this-repo> evalup-repo
+claude --plugin-dir ./evalup-repo/evalup
 ```
 
-It starts a small two-domain demo app on a local port, runs six cases through
-the real runner and scorers, and prints the verdicts, the routing score, and
-the pass/fail line CI would see. `--keep` leaves the run directory and an HTML
-review page to open. `examples/quickstart/README.md` walks through every file.
+**Or install it through the repo's marketplace**, so every session has it:
 
-## Quick start
-
-```
-claude --plugin-dir ./evalup     # from a clone of this repo
-> /evalup:start path/to/your/app
+```bash
+claude plugin marketplace add ./evalup-repo
+claude plugin install evalup@evalup
 ```
 
-**The first session ends in a result, not a to-do list.** It reads your code,
-tells you what it can and cannot measure on your app as it stands, shows the
-top design findings (often worth more than the eval), writes about a dozen test
-cases, runs them, and shows what failed and where. It does not interview you or
-ask to change your source first.
+Check the install without starting a session:
 
-Everything rigorous is a later step you ask for: tracing (tool-use and cost
-layers), a fuller suite with a sealed holdout — test cases set aside and never
-looked at while you tune, so the final check is honest — (regression gating), judge
-calibration (judged answer quality), and the optimizer. `/evalup:start` always
-tells you what is unlocked, what is locked, and what unlocking costs.
+```bash
+python3 evalup-repo/evalup/scripts/stats.py --version
+```
 
-**Already have real conversations?** Skip the synthetic cases:
-`/evalup:analyze --transcripts path/to/logs` goes straight to looking at what
-your app actually did — no setup at all.
+---
 
-Lost at any point: `/evalup:help`.
+## Configuration
+
+### Where state lives
+
+The plugin holds methodology only. Everything about your app is written to
+`your-app/.evalup/` as plain YAML, Markdown and JSON, to be versioned with the
+app:
+
+```
+your-app/.evalup/
+├── adapter.yaml          # how to call your app
+├── profile.yaml          # what discover learned about it
+├── datasets/             # test cases
+└── reports/
+    ├── baseline.json     # points at the pinned baseline run
+    └── <run-id>/         # manifest, per-case raw material, results.json,
+                          # review page; report.md/.html from /evalup:run
+```
 
 ### Permissions
 
-The skills pre-approve two things and nothing else: running the plugin's own
-scripts (`python3 <plugin>/scripts/*`) and `start`/`help` loading the skill
-they route to. Everything that touches *your* side still asks: writing
-`.evalup/`, sending a request to your app, editing a prompt. That is
-deliberate. Two things worth knowing:
+The skills pre-approve two things: running the plugin's own scripts
+(`python3 <plugin>/scripts/*`), and `start`/`help` loading the skill they route
+to. Anything that touches your side still asks: writing `.evalup/`, sending a
+request to your app, editing a prompt.
 
-- A skill's pre-approval lasts until your next message, so after you answer
-  a question the next script run may prompt once. "Yes, and don't ask again"
-  settles it for the project.
-- **Headless (`claude -p`, CI): a prompt nobody answers is a denial.** Allow
-  what the run needs up front — `--permission-mode acceptEdits` plus
-  `--allowedTools` for the script rule above and for reaching your app — or
-  use the scripts directly (`docs/workflow.md`), which need no Claude at all.
-  Put everything in the one prompt (`/evalup:start <app> — no transcripts,
-  don't ask, run the first session`): the pre-approvals belong to the turn
-  that invoked the skill, so a second `--resume` turn starts without them.
-  The skills stop and say so when a call is denied rather than working
-  around it.
+- A pre-approval lasts until your next message. After you answer a question,
+  the next script run may prompt once; "Yes, and don't ask again" settles it
+  for the project.
+- **Headless (`claude -p`, CI): an unanswered prompt is a denial.** Allow what
+  the run needs up front — `--permission-mode acceptEdits`, plus
+  `--allowedTools` for the script rule and for reaching your app — or use the
+  [scripts directly](#without-claude-ci).
+- **Headless: put the whole request in one prompt.** Pre-approvals belong to
+  the turn that invoked the skill, so a `--resume` turn starts without them:
+
+  ```bash
+  claude -p "/evalup:start ./my-app — no transcripts, don't ask, run the first session" \
+    --plugin-dir ./evalup-repo/evalup --permission-mode acceptEdits
+  ```
+
+When a call is denied, the skills stop and say so rather than work around it.
+
+---
+
+## Usage
+
+### See a run in 30 seconds (no app, no Claude)
+
+From the plugin directory:
+
+```bash
+python3 examples/quickstart/demo.py            # a passing run
+python3 examples/quickstart/demo.py --break    # a failing run and a closed gate
+python3 examples/quickstart/demo.py --keep     # keep the run dir and its HTML review page
+```
+
+It starts a two-domain demo app on a local port and runs six cases through the
+real runner and scorers. `--break` prints:
+
+```
+  c-2d7c6a11  fail       <- failed: answer
+  c-3a5e47d9  pass
+  ...
+routing: accuracy 1.0, macro-F1 1.0
+
+smoke-20260924T114421Z: FAIL
+  6 cases: 5 pass, 1 fail (1 gating), 0 unscored, 0 skipped
+  infra 0.0%, crash 0.0%, scorer errors 0
+  NOT scored this run: authz, cost_latency, loops, multi_turn, tool_selection, trajectory
+  judged layers: unjudged (mode: smoke)
+  gate closed: 1 gating failure(s): c-2d7c6a11 (answer)
+```
+
+`examples/quickstart/README.md` walks through every file the run writes.
+
+### First session on your app
+
+```
+> /evalup:start path/to/your/app
+```
+
+The first session ends in a scored run, not a to-do list. It:
+
+1. reads your code and states what it can and cannot measure on the app as it stands
+2. shows the top design findings — often worth more than the eval
+3. writes about a dozen test cases
+4. runs them and shows what failed and where
+
+It does not interview you or ask you to change your source first. Every later
+step — tracing, a fuller suite with a sealed holdout, judge calibration, the
+optimizer — is one you ask for. `/evalup:start` always says what is unlocked,
+what is locked, and what unlocking costs.
+
+The **holdout** is a set of cases never looked at while you tune, so the final
+check is honest.
+
+### Start from real conversations
+
+Skip synthetic cases and review what your app actually did:
+
+```
+> /evalup:analyze --transcripts path/to/logs
+```
+
+### Improve a prompt
+
+```
+> /evalup:optimize
+> /evalup:optimize --surface <prompt-id|tool> --budget $5
+```
+
+It reads failing traces, names the cause, proposes one change at a time, and
+keeps it only if the sealed holdout confirms the improvement statistically.
+You approve every kept edit; nothing is committed or merged for you. It runs
+only when you type it, and stays locked until its preconditions hold.
+
+### Without Claude (CI)
+
+Four scripts run a suite with no LLM involved. From the plugin directory:
+
+```bash
+python3 scripts/convert_suite.py your-app/.evalup -o converted.json
+python3 scripts/make_plan.py converted.json --mode regression \
+  --state-dir your-app/.evalup -o plan.json    # prints the exact run command next
+python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/<run-id>
+python3 scripts/gate.py your-app/.evalup/reports --latest --mode regression
+```
+
+`gate.py` exits `0` open, `1` closed, `2` bad input, and prints a one-screen
+summary naming what failed. The full headless recipe, including a
+Claude-driven run with a tokenless gate step, is in
+`skills/run/references/run-modes.md` ("Headless/CI gate").
+
+---
 
 ## Commands
 
-Three you will type:
+The three you will type:
 
-| Command | What it does |
+| Command | Description |
 |---|---|
-| `/evalup:start` | Detects where you are and does the next step — setup, first run, or "here is what to do next" |
-| `/evalup:analyze` | Look at failures: cluster them, review real transcripts (`--transcripts`), calibrate the judge (`--label`), mine live traces (`--mine`); builds a hotkey review page |
-| `/evalup:optimize` | Failure-driven prompt/tool-description improvement with statistical keep/revert. Runs only when you type it; locked until its preconditions hold |
+| `/evalup:start [path]` | Detects where you are and does the next step: setup, first run, or what to do next |
+| `/evalup:analyze` | Clusters failures (`--cluster`), reviews real transcripts (`--transcripts <path>`), calibrates the judge (`--label`), mines live traces (`--mine`); builds a hotkey review page |
+| `/evalup:optimize` | Failure-driven prompt and tool-description edits with statistical keep/revert |
 
-And the steps `start` runs for you, callable directly once you know them:
+The steps `start` runs for you, callable directly:
 
-| Command | What it does |
+| Command | Description |
 |---|---|
-| `/evalup:discover` | Profile the app; write adapter + profile; patch instrumentation; `--diff` after refactors |
-| `/evalup:generate` | Build/extend the eval dataset (coverage grid, targeted review, splits) |
-| `/evalup:run` | Execute + score all applicable layers; baseline diff. Modes: `--smoke` (fast subset) · `--regression` (full, pass^k) · `--targeted` (only what changed) · `--holdout` (sealed) · `--full` (release) |
-| `/evalup:help` | Explain any of this |
+| `/evalup:discover [path-or-url] [--diff]` | Profiles the app; writes the adapter and profile; patches instrumentation; `--diff` after a refactor |
+| `/evalup:generate [--layer routing\|tools\|answer] [--count N]` | Builds or extends the dataset: coverage grid, targeted review, splits |
+| `/evalup:run` | Executes and scores every applicable layer; diffs against the baseline |
+| `/evalup:help` | Explains any of this |
 
-Without Claude at all — CI, or a colleague who never opens it:
-`scripts/convert_suite.py` (YAML → JSON) → `scripts/make_plan.py` (the run's
-plan, and the exact command to run next) → `scripts/run_cases.py` →
-`scripts/gate.py` (exit 0 pass / 1 fail, one-screen summary naming what
-failed).
+`/evalup:run` modes:
 
-**What this does not measure yet**, so you hear it here and not after setup:
-**multi-turn conversations** (such cases are skipped, and a suite made only of
-them closes the gate rather than passing it); **judged answer quality and
-business rules inside a run** — the judge agent and its calibration flow exist,
-but no run scores those two layers yet, so they are reported "not measured".
-In a multi-agent app, tool-call expectations are whole-app, not per-agent — a
-call made by the *wrong* sub-agent still satisfies `expect.tools`. Retrieval/RAG
-quality is not scored. Runs are serial: ~100 cases × 3 repeats at 8s a call is
-about 40 minutes.
+| Flag | Runs |
+|---|---|
+| `--smoke` | A fast subset |
+| `--regression` | The full suite with pass^k across repeats |
+| `--targeted` | Only what changed |
+| `--holdout` | The sealed holdout |
+| `--full` | Release check (currently two runs) |
+
+Other `run` flags: `--tag <component>`, `--filter-failing`, `--layer X`,
+`--k N`, `--baseline`.
+
+---
 
 ## What gets measured
 
-Layered, so a failure tells you *which prompt to fix*:
+Each layer isolates one part of the app, so a failure names the prompt to fix.
 
-- **Routing** (router/multi-agent apps) — accuracy, per-target F1
-  (macro+micro), confusion matrix, out-of-scope leakage (deterministic)
-- **Tool use** — selection precision/recall, argument correctness,
-  trajectory subset/order matching, forbidden-tool policy, loop detection
-  (deterministic)
-- **Answer quality** — must-contain/regex and JSON-format checks
-  (deterministic), faithfulness to tool results, completeness, business
-  rules. Only the deterministic checks are scored in a run today; the
-  decomposed-binary, reference-guided judge is used in the labeling and
-  calibration flow (`analyze --label`), and its run-time layer is not built
-- **Execution accuracy** (data-Q&A) — grades the actual result set, not the
-  prose: result-set comparison (order-insensitive, float-tolerant) and GAIA-style
-  scalar quasi-exact-match, against ground truth from a read-only oracle
-  (deterministic) — catches the confident-but-wrong answer a prose check waves through
-- **Authorization / scope** — deterministic checks over the tool-call log and
-  returned record IDs (forbidden tools, out-of-scope leakage, scoped refusal) —
-  never a chat-text read, so a polite refusal over an open endpoint still fails
-- **Reliability & ops** — pass@k / pass^k across repeats (the gap is the
-  flakiness signal), crash rate, latency and token cost per agent stage
+| Layer | Checks | Scored by |
+|---|---|---|
+| **Routing** | Accuracy, per-target F1 (macro and micro), confusion matrix, out-of-scope leakage | Script |
+| **Tool use** | Selection precision/recall, argument correctness, trajectory subset/order match, forbidden tools, loop detection | Script (needs traces) |
+| **Answer** | Must-contain, regex, JSON format | Script |
+| **Execution accuracy** | Result-set comparison (order-insensitive, float-tolerant) and scalar quasi-exact match against a read-only oracle — catches the confident-but-wrong answer | Script |
+| **Authorization / scope** | Forbidden tools, out-of-scope record IDs, scoped refusal — read from the tool-call log, never the chat text | Script |
+| **Reliability & ops** | pass@k vs pass^k (the gap is flakiness), crash rate, latency and token cost per stage | Script (cost needs traces) |
 
-## Principles (the short version)
+Every run records a manifest — dataset version, app git SHA, model and judge
+versions. Diffs between incomparable runs are refused.
 
-- **Staged rigor.** The harness matches its demands to your app's maturity.
-  Churning architecture → invariant checks only; trajectory evals, judged
-  layers, and the optimizer unlock as preconditions are met. It tells you
-  what's locked and why.
-- **Evidence before edits.** The optimizer reads failing traces and names the
-  cause before proposing anything, proposes ONE change at a time, and keeps
-  it only if a sealed holdout confirms improvement with statistical honesty.
-- **Comparability or nothing.** Every run records a manifest (dataset
-  version, app git SHA, model and judge versions…). Diffs across
-  incomparable runs are refused, not fudged.
-- **Humans stay in the loop where it matters**: reviewing suspicious
-  generated cases, labeling ~30 judge-calibration cases, approving every
-  kept edit. Nothing is committed or merged automatically.
+---
 
-## Where state lives
+## Limits
 
-The plugin is reusable methodology. Everything about *your* app lives in
-`your-app/.evalup/` (adapter, profile, datasets, and `reports/` — one
-`reports/<run-id>/` folder per run with its manifest, per-case raw material,
-and results (`/evalup:run` adds the written `report.md`/`.html`; a scripts-only
-run has `results.json` and the review page), plus `reports/baseline.json` pointing at the pinned baseline
-run) — plain YAML/Markdown/JSON, versioned with your app, readable by
-teammates who never open Claude Code.
+- **Single-turn only.** Multi-turn cases are skipped; a suite made only of them
+  closes the gate. Streaming (SSE), WebSocket and CLI apps are not driven.
+- **Judged answer quality and business rules have no run-time scorer.** The
+  judge agent and its calibration flow (`/evalup:analyze --label`) exist; runs
+  report those layers "not measured".
+- **Tool expectations are whole-app.** In a multi-agent app, a call made by the
+  wrong sub-agent still satisfies `expect.tools`.
+- **No retrieval/RAG scoring.**
+- **Runs are serial.** 100 cases × 3 repeats at 8 s a call is about 40 minutes.
+- **Trace conventions move.** The OpenTelemetry `gen_ai.*` conventions are
+  still Development status upstream, so `scripts/normalize_trace.py` tracks a
+  moving spec.
+
+---
+
+## Running tests
+
+From the plugin directory:
+
+```bash
+python3 -m unittest discover -s tests       # 772 tests, ~2.5 min
+ruff check --config ruff.toml .             # --config is required
+uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
+```
+
+The third command is the only conclusive check of the Python 3.9 floor. Expect
+764 passed and 8 skipped; add `--with pyyaml` to run the skipped eight.
+
+`.github/workflows/ci.yml` has never run: the repository has no remote. These
+local commands are the only checked claim.
+
+---
 
 ## Docs
 
-- `examples/quickstart/README.md` — the worked end-to-end example: what
-  `discover`, `generate` and `run` actually write, and which layers a
-  trace-less app can still score
-- `docs/workflow.md` — day 1 → steady state → production, and who does what
-- `docs/concepts.md` — eval layers, staged rigor, ground truth, the judge
-- `skills/discover/references/adapter-contract.md` — the language-agnostic adapter
-  spec (the seam that keeps the tool general);
-  `skills/discover/references/adapters/dotnet.md` is
-  the first reference adapter (any other stack implements the same contract)
-- `docs/rubric-format.md` — the decomposed-binary DAG judge rubric + calibration
-- `skills/analyze/references/annotation-ux.md` — the open→axial error-analysis workflow
-- `docs/research.md` — pointer to the research behind the design decisions
-- `CONTRIBUTING.md` — **read this before changing the plugin**: the three
-  blessed checks, and the conventions that look arbitrary until you break one
-- `CHANGELOG.md` — what changed, release by release
+| File | Covers |
+|---|---|
+| `examples/quickstart/README.md` | The worked example: what `discover`, `generate` and `run` write, and what a trace-less app can score |
+| `docs/workflow.md` | Day 1 → steady state → production, and who does what |
+| `docs/concepts.md` | Eval layers, staged rigor, ground truth, the judge |
+| `skills/discover/references/adapter-contract.md` | The language-agnostic adapter spec; `adapters/dotnet.md` is the first reference adapter |
+| `docs/runner-contract.md` | The plan and run-directory format `run_cases.py` reads and writes |
+| `docs/rubric-format.md` | The decomposed-binary judge rubric and calibration |
+| `skills/analyze/references/annotation-ux.md` | The open → axial error-analysis workflow |
+| `docs/research.md` | The research behind the design decisions |
+| `CHANGELOG.md` | What changed, release by release |
 
-### Path convention
+---
 
-Skills, references, and agents run with the CWD set to the **user's app**, not
-to the plugin, so a bare `scripts/x.py` or `docs/x.md` inside them resolves to
-the wrong place. One rule, applied throughout:
+## Contributing
 
-- Anything executed, or read across skills — a script, a `docs/` page, an
-  `agents/*.md`, another skill's `SKILL.md` or `references/` — is written
-  `${CLAUDE_PLUGIN_ROOT}/...`.
-- A `SKILL.md` pointing into its own `references/` uses a relative markdown
-  link, e.g. `[references/run-modes.md](references/run-modes.md)`.
-- Paths that belong to the app or its state location (`datasets/`,
-  `reports/`, the state dir's own `scripts/smoke.sh`) stay bare and relative
-  — they are deliberately *not* plugin paths.
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before changing the plugin. It has
+the three checks, how the 3.9 floor is verified, the path convention for
+skills, and the rules that look arbitrary until you break one.
 
-The paths listed in this README and in the scripts' own docstrings are
-repo-relative, for a human reading the source at the plugin root.
+---
 
-## Requirements
+## License
 
-Python 3.9+, stdlib only — nothing the harness runs imports a package. 3.9 is
-past upstream end-of-life (October 2025) and is kept as the floor deliberately:
-RHEL 9 ships it with vendor-backported fixes, and long-lived enterprise
-environments are where this harness is meant to run. The one exception is a
-convenience, not a runtime dependency: `scripts/convert_suite.py` uses PyYAML
-to turn your YAML into the JSON everything else reads.
-
-An app you can invoke programmatically. OpenTelemetry with GenAI spans is
-recommended — without traces, trajectory layers are unavailable and only
-routing and answer-level evals run. The `gen_ai.*` conventions are still
-Development-status upstream, so `normalize_trace.py` tracks a moving spec.
-
-Changing the plugin? `CONTRIBUTING.md` has the three blessed checks, how the
-3.9 floor is verified, and why the toolchain files look the way they do.
-`scripts/stats.py --version` reports the harness version a run manifest
-records. `.github/workflows/ci.yml` **has never executed** — this repository
-has no git remote — so those local checks are the only checked claim.
+MIT — see [`LICENSE`](LICENSE).

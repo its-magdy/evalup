@@ -144,6 +144,24 @@ commands above are the only checked claim.
 - **The scorers' error contract puts errors on STDOUT** as JSON with exit 2
   (`_common.die()`), not stderr.
 
+## Path convention
+
+Skills, references, and agents run with the CWD set to the **user's app**, not
+to the plugin, so a bare `scripts/x.py` or `docs/x.md` inside them resolves to
+the wrong place. One rule, applied throughout:
+
+- Anything executed, or read across skills — a script, a `docs/` page, an
+  `agents/*.md`, another skill's `SKILL.md` or `references/` — is written
+  `${CLAUDE_PLUGIN_ROOT}/...`.
+- A `SKILL.md` pointing into its own `references/` uses a relative markdown
+  link, e.g. `[references/run-modes.md](references/run-modes.md)`.
+- Paths that belong to the app or its state location (`datasets/`,
+  `reports/`, the state dir's own `scripts/smoke.sh`) stay bare and relative
+  — they are deliberately *not* plugin paths.
+
+The paths in `README.md` and in the scripts' own docstrings are
+repo-relative, for a human reading the source at the plugin root.
+
 ## Four decisions the remediation wave left behind
 
 Each was argued out at length, with trade-offs, in the commit that made it.
