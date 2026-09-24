@@ -18,9 +18,10 @@ built.
 This document is the spec: where it and the code disagree, **this file is
 right** and the code is the bug.
 
-**What this is.** `run/SKILL.md` §2 "Execute" used to be hand-orchestrated by
-the LLM on every run. That is the audit's first conclusion: not reproducible,
-expensive, and it silently drops required outputs. The proof was a real run
+**What this is.** Before this runner existed, `run/SKILL.md` §2 "Execute" was
+hand-orchestrated by the LLM on every run. That is the audit's first
+conclusion: not reproducible, expensive, and it silently drops required
+outputs. The proof was a real run
 from July 2026 which had `manifest.yaml`, `results.json`, `report.md`,
 `report.html`, and four complete `cases/<id>/` folders — and **no
 `verdicts.jsonl` and no `verdicts_for_stats.jsonl`**, both of which §4 marks
@@ -454,7 +455,7 @@ the reservation instead of a field, for the reason Step 7 rewrote the
 and the user is then owed a measurement that still does not exist. Two
 consequences the layer table cannot state on its own: a case's `seed_state` is
 loaded by nobody (seed out of band or accept ambient state), and
-`validate_cases.py` no longer counts `expect.state` toward gradedness, so a
+`validate_cases.py` does not count `expect.state` toward gradedness, so a
 state-only case is a `no_graded_layer` ERROR rather than a `pass` off its
 `http` row.
 
@@ -936,8 +937,8 @@ Rule 7 is the point: a case whose every layer came back `n/a`/`unscorable`/
 `unscored` is **not** a pass. That is the vacuous-case failure
 `validate_cases.py` lints for at authoring time, caught again at run time.
 
-**Why `http` is excluded from rule 5** (Step 10; it used to satisfy it, and
-that was a defect, not a decision). A status code is a *liveness* check —
+**Why `http` is excluded from rule 5** (Step 10 excluded it; before that it
+satisfied the rule, which was a defect, not a decision). A status code is a *liveness* check —
 `validate_cases.py` refuses to count `expect.http` toward gradedness for
 exactly this reason — so while it could be the one `pass` that carried a case,
 every case whose real layers came back `unscored`/`unscorable` rolled up to
