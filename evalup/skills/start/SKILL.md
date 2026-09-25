@@ -79,8 +79,10 @@ between them:
    messages or transcripts to hand, take them first — 10 real ones beat 30
    synthetic. Review stays targeted: only the hard-negative/OOS labels and the
    cases the generator marked uncertain, in one batch, accept/fix/delete.
-5. **`run --smoke`**, then report per run/SKILL.md §5: what failed, where, and
-   what the suite could not see.
+5. **`run --smoke`** — wait for the runner as run/SKILL.md §2 says
+   (foreground, then `wait_run.py` while it exits 3; never end the turn while
+   `results.json` says `running`) — then report per run/SKILL.md §5: what
+   failed, where, and what the suite could not see.
 6. **Close with the menu, not a lecture**: what unlocks next and what each
    costs — tracing (tool/trajectory/cost layers), the interview (business
    rules, rubric), a full suite with a sealed holdout (regression gating),

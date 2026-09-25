@@ -111,6 +111,19 @@ the prompt only under a pre-approved budget or the headless gate (§6). Resume
 an interrupted run with `--resume` under the same run id; re-check a finished
 one any time with `--verify reports/<run-id>`.
 
+**Wait for the runner; never end the turn on a `running` run.** Launch
+`run_cases.py` in the **foreground** of one Bash call with `timeout` at its
+600000 ms maximum — never `run_in_background`: headless, a background shell is
+killed seconds after the turn ends, and a killed runner leaves `results.json`
+at `summary.status: "running"` with its cases half paid for. If the harness
+moves the call to the background at that cap, do not stop: call
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/wait_run.py reports/<run-id>` (same
+600000 ms timeout) and repeat it while it exits 3. It exits 0 once the run is
+finalized (printing `summary.status`, the runner's exit code and the last
+`run.log` event — read §3 from that exit code); 4 when the run is still
+`running` but no runner process exists — say so and offer `--resume` under
+the same run id. Report nothing from a run whose status is `running`.
+
 ## 3. Read the exit code
 
 Non-zero always prints `{"error": ...}` as JSON on **stdout**. React to the
