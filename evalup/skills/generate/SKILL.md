@@ -25,6 +25,10 @@ allowed-tools: >-
 > that literal form only, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
+>
+> **Every shell call, not only script calls.** One plain command per Bash
+> call — no `cd`, `&&`, `|`, heredoc, `$( )` or `/tmp` — so an allow rule can
+> match it. A denial of **any** call is a stop, never a retry in another form.
 
 Arguments, when the user typed any: `$ARGUMENTS`
 

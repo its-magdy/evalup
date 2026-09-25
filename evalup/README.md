@@ -105,16 +105,37 @@ request to your app, editing a prompt.
   the next script run may prompt once; "Yes, and don't ask again" settles it
   for the project.
 - **Headless (`claude -p`, CI): an unanswered prompt is a denial.** Allow what
-  the run needs up front — `--permission-mode acceptEdits`, plus
-  `--allowedTools` for the script rule and for reaching your app — or use the
-  [scripts directly](#without-claude-ci).
-- **Headless: put the whole request in one prompt.** Pre-approvals belong to
-  the turn that invoked the skill, so a `--resume` turn starts without them:
+  the run needs up front, or use the [scripts directly](#without-claude-ci).
+  The recipe for a first session on a reachable app:
 
   ```bash
   claude -p "/evalup:start ./my-app — no transcripts, don't ask, run the first session" \
-    --plugin-dir ./evalup-repo/evalup --permission-mode acceptEdits
+    --plugin-dir ./evalup-repo/evalup \
+    --permission-mode acceptEdits --permission-prompts none \
+    --allowedTools 'Bash(git -C *)' 'Bash(curl *)'
   ```
+
+  `acceptEdits` covers the files the skills write under the app.
+  `--permission-prompts none` denies anything that would still prompt and
+  tells Claude not to retry it. `Bash(git -C *)` is the one shell command a
+  skill mandates that the always-allowed read-only set does not cover
+  (`discover`'s `git -C <app> status --porcelain`); `Bash(curl *)` is for
+  reaching your app from the shell. Add rules only for what your adapter
+  needs beyond that. The same two rules in the app's `.claude/settings.json`,
+  for a project that runs this often:
+
+  ```json
+  { "permissions": { "allow": ["Bash(git -C *)", "Bash(curl *)"] } }
+  ```
+
+- **Headless: put the whole request in one prompt.** Pre-approvals belong to
+  the turn that invoked the skill, so a `--resume` turn starts without them.
+- Three facts about Bash rules that decide whether a headless run finishes
+  (Claude Code's permission docs, checked 2026-09-25): a rule must match
+  **every part** of a compound command, so `cd my-app && git status` prompts
+  even with `Bash(git *)` allowed; `git -C <dir>` is not in the read-only set
+  that never prompts; and `Grep`/`ls`/`cat` of the plugin directory prompt,
+  because it is not a working directory — the skills `Read` it instead.
 
 When a call is denied, the skills stop and say so rather than work around it.
 
