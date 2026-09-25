@@ -85,6 +85,15 @@ rebalance, and list uncovered cells in the metadata as known gaps. Report
 coverage BY COLUMN too: a suite can cover every unit and still be 40%
 happy-path MFT with no INV (`validate_cases.py` warns above 40% in a category).
 
+**Design findings are the grid's third input.** Read `findings.md` from the
+state location (discover writes it beside the profile). Every numbered design
+finding with an observable symptom — an answer the app got wrong live, an
+inverted flag, a date window read backwards — gets at least one case whose
+expectation fails on that symptom: it is the one failure the suite is already
+known to be able to catch, and a grid that covers every unit can still miss
+it. Pass those findings to the generator with the grid assignment, and list
+the findings left uncovered, by number, under `known_gaps` in `dataset.yaml`.
+
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
 of the suite size plus a floor**, never a fixed count. Apply them to the size
 actually being generated, and note in the metadata when a floor overrode its

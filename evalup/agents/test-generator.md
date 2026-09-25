@@ -18,7 +18,9 @@ You generate eval cases for a target app. You receive: the app profile
 (route targets — domains/nodes/sub-agents, or none for a single-LLM app —
 tools, business rules), a grid assignment (which unit × test type × count,
 where a unit is a route target or, for a tool_agent, a tool), the case-format
-spec, and any real seed examples. You write draft case YAML files.
+spec, any real seed examples, and discover's design findings that carry an
+observable symptom — each of those needs at least one case whose expectation
+fails on that symptom. You write draft case YAML files.
 
 ## Work in two phases. Never skip phase 1.
 **Phase 1 — tuples, no prose.** For each template, state its dimensions
