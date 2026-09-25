@@ -35,16 +35,16 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 ## State
 
 - **`main`** holds everything: the remediation wave, the worked example, the
-  rename, the doc cleanup and all four September audits' fixes, the
-  2026-09-24 prompt audit and its five follow-ups included
-  (`evalup/CHANGELOG.md` lists them; merged 2026-09-24). It is the only
-  branch. Nothing is pushed; **there is still no remote**, so nothing here
-  has ever been checked by CI.
+  rename, the doc cleanup, all four September audits' fixes, the 2026-09-24
+  prompt audit and its follow-ups, and the 2026-09-24 field-test fixes
+  (`evalup/CHANGELOG.md` lists them; fast-forwarded 2026-09-25). It is the
+  only branch. Nothing is pushed; **there is still no remote**, so nothing
+  here has ever been checked by CI.
 - **Health:** 782 tests pass on 3.14; 774 + 8 skips on the 3.9 floor (all 8
   skips need PyYAML: 782 pass with `--with pyyaml`), ruff clean, 21 CLIs
   answer `--help`, `claude plugin validate` clean for the plugin and the
   root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-25 on
-  `fieldtest-fixes`.
+  `main` after the merge.
 - **A live session works**, re-run twice 2026-09-21 after `make_plan.py`:
   headless `/evalup:start` on an unseen toy app reached a scored run in 4.5 min
   (was 14), 3/3 planted flaws found, no script failures. That run needed
@@ -54,7 +54,7 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   pre-approvals last one turn, so a headless `--resume` turn is denied — put
   the whole request in one prompt (README §Permissions). Toy app, single
   samples; not yet tried on a real LLM app.
-- **The 2026-09-24 field test** (branch `fieldtest-fixes`, 2026-09-25): a
+- **The 2026-09-24 field test** (fixed on `fieldtest-fixes`, merged 2026-09-25): a
   first run on a real ASP.NET Core app with five planted flaws, nine headless
   sessions. Runs surfaced 3/5 flaws; headless `run` orphaned its runner twice
   (background shell killed at turn end), 48 permission denials, `help`
@@ -73,7 +73,7 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   placements and three more sessions (~$5 each): the out-of-tree statement
   finally appears, but in the closing summary, never before the first write
   — headless that is the same information, so it was left there. Later
-  sessions had 0 denials. Not merged; the field-test folder is untouched.
+  sessions had 0 denials. The field-test folder is untouched.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
