@@ -108,6 +108,10 @@ edit:
 - Run `git -C <app> status --porcelain`. **On a dirty tree, do not edit** — a
   patch mixed into the user's uncommitted work cannot be reviewed or undone on
   its own. Show the patch text and let them apply it, or wait for a commit.
+  A dirty tree, or `repo_access: read-only`, also decides where state goes:
+  before the first write into `<app>/.evalup/`, offer an out-of-tree
+  `state_location` (one sentence, with the default named) and record the
+  choice in `adapter.yaml`. Headless, take the default and say which it was.
 - Show the full diff and get a yes **per file**, not one yes for the step.
 - After editing, say exactly which files changed and that
   `git -C <app> checkout -- <path>` undoes each. Commit nothing.
@@ -139,9 +143,10 @@ Read-only repos, change freezes, QA without write access and third-party audits
 are supported paths, not improvisations for when things go wrong. With
 `repo_access: read-only` set, never offer a code patch at all. That includes
 step 5's oracle: propose the read-only *role* against an existing replica if
-there is one, never seed or reset scripts written into the app repo. Pairing it
-with an out-of-tree `state_location` is the expected shape for a QA sandbox or
-third-party audit. For every patch declined or not offered:
+there is one, never seed or reset scripts written into the app repo. Pair it
+with an out-of-tree `state_location` — offer that before the first write, as
+step 5 says; it is the expected shape for a QA sandbox or third-party audit.
+For every patch declined or not offered:
 - Record it in findings.md as `declined: <patch> → costs <capability>`, e.g.
   "declined: no oracle → execution layer unavailable, data-Q&A cases stay
   answer-graded only".

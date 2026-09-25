@@ -112,8 +112,13 @@ lean path would have skipped and let them choose.
    of scope even when they look relevant; a file the user names in the
    request is in scope. Check for an existing state location
    (default `<app>/.evalup/`, or the adapter's `state_location`).
-   Read-only app repos are supported: state can live at any external path, and
-   discover runs without patching — say so if the user mentions access limits.
+   Before anything is written, say where state will go (the default is
+   `<app>/.evalup/`) and, in the same sentence, that a read-only repo, a
+   change freeze or a dirty tree can keep it out of the app entirely: the
+   adapter's `state_location` takes any external path, and discover runs
+   without patching (`repo_access: read-only`). A statement, not a question
+   — the first session stays interview-free; discover step 5 makes the
+   offer when the tree is dirty or read-only.
 
 2. **Route by state.** Run these checks **in order** and act on the first one
    that matches. The order is what makes the diagnosis correct: a state dir can

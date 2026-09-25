@@ -4,6 +4,11 @@ The profile is the harness's model of the app — and a contract the human
 confirms. Every inferred entry carries `verified` (checked against live
 traces) so downstream skills know what they can trust.
 
+Two neighbouring fields readers look for here live in `adapter.yaml`, not the
+profile: `app.repo_access: read-write | read-only` and `state_location`
+(any path, in or out of the app tree) — both defined in
+[adapter-contract.md](adapter-contract.md)'s first block.
+
 ```yaml
 profile_version: 1
 generated: 2026-07-18            # updated by discover; --diff compares against this
