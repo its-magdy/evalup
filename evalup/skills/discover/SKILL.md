@@ -30,7 +30,12 @@ allowed-tools: >-
 > call — no `cd`, `&&`, `|`, heredoc, `$( )` or `/tmp` — so an allow rule can
 > match it. A denial of **any** call is a stop, never a retry in another form.
 
-Arguments, when the user typed any: `$ARGUMENTS`
+Arguments, when the user typed any: `$ARGUMENTS`. The app path is the one in
+there (or the one `start` passed): **read and list only under it, its state
+location and the plugin.** Files the user did not name — the parent
+directory, sibling folders, notes and logs beside the app — are out of scope
+even when they look relevant; a file the user names in the request is in
+scope.
 
 **Lean mode** — when `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first
 session sent you here: do steps 1–4 and 8, set `stage: pre-stability`, and list

@@ -106,7 +106,11 @@ lean path would have skipped and let them choose.
 ## Procedure
 
 1. **Locate the target app.** Use `$ARGUMENTS` if given; otherwise ask for the
-   app's repo path or endpoint URL. Check for an existing state location
+   app's repo path or endpoint URL. **Read and list only under the app path,
+   its state location and the plugin.** Files the user did not name — the
+   parent directory, sibling folders, notes and logs beside the app — are out
+   of scope even when they look relevant; a file the user names in the
+   request is in scope. Check for an existing state location
    (default `<app>/.evalup/`, or the adapter's `state_location`).
    Read-only app repos are supported: state can live at any external path, and
    discover runs without patching — say so if the user mentions access limits.
