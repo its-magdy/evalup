@@ -20,7 +20,9 @@ allowed-tools: >-
 > quote it in shell commands.
 >
 > **Calling the plugin.** Open its files with Read — never `cd` into the
-> plugin or `cat` them. Run each script as its own Bash call, spelled
+> plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
+> a working directory, so those prompt, and headless a prompt is a denial.
+> Run each script as its own Bash call, spelled
 > `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
 > `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
 > that literal form only, and it lapses when the user next replies — a prompt

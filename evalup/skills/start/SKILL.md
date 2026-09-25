@@ -26,7 +26,9 @@ allowed-tools: >-
 > quote it in shell commands.
 >
 > **Calling the plugin.** Open its files with Read — never `cd` into the
-> plugin or `cat` them. Run each script as its own Bash call, spelled
+> plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
+> a working directory, so those prompt, and headless a prompt is a denial.
+> Run each script as its own Bash call, spelled
 > `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
 > `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
 > that literal form only, and it lapses when the user next replies — a prompt
@@ -66,6 +68,9 @@ between them:
    failures you can imagine, and that real ones can be added any time.
 1. **`discover`, lean.** Steps 1–4 and 8 of that skill only: access level,
    topology, code archaeology, the 1–3 live validation requests, findings.
+   Before its first write, one sentence on where state goes — Procedure step
+   1 below; a dirty or read-only tree makes the out-of-tree location the
+   thing to name, and headless you take the default and say so.
    **Skip step 5 (patches), step 6's maturity question (default
    `stage: pre-stability`) and step 7 (the interview)** — record each under
    `deferred:` in findings.md so the next session offers them. The one thing

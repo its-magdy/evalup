@@ -19,7 +19,9 @@ allowed-tools: >-
 > quote it in shell commands.
 >
 > **Calling the plugin.** Open its files with Read — never `cd` into the
-> plugin or `cat` them. Run each script as its own Bash call, spelled
+> plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
+> a working directory, so those prompt, and headless a prompt is a denial.
+> Run each script as its own Bash call, spelled
 > `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
 > `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
 > that literal form only, and it lapses when the user next replies — a prompt
@@ -38,7 +40,8 @@ even when they look relevant; a file the user names in the request is in
 scope.
 
 **Lean mode** — when `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first
-session sent you here: do steps 1–4 and 8, set `stage: pre-stability`, and list
+session sent you here: do steps 1–4 and 8 (plus step 5's one sentence on the
+state location before the first write), set `stage: pre-stability`, and list
 steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
 with what each unlocks. Do not offer a patch to the user's source and do not
 interview them before they have seen a result. Everything below is the full
