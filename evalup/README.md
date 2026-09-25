@@ -311,13 +311,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 772 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 782 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-764 passed and 8 skipped; add `--with pyyaml` to run the skipped eight.
+774 passed and 8 skipped; add `--with pyyaml` to run the skipped eight.
 
 `.github/workflows/ci.yml` has never run: the repository has no remote. These
 local commands are the only checked claim.

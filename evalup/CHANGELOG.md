@@ -250,6 +250,64 @@ of the plugin, and for claims the scripts no longer back. No scorer changed.
   field test archived in the initial commit and since deleted; the plugin
   has never been published, so no state dir can hold it.
 
+### Fixed — the 2026-09-24 field test
+
+A first run on a real ASP.NET Core app (five planted flaws, nine headless
+sessions). Every item was re-derived from the session transcripts before it
+was changed; the runner and scorers are untouched.
+
+- **Headless `run` and `start` ended the turn while `run_cases.py` ran in the
+  background**, and the CLI's exit killed the runner mid-case, twice. `run`
+  now launches the runner in the foreground with the Bash timeout at its
+  maximum and, past the ten-minute headless cap, loops on the new
+  `scripts/wait_run.py` (exit 0 finalized / 3 still running / 4 the runner is
+  gone, offer `--resume`); nothing is reported from a `running` run.
+- **The headless permission surface was never named.** README §Permissions
+  gives the recipe (`acceptEdits`, `--permission-prompts none`,
+  `Bash(git -C *)`, `Bash(curl *)`), the same rules for `settings.json`, and
+  the three facts that decide whether a headless run finishes (compound
+  commands need every part allowed; `git -C` is not read-only; the plugin
+  directory is not a working directory). Every skill preamble now applies the
+  one-plain-command / stop-on-denial rule to every shell call, not only script
+  calls — sessions had retried a denied shape up to four times.
+- **`start` and `discover` read files beside the app** — owner notes, a
+  sibling handoff, the tester's issue log. Both now read and list only under
+  the app path, its state location and the plugin.
+- **`make_plan.py` could not set `execution.insecure_tls`**, so sessions
+  hand-edited `plan.json` for a self-signed dev host. It is `--insecure-tls`
+  now; `run`, the adapter contract and `adapters/dotnet.md` name it.
+- **No session offered an out-of-tree state location** on a dirty, read-only
+  worktree. `discover` offers it before the first write when the tree is dirty
+  or `repo_access: read-only`; `start` says where state goes up front;
+  `profile-schema.md` points at `repo_access`/`state_location`.
+- **The CI-gate recipe passed its own guard on an authentication failure**
+  and `gate.py` then blamed `reports/`. The recipe checks the session's exit
+  code and `result.is_error` first, closes stdin, uses
+  `--permission-prompts none`, and asserts the init event names the plugin.
+- **`help` promised that Jaeger unlocks the tool-use layers**; the contract
+  reads `traces.source: otlp-file` only. A routing row for the question, and
+  the README and `concepts.md` say traces come from a file export.
+- **`generate` never covered discover's live-observed findings.** `findings.md`
+  is the grid's third input: a case per finding with a symptom, or a
+  `known_gaps` entry.
+- **A headless `generate` left nothing gating and did not say so.**
+  `validate_cases.py` warns `nothing_gates` at suite level; `generate` §3 has
+  the no-reviewer rule and the closing sentence ("N cases, 0 accepted: this
+  suite cannot fail a build until a human accepts cases").
+- **Docs:** the plan's `infra_rate_abort` (0.25) and the gate's
+  `--max-infra-rate` (0.05) are two thresholds by design, with the
+  throttled-provider answer; the headless recipe is for a terminal or CI, since
+  an auto-mode Claude Code session may refuse to spawn it.
+
+### Added — the 2026-09-24 field test
+
+- **`scripts/wait_run.py`** (the 21st CLI) — see above.
+- **`evals/`** — five `claude plugin eval` cases, one per behaviour the field
+  test found weakest: `help-matches-contract`, `run-ci-gate-auth-check` (no
+  app), and `start-headless-completes`, `discover-stays-in-app-path`,
+  `generate-no-self-review`, which scaffold the quickstart app in the run's
+  workspace. The app-bound three need a Bash grant on the command line.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
