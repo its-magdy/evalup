@@ -29,6 +29,9 @@ invocation:
   mode: http | function       # `cli` is reserved: runner v1 refuses it (exit 3)
   # http mode
   base_url: ${APP_BASE_URL}
+  # No TLS field. An https base_url with a self-signed LOCAL dev certificate
+  # needs `make_plan.py --insecure-tls` (plan execution.insecure_tls,
+  # runner-contract §2); the adapter never turns verification off.
   # auth — one of these shapes (env refs only, never literals):
   auth: { type: bearer, token_env: APP_TEST_TOKEN }
   # auth: { type: headers,                          # header-based trust (custom

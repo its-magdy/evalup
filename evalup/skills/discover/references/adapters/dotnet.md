@@ -36,6 +36,11 @@ scope creep in the tool itself.
   normalization.
 - **Staging/e2e path:** real Kestrel + `HttpClient`, same `invocation.mode:
   http` shape, no adapter-code difference — only how the test host is started.
+- **The `dotnet dev-certs https` certificate is self-signed**, so a local
+  `https://localhost:<port>` base_url fails pre-flight with
+  `CERTIFICATE_VERIFY_FAILED` (exit 3). Build the plan with `make_plan.py
+  --insecure-tls` for that host, or point `base_url` at the app's http
+  binding; the adapter has no TLS field and the plan is never hand-edited.
 - **adapter.yaml mapping:**
   ```yaml
   invocation:

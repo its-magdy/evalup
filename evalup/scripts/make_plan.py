@@ -156,6 +156,10 @@ def main():
     ap.add_argument("--dataset-version", type=int,
                     help="default: dataset.yaml's dataset_version, else 1")
     ap.add_argument("--timeout-s", type=float, help="per app call")
+    ap.add_argument("--insecure-tls", action="store_true",
+                    help="set execution.insecure_tls: skip certificate "
+                         "verification for a self-signed LOCAL dev host only "
+                         "(runner-contract SS2); never for anything real")
     ap.add_argument("--manifest-extra", metavar="FILE", help="a JSON object "
                     "merged over the computed manifest_extra (models, prompt "
                     "hashes, temperature, cost estimate -- what only the "
@@ -274,8 +278,13 @@ def main():
         "adapter": adapter, "capability_matrix": matrix, "cases": cases,
         "scoring": scoring, "manifest_extra": extra,
     }
+    execution = {}
     if a.timeout_s is not None:
-        plan["execution"] = {"timeout_s": a.timeout_s}
+        execution["timeout_s"] = a.timeout_s
+    if a.insecure_tls:
+        execution["insecure_tls"] = True
+    if execution:
+        plan["execution"] = execution
 
     text = json.dumps(plan, indent=2, ensure_ascii=False) + "\n"
     if not a.output:

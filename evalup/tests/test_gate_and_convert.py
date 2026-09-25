@@ -263,6 +263,35 @@ class TestMakePlan(TempDirTest):
                      HELPDESK_BASE_URL="http://127.0.0.1:9"))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
+    def test_insecure_tls_is_a_flag_not_a_hand_edit(self):
+        # The field test (2026-09-24) hit a self-signed dev host, saw exit 3
+        # CERTIFICATE_VERIFY_FAILED, and hand-edited plan.json twice because
+        # the flag did not exist. Absent -> no execution block at all, so the
+        # runner's defaults (insecure_tls false) apply untouched.
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("execution", plan)
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--insecure-tls")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["execution"], {"insecure_tls": True})
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--insecure-tls", "--timeout-s", "150")
+        self.assertEqual(plan["execution"],
+                         {"timeout_s": 150.0, "insecure_tls": True})
+        # The runner accepts the plan and reports the field back on --dry-run.
+        plan_path = self.tmp / "plan.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "run_cases.py"), "--plan",
+             str(plan_path), "--out",
+             str(self.state / "reports" / plan["run_id"]), "--dry-run"],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, HELPDESK_BASE_URL="http://127.0.0.1:9"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIs(json.loads(proc.stdout)["execution"]["insecure_tls"],
+                      True)
+
     def test_dash_o_prints_the_command_to_run_next(self):
         out_path = self.tmp / "plan.json"
         rc, summary = self.plan("--mode", "regression", "-o", str(out_path))
