@@ -228,7 +228,8 @@ path**: it produces the run, then a separate tokenless step —
 summary and exits 0 open / 1 closed. Run it after every interactive run too:
 it is the fastest honest summary, and the runner's own exit 0 says nothing
 about pass/fail (§3). That step, the
-`claude -p ... --bare --plugin-dir` invocation, and the
-`system/init` `plugin_errors` check that must precede trusting either:
+`claude -p ... --bare --plugin-dir` invocation, and the two checks that must
+precede trusting either — the session's exit code with `result.is_error`,
+then `system/init`'s plugin load:
 [references/run-modes.md](references/run-modes.md) "Headless/CI gate". Under
 that mode §2's cost prompt is skipped — nobody is there to answer it.

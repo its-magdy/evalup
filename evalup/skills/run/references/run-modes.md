@@ -158,7 +158,7 @@ No mode flag behaves as `regression` (full suite, hard gate).
 The hard-gated modes (`regression`, `full`) are the ones wired into CI. The
 LLM produces the run and nothing more; a separate, tokenless shell step
 owns the actual gate. Flags and event fields below were checked against
-Claude Code 2.1.281 and its headless and permission-mode docs on 2026-09-24;
+Claude Code 2.1.282 and its headless and permission-mode docs on 2026-09-25;
 re-check them when the CLI's major version changes.
 
 ```bash
@@ -166,18 +166,37 @@ EVALUP_ROOT=/path/to/the/installed/evalup   # CLAUDE_PLUGIN_ROOT is not set outs
 export ANTHROPIC_API_KEY=...                # --bare never uses a subscription login
 
 # Agent-driven part: no auto-discovery surprises, no prompt nobody can answer.
+# `< /dev/null` closes stdin: left open, the CLI waits 3 s for piped input
+# and warns before continuing.
 claude -p "/evalup:run --regression" \
   --bare --plugin-dir "$EVALUP_ROOT" \
-  --permission-mode acceptEdits \
+  --permission-mode acceptEdits --permission-prompts none \
   --output-format stream-json --verbose \
-  > run-output.jsonl
+  < /dev/null > run-output.jsonl
+claude_rc=$?
 
-# Before trusting anything below, confirm the plugin loaded clean. The init
-# event omits both keys when there is nothing to report, hence `// []`.
+# First: did the session itself succeed? A missing or invalid API key exits
+# non-zero and ends the stream with a `result` event whose `is_error` is true
+# ("Not logged in"), after one turn and no run. Check the exit code and that
+# flag -- not `subtype`, which reads "success" on that event. Without this
+# step the plugin-load guard below passes (nothing loaded wrongly) and
+# gate.py then reports "no regression run directory", which is true and
+# blames the wrong thing.
+if [ "$claude_rc" -ne 0 ] || \
+   jq -e 'select(.type=="result") | .is_error == true' run-output.jsonl >/dev/null; then
+  echo "claude -p failed (rc=$claude_rc) -- no run was produced"
+  jq -r 'select(.type=="result") | .result // .error // empty' run-output.jsonl | tail -1
+  exit 2
+fi
+
+# Second: confirm the plugin loaded clean. The init event omits both error
+# keys when there is nothing to report, hence `// []`; and it must name this
+# plugin, or `/evalup:run` resolved to nothing.
 jq -e 'select(.type=="system" and .subtype=="init")
        | (.plugin_errors // [] | length == 0)
-         and (.mcp_server_errors // [] | length == 0)' \
-  run-output.jsonl >/dev/null || { echo "plugin/mcp load errors — run untrusted"; exit 2; }
+         and (.mcp_server_errors // [] | length == 0)
+         and ((.plugins // []) | map(.name) | index("evalup") != null)' \
+  run-output.jsonl >/dev/null || { echo "plugin/mcp load errors, or evalup not loaded -- run untrusted"; exit 2; }
 
 # The actual gate: a plain script reads the verdict, no LLM involved. It
 # finds the run this invocation just wrote by the TIMESTAMP in the run id
@@ -197,19 +216,26 @@ scored nothing, and a run directory that fails `run_cases.py --verify`).
 `gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
 pipeline, runnable).
 
-- `--bare` skips hook, plugin, MCP and CLAUDE.md auto-discovery, so the same
-  command behaves the same on every CI runner — reproducibility over
+- `--bare` skips auto-discovery of hooks, skills, custom commands,
+  subagents, installed plugins, MCP servers, auto memory and CLAUDE.md, so the
+  same command behaves the same on every CI runner — reproducibility over
   convenience. Two consequences the flag does not advertise: installed
   plugins are skipped too, so this one must be named with `--plugin-dir`
   (without it `/evalup:run` does not resolve); and auth is strictly
   `ANTHROPIC_API_KEY` (or an `apiKeyHelper` passed via `--settings`) — an
-  OAuth login fails with "Not logged in" before any token is spent.
+  OAuth login fails with "Not logged in" before any token is spent, which is
+  what the first check catches. One oddity seen on 2.1.282: the init event's
+  `skills`/`slash_commands` arrays can still enumerate skills from
+  `~/.claude`. Nothing shows they were loadable; the check that matters is
+  the one above — `plugins` names `evalup`.
 - `--output-format stream-json --verbose` is what makes the `system`/`init`
   event exist. `--output-format json` is a single final `result` object with
   no init event at all — the `jq` above finds nothing in it and exits 4, so
   the guard would reject every healthy run. Print mode refuses `stream-json`
   without `--verbose`.
-- Permissions: headless, a prompt nobody answers is a denial. The skill
+- Permissions: headless, a prompt nobody answers is a denial, and
+  `--permission-prompts none` makes that explicit — anything that would
+  prompt is denied and Claude is told not to retry it. The skill
   pre-approves its own scripts for this one turn, and `acceptEdits` covers the
   two files the skill itself writes, `baseline.json` and `report.md`. Add
   `--allowedTools` only for what your adapter needs beyond that (README
@@ -217,11 +243,14 @@ pipeline, runnable).
   every call that would prompt, the report write included, so the run stops
   there. SKILL.md §2's cost/time confirmation is skipped under `-p` — there
   is no human on the other end to answer it.
-- Checking `system/init` for `plugin_errors`/`mcp_server_errors` first is not
-  optional: a run that launched under a broken plugin load can produce a
-  clean-looking verdict for the wrong reason (e.g. every case silently
-  skipped a layer), and the gate script would happily green-light it. Both
-  fields are documented on the init event, present only when non-empty.
+- The two checks before `gate.py` are in that order for a reason. The exit
+  code and `result.is_error` say whether a session happened at all; the
+  `system/init` check says whether the plugin it ran under loaded clean. A
+  run launched under a broken plugin load can produce a clean-looking
+  verdict for the wrong reason (e.g. every case silently skipped a layer),
+  and the gate script would happily green-light it. `plugin_errors`,
+  `mcp_server_errors` and `plugins` are documented on the init event; the
+  two error keys are present only when non-empty.
 - `--latest` assumes this CI job is the only writer of that mode at that
   moment — a shared `reports/` directory with concurrent runs needs the run
   directory passed explicitly (`gate.py reports/<run-id>`) rather than
