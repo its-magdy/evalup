@@ -66,8 +66,11 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   check, the traces claim, findings as a grid input, `nothing_gates`, and
   two doc-only items. Five eval cases live in `evalup/evals/`; the three
   app-bound ones need a Bash-granting sandbox, which this machine refuses
-  (a symlink inside `~/.docker`), so they were proven by a live `claude -p`
-  session instead. Not merged; the field-test folder itself is untouched.
+  (symlinks inside `~/.docker`; `DOCKER_CONFIG` does not bypass it), so they
+  were proven by two live `claude -p` sessions instead: a full first session
+  ($5.58, 13.6 min) and a slow smoke run that crossed the ten-minute cap and
+  came back through `wait_run.py` ($1.79, 16 min). Unproven live: C5's
+  out-of-tree sentence. Not merged; the field-test folder is untouched.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
