@@ -355,8 +355,9 @@ a claim the suite makes that nothing backs (no `split`, no `test_type`, no
 `template_id` key, an INV with no parent, a case grading no enabled layer, a
 duplicate id). A **warning** is a suite thinner than the guidance recommends
 (no INV/DIR at all, all one-offs, a skewed category mix, a machine-stamped
-`accepted`) — a budget judgement the author is allowed to make, and one
-`--strict` promotes for a gating CI job. A required field enforced by a
+`accepted`, a suite in which no non-canary case gates) — a budget judgement
+the author is allowed to make, and one `--strict` promotes for a gating CI
+job. A required field enforced by a
 warning is not required, so nothing in the first list warns.
 
 The check that matters most is `no_graded_layer`: a case must assert at least

@@ -155,6 +155,16 @@ Everything the generator produces starts `pending`. **Never derive an
 expectation by reading the app's source**, and prefer probing the app BEFORE
 labeling. generation-method.md says why each of these three matters.
 
+**No reviewer in the session** (headless, or the user said not to ask): leave
+every case `pending` and set `gating: false` on all of them — an unreviewed
+label must not close a gate, which is what `validate_cases.py`'s
+`gating_unreviewed` warns about per case. Then say what that means, as the
+last line of the handover and under a free-text `review:` key in
+`dataset.yaml`: "N cases, 0 accepted: this suite cannot fail a build until a
+human accepts cases and flips `gating`." The validator states the same fact at
+suite level (`nothing_gates`); never edit a warning away without naming, case
+by case, what changed and why.
+
 ## 4. Splits
 The four legal values of `split` are exactly `full`, `smoke`, `holdout`,
 `canary`. `smoke` and `canary` are SUBSETS of `full`, so a case carries both.

@@ -882,6 +882,21 @@ def check_suite(rep, cases, records):
                      f"category {category!r} is {share:.0%} of the suite "
                      f"({n}/{len(cases)}); a skewed mix makes the headline "
                      "pass rate mostly a measurement of one category")
+
+    # Suite-level, because the per-case `gating_unreviewed` WARN has an easy
+    # answer -- set gating false -- and a suite that takes it everywhere is
+    # left unable to fail anything. Canaries are counted apart: they watch
+    # the harness, not the app, so a gating canary opens no gate on the app.
+    graded_cases = [c for c in cases
+                    if "canary" not in (c.get("split") or [])]
+    if graded_cases and not any(c.get("gating") for c in graded_cases):
+        rep.warn(None, "nothing_gates",
+                 f"none of the {len(graded_cases)} non-canary cases has "
+                 "gating: true, so a run of this suite cannot close a gate: "
+                 "gate.py reports 0 gating failures whatever the app does. "
+                 "Expected for a suite nobody has reviewed yet -- say so "
+                 "where the suite is handed over (generate/SKILL.md SS3) and "
+                 "flip gating as a human accepts cases")
     return categories
 
 

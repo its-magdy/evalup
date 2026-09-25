@@ -526,6 +526,28 @@ class TestWarnFindings(ValidateTest):
                 good_case("e-oos-5", category="oos")]
         self.assertEqual(self.validate(even)[0], 0)
 
+    def test_nothing_gates(self):
+        # The field test's headless generate flipped every case to gating
+        # false (correct: nobody had reviewed them) and the run then closed
+        # its gate on infra rate alone, with six real failures that could
+        # not count. Suite-level, so the fact is stated once.
+        pending = {"status": "pending", "by": None}
+        cases = [good_case(f"c-happy-{i}", gating=False, review=pending)
+                 for i in range(3)]
+        f = self.assert_finds("nothing_gates", cases, severity="WARN")
+        self.assertIsNone(f["case_id"])
+        self.assertIn("cannot close a gate", f["message"])
+        # One accepted, gating, non-canary case is enough.
+        cases[0] = good_case("c-happy-0")
+        self.assertNotIn("nothing_gates", self.codes(self.validate(cases)[1]))
+        # A gating canary alone does not count: it watches the harness.
+        canary = good_case("c-canary-9", split=["full", "canary"])
+        self.assertIn("nothing_gates", self.codes(self.validate(
+            [canary, *cases[1:]])[1]))
+        # A suite of canaries only has nothing to say here.
+        self.assertNotIn("nothing_gates", self.codes(self.validate(
+            [canary])[1]))
+
 
 class TestExitContract(ValidateTest):
     def test_warnings_alone_exit_0(self):
