@@ -203,7 +203,10 @@ jq -e 'select(.type=="system" and .subtype=="init")
 # (never mtime, which drifts when a directory is copied or a report
 # regenerated), reads that run's results.json -- the durable file that
 # survives past this one CI invocation -- and exits 0 open / 1 closed / 2 bad
-# input. Stdlib Python: no jq, no yq.
+# input. Stdlib Python: no jq, no yq. --max-infra-rate is stricter than the
+# plan's infra_rate_abort (0.25) on purpose: a run may finish and still close
+# here. Raise it for one job on a throttled provider; never lower the abort
+# (run/SKILL.md SS3).
 python3 "$EVALUP_ROOT/scripts/gate.py" reports/ --latest --mode regression \
   --max-infra-rate 0.05
 ```

@@ -143,11 +143,22 @@ code, not to "non-zero".
 | 2 | Bad plan or usage. **Nothing was written.** | Fix the plan, re-run. Free. |
 | 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. |
 | 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. |
-| 5 | Infra rate above `infra_rate_abort`. | The service is degraded. Re-run when healthy; never report the partial pass rate. |
+| 5 | Infra rate above `infra_rate_abort` (plan default 0.25). | The service is degraded. Re-run when healthy; never report the partial pass rate. |
 | 6 | Completeness check failed: **a required artifact is missing or inconsistent**. | Read `summary.missing_artifacts`. Not quotable, not a baseline. `--resume` or re-run; never write a report over it. |
 | 7 | A scorer exited 2: artifacts complete, **numbers not**. | Read `summary.scorer_errors` and the `error` layers, fix the malformed `expect` or scorer input, re-score. Report anyway only while naming the layers left unscored. |
 
 A red suite exits **0** — gating is §6's job, not the runner's.
+
+Two infra thresholds, on purpose. The plan aborts a run at
+`infra_rate_abort` (0.25) so a degraded service does not burn the whole
+budget; `gate.py` refuses a *finished* run above `--max-infra-rate` (0.05). A
+run can therefore finish and still close the gate on infra alone — finishing
+preserves the verdicts already paid for, and the gate stays strict. On a
+throttled provider (429/503 walls; each 5xx is retried and counts as
+`infra_error` on exhaustion, never as an app failure) fix or wait out the
+provider, or raise `--max-infra-rate` for that one job and say so in the
+report. Never lower the abort, and never read a partial pass rate as the
+app's score.
 
 ## 4. Baseline and the holdout ledger
 
@@ -227,7 +238,8 @@ path**: it produces the run, then a separate tokenless step —
 --latest --mode regression`) — reads `results.json`, prints a one-screen
 summary and exits 0 open / 1 closed. Run it after every interactive run too:
 it is the fastest honest summary, and the runner's own exit 0 says nothing
-about pass/fail (§3). That step, the
+about pass/fail (§3). Its `--max-infra-rate` (0.05) is stricter than the
+plan's abort (0.25) by design — §3 says what to do on a throttled provider. That step, the
 `claude -p ... --bare --plugin-dir` invocation, and the two checks that must
 precede trusting either — the session's exit code with `result.is_error`,
 then `system/init`'s plugin load:
