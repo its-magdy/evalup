@@ -48,7 +48,12 @@ interview them before they have seen a result. Everything below is the full
 procedure; a later `/evalup:discover` runs the deferred steps.
 
 Write three artifacts to the state location (default `<app>/.evalup/`, or
-the adapter's `state_location`): `profile.yaml` (what the app is — fields in
+the adapter's `state_location`). **Before the first of those writes, one line
+in chat saying where they go** — and, when `git -C <app> status --porcelain`
+was non-empty or the repo is read-only, that `state_location` can point
+outside the app instead (headless: take the default and say so). The user
+finds out where their eval state lives before it exists, not after.
+The three: `profile.yaml` (what the app is — fields in
 [references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`
 (how to talk to it — fields in
 [references/adapter-contract.md](references/adapter-contract.md)), and
