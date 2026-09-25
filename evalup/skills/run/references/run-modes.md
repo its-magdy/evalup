@@ -254,6 +254,8 @@ pipeline, runnable).
   and the gate script would happily green-light it. `plugin_errors`,
   `mcp_server_errors` and `plugins` are documented on the init event; the
   two error keys are present only when non-empty.
+- Run this recipe from a terminal or a CI job. A Claude Code session in auto
+  mode may refuse to spawn the nested `claude -p` (README §Permissions).
 - `--latest` assumes this CI job is the only writer of that mode at that
   moment — a shared `reports/` directory with concurrent runs needs the run
   directory passed explicitly (`gate.py reports/<run-id>`) rather than

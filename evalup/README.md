@@ -132,6 +132,9 @@ request to your app, editing a prompt.
 
 - **Headless: put the whole request in one prompt.** Pre-approvals belong to
   the turn that invoked the skill, so a `--resume` turn starts without them.
+- **Run the recipe from a terminal or a CI job.** A Claude Code session in
+  auto mode may refuse to spawn a nested `claude -p`; the classifier's reasons
+  are not documented, so no allow rule is offered here — use a shell.
 - Three facts about Bash rules that decide whether a headless run finishes
   (Claude Code's permission docs, checked 2026-09-25): a rule must match
   **every part** of a compound command, so `cd my-app && git status` prompts
