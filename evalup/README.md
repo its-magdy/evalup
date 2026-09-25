@@ -36,9 +36,11 @@ it without Claude.
   into JSON.
 - **An app you can call**: an HTTP endpoint that returns one JSON body, or a
   Python `module:callable`.
-- **Optional:** OpenTelemetry GenAI traces. Without them, routing and answer
-  checks still score; the tool-use, trajectory and cost layers need traces,
-  and `/evalup:discover` can add them later.
+- **Optional:** OpenTelemetry GenAI traces, exported to a file
+  (`traces.source: otlp-file` — an OTLP collector's file exporter). A Jaeger
+  or Tempo backend alone is not read in v1; `/evalup:discover` sets up the
+  file exporter. Without traces, routing and answer checks still score; the
+  tool-use, trajectory and cost layers need them.
 
 No existing tests and no judge API key are needed — Claude Code subagents do
 the judging.
