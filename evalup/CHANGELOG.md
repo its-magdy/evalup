@@ -308,6 +308,62 @@ was changed; the runner and scorers are untouched.
   `generate-no-self-review`, which scaffold the quickstart app in the run's
   workspace. The app-bound three need a Bash grant on the command line.
 
+### Fixed — the 2026-09-25 user test
+
+A first-time-user session on a real ASP.NET Core app (RefApp, trace-less,
+a free-tier model behind it) wrote 42 findings. The engine held: no scorer
+or runner semantics changed. What did:
+
+- **`make_plan.py --manifest-extra` replaced the computed `app` block**, so
+  passing `app: {model: …}` — the shape the contract shows — pinned the
+  baseline to a run with no git SHA. Objects now merge one level deep and
+  the computed `git_sha`, `git_tree` and `dataset_version` always win (a
+  caller value is reported and ignored). (F-032)
+- **`gate.py` said `PASS` over 2 of 4 failing** when none gated. The verdict
+  word is unchanged — nothing gating failed — but the same line now says
+  `(2 failure(s) on non-gating cases, not counted)`. (F-024)
+- **No flag set the retry schedule**, so a throttled provider got the
+  runner's 1 s / 4 s retries or a hand-edited plan. `make_plan.py
+  --max-attempts N --backoff-s 5,30`; either flag implies the other. (F-027)
+- **`validate_cases.py` learned four vacuity patterns** the session hit:
+  `echo_assertion` (a `must_contain` the case's own input satisfies — the
+  app passed one by echoing the request), `canary_not_in_smoke` (a canary
+  tagged `[full, canary]` never runs under `--smoke`, since plans select on
+  the mode's split and the runner refuses a case without it),
+  `filter_unattested` (a `filter:` block nobody computed), and — with the
+  new `--adapter <adapter.json>` — `clarify_unobservable` and
+  `route_not_observable` (under `route_from_status` the observed route is
+  the map's value, never a domain). The three skills that lint pass
+  `--adapter`; `case-format.md` and the runner contract §5.2 say what a
+  status-routed app can expect. (F-028, F-025, F-016, F-022, F-015)
+- **The trace-analyzer graded the app against itself**: it read the
+  profile's `verified: true` on a 400 as "correct" and called the case
+  wrong. Its brief now says `verified` means observed, discover's
+  `findings.md` is the SHOULD source, and a "label wrong" verdict cites
+  one; `analyze` names every state file by path and clusters trace-less
+  failures mechanically before launching an agent. (F-036, F-035)
+- **Two labeling rules read as contradictory** ("never derive from the
+  app's behaviour" vs "probe before labeling"). Stated once: a probe grounds
+  the data of an expectation, never the behaviour. (F-021)
+- **"Verified core entries" was defined nowhere.** It is `architecture.kind`,
+  the invocation shape and one live route or tool; the rest may stay
+  inferred after a lean first session. The no-reviewer `gating: false` rule
+  is now told to the generator agent, not applied after it. (F-013, F-019)
+- **README and `help` said `discover` "sets up the file exporter"**; it
+  never did. Both now say the user places a collector with a file exporter
+  and discover records the declaration; `docs/traces-jaeger.md` holds the
+  fan-out recipe and a design note (Jaeger `api_v3` client, runner-minted
+  `traceparent` correlation, effort). The README names the .NET adapter's
+  real path and optimize's five preconditions; the adapter contract says
+  the answer path is one exact key and refusals assert the status.
+  (F-040, F-007, F-042, F-039, F-026)
+- **`normalize_trace.py` could not read what that exporter writes.** The
+  collector's file exporter (`format: json`) emits one document per line,
+  and the reader took one document: every such store failed with "Extra
+  data: line 2". It reads JSON Lines now, each line through the same strict
+  parser; a bad line is a data error naming the line. Found writing the
+  recipe above; nothing in the trajectory's meaning changed. (F-040)
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
