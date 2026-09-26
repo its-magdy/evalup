@@ -53,7 +53,13 @@ invocation:
   # placeholder becomes the typed value; one that merely CONTAINS one gets
   # textual substitution.
   # Response placeholders: <answer> (REQUIRED -- which field carries the final
-  # text) and optionally <trace id>.
+  # text) and optionally <trace id>. ONE template, looked up by exact,
+  # case-sensitive key: an app whose error envelope spells the field
+  # differently (`Message` on a 400, `message` on a 200) scores `answer:
+  # unscored` on the error path, by design -- a second template tried "in
+  # order" is the field-hunting this block refuses. Cases about a refusal
+  # assert `expect.http.status` (and `route_from_status`), not its wording,
+  # until the app returns one envelope.
 
   identity_map:                           # case `identity` -> headers. REQUIRED for
     permissions: X-User-Permissions       # authz cases: without it the runner SKIPS
