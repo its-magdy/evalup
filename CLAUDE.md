@@ -27,7 +27,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 782 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 799 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -36,14 +36,15 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 
 - **`main`** holds everything: the remediation wave, the worked example, the
   rename, the doc cleanup, all four September audits' fixes, the 2026-09-24
-  prompt audit and its follow-ups, and the 2026-09-24 field-test fixes
-  (`evalup/CHANGELOG.md` lists them; fast-forwarded 2026-09-25). It is the
-  only branch. Nothing is pushed; **there is still no remote**, so nothing
-  here has ever been checked by CI.
-- **Health:** 782 tests pass on 3.14; 774 + 8 skips on the 3.9 floor (all 8
-  skips need PyYAML: 782 pass with `--with pyyaml`), ruff clean, 21 CLIs
+  prompt audit and its follow-ups, the 2026-09-24 field-test fixes, and the
+  2026-09-25 user-test fixes (`evalup/CHANGELOG.md` lists both waves;
+  fast-forwarded 2026-09-25 and 2026-09-26). It is the only branch. Nothing
+  is pushed; **there is still no remote**, so nothing here has ever been
+  checked by CI.
+- **Health:** 799 tests pass on 3.14; 791 + 8 skips on the 3.9 floor (all 8
+  skips need PyYAML: 799 pass with `--with pyyaml`), ruff clean, 21 CLIs
   answer `--help`, `claude plugin validate` clean for the plugin and the
-  root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-25 on
+  root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-26 on
   `main` after the merge.
 - **A live session works**, re-run twice 2026-09-21 after `make_plan.py`:
   headless `/evalup:start` on an unseen toy app reached a scored run in 4.5 min
@@ -74,6 +75,18 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   finally appears, but in the closing summary, never before the first write
   — headless that is the same information, so it was left there. Later
   sessions had 0 denials. The field-test folder is untouched.
+- **The 2026-09-25 user test** (fixed and merged 2026-09-26, 19 commits, one
+  per finding): a separate session ran evalup as a first-time user on RefApp
+  (trace-less, Gemma on Google's free tier) and wrote 42 findings to
+  `~/Documents/Personal/Sandboxes/evalup-usertest/` (read-only; REPORT.md §2 is
+  the ranked list). Nine confirmed as written, four confirmed but fixed another
+  way because the proposed fix crossed the runner freeze (canaries, the routing
+  wildcard, ordered answer templates, PASS→OPEN), two not reproduced (the .NET
+  adapter doc exists at `skills/discover/references/adapters/dotnet.md`), the
+  rest by design. `evalup/CHANGELOG.md` "the 2026-09-25 user test" lists the
+  fixes; `evalup/docs/traces-jaeger.md` is the Jaeger design note (not built).
+  **Left open by decision:** F-001 (`$ARGUMENTS` backticks, all seven skills),
+  F-037 (headless open questions have no home), F-014/F-020/F-030 (friction).
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
