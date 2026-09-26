@@ -1026,6 +1026,32 @@ class TestNormalizeTraceRobustness(ScorerTest):
         return self.write_json("spans.json", {"resourceSpans": [
             {"scopeSpans": [{"spans": spans}]}]})
 
+    def test_json_lines_from_the_collector_file_exporter_are_read(self):
+        # The OTel Collector's fileexporter (format: json) writes one
+        # ExportTraceServiceRequest per line. Before 2026-09-26 this reader
+        # took one document and failed every such store with "Extra data".
+        a = self.span("t1", "a", "invoke_agent", extra_attrs=[
+            {"key": "gen_ai.agent.name", "value": {"stringValue": "r"}}])
+        b = self.span("t1", "b", "chat", parent="a", start=2)
+        other = self.span("t2", "z", "chat")
+        path = self.tmp / "spans.jsonl"
+        path.write_text("\n".join(json.dumps(
+            {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]})
+            for spans in ([a], [other], [b])) + "\n", encoding="utf-8")
+        rc, out, err = run_script("normalize_trace.py", str(path),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["status"], "ok", out)
+        self.assertEqual(out["checks"]["spans_in_file"], 3)
+        self.assertEqual(out["checks"]["spans_for_trace"], 2)
+        # A bad line is a data error naming the line, never a silent skip.
+        path.write_text('{"resourceSpans": []}\n{"resourceSpans": NaN}\n',
+                        encoding="utf-8")
+        rc, out, err = run_script("normalize_trace.py", str(path),
+                                  "--trace-id", "t1")
+        self.assertEqual(rc, 2)
+        self.assertIn("line 2", out["error"])
+
     def test_malformed_timestamp_does_not_crash(self):
         # Damaged transport must degrade to a null duration + a check entry,
         # not a ValueError from the sort key.

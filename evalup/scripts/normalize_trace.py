@@ -46,7 +46,7 @@ import argparse
 import json
 import sys
 
-from _common import add_version_flag, load_json
+from _common import BadJSON, add_version_flag, load_text, loads_strict
 
 
 def any_value(v):
@@ -183,6 +183,35 @@ def int_or_zero(v):
         return 0
 
 
+def load_spans_file(path, fail):
+    """One JSON document, or JSON Lines -- one document per line.
+
+    The OpenTelemetry Collector's file exporter (`format: json`), the one
+    producer the README and adapter-contract name for `traces.source:
+    otlp-file`, writes one ExportTraceServiceRequest PER LINE, and this
+    reader took a single document only: every such store failed with "Extra
+    data: line 2" (found writing docs/traces-jaeger.md, 2026-09-26). The
+    docstring of flatten_otlp always named "a list of TracesData (JSONL
+    pre-parsed)" as an accepted shape; this is the parse it assumed. Each
+    line goes through the same strict reader as a whole file (CONTRIBUTING:
+    JSON in is strict), so a NaN on line 3 is still a data error."""
+    text = load_text(path, on_error=fail)
+    try:
+        return loads_strict(text)
+    except (BadJSON, ValueError, RecursionError) as whole:
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        if len(lines) < 2:
+            fail(f"bad input: {path}: {whole}")
+        docs = []
+        for n, line in enumerate(lines, 1):
+            try:
+                docs.append(loads_strict(line))
+            except (BadJSON, ValueError, RecursionError) as e:
+                fail(f"bad input: {path}: not one JSON document ({whole}) "
+                     f"and not JSON Lines: line {n}: {e}")
+        return docs
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Normalize OTel gen_ai.* spans (OTLP JSON) into an "
@@ -190,8 +219,9 @@ def main():
                     "Other conventions need an adapter mapping_shim first.")
     add_version_flag(ap)
     ap.add_argument("spans_file",
-                    help="OTLP TracesData JSON, a list of them, or a raw "
-                         "span list")
+                    help="OTLP TracesData JSON, a list of them, a raw span "
+                         "list, or JSON Lines (one TracesData per line, as "
+                         "the collector's file exporter writes)")
     ap.add_argument("--trace-id", required=True,
                     help="the trace to extract; spans from other traces are "
                          "ignored")
@@ -212,7 +242,7 @@ def main():
     # failure mode is the dangerous one — under latin-1/cp1252 a non-ASCII tool
     # name decodes to mojibake without raising, so every downstream scorer
     # compares against garbage.
-    raw = load_json(a.spans_file, on_error=fail)
+    raw = load_spans_file(a.spans_file, fail)
 
     def bad_input(detail):
         fail(f"{a.spans_file}: expected OTLP TracesData, a list of them, or a "
