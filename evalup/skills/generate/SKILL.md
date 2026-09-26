@@ -163,7 +163,10 @@ labeling. generation-method.md says why each of these three matters.
 **No reviewer in the session** (headless, or the user said not to ask): leave
 every case `pending` and set `gating: false` on all of them — an unreviewed
 label must not close a gate, which is what `validate_cases.py`'s
-`gating_unreviewed` warns about per case. Then say what that means, as the
+`gating_unreviewed` warns about per case. Say so in the delegation prompt —
+the agent's own brief flips only quarantined cases, so told nothing it emits
+`gating: true` on the rest — and check its output before validating; the
+validator's per-case warning is the backstop, not the instruction. Then say what that means, as the
 last line of the handover and under a free-text `review:` key in
 `dataset.yaml`: "N cases, 0 accepted: this suite cannot fail a build until a
 human accepts cases and flips `gating`." The validator states the same fact at
