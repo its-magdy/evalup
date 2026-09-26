@@ -69,7 +69,7 @@ plan, or any case body, by hand** — three scripts do it, in this order:
 
 ```
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <tmp>/converted.json --split-dir <tmp>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json --capabilities <tmp>/capabilities.json [--manifest <tmp>/manifest.json]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json --capabilities <tmp>/capabilities.json --adapter <tmp>/adapter.json [--manifest <tmp>/manifest.json]
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <tmp>/converted.json --mode <mode> --state-dir <state-dir> -o <tmp>/plan.json
 ```
 

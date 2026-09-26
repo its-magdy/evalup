@@ -772,3 +772,77 @@ class TestEchoAssertion(ValidateTest):
             input={"messages": [{"role": "user", "content": "acme invoice"}]},
             expect={"answer": {"must_contain": ["invoice"]}})
         self.assert_finds("echo_assertion", [case], "--strict")
+
+
+class TestAdapterCrossCheck(ValidateTest):
+    """--adapter: labels the adapter gives the runner no way to observe
+    (F-015, F-022, field test 2026-09-25)."""
+
+    STATUS_ONLY = {"invocation": {"route_from_status": {
+        "200": "<answered>", "400": "__oos__"}},
+        "traces": {"source": "none"}}
+
+    def adapter(self, obj):
+        return "--adapter", self.write_json("adapter.json", obj)
+
+    def test_clarify_ok_without_a_declared_field_warns(self):
+        case = good_case(expect={"answer": {"must_contain": ["x"]},
+                                 "clarify_ok": True})
+        self.assert_finds("clarify_unobservable", [case],
+                          *self.adapter({"invocation": {}}), severity="WARN")
+        rc, out, _ = self.validate([case], *self.adapter(
+            {"invocation": {"clarify_from_response": "needs_clarification"}}))
+        self.assertNotIn("clarify_unobservable", self.codes(out))
+
+    def test_a_domain_route_under_route_from_status_warns(self):
+        case = good_case(expect={"route": "billing",
+                                 "answer": {"must_contain": ["x"]}})
+        finding = self.assert_finds("route_not_observable", [case],
+                                    *self.adapter(self.STATUS_ONLY),
+                                    severity="WARN")
+        self.assertIn("'billing'", finding["message"])
+        self.assertIn("<answered>", finding["message"])
+
+    def test_a_status_label_or_an_oos_case_is_clean(self):
+        cases = [good_case(expect={"route": "<answered>",
+                                   "answer": {"must_contain": ["x"]}}),
+                 good_case("oos-0000", category="oos",
+                           expect={"route": "none",
+                                   "answer": {"must_contain": ["x"]}})]
+        rc, out, _ = self.validate(cases, *self.adapter(self.STATUS_ONLY))
+        self.assertNotIn("route_not_observable", self.codes(out))
+
+    def test_route_from_response_or_traces_make_domain_labels_fine(self):
+        case = good_case(expect={"route": "billing",
+                                 "answer": {"must_contain": ["x"]}})
+        for adapter in ({"invocation": {"route_from_response": "domain",
+                                        "route_from_status": {"200": "a"}}},
+                        {"invocation": {"route_from_status": {"200": "a"}},
+                         "traces": {"source": "otlp-file",
+                                    "correlation": "traceparent-echo",
+                                    "convention": "gen_ai"}},
+                        {"invocation": {}}):
+            with self.subTest(adapter=adapter):
+                rc, out, _ = self.validate([case], *self.adapter(adapter))
+                self.assertNotIn("route_not_observable", self.codes(out))
+        # otlp-file declared but no correlation: the runner is trace-less
+        # (SS4.4), so the status map is still the only route observable.
+        # This is the field-test adapter's exact shape.
+        for traces in ({"source": "otlp-file", "correlation": "none"},
+                       {"source": "otlp-file", "correlation": "traceparent-echo",
+                        "convention": "openinference"}):
+            with self.subTest(traces=traces):
+                self.assert_finds("route_not_observable", [case], *self.adapter(
+                    {"invocation": {"route_from_status": {"200": "a"}},
+                     "traces": traces}), severity="WARN")
+
+    def test_no_flag_checks_nothing_and_a_bad_file_exits_2(self):
+        case = good_case(expect={"route": "billing", "clarify_ok": True,
+                                 "answer": {"must_contain": ["x"]}})
+        rc, out, _ = self.validate([case])
+        self.assertNotIn("route_not_observable", self.codes(out))
+        self.assertNotIn("clarify_unobservable", self.codes(out))
+        rc, out, _ = self.validate([case], "--adapter",
+                                   self.write_json("bad.json", [1]))
+        self.assertEqual(rc, 2)
+        self.assertIn("expected a JSON object", out["error"])

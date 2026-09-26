@@ -199,11 +199,16 @@ First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --spli
 `datasets/dataset.yaml` exists), and refuses a duplicate YAML key or one id in
 two files; never transcribe a suite by hand. Then run
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json
---capabilities <tmp>/capabilities.json [--manifest <tmp>/manifest.json]` —
-pass `--manifest` only when that file was written, since a missing path is
-exit 2. It fails the generate step on structural errors
-and warns on the vacuity patterns; case-format.md has the field rules and the
-error/warning line. `--capabilities` is required — pass `--no-capabilities`
+--capabilities <tmp>/capabilities.json --adapter <tmp>/adapter.json
+[--manifest <tmp>/manifest.json]` — pass `--manifest` only when that file was
+written, since a missing path is exit 2. It fails the generate step on
+structural errors and warns on the vacuity patterns; case-format.md has the
+field rules and the error/warning line. `--adapter` is what catches a label
+the runner could never observe: `clarify_ok` with no `clarify_from_response`
+(`clarify_unobservable`), or a domain `expect.route` on a trace-less app whose
+adapter maps the HTTP status (`route_not_observable`) — there the observed
+route is the map's value, `<answered>` or `__oos__`, so expect that label and
+keep the domain in `unit`. `--capabilities` is required — pass `--no-capabilities`
 only with genuinely no profile, and expect `capabilities_unchecked`.
 `--manifest` catches a stale `dataset.yaml`, so re-run it after ANY later
 hand-edit to a case file.

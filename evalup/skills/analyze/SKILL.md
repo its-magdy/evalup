@@ -241,7 +241,8 @@ next run:
 
 ```
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
-  --capabilities <profile.capability_matrix.json> [--manifest <dataset-fields.json>]
+  --capabilities <profile.capability_matrix.json> --adapter <adapter.json> \
+  [--manifest <dataset-fields.json>]
 ```
 
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <tmp>`

@@ -96,6 +96,7 @@ every WARN to ERROR for a gating CI job.
 Usage: validate_cases.py --cases <file.json|->
                          (--capabilities <file.json> | --no-capabilities)
                          [--strict] [--manifest <file.json>]
+                         [--adapter <file.json>]
 """
 import argparse
 import json
@@ -225,6 +226,18 @@ class Report:
 
     def has_errors(self):
         return any(f["severity"] == "ERROR" for f in self.findings)
+
+
+def load_json_object(path, what):
+    text = sys.stdin.read() if path == "-" else load_text(path)
+    try:
+        value = loads_strict(text)
+    except BadJSON as e:
+        die(f"bad input: {path}: {e}")
+    if not isinstance(value, dict):
+        die(f"{path}: expected a JSON object ({what}), got "
+            f"{type(value).__name__}")
+    return value
 
 
 def load_cases(path):
@@ -950,6 +963,71 @@ def check_suite(rep, cases, records):
     return categories
 
 
+TRACE_ROUTE_SOURCES = ("otlp-file",)
+
+
+def check_adapter(rep, cases, records, adapter):
+    """Labels the adapter gives the runner no way to observe.
+
+    Both come from the field test of 2026-09-25 on a trace-less app whose
+    only routing observable was the HTTP status:
+    - `expect.clarify_ok: true` with no `invocation.clarify_from_response`
+      is `unscored` on the routing layer (runner-contract SS5.2), on exactly
+      the cases whose point is that clarifying is acceptable;
+    - under `invocation.route_from_status` the observed route is the map's
+      VALUE (`<answered>`, `__oos__`, ...), so `expect.route: billing` can
+      never pass until a trace or `route_from_response` supplies a domain
+      label. Nothing said so; the generator wrote domain labels on every
+      case. An `oos` case is exempt when the map yields `__oos__`, because
+      its expected route is the profile's out-of-scope name, which
+      --oos-route maps onto that label at run time."""
+    invocation = mapping(adapter.get("invocation"))
+    traces = mapping(adapter.get("traces"))
+    status_map = invocation.get("route_from_status")
+    # The same three trace-less triggers run_cases.trace_branch applies
+    # (SS4.4): an unqueryable source, no declared correlation, or a foreign
+    # convention with no mapping_shim. The field-test adapter was
+    # `otlp-file` WITH `correlation: none`, which is trace-less.
+    traceless = (traces.get("source") not in TRACE_ROUTE_SOURCES
+                 or traces.get("correlation") in (None, "none")
+                 or (traces.get("convention") != "gen_ai"
+                     and not traces.get("mapping_shim")))
+    status_only = (isinstance(status_map, dict) and bool(status_map)
+                   and not is_nonempty_str(invocation.get("route_from_response"))
+                   and traceless)
+    # The runner reads only string map values, after NFC.
+    observable = {nfc(v) for v in status_map.values()
+                  if isinstance(v, str)} if status_only else set()
+    for i, (record, case) in enumerate(zip(records, cases)):
+        label = record["id"] or f"<no id: cases[{i}]>"
+        expect = mapping(case.get("expect"))
+        if expect.get("clarify_ok") is True \
+                and not is_nonempty_str(invocation.get("clarify_from_response")):
+            rep.warn(label, "clarify_unobservable",
+                     "expect.clarify_ok is true but the adapter declares no "
+                     "invocation.clarify_from_response, so the runner cannot "
+                     "see whether the app clarified and scores routing "
+                     "`unscored` on this case (runner-contract SS5.2); declare "
+                     "the field, or set clarify_ok false and assert the route")
+        if not status_only:
+            continue
+        wanted = [expect.get("route")] + list(
+            expect.get("route_acceptable") or []
+            if isinstance(expect.get("route_acceptable"), list) else [])
+        wanted = [nfc(w) for w in wanted if is_nonempty_str(w)]
+        if case.get("category") == "oos" and "__oos__" in observable:
+            continue
+        missing = [w for w in wanted if w not in observable]
+        if missing:
+            rep.warn(label, "route_not_observable",
+                     f"expect.route {missing[0]!r} can never be observed: the "
+                     "adapter has no route_from_response and no queryable "
+                     "traces, so the runner maps the HTTP status through "
+                     f"route_from_status and sees only {sorted(observable)}. "
+                     "Expect one of those labels (keep the domain in `unit`), "
+                     "or declare a route_from_response path")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Lint an eval case suite for defects that make it grade "
@@ -971,6 +1049,11 @@ def main():
                          "and rejected under --strict")
     ap.add_argument("--strict", action="store_true",
                     help="promote every WARN to ERROR (a gating CI job)")
+    ap.add_argument("--adapter",
+                    help="JSON adapter (convert_suite.py --split-dir writes "
+                         "adapter.json); cross-checks each case's labels "
+                         "against what the adapter lets the runner observe "
+                         "(clarify_ok, route under route_from_status)")
     ap.add_argument("--manifest",
                     help="JSON with dataset.yaml's cases/splits/coverage_grid "
                          "fields (caller extracts them with its own YAML "
@@ -1010,6 +1093,9 @@ def main():
     records = [check_case(rep, case, all_ids, enabled, index=i)
                for i, case in enumerate(cases)]
     categories = check_suite(rep, cases, records)
+    if a.adapter:
+        adapter = load_json_object(a.adapter, "the adapter")
+        check_adapter(rep, cases, records, adapter)
     if a.manifest:
         text = sys.stdin.read() if a.manifest == "-" else load_text(a.manifest)
         try:

@@ -410,6 +410,13 @@ yield no observed route. Without the block, `layers.routing` is `unscored`,
 `reason: "no trace; observed route unavailable"`, and the case is excluded from
 `routing_results.jsonl`.
 
+The observed route is then the map's **value** — `<answered>`, `__oos__`,
+`denied` — never a domain name, so on such an app a case must expect one of
+those labels (its domain lives in `unit`), and `routing_report.json` measures
+answered-vs-refused, not domain routing; read its accuracy as that.
+`validate_cases.py --adapter` warns (`route_not_observable`) on a domain label
+the map cannot produce.
+
 The alternative — leaving it unscored in v1 — would take the field-test app's
 only interesting layer dark, since status *is* its sole routing observable.
 

@@ -170,7 +170,13 @@ expect:
                                      # carry behavior (deliberate 400 on OOS, 403
                                      # on permission) — for trace-less apps often
                                      # the only routing observable.
-  route: billing                     # omit if no router / not asserted
+  route: billing                     # omit if no router / not asserted.
+                                     # Trace-less app whose adapter declares only
+                                     # `route_from_status`? Then the runner observes
+                                     # the map's VALUE (`<answered>`, `__oos__`, ...),
+                                     # never a domain: expect that label, keep the
+                                     # domain in `unit`, and let validate_cases.py
+                                     # --adapter say so (route_not_observable).
   route_acceptable: [billing]        # set-valued: any of these passes (ambiguous
                                      # cases). `route` is always implicitly
                                      # acceptable — no need to repeat it here.
