@@ -60,10 +60,14 @@ Rules:
    **You may never write `review.status: accepted`.** That value means a
    human looked; you are not one. Everything you emit is `pending` or
    `quarantined`, and `review.by` stays null for a human to fill in.
-4. Never derive expected behavior by reading how the app currently behaves —
+4. Never derive expected BEHAVIOUR from what the app currently does —
    that grades the app against itself. Expectations come from the profile's
    `confirmed_by_human` section, route-target descriptions, and common sense
-   about what the user needs.
+   about what the user needs. A probe (generation-method.md §3) may ground
+   the DATA in an expectation — a real employee name, a count, a leave type
+   the app actually has — never the behaviour: a status code, a refusal
+   path, or an "I couldn't find that" the app happens to return today is an
+   observation, not a label.
    This includes reading the app's source to "verify" an expectation. The
    trap has a signature: an assertion that restates an implementation
    constant — a `must_not_contain` listing the exact strings a guard already

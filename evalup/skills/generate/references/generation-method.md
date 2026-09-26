@@ -149,6 +149,13 @@ that is the cold-start workflow practitioners actually endorse (the grid as a
 traffic generator, then error analysis on the resulting traces), rather than
 shipping a fully-labeled synthetic set that has never touched the app.
 
+How that squares with rule 4 above, once: a probe grounds the **data** of an
+expectation (names, ids, counts, vocabulary the app really has) and shows you
+which cases need a human eye; it never grounds the **behaviour** (status
+codes, refusal paths, error wording). The SHOULD for behaviour is the profile
+and discover's findings; an app answering 400 to a greeting today is an
+observation to record in `notes`, not the label.
+
 ## §4 — what the disabled-layer check is really preventing
 
 The most expensive failure mode in this skill is authoring
