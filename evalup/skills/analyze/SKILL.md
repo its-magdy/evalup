@@ -84,7 +84,12 @@ drifts when a report is regenerated or a directory copied.
 
 Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
 the plugin is installed) per failed case, on its normalized trajectory
-(raw spans when that view is insufficient) and its violated expectations. Group
+(raw spans when that view is insufficient) and its violated expectations.
+Name every file by absolute path in the assignment: the case directory
+`reports/<run-id>/cases/<id>/`, and the state dir's `adapter.yaml`,
+`profile.yaml` and `findings.md` — the agent may not guess an answer path or
+a SHOULD, and it treats the profile's `verified: true` as observed, not
+correct (its brief says so; findings.md is the SHOULD source). Group
 its outputs by failure mode, not by metric: same wrong-route pair, same tool
 confusion, same rule violation, same missing clarification. Per cluster: count,
 2 exemplar traces (expected vs actual), implicated surface, effort tag
