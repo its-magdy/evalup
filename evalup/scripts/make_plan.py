@@ -50,6 +50,7 @@ import datetime
 import json
 import os
 import subprocess
+import sys
 
 from _common import (
     HARNESS_VERSION,
@@ -115,6 +116,47 @@ def git_state(repo):
     return head.stdout.strip(), "dirty" if dirty else "clean"
 
 
+# Keys --manifest-extra may not overwrite: the script computes them from the
+# checkout and the dataset, and a caller value would pin the run to
+# provenance nobody measured.
+PROTECTED_EXTRA = ("dataset_version", "app.git_sha", "app.git_tree")
+
+
+def merge_extra(computed, caller, notes):
+    """--manifest-extra merged over the computed manifest_extra, one level
+    deep. The field test (2026-09-25) passed `app: {model: ...}` -- the shape
+    runner-contract.md SS2 shows -- and a top-level dict.update replaced the
+    whole computed `app` block, so the pinned baseline recorded no git SHA.
+    Dict values merge key by key; anything else replaces; the protected
+    keys keep the computed value and say so."""
+    merged = dict(computed)
+    for key, value in caller.items():
+        if isinstance(merged.get(key), dict):
+            if not isinstance(value, dict):
+                die(f"--manifest-extra: {key!r} must be an object to merge "
+                    f"over the computed one, got {type(value).__name__}")
+            merged[key] = dict(merged[key], **value)
+        else:
+            merged[key] = value
+    for dotted in PROTECTED_EXTRA:
+        head, _, tail = dotted.partition(".")
+        if tail:
+            supplied = caller.get(head) or {}
+            if tail not in supplied:
+                continue
+            given, kept = supplied[tail], computed[head][tail]
+            merged[head][tail] = kept
+        else:
+            if head not in caller:
+                continue
+            given, kept = caller[head], computed[head]
+            merged[head] = kept
+        if given != kept:
+            notes.append(f"--manifest-extra {dotted} ({given!r}) ignored: "
+                         f"the script computes it ({kept!r})")
+    return merged
+
+
 def oos_route(converted, flag):
     if flag is not None:
         return flag or None
@@ -163,7 +205,8 @@ def main():
     ap.add_argument("--manifest-extra", metavar="FILE", help="a JSON object "
                     "merged over the computed manifest_extra (models, prompt "
                     "hashes, temperature, cost estimate -- what only the "
-                    "caller knows)")
+                    "caller knows); objects merge one level deep, so "
+                    "`app.model` keeps the computed `app.git_sha`")
     a = ap.parse_args()
 
     if a.mode == "full":
@@ -262,7 +305,11 @@ def main():
         else {"model": None, "status": "uncalibrated"},
     }
     if a.manifest_extra:
-        extra.update(load_object(a.manifest_extra))
+        merge_notes = []
+        extra = merge_extra(extra, load_object(a.manifest_extra), merge_notes)
+        for note in merge_notes:
+            print(note, file=sys.stderr)
+        notes.extend(merge_notes)
 
     stamp = datetime.datetime.now(datetime.timezone.utc)
     run_id = a.run_id or f"{a.mode}-{stamp.strftime('%Y%m%dT%H%M%SZ')}"

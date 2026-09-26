@@ -292,6 +292,39 @@ class TestMakePlan(TempDirTest):
         self.assertIs(json.loads(proc.stdout)["execution"]["insecure_tls"],
                       True)
 
+    def test_manifest_extra_merges_under_the_computed_provenance(self):
+        # F-032 (field test 2026-09-25): `app: {model: ...}` -- the shape the
+        # runner contract SS2 shows -- replaced the whole computed `app`
+        # block, and the pinned baseline recorded no git SHA.
+        extra = self.tmp / "extra.json"
+        extra.write_text(json.dumps({
+            "app": {"model": {"classifier": "m1"}, "git_sha": "deadbeef"},
+            "dataset_version": 99, "prompt_hash": "abc"}), encoding="utf-8")
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--manifest-extra", str(extra))
+        self.assertEqual(rc, 0)
+        app = plan["manifest_extra"]["app"]
+        self.assertEqual(app["model"], {"classifier": "m1"})
+        self.assertEqual((app["name"], app["repo"], app["git_tree"]),
+                         ("helpdesk-demo", ".", "n/a"))
+        # The computed provenance wins over a caller value, both levels.
+        self.assertIsNone(app["git_sha"])
+        self.assertEqual(plan["manifest_extra"]["dataset_version"], 1)
+        self.assertEqual(plan["manifest_extra"]["prompt_hash"], "abc")
+        out_path = self.tmp / "plan.json"
+        rc, summary = self.plan("--mode", "smoke", "--oos-route", "none",
+                                "--manifest-extra", str(extra), "-o",
+                                str(out_path))
+        self.assertEqual(rc, 0)
+        self.assertTrue(any("app.git_sha" in n for n in summary["notes"]))
+        self.assertTrue(any("dataset_version" in n for n in summary["notes"]))
+        # A scalar where the computed block is an object cannot merge.
+        extra.write_text(json.dumps({"app": 3}), encoding="utf-8")
+        rc, err = self.plan("--mode", "smoke", "--oos-route", "none",
+                            "--manifest-extra", str(extra))
+        self.assertEqual(rc, 2)
+        self.assertIn("'app' must be an object", err["error"])
+
     def test_dash_o_prints_the_command_to_run_next(self):
         out_path = self.tmp / "plan.json"
         rc, summary = self.plan("--mode", "regression", "-o", str(out_path))
