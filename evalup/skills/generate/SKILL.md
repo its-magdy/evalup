@@ -34,8 +34,11 @@ allowed-tools: >-
 
 Arguments, when the user typed any: `$ARGUMENTS`
 
-Precondition: `profile.yaml` exists with verified core entries. If not, stop
-and route to discover. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
+Precondition: `profile.yaml` exists with its core entries verified
+(`architecture.kind`, the invocation shape, one route target or tool seen
+live — discover §4 defines the set). If not, stop and route to discover; route
+targets still `verified: false` are inferred, which is normal after a lean
+first session and no reason to bounce. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
 when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases is a good default, ~12 a legitimate minimum — and ~12 is

@@ -107,8 +107,13 @@ Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
 tool registration, feature flags). Send 1–3 harmless requests through the adapter
 and compare observed agent names, tool names and `invoke_agent` span shape
 against the inferred profile — this is also step 2's span-shape evidence. Mark
-every profile entry `verified: true|false`. Generation must not proceed on
-unverified core entries: say so, and fix first.
+every profile entry `verified: true|false`. The **core entries** are exactly
+three: `architecture.kind`, the invocation shape (endpoint, request and
+response templates — one request proves them), and at least one route target
+or tool observed live. Generation must not proceed while any of those three is
+unverified: say so, and fix first. Everything else — the remaining route
+targets, tool lists, limits — may stay `verified: false` after a lean first
+session; the profile says which, and `generate` treats those as inferred.
 
 ### 5. Patch, don't assign homework
 For each gap found, OFFER to fix it now. It is the user's code, so before any
