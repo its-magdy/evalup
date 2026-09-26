@@ -38,9 +38,11 @@ it without Claude.
   Python `module:callable`.
 - **Optional:** OpenTelemetry GenAI traces, exported to a file
   (`traces.source: otlp-file` — an OTLP collector's file exporter). A Jaeger
-  or Tempo backend alone is not read in v1; `/evalup:discover` sets up the
-  file exporter. Without traces, routing and answer checks still score; the
-  tool-use, trajectory and cost layers need them.
+  or Tempo backend alone is not read in v1: you put a collector with a file
+  exporter in front of it (the fan-out recipe is in `docs/traces-jaeger.md`)
+  and `/evalup:discover` records what you declared — it installs nothing.
+  Without traces, routing and answer checks still score; the tool-use,
+  trajectory and cost layers need them.
 
 No existing tests and no judge API key are needed — Claude Code subagents do
 the judging.
@@ -338,6 +340,7 @@ local commands are the only checked claim.
 | `skills/discover/references/adapter-contract.md` | The language-agnostic adapter spec; `skills/discover/references/adapters/dotnet.md` is the first reference adapter (.NET) |
 | `docs/runner-contract.md` | The plan and run-directory format `run_cases.py` reads and writes |
 | `docs/rubric-format.md` | The decomposed-binary judge rubric and calibration |
+| `docs/traces-jaeger.md` | Feeding `otlp-file` from a Jaeger/Tempo setup today, and the design note for a Jaeger client and header-based correlation |
 | `skills/analyze/references/annotation-ux.md` | The open → axial error-analysis workflow |
 | `docs/research.md` | The research behind the design decisions |
 | `CHANGELOG.md` | What changed, release by release |
