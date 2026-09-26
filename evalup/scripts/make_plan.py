@@ -48,6 +48,7 @@ Usage:
 import argparse
 import datetime
 import json
+import math
 import os
 import subprocess
 import sys
@@ -157,6 +158,36 @@ def merge_extra(computed, caller, notes):
     return merged
 
 
+def retry_schedule(max_attempts, backoff_s):
+    """The `execution` keys for --max-attempts / --backoff-s, or {} when
+    neither was given. The runner insists on exactly max_attempts-1 waits
+    (runner-contract SS2), so one flag implies the other's default and both
+    together must agree -- the plan is never hand-edited to fix that."""
+    if max_attempts is None and backoff_s is None:
+        return {}
+    if max_attempts is not None and max_attempts < 1:
+        die(f"--max-attempts must be >= 1, got {max_attempts}")
+    waits = None
+    if backoff_s is not None:
+        try:
+            waits = [float(x) for x in backoff_s.split(",") if x.strip()]
+        except ValueError:
+            die(f"--backoff-s must be seconds separated by commas, got "
+                f"{backoff_s!r}")
+        if any(not math.isfinite(w) or w < 0 for w in waits):
+            die(f"--backoff-s waits must be finite and >= 0, got {backoff_s!r}")
+        waits = [int(w) if w.is_integer() else w for w in waits]
+    if max_attempts is None:
+        max_attempts = len(waits) + 1
+    if waits is None:
+        # The runner's own schedule (1 s, 4 s) continued: 1, 4, 16, ...
+        waits = [4 ** i for i in range(max_attempts - 1)]
+    if len(waits) != max_attempts - 1:
+        die(f"--backoff-s needs exactly max_attempts-1 = {max_attempts - 1} "
+            f"wait(s), one per retry; got {len(waits)}: {waits}")
+    return {"max_attempts": max_attempts, "backoff_s": waits}
+
+
 def oos_route(converted, flag):
     if flag is not None:
         return flag or None
@@ -198,6 +229,14 @@ def main():
     ap.add_argument("--dataset-version", type=int,
                     help="default: dataset.yaml's dataset_version, else 1")
     ap.add_argument("--timeout-s", type=float, help="per app call")
+    ap.add_argument("--max-attempts", type=int, metavar="N",
+                    help="execution.max_attempts: tries per app call "
+                         "(runner default 3)")
+    ap.add_argument("--backoff-s", metavar="S[,S...]",
+                    help="execution.backoff_s: one wait per retry, so N-1 "
+                         "entries, e.g. 5,30 (runner default 1,4); a "
+                         "throttled provider or an app that already retries "
+                         "wants longer, fewer waits")
     ap.add_argument("--insecure-tls", action="store_true",
                     help="set execution.insecure_tls: skip certificate "
                          "verification for a self-signed LOCAL dev host only "
@@ -223,6 +262,7 @@ def main():
         split = a.split or split
     elif a.tag or a.split or a.failing_in:
         die("--tag, --split and --failing-in only narrow --mode targeted")
+    retries = retry_schedule(a.max_attempts, a.backoff_s)
     if a.k is not None:
         if a.k < 1:
             die(f"--k must be >= 1, got {a.k}")
@@ -328,6 +368,7 @@ def main():
     execution = {}
     if a.timeout_s is not None:
         execution["timeout_s"] = a.timeout_s
+    execution.update(retries)
     if a.insecure_tls:
         execution["insecure_tls"] = True
     if execution:

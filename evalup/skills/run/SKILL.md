@@ -89,10 +89,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <tmp>/converted.json --mode <
   profile's `oos_handling: route:<name>`; pass `--oos-route <name>` when the
   app's out-of-scope route is declared any other way, or OOS metrics go
   unreported. `--filter-failing` is `--failing-in reports/<last comparable
-  run>`. `--timeout-s N` and `--insecure-tls` fill `execution` (the latter
-  for a self-signed local dev host only — pre-flight otherwise exits 3 with
-  `CERTIFICATE_VERIFY_FAILED`; never hand-edit the plan to add it). It
-  refuses `--mode full`:
+  run>`. `--timeout-s N`, `--max-attempts N`, `--backoff-s 5,30` and
+  `--insecure-tls` fill `execution` (the retry pair for a throttled provider
+  or an app that already retries — the runner's default is 3 tries with 1 s
+  and 4 s waits; the last flag for a self-signed local dev host only —
+  pre-flight otherwise exits 3 with `CERTIFICATE_VERIFY_FAILED`). Never
+  hand-edit the plan to change any of these. It refuses `--mode full`:
   one plan carries one `selecting_split`, so release validation is a
   `regression` run and a `holdout` run.
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,

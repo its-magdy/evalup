@@ -304,6 +304,50 @@ class TestMakePlan(TempDirTest):
         self.assertIs(json.loads(proc.stdout)["execution"]["insecure_tls"],
                       True)
 
+    def test_retry_schedule_is_a_flag_not_a_hand_edit(self):
+        # F-027 (field test 2026-09-25): a throttled provider behind an app
+        # that already retries wanted fewer, longer waits, and the only way
+        # was to edit plan.json. The runner wants max_attempts-1 waits, so
+        # each flag implies the other and both together must agree.
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--max-attempts", "2", "--backoff-s", "30")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["execution"],
+                         {"max_attempts": 2, "backoff_s": [30]})
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--backoff-s", "5,30.5")
+        self.assertEqual(plan["execution"],
+                         {"max_attempts": 3, "backoff_s": [5, 30.5]})
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--max-attempts", "4")
+        self.assertEqual(plan["execution"],
+                         {"max_attempts": 4, "backoff_s": [1, 4, 16]})
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--max-attempts", "1")
+        self.assertEqual(plan["execution"],
+                         {"max_attempts": 1, "backoff_s": []})
+        plan_path = self.tmp / "plan.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "run_cases.py"), "--plan",
+             str(plan_path), "--out",
+             str(self.state / "reports" / plan["run_id"]), "--dry-run"],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, HELPDESK_BASE_URL="http://127.0.0.1:9"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for argv, fragment in (
+                (("--max-attempts", "3", "--backoff-s", "5"), "exactly"),
+                (("--max-attempts", "0"), ">= 1"),
+                (("--backoff-s", "5,x"), "seconds"),
+                (("--backoff-s", "-1"), ">= 0"),
+                (("--backoff-s", "nan"), "finite"),
+                (("--backoff-s", "5,inf"), "finite")):
+            with self.subTest(argv=argv):
+                rc, err = self.plan("--mode", "smoke", "--oos-route", "none",
+                                    *argv)
+                self.assertEqual(rc, 2)
+                self.assertIn(fragment, err["error"])
+
     def test_manifest_extra_merges_under_the_computed_provenance(self):
         # F-032 (field test 2026-09-25): `app: {model: ...}` -- the shape the
         # runner contract SS2 shows -- replaced the whole computed `app`
