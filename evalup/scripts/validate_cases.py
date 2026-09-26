@@ -105,10 +105,13 @@ import sys
 from _common import (
     HARNESS_VERSION,
     BadJSON,
+    RegexTimeout,
     add_version_flag,
     die,
     load_text,
     loads_strict,
+    nfc,
+    run_bounded,
     unsafe_case_id,
 )
 
@@ -537,6 +540,52 @@ def check_answer_entries(rep, case_id, expect):
                           "(plain substring, or /regex/) can be matched")
 
 
+def user_text(case):
+    """The case's user turns, NFC, joined -- what an echoing app would repeat."""
+    messages = mapping(case.get("input")).get("messages")
+    parts = []
+    for m in messages if isinstance(messages, list) else []:
+        if isinstance(m, dict) and m.get("role") == "user" \
+                and isinstance(m.get("content"), str):
+            parts.append(nfc(m["content"]))
+    return "\n".join(parts)
+
+
+def check_echo_assertions(rep, case_id, case, expect):
+    """A must_contain entry the case's own input already satisfies.
+
+    Field test 2026-09-25: a case asked about "Mohammed", asserted
+    `/(?i:mohammed)/`, and the app answered "I couldn't find any employees
+    named Mohammed" -- pass. Any app that repeats the request satisfies such
+    an entry without answering, so the pass measures nothing. Same entry
+    grammar as score_answer.py (plain substring, or /regex/), compared
+    case-insensitively because an echo may re-case the words; a regex that
+    does not compile or terminate is left to the scorer's own report."""
+    answer = mapping(expect.get("answer"))
+    entries = answer.get("must_contain")
+    text = user_text(case)
+    if not isinstance(entries, list) or not text:
+        return
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, str) or not entry:
+            continue
+        if len(entry) > 2 and entry.startswith("/") and entry.endswith("/"):
+            pattern = entry[1:-1]
+            try:
+                hit = run_bounded(lambda p=pattern: re.search(
+                    p, text, re.IGNORECASE)) is not None
+            except (re.error, RegexTimeout):
+                continue
+        else:
+            hit = nfc(entry).casefold() in text.casefold()
+        if hit:
+            rep.warn(case_id, "echo_assertion",
+                     f"expect.answer.must_contain[{i}] ({entry!r}) already "
+                     "occurs in the case's own user message, so an app that "
+                     "echoes the request passes it without answering; assert "
+                     "something only a correct answer contains")
+
+
 def check_review(rep, case_id, case):
     review = mapping(case.get("review"))
     status = review.get("status")
@@ -713,6 +762,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
     check_result(rep, label, expect)
     check_authz(rep, label, expect)
     check_answer_entries(rep, label, expect)
+    check_echo_assertions(rep, label, case, expect)
 
     if case.get("no_op_expectation") == "pass" \
             and not is_nonempty_str(case.get("no_op_justification")):

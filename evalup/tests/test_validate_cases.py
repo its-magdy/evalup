@@ -734,3 +734,41 @@ class TestAuthzRecordIds(ValidateTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEchoAssertion(ValidateTest):
+    """F-028 (field test 2026-09-25): a must_contain entry the case's own
+    input already satisfies passed on an echo ("I couldn't find any
+    employees named Mohammed")."""
+
+    def test_a_substring_of_the_input_warns(self):
+        case = good_case(
+            input={"messages": [{"role": "user",
+                                 "content": "show me the invoice for acme"}]},
+            expect={"answer": {"must_contain": ["Invoice", "total"]}})
+        finding = self.assert_finds("echo_assertion", [case], severity="WARN")
+        self.assertIn("must_contain[0]", finding["message"])
+        self.assertEqual(sum(1 for f in self.validate([case])[1]["findings"]
+                             if f["code"] == "echo_assertion"), 1)
+
+    def test_a_regex_that_matches_the_input_warns(self):
+        case = good_case(
+            input={"messages": [{"role": "user",
+                                 "content": "is Mohammed on leave today?"}]},
+            expect={"answer": {"must_contain": ["/(?i:mohammed)/"]}})
+        self.assert_finds("echo_assertion", [case], severity="WARN")
+
+    def test_an_entry_only_a_real_answer_contains_is_clean(self):
+        case = good_case(
+            input={"messages": [{"role": "user",
+                                 "content": "is Mohammed on leave today?"}]},
+            expect={"answer": {"must_contain": ["annual leave", "/until/"],
+                               "must_not_contain": ["Mohammed"]}})
+        rc, out, _ = self.validate([case])
+        self.assertNotIn("echo_assertion", self.codes(out))
+
+    def test_strict_promotes_it(self):
+        case = good_case(
+            input={"messages": [{"role": "user", "content": "acme invoice"}]},
+            expect={"answer": {"must_contain": ["invoice"]}})
+        self.assert_finds("echo_assertion", [case], "--strict")
