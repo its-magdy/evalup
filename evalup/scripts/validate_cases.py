@@ -799,6 +799,20 @@ def check_case(rep, case, all_ids, enabled, index=None):
 
     check_review(rep, label, case)
 
+    if "filter" in case:
+        # case-format.md described `filter:` as provenance from the SS2b
+        # mechanical pass, but no script here computes a self-containedness
+        # score or a ROUGE-L neighbour, so every block on disk was typed by
+        # a model to satisfy the schema (field test 2026-09-25: rouge_l 0.0
+        # on all ten cases, no check run). A number that reads as a
+        # measurement and is not one is the defect this linter exists for.
+        rep.warn(label, "filter_unattested",
+                 "case carries a `filter:` block, but no script in this "
+                 "harness computes those values, so they are authored, not "
+                 "measured; drop the block (record what was screened in the "
+                 "template's `rejected:` list) until a filter script writes "
+                 "it")
+
     notes = case.get("notes")
     if isinstance(notes, str) and SOURCE_DERIVED.search(notes):
         rep.warn(label, "source_derived_expectation",

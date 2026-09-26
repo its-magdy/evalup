@@ -862,3 +862,21 @@ class TestCanarySplit(ValidateTest):
         rc, out, _ = self.validate([good_case(split=["full", "smoke",
                                                       "canary"])])
         self.assertNotIn("canary_not_in_smoke", self.codes(out))
+
+
+class TestFilterProvenance(ValidateTest):
+    """F-016 (field test 2026-09-25): every generated case carried a
+    `filter:` block with ROUGE-L and self-containedness numbers that no
+    script had computed."""
+
+    def test_a_filter_block_warns(self):
+        case = good_case(filter={"self_contained": 0.85, "answerable": True,
+                                 "nearest_neighbour": {"id": None,
+                                                       "rouge_l": 0.0}})
+        finding = self.assert_finds("filter_unattested", [case],
+                                    severity="WARN")
+        self.assertIn("no script", finding["message"])
+
+    def test_no_block_is_clean(self):
+        rc, out, _ = self.validate([good_case()])
+        self.assertNotIn("filter_unattested", self.codes(out))

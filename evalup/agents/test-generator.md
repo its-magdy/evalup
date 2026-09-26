@@ -54,6 +54,9 @@ Rules:
    label gets `review.status: pending` and a note saying why. Hard-negative
    and OOS cases are `quarantined` pending human review, and carry
    `gating: false` until then — the case still runs; it cannot close the gate.
+   Never write a `filter:` block: no script computes those numbers, and the
+   validator warns on any case that carries one (`filter_unattested`). What
+   the §2b pass dropped goes in the template's `rejected:` list.
    **You may never write `review.status: accepted`.** That value means a
    human looked; you are not one. Everything you emit is `pending` or
    `quarantined`, and `review.by` stays null for a human to fill in.

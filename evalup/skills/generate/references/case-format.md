@@ -108,11 +108,15 @@ review: { status: pending, by: null, at: null }
                                      # looked — strictly worse than `pending`, which is at
                                      # least visibly unreviewed. validate_cases.py warns
                                      # (machine_accepted) on an automated-looking `by`.
-filter:                              # provenance from the §2b mechanical filter pass, so a
-                                     # reviewer can see what was screened and tune it.
-  self_contained: 0.91               # quality score; below threshold -> dropped, not kept
-  answerable: true                   # could the expectation be derived from the oracle?
-  nearest_neighbour: { id: c-2b8d4401, rouge_l: 0.34 }   # near-duplicate gate (< 0.7)
+# filter:                            # RESERVED for a script that computes it. The §2b
+#   self_contained: 0.91             # pass (self-containedness, answerability, ROUGE-L
+#   answerable: true                 # near-duplicate gate) is done by the generating
+#   nearest_neighbour: { id: c-2b8d4401, rouge_l: 0.34 }   # session, and what it
+                                     # dropped goes in the template's `rejected:` list.
+                                     # NO script writes this block, so a generator or a
+                                     # hand must not either -- a number that was never
+                                     # computed reads as a measurement. validate_cases.py
+                                     # WARNs (filter_unattested) when the block is present.
 metamorphic_parent: null             # or a case id — the parent this INV/DIR case perturbs.
                                      # Required when test_type is INV or DIR, and
                                      # enforced (missing_metamorphic_parent):
