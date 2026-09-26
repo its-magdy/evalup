@@ -217,7 +217,17 @@ def render(facts, reasons):
     """One screen. A green suite says what it could NOT see, because "6/6
     pass" over three scored layers and six unscorable ones is a smaller claim
     than it reads as."""
-    lines = [f"{facts['run_id']}: {'FAIL' if reasons else 'PASS'}",
+    verdict = "FAIL" if reasons else "PASS"
+    failures, gating = facts["failures"], facts["gating_failures"]
+    if isinstance(failures, int) and isinstance(gating, int) \
+            and failures > gating:
+        # A suite where nothing gates yet (every case still `pending`)
+        # opens the gate on 2 of 4 failing; the field test (2026-09-25)
+        # read the first word and stopped. Say on the same line what the
+        # verdict is not counting.
+        verdict += (f" ({failures - gating} failure(s) on non-gating cases,"
+                    " not counted)")
+    lines = [f"{facts['run_id']}: {verdict}",
              f"  {facts['n']} cases: {facts['passes']} pass, "
              f"{facts['failures']} fail ({facts['gating_failures']} gating), "
              f"{facts['unscored']} unscored, {facts['skipped']} skipped",

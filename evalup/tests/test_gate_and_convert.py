@@ -59,6 +59,18 @@ class TestGate(TempDirTest):
         self.assertIn("PASS", out)
         self.assertIn("NOT scored this run: trajectory", out)
 
+    def test_non_gating_failures_are_named_on_the_verdict_line(self):
+        # F-024 (field test 2026-09-25): "PASS" over 2 of 4 failing, because
+        # none gated, was read as green. Still 0 -- nothing gating failed --
+        # but the first line says what it did not count.
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+            n=4, passes=2, failures=2, gating_failures=0))
+        self.assertEqual(rc, 0)
+        first = out.splitlines()[0]
+        self.assertIn("PASS (2 failure(s) on non-gating cases", first)
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run())
+        self.assertEqual(out.splitlines()[0].split(": ", 1)[1], "PASS")
+
     def test_a_red_run_is_1(self):
         # The whole point: run_cases.py exits 0 on this, by design.
         rc, out, _ = run("gate.py", "--no-verify", self.write_run(
