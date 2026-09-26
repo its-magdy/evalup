@@ -294,6 +294,11 @@ expect:
                                      # coerced to its string form, and an unquoted
                                      # yes/no/true/false becomes a YAML bool, which
                                      # is reported "unscorable" (not a silent fail).
+                                     # Never an entry the user message already contains
+                                     # (validate_cases.py WARNs echo_assertion): an app
+                                     # that repeats the request passes it. Assert the
+                                     # fact that goes WITH the name — the leave type,
+                                     # the date, the count — not the name itself.
                                      # WATCH THE SLASHES: a path-like literal such
                                      # as "/usr/local/" is read as the REGEX
                                      # `usr/local`, not as a substring — drop the
@@ -348,7 +353,7 @@ notes: ""                            # reviewer's one-liner: why this case exist
 ```
 
 Validation: run
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json>`
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json> --adapter <adapter.json>`
 before handing a dataset over. It checks at load time the "hard error, never a
 silent fallback" rules above (`order_mode`, args `calls` scope, empty
 `columns`), which the scorers would otherwise only hit at RUN time — long after

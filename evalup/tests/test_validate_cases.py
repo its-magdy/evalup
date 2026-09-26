@@ -732,10 +732,6 @@ class TestAuthzRecordIds(ValidateTest):
         self.assertNotIn("unrecognizable_record_ids", self.codes(out))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestEchoAssertion(ValidateTest):
     """F-028 (field test 2026-09-25): a must_contain entry the case's own
     input already satisfies passed on an echo ("I couldn't find any
@@ -880,3 +876,7 @@ class TestFilterProvenance(ValidateTest):
     def test_no_block_is_clean(self):
         rc, out, _ = self.validate([good_case()])
         self.assertNotIn("filter_unattested", self.codes(out))
+
+
+if __name__ == "__main__":
+    unittest.main()
