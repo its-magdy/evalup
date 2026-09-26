@@ -846,3 +846,19 @@ class TestAdapterCrossCheck(ValidateTest):
                                    self.write_json("bad.json", [1]))
         self.assertEqual(rc, 2)
         self.assertIn("expected a JSON object", out["error"])
+
+
+class TestCanarySplit(ValidateTest):
+    """F-025 (field test 2026-09-25): a canary tagged [full, canary] never
+    ran under --smoke, because plans select on the mode's split alone."""
+
+    def test_a_canary_without_smoke_warns(self):
+        case = good_case(split=["full", "canary"])
+        finding = self.assert_finds("canary_not_in_smoke", [case],
+                                    severity="WARN")
+        self.assertIn("smoke", finding["message"])
+
+    def test_a_canary_in_smoke_is_clean(self):
+        rc, out, _ = self.validate([good_case(split=["full", "smoke",
+                                                      "canary"])])
+        self.assertNotIn("canary_not_in_smoke", self.codes(out))

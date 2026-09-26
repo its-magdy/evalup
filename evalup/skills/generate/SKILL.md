@@ -185,7 +185,13 @@ training pool, never both, and that exclusivity is what the seal rests on.
   there signals an app/model/judge change, not a traffic shift. A canary
   asserts content — `expect.result` or `expect.answer` — because drift shows
   up in the answer and `http: 200` comes back either way (suite-sizing.md,
-  which also says when the floor applies).
+  which also says when the floor applies). **Every canary also carries
+  `smoke`**: a run selects on its mode's split alone, so a canary tagged only
+  `[full, canary]` never runs under `--smoke` (the validator warns,
+  `canary_not_in_smoke`). Canaries sit outside every denominator; what the
+  tag adds to a smoke run is the call, and the abort (exit 4) when the canary
+  scores wrong — which is the point: a drifted harness stops the run before
+  it spends the suite producing numbers nobody should read.
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither

@@ -657,6 +657,18 @@ def check_case(rep, case, all_ids, enabled, index=None):
                           f"split {name!r} is not one of "
                           f"{', '.join(SPLITS)}; a typo here silently "
                           "drops the case from the run that names it")
+        if "canary" in splits and "smoke" not in splits:
+            # make_plan.py selects on the mode's split alone and the runner
+            # refuses a case that does not carry it (it labels every verdict
+            # with that split), so a canary without `smoke` is silent on
+            # every smoke run -- 1 of 2 ran in the field test (2026-09-25).
+            # The fix is on the case, not the plan: a canary carries every
+            # split it should run in.
+            rep.warn(label, "canary_not_in_smoke",
+                     "case is a canary but not in `smoke`; runs select on "
+                     "the mode's split alone, so this canary is silent on "
+                     "every smoke run and drift there goes unwatched -- "
+                     "add `smoke` (canaries are outside its denominators)")
         if "holdout" in splits and "full" in splits:
             rep.error(label, "holdout_not_sealed",
                       "case is in both `holdout` and `full`; the seal "
