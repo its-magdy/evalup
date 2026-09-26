@@ -82,6 +82,14 @@ details. Pick the latest by the **timestamp segment** of the run id
 mode and hands you a stale `smoke-*`. Use the timestamp over mtime, which
 drifts when a report is regenerated or a directory copied.
 
+**Trace-less run** (`manifest.yaml` `traces.collected: false`): there is no
+trajectory to read, so cluster mechanically first — by (expected status,
+observed status, the routing or answer check that failed), all of which
+`verdict.json` states — and launch the agent only for answer-layer failures,
+where the response text needs reading. A pure status mismatch (expected 200,
+got 400) is already diagnosed by its verdict row; two agent launches to
+re-read it is what the first field test spent.
+
 Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
 the plugin is installed) per failed case, on its normalized trajectory
 (raw spans when that view is insufficient) and its violated expectations.
