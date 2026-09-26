@@ -331,7 +331,7 @@ local commands are the only checked claim.
 | `examples/quickstart/README.md` | The worked example: what `discover`, `generate` and `run` write, and what a trace-less app can score |
 | `docs/workflow.md` | Day 1 → steady state → production, and who does what |
 | `docs/concepts.md` | Eval layers, staged rigor, ground truth, the judge |
-| `skills/discover/references/adapter-contract.md` | The language-agnostic adapter spec; `adapters/dotnet.md` is the first reference adapter |
+| `skills/discover/references/adapter-contract.md` | The language-agnostic adapter spec; `skills/discover/references/adapters/dotnet.md` is the first reference adapter (.NET) |
 | `docs/runner-contract.md` | The plan and run-directory format `run_cases.py` reads and writes |
 | `docs/rubric-format.md` | The decomposed-binary judge rubric and calibration |
 | `skills/analyze/references/annotation-ux.md` | The open → axial error-analysis workflow |
