@@ -253,8 +253,15 @@ def render(facts, reasons):
         lines.append(f"  canaries {canaries.get('passed')}/{canaries.get('n')}")
     holdout = facts["holdout"]
     if isinstance(holdout, dict):
+        # Over the SCORED holdout cases when the run records failures
+        # (runner-contract SS10: `n` is never a pass-rate denominator); an
+        # older run has only `n`.
+        scored = holdout.get("n")
+        if isinstance(holdout.get("failures"), int) \
+                and isinstance(holdout.get("passes"), int):
+            scored = holdout["passes"] + holdout["failures"]
         lines.append(f"  holdout (aggregate only): {holdout.get('passes')}/"
-                     f"{holdout.get('n')} pass")
+                     f"{scored} pass")
     if facts["unscorable_layers"]:
         lines.append("  NOT scored this run: "
                      + ", ".join(map(str, facts["unscorable_layers"])))

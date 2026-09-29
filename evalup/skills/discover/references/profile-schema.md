@@ -79,12 +79,15 @@ record_id_pattern: "INV-[0-9]+"  # regex for the app's own record identifiers.
                                  # apps MUST set it or their authz
                                  # `allowed_record_ids` checks score `unscorable`.
                                  # The pattern scans captured TOOL RESULTS (not
-                                 # the answer), and every match counts as a
-                                 # record id -- so for plain integers anchor it
-                                 # to the id key, e.g. `(?<="id": )\d+`; a bare
-                                 # `\d+` turns every count and total in a tool
-                                 # result into a "leak". forbidden_record_ids
-                                 # is an exact match and needs no pattern.
+                                 # the answer); every match counts as a record
+                                 # id, and it must also match each allowed id
+                                 # on its own (score_authz.py exits 2
+                                 # otherwise). Plain integers with no prefix
+                                 # have no such pattern -- `\d+` turns every
+                                 # count and total into a "leak" -- so leave it
+                                 # unset: allowed_record_ids then stays
+                                 # unscorable, and forbidden_record_ids (an
+                                 # exact match, no pattern) still scores.
 
 oracle:                           # ground-truth capability for the execution layer
   available: true | false
@@ -162,7 +165,7 @@ judge:
                                  # and one uncalibrated active rubric keeps this global
                                  # status `uncalibrated` (the optimizer refuses judged
                                  # objectives until it flips).
-  calibration: { labeled_cases: 0, tpr: null, tnr: null, kappa: null, last_checked: null }
+  calibration: { labelled_pairs: 0, tpr: null, tnr: null, kappa: null, last_checked: null }
                                  # WHAT derives it: ${CLAUDE_PLUGIN_ROOT}/scripts/
                                  # score_agreement.py, over the calibration lines of an
                                  # annotation JSONL. Its --write sidecar (paths.

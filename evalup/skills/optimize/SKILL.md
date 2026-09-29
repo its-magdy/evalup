@@ -65,7 +65,8 @@ make gains real instead of overfit.
    `adapter.yaml`: `read-only` → recommendations only, written to findings,
    no edit applied — the same outcome as gray-box. Then, per surface, read
    `findings.md` and the adapter's `prompts[]`: a surface whose edit only takes
-   effect after a rebuild or restart (compiled-in or embedded prompts — e.g.
+   effect after a rebuild or restart (compiled-in, embedded, or read once at
+   startup — e.g.
    `kind: tool-descriptions` on a `.cs` path;
    `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapters/dotnet.md`
    §Optimizable surfaces) is allowed, but step 4's measure waits on the

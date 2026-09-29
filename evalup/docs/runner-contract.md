@@ -849,10 +849,12 @@ is deliberately not in `summary.attempted` (§10's counts), so equating the two 
 every run that refused a case. The case directories are the source of truth in
 §9(a), so they are what both derived files are checked against here — and being
 derivable from the tree alone is what makes checks 3 and 4 runnable under
-`--verify`. The run-time bookkeeping counters (`attempted`, `crash_rate`,
-`infra_rate`, `scorer_errors`) are **not** recounted: they are properties of the
-execution, not of the tree, and a check that has to guess at them would fail
-honest runs.
+`--verify`. `infra_rate` is recounted too — every term of §10's definition is
+on disk — on runs that carry `summary.repeated_5xx` (the two arrived together;
+an older run's rate used another denominator). The run-time bookkeeping
+counters (`attempted`, `crash_rate`, `scorer_errors`) are **not** recounted:
+they are properties of the execution, not of the tree, and a check that has to
+guess at them would fail honest runs.
 
 Any discrepancy → the missing/mismatched items are written to
 `results.json.summary.missing_artifacts`, printed as JSON on stdout, and the

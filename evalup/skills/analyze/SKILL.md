@@ -64,8 +64,9 @@ did. End with the failure taxonomy by count and an offer to promote the
 clearest failures into cases (origin `real-trace:<id>`, expectation = what
 SHOULD have happened, `review.status: pending`, `gating: false` until a human
 accepts it) — which is `generate`'s "real seeds first" done literally.
-Promoting bumps `dataset_version`, so the pinned baseline stops being
-comparable (run/SKILL.md §4): say so, and pin a new one after. This is not `--mine`: that queries a live trace
+Bump `dataset_version` in `dataset.yaml` when you promote; the pinned
+baseline then stops being comparable (run/SKILL.md §4): say so, and pin a new
+one after. This is not `--mine`: that queries a live trace
 backend and needs `stage: traffic`; this reads files the user already has.
 
 ## First run — no prior data

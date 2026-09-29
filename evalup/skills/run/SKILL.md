@@ -73,11 +73,11 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
 ```
 
-`<work-dir>` is `<state>/work/`: derived files only (`converted.json`, the
-split JSON, `plan.json`), rebuilt every run and never committed. Never
+`<work-dir>` is `<state-dir>/work/`: derived files only (`converted.json`,
+the split JSON, `plan.json`), rebuilt every run and never committed. Never
 `/tmp`, which the shell rule above forbids. When the state location is
-inside the app's repo, tell the user once to add it to their `.gitignore`;
-otherwise it reads as uncommitted changes.
+inside the app's repo, tell the user once to add `<state-dir>/work/` — that
+folder only; the rest of the state is versioned — to their `.gitignore`.
 
 - **`convert_suite.py`** is the run's parse of the YAML, not a second opinion,
   which is why you do not re-type it. It leaves `${VAR}` refs unresolved (the
@@ -117,7 +117,7 @@ Full shape and defaults, if you need them: runner-contract §2.
 ## 2. Run it
 
 ```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan plan.json --out reports/<run-id> \
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan <work-dir>/plan.json --out reports/<run-id> \
   [--baseline-verdicts reports/<baseline-run-id>/verdicts_for_stats.jsonl] [--resume]
 ```
 
@@ -151,7 +151,7 @@ code, not to "non-zero".
 | 0 | Complete. Says nothing about pass/fail. | Report (§5). |
 | 1 | Internal error. | Harness bug; report the traceback, don't retry blind. |
 | 2 | Bad plan or usage. **Nothing was written.** | Fix the plan, re-run. Free. |
-| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. A missing env var (`missing_env` names each) cannot be fixed in-session — an `export` does not outlive its Bash call and `source … &&` breaks the shell rule: ask the user to export them before launching `claude`, or to put them under `env` in `.claude/settings.local.json` (read however `claude` was launched). Never write a value into a file yourself. |
+| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. A missing env var (`missing_env` names each) cannot be fixed in-session — an `export` does not outlive its Bash call and `source … &&` breaks the shell rule: ask the user to export them before launching `claude`, or to put them under `env` in `.claude/settings.local.json` (read however `claude` was launched, and applied to a running session when the file is saved). Never write a value into a file yourself. |
 | 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. |
 | 5 | Infra rate above `infra_rate_abort` (plan default 0.25). | The service is degraded. Re-run when healthy; never report the partial pass rate. |
 | 6 | Completeness check failed: **a required artifact is missing or inconsistent**. | Read `summary.missing_artifacts`. Not quotable, not a baseline. `--resume` or re-run; never write a report over it. |
@@ -173,7 +173,8 @@ report. **First read `gate.py`'s "same 5xx on every attempt" line**
 (`summary.repeated_5xx`; the case's `verdict.json` names the status): a case
 that got one 5xx on every attempt of every repeat may be the app's own error
 — a guard that throws looks exactly like this — and re-running or raising
-the threshold would hide it. Open its `response.json`, and report it as a
+the threshold would hide it. Open its `response.json` (never on a holdout
+run — those case directories are sealed), and report it as a
 possible app defect, still counted as infra. Never lower the abort, and never
 read a partial pass rate as the app's score.
 

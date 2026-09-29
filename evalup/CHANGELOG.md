@@ -451,7 +451,9 @@ change; fixes below are bugfixes inside the runner freeze.
 - **Status-routed routing numbers read as domain-routing accuracy.** The
   contract already said `route_from_status` measures answered-vs-refused;
   `profile-schema.md` (the `router_executor` and `routing` comments) and
-  run §5 now say it where the number is written and reported. (F-123, F-110)
+  run §5 now say it where the number is written and reported (doc half of
+  F-123: the scorer-side marker it proposed would cross the freeze). (F-123,
+  F-110)
 - **`optimize` never checked that its edit could reach the running app.** A
   new precondition: `app.repo_access: read-only` → recommendations only; a
   surface whose edit needs a rebuild or restart (compiled-in or embedded
@@ -485,11 +487,24 @@ change; fixes below are bugfixes inside the runner freeze.
   to supply a missing env var without breaking the shell rule; §5 allows
   "redaction pass, 0 redactions"; analyze `--transcripts` says what to do
   with no reviewer and that promotion bumps `dataset_version`. (F-104,
-  F-105, F-108, F-109, F-112–F-116, F-127, F-131, F-148, F-159, F-161, F-162)
+  F-105, F-108, F-109, F-112–F-116, F-127, F-131, F-148, F-161; the doc
+  halves of F-159 and F-162 — their `--env-file` and `redact.py` would be
+  new runner/script features and were declined. F-161's `unjudged: "mode:
+  targeted"` is the runner's deliberate reason and was left)
 - **Two small script fixes.** A skipped case's `response.json` carries
   `sent: false` / `sent_at: null` as the contract says (F-126).
   `convert_suite.py -o` creates a missing parent directory, as its
   `--split-dir` already did (F-161).
+- **A whole-branch review of the above** found the `record_id_pattern`
+  advice first written here was wrong (score_authz.py requires the pattern to
+  match each allowed id on its own, so a key-anchored pattern exits 2; plain
+  integers leave it unset), and that `agents/judge.md` rule 6 read a
+  first-placed `canary_guard` as making every case a refusal case — it now
+  keys only on `expect.authz.expect_refusal`. `--verify` recounts
+  `infra_rate` on runs that carry `repeated_5xx` (a hand-lowered rate had
+  opened the gate); the validator no longer warns `gating_unreviewed` on a
+  canary, which the runner never lets gate; `gate.py`'s holdout line divides
+  by the scored holdout cases.
 
 ### Fixed — the 2026-09-21 shape audit
 

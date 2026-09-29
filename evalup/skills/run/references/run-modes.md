@@ -145,7 +145,7 @@ No mode flag behaves as `regression` (full suite, hard gate).
   go calibrate before shipping, not to ship blind.
 - **Adversarial/authz cases**: run if the adapter's `environment.safe_to_attack`
   is true (same gate as any other red-team probe; the runner applies it at
-  pre-flight, runner-contract §4 item 6 and §7); still skipped (not failed) otherwise.
+  pre-flight, runner-contract §4 item 5 and §7); still skipped (not failed) otherwise.
 - **When**: release validation, before staged rigor moves an app toward
   `traffic`/`production` — a
   monitoring-window release habit sits on top of this, not instead of it

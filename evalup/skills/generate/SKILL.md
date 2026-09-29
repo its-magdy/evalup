@@ -139,12 +139,14 @@ derivation, the enabled-layer rule and adversarial refusals. case-format.md
 carries the per-layer rules: `expect.result` with its `reference_query`,
 `expect.authz` derived under the persona's real access scope, and which fields
 are RESERVED (`excluded_tools` among them — documentation, not a measurement).
-This skill adds three. **Real seeds first**: seed from real messages or traces
+This skill adds two. **Real seeds first**: seed from real messages or traces
 where they exist, and record which cases are synthetic-only — a regression
-scaffold, not a measure of real-world quality. INV/DIR cases are cheap but
-still spend suite slots, so hold them to §1's ratio and floor. And **read the
-adapter's `environment.safe_to_attack` before authoring
-`adversarial-refusal` cases**: while it is not true, every run skips them
+scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
+still spend suite slots, so hold them to §1's ratio and floor.
+
+**Before delegating, read the adapter's `environment.safe_to_attack`** (this
+is yours, not the agent's): while it is not true, every run skips
+`adversarial-refusal` cases
 (runner-contract §7) and the validator warns `attack_category_will_skip`.
 Author them when findings name an attack surface and the owner has not been
 asked — they document the defect — but tell the user, where the suite is

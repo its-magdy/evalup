@@ -3005,9 +3005,16 @@ def check_results_json(results, cases):
                                and v.get("verdict") == FAIL),
     }
     if "repeated_5xx" in summary:
-        # Absent from runs older than the 2026-09-26 user-test fixes.
+        # Absent from runs older than the 2026-09-26 user-test fixes -- and
+        # so is SS10's infra_rate, whose denominator those fixes changed
+        # (every term is on disk now: infra_errors over n - skipped). The key
+        # marks a run written under the current definition, so an older run
+        # is not failed for the definition it was written under.
         recounted["repeated_5xx"] = sum(1 for v in graded
                                         if v.get("repeated_5xx"))
+        sent = recounted["n"] - recounted["skipped"]
+        recounted["infra_rate"] = round(
+            recounted["infra_errors"] / sent, 4) if sent else 0.0
     for key, value in recounted.items():
         if summary.get(key) != value:
             problems.append(

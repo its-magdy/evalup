@@ -27,7 +27,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 815 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 819 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -41,8 +41,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   fast-forwarded 2026-09-25 and 2026-09-26). It is the only branch. Nothing
   is pushed; **there is still no remote**, so nothing here has ever been
   checked by CI.
-- **Health:** 815 tests pass on 3.14; 806 + 9 skips on the 3.9 floor (all 9
-  skips need PyYAML: 815 pass with `--with pyyaml`), ruff clean, 21 CLIs
+- **Health:** 819 tests pass on 3.14; 810 + 9 skips on the 3.9 floor (all 9
+  skips need PyYAML: 819 pass with `--with pyyaml`), ruff clean, 21 CLIs
   answer `--help`, `claude plugin validate` clean for the plugin and the
   root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-26 on
   `main` after the merge.
@@ -100,8 +100,14 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   is flagged (`repeated_5xx`, F-165). Declined as freeze-crossing:
   `--env-file` (F-159), `redact.py` (F-162), a probe script (F-103),
   scorer-side routing notes (F-123/F-140/F-141); deferred: the validator's
-  profile-name check (F-155); not a script bug: F-166 (Mac sleep).
-  `evalup/CHANGELOG.md` "the 2026-09-26 user test (round 2)" lists the rest.
+  profile-name check (F-155). F-166 (`wait_run.py` overran the 600 s cap):
+  not changed — a reviewer's reading, not the tester's, is that the script
+  cannot overrun on its own and macOS sleep stops its clock. Not addressed:
+  F-106, F-125 (friction), F-129 (the bench's agents), F-133, F-144, F-147,
+  F-149 (nits). `evalup/CHANGELOG.md` "the 2026-09-26 user test (round 2)"
+  lists every change. **Open for the owner:** a canary with an infra repeat
+  now reads "canaries 0/1", but only a canary `fail` aborts a run and
+  `gate.py` does not close on it.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.

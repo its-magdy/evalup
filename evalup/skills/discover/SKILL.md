@@ -49,12 +49,14 @@ offer a patch to the user's source and do not interview them before they
 have seen a result. Everything below is the full procedure; a later
 `/evalup:discover` runs the deferred steps.
 
-**Existing profile, no `--diff`** (a lean session came first): read
-findings.md's `deferred:` list — that is the to-do list — and run those steps
-plus any the user names. Update `profile.yaml`, `adapter.yaml` and
-findings.md in place: keep every entry a live request already verified, never
-regenerate a working adapter from scratch, and list what changed at the end.
-Offer to copy the three files aside first; nothing else backs them up.
+**Existing profile, no `--diff`**: read findings.md's `deferred:` list —
+after a lean session that is the to-do list — and run those steps plus any
+the user names; with no `deferred:` list, run the full procedure. Either way
+update `profile.yaml`, `adapter.yaml` and findings.md in place: keep every
+entry a live request already verified, never regenerate a working adapter
+from scratch. Before the first write, say which files will change — nothing
+else backs them up, so the user can copy them first — and list what changed
+at the end (headless: in the closing summary).
 
 Write three artifacts to the state location (default `<app>/.evalup/`, or
 the adapter's `state_location`). **Before the first of those writes, one line

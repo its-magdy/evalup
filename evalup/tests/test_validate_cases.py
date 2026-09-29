@@ -540,6 +540,15 @@ class TestWarnFindings(ValidateTest):
         self.assertEqual(codes.count("gating_unreviewed"), 2)
         self.assertNotIn("nothing_gates", codes)
 
+    def test_a_canary_never_gates_so_never_warns_unreviewed(self):
+        """The runner forces a canary's gating false (build_verdict), so a
+        pending canary with no key is not an unreviewed gate."""
+        canary = good_case("c-canary-0", split=["full", "canary"],
+                           review={"status": "pending", "by": None})
+        del canary["gating"]
+        self.assertNotIn("gating_unreviewed",
+                         self.codes(self.validate([canary])[1]))
+
     def test_nothing_gates(self):
         # The field test's headless generate flipped every case to gating
         # false (correct: nobody had reviewed them) and the run then closed

@@ -600,10 +600,13 @@ def check_echo_assertions(rep, case_id, case, expect):
 
 
 def gates(case):
-    """Whether the RUNNER will let this case close a gate: an absent key is
-    true (case-format.md; run_cases.build_verdict reads
-    `case.get("gating", True) is not False`). Reading an absent key as false
-    here let a pending case with no key gate unwarned."""
+    """Whether the RUNNER will let this case close a gate, as
+    run_cases.build_verdict decides it: never for a canary, and otherwise
+    `case.get("gating", True) is not False` -- an absent key is true
+    (case-format.md). Reading an absent key as false here let a pending case
+    with no key gate unwarned."""
+    if "canary" in (case.get("split") or []):
+        return False
     return case.get("gating", True) is not False
 
 

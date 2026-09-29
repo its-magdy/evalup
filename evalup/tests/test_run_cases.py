@@ -931,6 +931,24 @@ class TestInfraTaxonomy(RunnerCase):
         self.assertEqual(summary["infra_errors"], 1)
         self.assertEqual(summary["infra_rate"], 1.0)
 
+    def test_verify_recounts_infra_rate(self):
+        """Whole-branch review: infra_rate is now infra_errors / (n -
+        skipped), every term recounted from the tree, yet --verify took the
+        recorded number on trust -- a hand-lowered rate opened the gate."""
+        plan = make_plan(self.state, self.app.base_url)
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        path = self.out_dir() / "results.json"
+        results = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(results["summary"]["infra_rate"], 1.0)
+        results["summary"]["infra_rate"] = 0.0
+        path.write_text(json.dumps(results), encoding="utf-8")
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertNotEqual(verify.returncode, 0, verify.stdout)
+        self.assertIn("summary.infra_rate", verify.stdout)
+
     def test_infra_rate_abort(self):
         """Burning a full suite against a down service is an expensive way of
         learning the service is down."""
@@ -2027,6 +2045,25 @@ class TestReliability(RunnerCase):
         self.assertEqual(verdict["verdict"], "fail")
         self.assertEqual(self.read("cases", "c-0001", "response.json")
                          ["status"], 200)
+
+    def test_the_fold_over_every_repeat_pair(self):
+        """SS5.5's fold, pinned per pair and in both orders -- including
+        [pass, unscored], which rolled up to `pass` before F-158's fix."""
+        P, F, U = run_cases.PASS, run_cases.FAIL, run_cases.UNSCORED
+        E, C = run_cases.INFRA_ERROR, run_cases.INFRA_INCOMPLETE
+        expected = {(P, P): P, (P, F): F, (P, E): E, (P, C): C, (P, U): U,
+                    (F, E): F, (F, U): F, (E, C): E, (E, U): E, (C, U): C,
+                    (U, U): U}
+        for (a, b), want in expected.items():
+            for pair in ((a, b), (b, a)):
+                with self.subTest(pair=pair):
+                    self.assertEqual(run_cases.fold_repeats(list(pair)), want)
+
+    def test_body_key_never_raises(self):
+        self.assertEqual(run_cases.body_key({"x": 1}), '{"x": 1}')
+        # Mixed key types cannot be sorted; the fallback still compares.
+        self.assertEqual(run_cases.body_key({1: "a", "b": 2}),
+                         run_cases.body_key({1: "a", "b": 2}))
 
     def test_nothing_to_reduce_is_not_a_scorer_error(self):
         self.app.server.responder = health_only(

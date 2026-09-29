@@ -46,8 +46,8 @@ not an optional extra.
 | `GEvalNode` | The one place a graded (non-binary) score is allowed — a frozen `evaluation_steps` list (see below), only reachable after every upstream gate passes. | Yes — terminal `score_range`. |
 
 An `unknown` verdict is the judge saying the criterion, or its inputs, could
-not decide this case (`agents/judge.md` rules 2, 4 and 9). It gets no score,
-and `scripts/score_agreement.py` (`score_group`, ~line 333) drops it from the
+not decide this case (`agents/judge.md` rules 2, 3, 4 and 9). It gets no score,
+and `scripts/score_agreement.py` (`score_group`) drops it from the
 2x2 before computing TPR, TNR and kappa, reporting it as a separate count and
 warning above 10% of a rubric's verdicts. Treat a high `unknown` rate as a
 finding about the criterion, not noise to filter.
@@ -57,7 +57,8 @@ order of `nodes:` in the file, top to bottom: a `TaskNode`'s extracts are
 available to every node below it, the first `fail` or `unknown` ends the walk,
 and a `GEvalNode` must come last. Branching is not supported; nothing reads
 one. A `canary_guard` node goes first after the `TaskNode`s: `agents/judge.md`
-rule 6 then applies to every node below it on a refusal case, so a correct
+rule 6 then applies to every node below it when the case's
+`expect.authz.expect_refusal` is true — and to none on any other case — so a correct
 decline is never failed by a later evidence gate that assumes an answer.
 (`agents/judge.md` executes one node per call; no script parses this file's
 `nodes:`, so whoever drives the walk keeps the order.)
@@ -147,8 +148,8 @@ body can carry the longer story).
 file `rubrics/billing-answer.md`. A case pins a revision as
 `<rubric_id>-v<version>` (`billing-answer-v2`, case-format.md's convention).
 `run_cases.py` strips a trailing `-v<digits>` from the reference before
-comparing it with the calibration sidecar's `rubrics_measured` (`RUBRIC_PIN`, line
-~207; the check at ~2508-2520), so: never end a `rubric_id` in `-v<digits>`,
+comparing it with the calibration sidecar's `rubrics_measured` (`RUBRIC_PIN`, and the
+calibration check beside it), so: never end a `rubric_id` in `-v<digits>`,
 and write the same `rubric_id` byte for byte in the file, the case pins and
 `--label` annotation rows (an underscore in one and a hyphen in another reads
 as a rubric that was never calibrated). Node ids are plain snake_case
