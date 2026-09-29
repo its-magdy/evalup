@@ -225,13 +225,13 @@ because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
 First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
-<tmp>` — it writes the JSON inputs from the YAML (`suite.json`,
+<work-dir>` — it writes the JSON inputs from the YAML (`suite.json`,
 `capabilities.json`, `adapter.json`, and `manifest.json` only when
 `datasets/dataset.yaml` exists), and refuses a duplicate YAML key or one id in
 two files; never transcribe a suite by hand. Then run
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json
---capabilities <tmp>/capabilities.json --adapter <tmp>/adapter.json
-[--manifest <tmp>/manifest.json]` — pass `--manifest` only when that file was
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json
+--capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json
+[--manifest <work-dir>/manifest.json]` — pass `--manifest` only when that file was
 written, since a missing path is exit 2. It fails the generate step on
 structural errors and warns on the vacuity patterns; case-format.md has the
 field rules and the error/warning line. `--adapter` is what catches a label

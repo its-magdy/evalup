@@ -67,7 +67,7 @@ lines that have the first of them:
 {"case_id": "c-3f9a2c1d", "label": "fail",
  "judge_label": "pass",              // the judge's verdict for the SAME node:
                                      //   pass | fail | unknown
- "rubric_id": "billing_answer",      // groups the numbers — calibration is per rubric
+ "rubric_id": "billing-answer",      // groups the numbers — calibration is per rubric
  "node_id": "correct_amount",        // the judge runs ONE node per call, so label per node
  "critique": "...", "reviewer": "priya", "ts": "..."}
 ```

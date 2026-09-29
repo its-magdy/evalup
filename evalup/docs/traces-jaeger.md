@@ -10,7 +10,8 @@ this records the shape of the work and its cost; it does not authorize it.
 ## 1. What a Jaeger user can do today — no plugin change
 
 The runner reads one growing file of OTLP/JSON spans (`traces.location`),
-copies it per case, and `normalize_trace.py` filters by trace id. Any app
+copies it into each case's `trace.json` once the case's trace id appears in
+it, and `normalize_trace.py` filters by trace id. Any app
 that already exports OTLP can feed that file by putting an OpenTelemetry
 Collector in front of the backend it has and fanning out:
 
@@ -36,7 +37,10 @@ service:
 ```
 
 Then, in the adapter: `traces.source: otlp-file`, `traces.location: <that
-path>`, and a **declared** correlation (§3). Sources, checked 2026-09-26:
+path>`, a **declared** correlation (§3), and an `invocation.health_check` —
+pre-flight verifies the trace join on that call, and a queryable source with
+an explicit correlation but no health check exits 3 asking for one (runner
+contract §4, item 4 "Trace branch"). Sources, checked 2026-09-26:
 fileexporter keys (`path`, `format`, `rotation`) from the
 opentelemetry-collector-contrib README; Jaeger's native OTLP on 4317/4318
 from the Jaeger 1.35 announcement. `discover` records these declarations in
@@ -54,23 +58,32 @@ shape is:
 
 - **API.** Jaeger's `GET /api/traces?service=&start=&end=&limit=&tags=`
   (port 16686, microsecond epochs, `tags` a JSON map) is the one the field
-  test used by hand. Jaeger's own docs class it *deprecated*; the supported
-  interface is `api_v3` — gRPC on 16685 and, via grpc-gateway on 16686,
+  test used by hand. Jaeger's own docs call it internal: "This JSON API is
+  intentionally undocumented and subject to change" (jaegertracing.io,
+  docs/1.76/architecture/apis). The supported interface is `api_v3` — gRPC on
+  16685 and, via grpc-gateway on 16686,
   `GET /api/v3/traces?query.service_name=…&query.start_time_min=<RFC3339>&
-  query.start_time_max=<RFC3339>` — whose responses are OTLP-shaped
-  `resourceSpans`, the format `normalize_trace.py` already parses. Whether
+  query.start_time_max=<RFC3339>` — whose responses we expect to be
+  OTLP-shaped `resourceSpans`, the format `normalize_trace.py` already
+  parses; that shape is to be confirmed on a live api_v3 call. Whether
   Jaeger v2 still serves the v1 path is unconfirmed; target v3, keep v1 as a
   documented fallback for `all-in-one` v1 hosts.
 - **Selection.** Never "the most recent trace" (adapter hard rule 1). The
   runner fetches by service name and the case's time window, then keeps only
-  the trace whose id matches the case's correlation value, or whose root span
-  carries a declared tag (`traces.select_tag: refapp.turn.id`) equal to a
-  value the runner can prove it sent. Nothing else joins.
+  the trace whose id matches the case's correlation value. A tag join (a
+  hypothetical `traces.select_tag: <attribute>`) is valid only on a value the
+  runner generated, sent with the call and recorded in `request.json`, and
+  that the app copied onto the span — a tag the app mints server-side proves
+  nothing the runner sent, and joining on it is the time-window guess rule 1
+  forbids. Zero or more than one matching trace ⇒ `infra_incomplete`, never a
+  pick. `select_tag` would be a new correlation mode, so it needs the same
+  hard-rule-1 amendment as §3's proposal. Nothing else joins.
 - **Where it lands.** `run_cases.py` pre-flight (`trace_branch`): a v3 probe
   for the health-check trace replaces the file-presence check;
   `collect_trace` fetches by id instead of copying the file; the quiescence
-  wait becomes "re-fetch until the span count is stable". Contract §4.4 and
-  adapter-contract `traces:` gain `jaeger` with `location: <query base URL>`.
+  wait becomes "re-fetch until the span count is stable". Runner contract §4
+  item 4 ("Trace branch") and adapter-contract `traces:` gain `jaeger` with
+  `location: <query base URL>`.
 - **Effort.** stdlib `urllib` client with RFC3339 formatting and one retry:
   ~150 lines in the runner; a stub Jaeger HTTP server for tests plus v1 and
   v3 fixture payloads: ~250 lines; contract and adapter-contract edits; one
@@ -105,6 +118,7 @@ change) and "Distributed tracing concepts" (inbound header adoption).
 ## 4. What this does not change
 
 Trace-less scoring stays honest as it is: routing and answer checks score,
-the trace-dependent layers report `unscorable` with the declared reason, and
+the trace-dependent layers report `unscorable` with the `blocked_by` reason
+copied from the capability matrix, and
 `score_cost.py` refuses to price a trace-less run. None of the above makes a
 number mean something different; it only makes more runs have the number.

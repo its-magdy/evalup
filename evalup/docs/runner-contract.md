@@ -973,8 +973,11 @@ keeps the deliberate liveness-only case (nothing asserted but `http`) a pass,
 because there the liveness check is the whole claim. The change can only make a
 run more conservative: it converts `pass` to `unscored`, never to `fail`.
 
-`gating` is `true` unless the case is a canary. `summary.gating_failures` counts
-cases with `gating: true` and `verdict: "fail"`.
+`gating` is copied from the case — an absent key is `true` (case-format.md) —
+and is always `false` for a canary. A case authored `gating: false` (every
+case until a human accepts it, generate §3) runs and is reported but cannot
+close the gate. `summary.gating_failures` counts cases with `gating: true` and
+`verdict: "fail"`.
 
 ### `results.json`
 

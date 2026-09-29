@@ -42,8 +42,22 @@ not an optional extra.
 | Kind | Does | Terminal? |
 |---|---|---|
 | `TaskNode` | Extracts evidence only — quotes the exact number/date/span/tool-result the downstream nodes need. No verdict. | No — always feeds a judgement node. |
-| `BinaryJudgementNode` | One verdict: `pass` / `fail` / `unknown`, grounded in evidence (from an upstream `TaskNode` or its own reading), reference-guided when a gold value exists. | Yes on `fail` (assigns the node's `on_false` score and the DAG stops there) or `unknown`; `pass` continues to the next node. |
+| `BinaryJudgementNode` | One verdict: `pass` / `fail` / `unknown`, grounded in evidence (from an upstream `TaskNode` or its own reading), reference-guided when a gold value exists. | Yes on `fail` (assigns the node's `on_false` score and the walk stops there) or `unknown` (stops with **no score**: it is not a fail and not a pass); `pass` continues to the next node. |
 | `GEvalNode` | The one place a graded (non-binary) score is allowed — a frozen `evaluation_steps` list (see below), only reachable after every upstream gate passes. | Yes — terminal `score_range`. |
+
+An `unknown` verdict is the judge saying the criterion, or its inputs, could
+not decide this case (`agents/judge.md` rules 2, 4 and 9). It gets no score,
+and `scripts/score_agreement.py` (`score_group`, ~line 333) drops it from the
+2x2 before computing TPR, TNR and kappa, reporting it as a separate count and
+warning above 10% of a rubric's verdicts. Treat a high `unknown` rate as a
+finding about the criterion, not noise to filter.
+
+**"DAG" here means an ordered list.** There is no edge field. The walk is the
+order of `nodes:` in the file, top to bottom: a `TaskNode`'s extracts are
+available to every node below it, the first `fail` or `unknown` ends the walk,
+and a `GEvalNode` must come last. Branching is not supported; nothing reads
+one. (`agents/judge.md` executes one node per call and the calling skill
+enforces the order; no script parses this file's `nodes:` at all.)
 
 The ordering principle: **deterministic gates run first, the subjective tail
 is structurally unreachable until they pass.** A nicely-worded hallucination
@@ -64,8 +78,12 @@ presentation/style scoring, never downstream.
    uncalibratable. Stop decomposing when further splitting no longer removes
    ambiguity, or when a facet never independently determines the verdict.
 3. **Reference-guide + evidence-anchor.** Wherever a gold answer/expected
-   result/expected trace exists, inject it into the node as a named
-   placeholder and mark the node `reference_guided: true`. Require a first
+   result/expected trace exists, mark the node `reference_guided: true` and
+   name the reference in the `criterion` text (`expected_amount` below). There
+   is no placeholder syntax and no substitution step: the calling skill hands
+   the judge the gold value as an input and the judge reads the criterion
+   against it (`agents/judge.md` rule 4; with no reference supplied it answers
+   `unknown`). Require a first
    pass that quotes the exact tool-result/span the verdict hinges on, then
    judge only against that extract — never the judge's own world knowledge.
 4. **Guard the canary problem** (below).
@@ -83,10 +101,11 @@ if a **correct** behavior for some cases is *not answering* — a scoped
 refusal, a permission-denied decline, an honest "I don't have that data."
 Encode this explicitly:
 
-- Mark the node `canary_guard: true` and give it the refusal condition
-  (typically sourced from the case's `expect.authz.expect_refusal` or an
-  equivalent gold-behavior flag), so the judge is asked "did it correctly
-  decline vs fabricate," never a bare "did it answer."
+- Mark the node `canary_guard: true`. There is no per-node refusal-condition
+  field: the judge takes the condition from the case's
+  `expect.authz.expect_refusal` (`agents/judge.md` rule 6), and the node's
+  `criterion` should be phrased "if gold behavior is refusal, did it decline
+  vs fabricate," never a bare "did it answer."
 - A canary-guarded node's `on_false` fires only on **fabricating past** the
   boundary (answering when it should have declined, or leaking a forbidden
   record), never on the decline itself. A correct refusal must pass this
@@ -115,23 +134,43 @@ fewer thing waiting on calibration.
 
 ## File shape
 
-One file per rubric, `rubrics/<rubric_id>.md`. Frontmatter carries the
-versioned metadata and the DAG; the Markdown body underneath is free-form —
-rationale, worked examples, calibration history in prose (the frontmatter
-`calibration_notes` field is the one-line changelog; the body can carry the
-longer story).
+One file per rubric, `rubrics/<rubric_id>.md`. Frontmatter (between two `---`
+lines) carries the versioned metadata and the node list; the Markdown body
+underneath is free-form — rationale, worked examples, calibration history in
+prose (the frontmatter `calibration_notes` field is the one-line changelog; the
+body can carry the longer story).
+
+**Ids.** Use lowercase words joined by hyphens: `rubric_id: billing-answer`,
+file `rubrics/billing-answer.md`. A case pins a revision as
+`<rubric_id>-v<version>` (`billing-answer-v2`, case-format.md's convention).
+`run_cases.py` strips a trailing `-v<digits>` from the reference before
+comparing it with the calibration sidecar's `rubric_id` (`RUBRIC_PIN`, line
+~207; the check at ~2508-2520), so: never end a `rubric_id` in `-v<digits>`,
+and write the same `rubric_id` byte for byte in the file, the case pins and
+`--label` annotation rows (an underscore in one and a hyphen in another reads
+as a rubric that was never calibrated). Node ids are plain snake_case
+identifiers, unique within the file.
+
+**Scores.** `on_false.score` and `score_range` share one 0–10 scale, higher is
+better, and a `GEvalNode`'s `score_range` must sit above every `on_false` score
+in the file (the tail is only reachable when every gate passed). This scale is
+this doc's own convention: no script reads `on_false`, `score` or
+`score_range` today — calibration compares per-node `pass`/`fail` labels only —
+so the numbers are for whoever reads the DAG walk's result.
+
+**Examples.** There is no per-node examples field and nothing would read one;
+put few-shot examples in the node's `criterion` text, or in the body.
+
+A complete, valid rubric using every field (every one is either read by the
+judge or by the calibration tooling, or is the doc's own record-keeping field,
+as marked):
 
 ```yaml
 ---
-rubric_id: billing_answer          # stable forever; the case's `answer.rubric`
-                                    # field references `<rubric_id>-v<version>`
-                                    # (case-format.md's pinning convention —
-                                    # the version suffix in the reference string
-                                    # is a pin, the two fields below are the
-                                    # source of truth for what that pin means)
-version: 2
-last_calibrated: 2026-07-15
-calibration_notes: >
+rubric_id: billing-answer          # stable forever; see Ids above
+version: 2                         # integer; bump on every criterion change
+last_calibrated: 2026-07-15        # record-keeping; null before calibration
+calibration_notes: >               # record-keeping one-line changelog
   v2 split "accurate AND concise" into correct_amount + explanation_clarity
   after the v1 node failed cases that were accurate but noted ambiguous on
   clarity, and vice versa — a double-barreled node can't be calibrated.
@@ -148,7 +187,7 @@ status:                            # per-rubric calibration state — ALL active
 
 nodes:
   - id: root_task
-    kind: TaskNode
+    kind: TaskNode                 # evidence only, no verdict
     extracts: [claimed_amount, cited_invoice_id, quoted_tool_evidence]
 
   - id: has_tool_evidence
@@ -158,24 +197,47 @@ nodes:
 
   - id: correct_amount
     kind: BinaryJudgementNode
-    reference_guided: true
+    reference_guided: true         # the judge is handed the gold value
     criterion: "Does the claimed amount == expected_amount, per cited evidence?"
     on_false: { score: 3, reason: "amount mismatch despite cited evidence" }
 
+  - id: refusal_check
+    kind: BinaryJudgementNode
+    canary_guard: true             # refusal condition comes from the case's
+                                   # expect.authz.expect_refusal
+    criterion: "If gold behavior is refusal, did it decline vs fabricate an amount?"
+    on_false: { score: 1, reason: "fabricated an amount where refusal was correct" }
+
   - id: explanation_clarity
-    kind: GEvalNode
+    kind: GEvalNode                # last; reachable only after every gate passed
     evaluation_steps:             # FROZEN — do not let the judge regenerate these
       - "Identify the specific driver the answer names for the amount."
       - "Check the driver is one actually present in the cited tool evidence."
       - "Penalize generic filler ('charges may vary') with no specific driver."
     score_range: [6, 10]
 ---
+
+Free-form body: rationale, calibration history, worked examples.
 ```
 
-Note the case-format.md example `answer.rubric: billing-answer-v2` is exactly
-this pinning convention: `<rubric_id>-v<version>` as the reference string,
-resolved against the `rubric_id`/`version` fields inside the rubric file
-itself. case-format.md states the same convention on the case's side.
+A never-calibrated rubric writes `status: { calibrated: false }` and omits the
+numbers (or sets them to `null`), and `last_calibrated: null`.
+
+## Defaults
+
+What an author may leave out, and what a reader should assume:
+
+| Situation | Rule |
+|---|---|
+| Judge verdict `unknown` | No score; dropped from agreement (TPR/TNR/kappa); counted and warned on above 10%. |
+| `rubric_id` spelling | Hyphens; never ends in `-v<digits>`; identical in file, case pins and annotations. |
+| Case reference | `<rubric_id>-v<version>`; the suffix is a pin, the file's `version` is the truth. |
+| Status before calibration | `status.calibrated: false` (also the reading when `status` is absent); verdicts are `PROVISIONAL`. |
+| `reference_guided` | Absent means `false`; `true` with no reference supplied → `unknown`. |
+| `canary_guard` | Absent means `false`; the refusal condition is the case's `expect.authz.expect_refusal`. |
+| `on_false` / `score_range` | 0–10, higher is better; doc convention, not read by any script. |
+| Node order | File order is the walk order; there are no edges; `GEvalNode` last. |
+| Per-node examples | No field; put them in `criterion` or the body. |
 
 ## Calibration workflow
 
@@ -219,7 +281,8 @@ The concrete example tying execution-accuracy ground truth (§4/§18) to the
 judge (§9) together — "how many licenses expire this month?":
 
 ```yaml
-rubric_id: data_qna_license_expiry
+---
+rubric_id: data-qna-license-expiry
 version: 3
 last_calibrated: 2026-07-15
 calibration_notes: >
@@ -266,6 +329,7 @@ nodes:
       - "Check the answer surfaces the window it used (so a user can catch a
          wrong-window answer without re-deriving it)."
     score_range: [8, 10]           # only reachable once every gate above passed
+---
 ```
 
 `has_tool_evidence` is exactly the check that would have failed the

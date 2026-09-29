@@ -487,6 +487,14 @@ class TestConvertSuite(TempDirTest):
         self.assertEqual(rc, 0, out + err)
         self.assertEqual(json.loads(out)["findings"], [])
 
+    def test_output_parent_is_created_like_split_dir(self):
+        """F-161 (user test round 2): `-o <dir>/converted.json` exited 2 on
+        a missing <dir> while `--split-dir` creates its own."""
+        out = self.tmp / "new" / "deeper" / "converted.json"
+        rc, _, err = run("convert_suite.py", str(self.state()), "-o", str(out))
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(out.is_file())
+
     def test_env_refs_are_left_unresolved(self):
         state = self.state()
         adapter = state / "adapter.yaml"

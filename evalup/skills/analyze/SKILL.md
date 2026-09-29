@@ -56,11 +56,16 @@ plus the user message; the record shape is loose by design
 when the data may hold PII, and show the redacted form. Build the viewer on
 that file and run annotation-ux.md's open→axial pass with the user: ~20–50
 conversations, free-text critique first, categories only once they repeat.
-End with the failure taxonomy by count and an offer to promote the clearest
-failures into cases (origin `real-trace:<id>`, expectation = what SHOULD have
-happened, `review.status: pending`, `gating: false` until a human accepts
-it) — which is `generate`'s "real seeds
-first" done literally. This is not `--mine`: that queries a live trace
+No reviewer in the session: code them yourself, record the reviewer as
+yourself (not a human) in the annotation log, and call the taxonomy
+provisional. Exported chats rarely carry tool calls; when the app has traces,
+they can be joined by conversation id or time to supply them — say which you
+did. End with the failure taxonomy by count and an offer to promote the
+clearest failures into cases (origin `real-trace:<id>`, expectation = what
+SHOULD have happened, `review.status: pending`, `gating: false` until a human
+accepts it) — which is `generate`'s "real seeds first" done literally.
+Promoting bumps `dataset_version`, so the pinned baseline stops being
+comparable (run/SKILL.md §4): say so, and pin a new one after. This is not `--mine`: that queries a live trace
 backend and needs `stage: traffic`; this reads files the user already has.
 
 ## First run — no prior data
@@ -260,7 +265,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
   [--manifest <dataset-fields.json>]
 ```
 
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <tmp>`
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <work-dir>`
 writes the JSON inputs from the YAML — never transcribe them yourself
 (run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
 and case-format.md owns the rules it enforces. `--manifest` matters most here

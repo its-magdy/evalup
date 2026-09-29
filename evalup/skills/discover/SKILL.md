@@ -46,8 +46,15 @@ steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
 with what each unlocks — step 7 includes `environment.safe_to_attack`, which
 stays false until asked, so attack cases are skipped until then. Do not
 offer a patch to the user's source and do not interview them before they
-have seen a result. Everything below is the full
-procedure; a later `/evalup:discover` runs the deferred steps.
+have seen a result. Everything below is the full procedure; a later
+`/evalup:discover` runs the deferred steps.
+
+**Existing profile, no `--diff`** (a lean session came first): read
+findings.md's `deferred:` list — that is the to-do list — and run those steps
+plus any the user names. Update `profile.yaml`, `adapter.yaml` and
+findings.md in place: keep every entry a live request already verified, never
+regenerate a working adapter from scratch, and list what changed at the end.
+Offer to copy the three files aside first; nothing else backs them up.
 
 Write three artifacts to the state location (default `<app>/.evalup/`, or
 the adapter's `state_location`). **Before the first of those writes, one line
@@ -103,6 +110,13 @@ conversation/session handling, OTel setup. Record as you go:
 - The **data-access layer** → `oracle.db`: DB and ORM, where schema/migrations
   live, and whether a seeded staging environment or read replica already exists.
   You cannot offer a fixture in step 5 without knowing what there is to seed.
+- The **app's own turn log** — tables or files where it persists what a turn
+  did: the route or classification, tool calls with their arguments, token
+  counts, a trace id. Record in findings.md where it lives and how a response
+  joins to it (which id the response returns, which key the log uses). The
+  runner cannot read it — no adapter field declares one — but it is how a
+  person checks per-route or per-tool behaviour on a trace-less app, and it
+  changes what the capability statement should say is one join away.
 
 ### 4. Validate the profile against reality — before generate
 Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime

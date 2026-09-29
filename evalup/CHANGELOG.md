@@ -452,6 +452,44 @@ change; fixes below are bugfixes inside the runner freeze.
   contract already said `route_from_status` measures answered-vs-refused;
   `profile-schema.md` (the `router_executor` and `routing` comments) and
   run §5 now say it where the number is written and reported. (F-123, F-110)
+- **`optimize` never checked that its edit could reach the running app.** A
+  new precondition: `app.repo_access: read-only` → recommendations only; a
+  surface whose edit needs a rebuild or restart (compiled-in or embedded
+  prompts) stops between edit and measure until the user confirms the
+  running build carries it, and again after a revert — an unchanged binary
+  would measure as "no gain" and could spend a holdout look. The adapter
+  contract no longer promises a rebuild field that nothing carries; no field
+  was added. (F-151, F-111)
+- **Discover after a lean session had no resume path**, and its checklist
+  never asked where the app logs its own turns. An existing profile without
+  `--diff` now runs findings.md's `deferred:` list and updates the files in
+  place; §3 records the app's turn log and how a response joins to it.
+  (F-152, F-153)
+- **`docs/rubric-format.md` needed guesses to author a first rubric.** One
+  complete worked file, a defaults table, and the seven gaps a first author
+  hit, each resolved against what the scripts and the judge agent read:
+  `unknown` scores nothing and leaves agreement, ids are hyphenated and never
+  end in `-v<n>` (that suffix is the pin `run_cases.py` strips), the node
+  list is ordered, and fields no script reads are said to be conventions.
+  (F-157)
+- **Doc drift.** The adapter contract gains `correlation: none` (the
+  runner's own spelling), says `view-only` means "the runner cannot read
+  them", that `route_from_status` values are literal labels and 5xx is never
+  mapped, and lists `prompts[].kind`. The Jaeger note cites runner-contract
+  §4 item 4, adds the mandatory `health_check` to its recipe (and to help's
+  row), makes its tag join require a runner-generated value, quotes Jaeger
+  on the v1 API, and uses `unscorable`/`blocked_by`. The runner contract says
+  `gating` is copied from the case. profile-schema says what a plain-integer
+  id app does with `record_id_pattern`. The skills write `<work-dir>`, never
+  `<tmp>`. README's headless sentence names its condition. run §3 says how
+  to supply a missing env var without breaking the shell rule; §5 allows
+  "redaction pass, 0 redactions"; analyze `--transcripts` says what to do
+  with no reviewer and that promotion bumps `dataset_version`. (F-104,
+  F-105, F-108, F-109, F-112–F-116, F-127, F-131, F-148, F-159, F-161, F-162)
+- **Two small script fixes.** A skipped case's `response.json` carries
+  `sent: false` / `sent_at: null` as the contract says (F-126).
+  `convert_suite.py -o` creates a missing parent directory, as its
+  `--split-dir` already did (F-161).
 
 ### Fixed — the 2026-09-21 shape audit
 

@@ -1831,7 +1831,10 @@ class Runner:
         response = {"case_id": case["id"], "repeat": 1, "status": None,
                     "latency_s": None, "attempts": 0, "retry_count": 0,
                     "body": None, "answer": None, "trace_id": None,
-                    "error": None, "crashed": False}
+                    "error": None, "crashed": False,
+                    # SS6 marks both files; the response used to carry only
+                    # attempts: 0 and leave the reader to infer it (F-126).
+                    "sent_at": None, "sent": False}
         return {"request": request, "response": response, "error": None,
                 "crashed": False}
 

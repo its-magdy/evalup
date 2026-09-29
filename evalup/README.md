@@ -108,7 +108,8 @@ request to your app, editing a prompt.
 - A pre-approval lasts until your next message. After you answer a question,
   the next script run may prompt once; "Yes, and don't ask again" settles it
   for the project.
-- **Headless (`claude -p`, CI): an unanswered prompt is a denial.** Allow what
+- **Headless (`claude -p`, CI) with no permission host, or with
+  `--permission-prompts none`: an unanswered prompt is a denial.** Allow what
   the run needs up front, or use the [scripts directly](#without-claude-ci).
   The recipe for a first session on a reachable app:
 

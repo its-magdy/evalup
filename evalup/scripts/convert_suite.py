@@ -211,6 +211,13 @@ def main():
            "profile": {key: profile[key] for key in ("stage", "judge")
                        if key in profile},
            "manifest": manifest, "cases": cases, "sources": sources}
+    if a.output and os.path.dirname(a.output):
+        # Like --split-dir below: a missing parent is created, not an exit 2
+        # (F-161, the 2026-09-26 user test).
+        try:
+            os.makedirs(os.path.dirname(a.output), exist_ok=True)
+        except OSError as exc:
+            die(f"cannot write output: {exc}")
     dump(doc, a.output)
     if a.split_dir:
         os.makedirs(a.split_dir, exist_ok=True)

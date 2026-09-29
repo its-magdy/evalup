@@ -61,6 +61,16 @@ make gains real instead of overfit.
 4. White-box prompt access (gray-box → recommendations only, written to
    findings).
 5. A budget (`--budget` or ask).
+6. The edit can reach the running app. Read `app.repo_access` in
+   `adapter.yaml`: `read-only` → recommendations only, written to findings,
+   no edit applied — the same outcome as gray-box. Then, per surface, read
+   `findings.md` and the adapter's `prompts[]`: a surface whose edit only takes
+   effect after a rebuild or restart (compiled-in or embedded prompts — e.g.
+   `kind: tool-descriptions` on a `.cs` path;
+   `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapters/dotnet.md`
+   §Optimizable surfaces) is allowed, but step 4's measure waits on the
+   user. No adapter field records this; if neither file says, ask before the
+   first edit.
 
 ## The loop (one iteration per session unless told otherwise)
 1. **Ground first, edit never-first**: read the latest `analyze --cluster`
@@ -100,6 +110,13 @@ make gains real instead of overfit.
    the two splits are mutually exclusive), or `--targeted --tag <component>`
    when the edit is scoped to one surface and you want the faster loop — under
    a new manifest. Compare paired per-case vs current champion.
+
+   **Rebuild-bound surface (precondition 6)?** Between applying the edit and
+   running anything, stop: ask the user to rebuild and restart the instance
+   at `invocation.base_url` and to confirm the running build carries the edit
+   — and again after any revert. Never measure, and never spend a holdout
+   look, on an edit nobody has confirmed is live: an unchanged binary
+   measures as "no gain", and noise can spend a look on it.
 5. **Gate on holdout**: only if training looks positive, run the sealed
    holdout (aggregate) via `/evalup:run --holdout`. That run spends one of
    the N=5 looks and records itself in the holdout-look ledger (see

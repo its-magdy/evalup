@@ -97,6 +97,14 @@ invocation:
     200: "<answered>"                     # status-derived routing DECLARED and per-app
     400: "__oos__"                        # instead of a runner-wide heuristic. Without
     403: "denied"                         # it, a trace-less run scores no routing layer.
+                                          # Values are LITERAL labels the runner observes
+                                          # verbatim: "<answered>" is that string, angle
+                                          # brackets and all (write `answered` to get
+                                          # `answered`); "__oos__" is score_routing.py's
+                                          # out-of-scope label. Map only statuses that carry
+                                          # app behaviour (2xx/4xx), never a 5xx: an
+                                          # exhausted 5xx is infra_error before routing is
+                                          # read (runner-contract §7).
   clarify_from_response: "needs_clarification"   # dotted path to a boolean-ish field.
                                           # REQUIRED for cases with expect.clarify_ok:
                                           # without it the runner cannot tell whether the
@@ -141,8 +149,9 @@ traces:
   source: otlp-file | view-only | none   # jaeger | tempo | clickhouse are reserved:
                                          # runner v1 refuses them (exit 3) rather than
                                          # silently scoring trace-less
-  # view-only: traces exist but are not programmatically readable (e.g. a
-  # human-only dashboard). Treated as trace-less for scoring; discover records
+  # view-only: traces exist but the runner cannot read them (a human
+  # dashboard, or a store the runner has no client for -- see
+  # docs/traces-jaeger.md). Treated as trace-less for scoring; discover records
   # it as a finding with the unlock path (queryable exporter or trace-id echo).
   location: ${TRACE_URL_OR_PATH}
   convention: gen_ai | openinference | openllmetry-legacy   # declared, not guessed
@@ -151,7 +160,12 @@ traces:
                                # spans to gen_ai.* keys, run before normalize_trace.py.
                                # No shim declared -> trajectory layers stay off; raw
                                # non-gen_ai spans are never fed to the normalizer.
-  correlation: traceparent-echo | response-field:<name>     # heuristic matching is FORBIDDEN
+  correlation: traceparent-echo | response-field:<name> | none
+                               # heuristic matching is FORBIDDEN.
+                               # none: the app returns no trace id, so the runner
+                               # cannot join -> trace-less mode for the whole run
+                               # (manifest: traces.collected: false plus
+                               # disabled_layers; runner-contract §4 item 4)
   completeness:
     quiescence_ms: 3000        # trace considered complete after no new spans for this long
     max_wait_s: 30             # after which the case is INFRA_INCOMPLETE (never FAIL)
@@ -180,6 +194,12 @@ prompts:                        # optimizable surfaces (white-box only);
                                 # paths relative to the app root
   - { id: router_system, path: prompts/router.md }
   - { id: tools_schemas, path: app/tools.py, kind: tool-descriptions }
+  # kind: omit it for prompt text (system prompt, few-shot file); the one
+  # value in use is `tool-descriptions`. No script reads `kind`; it tells
+  # optimize which lever a surface is. No field records a rebuild: a surface
+  # compiled into the app (adapters/dotnet.md, Optimizable surfaces) has that
+  # cost written in findings.md, and optimize stops for a rebuild + restart
+  # after each edit.
 
 data:
   may_contain_pii: true         # gates trace-mining → dataset promotion behind redaction
@@ -225,7 +245,7 @@ and every scorer/skill keeps working unmodified. See
 | **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One turn per case; multi-turn is reserved (hard rule 3). | `invocation.*` |
 | **Traces** | a trace-id-addressable span tree in `gen_ai.*` keys (native or shimmed) | `traces.*` (`convention`, `mapping_shim`, `correlation`) |
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
-| **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit, plus whether editing needs a rebuild | `prompts[]` |
+| **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit. Whether an edit needs a rebuild is not a field: discover records that cost in `findings.md`, and optimize asks the user to rebuild and restart | `prompts[]` |
 | **Seed / reset / snapshot** | *(RESERVED — declared, never called; no state-diff scorer exists, so filling this row changes no verdict. Drive them out of band.)* | `environment.seed` / `.reset` / `.snapshot_state` |
 | **Oracle** | a read-only connection/handle the harness can query for ground truth | see `oracle:` block below |
 | **Tool catalog + side-effect class** | `[{name, schema, side_effects: safe-live\|needs-mock\|never-live}]` | `tools[]` |

@@ -75,9 +75,14 @@ tools:
 record_id_pattern: "INV-[0-9]+"  # regex for the app's own record identifiers.
                                  # Passed by run to `score_authz.py --id-pattern`.
                                  # Omit only if the default `letters[-_]digits`
-                                 # recognizer already matches; UUID/integer-keyed
-                                 # apps MUST set it or their authz
+                                 # recognizer already matches; UUID-keyed apps
+                                 # MUST set it or their authz
                                  # `allowed_record_ids` checks score `unscorable`.
+                                 # Plain-integer ids with no prefix: leave it
+                                 # unset and say why in authz `blocked_by` --
+                                 # any pattern for a bare number also matches
+                                 # every count, page and year in an answer, so
+                                 # the id-leak checks stay unscorable by design.
 
 oracle:                           # ground-truth capability for the execution layer
   available: true | false

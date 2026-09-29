@@ -734,6 +734,10 @@ class TestSkipGates(RunnerCase):
         request = self.read("cases", "c-0001", "request.json")
         self.assertFalse(request["sent"])
         self.assertIsNone(request["sent_at"])
+        # F-126: the contract marks BOTH files (SS6).
+        response = self.read("cases", "c-0001", "response.json")
+        self.assertIs(response["sent"], False)
+        self.assertIsNone(response["sent_at"])
 
     def test_never_live_tool_in_a_live_environment(self):
         case = make_case("c-0001")

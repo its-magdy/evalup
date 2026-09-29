@@ -68,10 +68,13 @@ no `datasets/**`, and does not know what `--smoke` means. **You never write the
 plan, or any case body, by hand** — three scripts do it, in this order:
 
 ```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <tmp>/converted.json --split-dir <tmp>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <tmp>/suite.json --capabilities <tmp>/capabilities.json --adapter <tmp>/adapter.json [--manifest <tmp>/manifest.json]
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <tmp>/converted.json --mode <mode> --state-dir <state-dir> -o <tmp>/plan.json
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <work-dir>/converted.json --split-dir <work-dir>
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json [--manifest <work-dir>/manifest.json]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
 ```
+
+`<work-dir>` is a directory beside the state location — never `/tmp`, which
+the shell rule above forbids in any call — reused run to run.
 
 - **`convert_suite.py`** is the run's parse of the YAML, not a second opinion,
   which is why you do not re-type it. It leaves `${VAR}` refs unresolved (the
@@ -145,7 +148,7 @@ code, not to "non-zero".
 | 0 | Complete. Says nothing about pass/fail. | Report (§5). |
 | 1 | Internal error. | Harness bug; report the traceback, don't retry blind. |
 | 2 | Bad plan or usage. **Nothing was written.** | Fix the plan, re-run. Free. |
-| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. |
+| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. A missing env var (`missing_env` names each) cannot be fixed in-session — an `export` does not outlive its Bash call and `source … &&` breaks the shell rule: ask the user to export them before launching `claude`, or to put them under `env` in `.claude/settings.local.json` (read however `claude` was launched). Never write a value into a file yourself. |
 | 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. |
 | 5 | Infra rate above `infra_rate_abort` (plan default 0.25). | The service is degraded. Re-run when healthy; never report the partial pass rate. |
 | 6 | Completeness check failed: **a required artifact is missing or inconsistent**. | Read `summary.missing_artifacts`. Not quotable, not a baseline. `--resume` or re-run; never write a report over it. |
@@ -217,6 +220,8 @@ open Claude Code. Never hand-write HTML.
   eyeball-scoring this file forbids.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
+  (when nothing needed redacting, say "redaction pass, 0 redactions" — the
+  check still happened)
   redacted: reports are written to be shared and committed.
 - **Count cases the way `results.json` does, and say which count you mean.**
   `summary.n` is every non-canary case SELECTED — skipped and infra cases
