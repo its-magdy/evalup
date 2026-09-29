@@ -883,6 +883,25 @@ class TestInfraTaxonomy(RunnerCase):
         self.assertEqual(self.read("results.json")["summary"]["repeated_5xx"],
                          0)
 
+    def test_a_different_5xx_body_on_another_repeat_is_not_flagged(self):
+        """SS7 says the SAME status and body on every attempt of every
+        repeat; two different 500s are two errors, not one repeated one."""
+        counts = {"n": 0}
+
+        def two_errors(path, body, headers):
+            if path == "/":
+                return 200, {"message": "up"}, {}
+            counts["n"] += 1
+            return 500, {"error": "boom-{}".format((counts["n"] - 1) // 2)}, {}
+
+        self.app.server.responder = two_errors
+        plan = make_plan(self.state, self.app.base_url, k=2)
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["verdict"], "infra_error")
+        self.assertIsNone(verdict["repeated_5xx"])
+
     def test_infra_rate_abort(self):
         """Burning a full suite against a down service is an expensive way of
         learning the service is down."""

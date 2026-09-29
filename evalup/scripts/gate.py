@@ -241,10 +241,13 @@ def render(facts, reasons):
         # error (the 2026-09-26 user test's guard-blocked injection read as
         # provider noise, F-165). Re-running or raising --max-infra-rate
         # would hide it; say so where the infra number is read.
+        # A holdout run's case directories are sealed: say what, not where.
+        where = ("the cases are sealed; do not open them" if facts["holdout"]
+                 else "read their response.json before re-running")
         lines.append(
             f"  {facts['repeated_5xx']} infra case(s) got the same 5xx on "
             "every attempt: possibly the app's own error, not the provider "
-            "-- read their response.json before re-running")
+            f"-- {where}")
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):
         lines.append(f"  canaries {canaries.get('passed')}/{canaries.get('n')}")

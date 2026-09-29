@@ -641,9 +641,10 @@ outside the tree the completeness check walks.
   including the first — no asymmetry between "the run" and "the extra runs".
 - With `k > 1`, the case-level `request.json`/`response.json` are the
   **representative** repeat: the first repeat whose verdict is the case
-  verdict under §5.5's fold (so the first failing repeat if any failed, the
-  first infra repeat of an infra case, else repeat 1). That is deterministic, and it means the report's example
-  excerpt is the informative one. `verdict.json` at case level is always the
+  verdict under §5.5's fold — the first failing repeat if any failed, else
+  repeat 1 of an all-pass case, else the first repeat carrying the case's
+  `infra_error` / `infra_incomplete` / `unscored`. That is deterministic,
+  and it means the report's example excerpt is the informative one. `verdict.json` at case level is always the
   reduced verdict and carries `repeats: [{n, verdict, layers}...]`.
 - `verdict.json` is written last, via temp-then-rename. **A case directory
   containing `verdict.json` is complete, by definition.** Resume (§8) and the

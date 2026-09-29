@@ -395,6 +395,12 @@ change; fixes below are bugfixes inside the runner freeze.
   error". `run/SKILL.md` §3 says to read that line before re-running or
   raising `--max-infra-rate`, both of which would hide it; the contract's
   `http` row now says what the code does. (F-165)
+- **A run interrupted before these two fixes and `--resume`d after them**
+  keeps its already-finished cases as written: their k>1 verdicts used the
+  old fold, and they carry no `repeated_5xx`, so the summary undercounts it.
+  `--verify` cannot see either (it recounts, it does not re-fold). Re-run
+  rather than resume across this change; the harness version is unchanged
+  because 0.1.0 is unreleased.
 
 ### Fixed — the 2026-09-21 shape audit
 

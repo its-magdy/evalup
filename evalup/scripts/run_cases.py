@@ -1093,14 +1093,14 @@ def fold_repeats(values):
         return FAIL
     if all(v == PASS for v in values):
         return PASS
-    for value in (INFRA_ERROR, INFRA_INCOMPLETE, SKIPPED):
+    for value in (INFRA_ERROR, INFRA_INCOMPLETE):
         if value in values:
             return value
     return UNSCORED
 
 
 def repeated_5xx(attempts):
-    """The one 5xx status every attempt of every repeat got, else None.
+    """The one 5xx (status and body) every attempt of every repeat got.
 
     An exhausted 5xx is `infra_error` (SS7) and stays so: the app's own
     500 and a throttled provider's 500 can carry byte-identical bodies (the
@@ -1112,13 +1112,24 @@ def repeated_5xx(attempts):
     Fewer than two observations prove nothing and give None.
     """
     records = [a["record"] for a in attempts]
-    statuses = {r.get("same_5xx") for r in records}
+    answers = {r.get("same_5xx") for r in records}
     observed = sum(r["response"]["attempts"] for r in records)
-    if len(statuses) != 1 or observed < 2:
+    if len(answers) != 1 or observed < 2:
         return None
-    status = statuses.pop()
-    return None if status is None else {"status": status,
+    answer = answers.pop()
+    return None if answer is None else {"status": answer[0],
                                         "attempts": observed}
+
+
+def body_key(body):
+    """A comparable form of a response body, for repeated_5xx(). Never raises:
+    a function-mode entrypoint may return a dict json.dumps cannot sort (mixed
+    key types), and a comparison helper must not be what kills a run."""
+    try:
+        return json.dumps(body, sort_keys=True, ensure_ascii=False,
+                          default=repr)
+    except (TypeError, ValueError):
+        return repr(body)
 
 
 def case_text(case):
@@ -1698,8 +1709,7 @@ class Runner:
                     break
                 error = f"HTTP {status}"
                 if status != 429:
-                    answers_5xx.append((status, json.dumps(
-                        result["body"], sort_keys=True, ensure_ascii=False)))
+                    answers_5xx.append((status, body_key(result["body"])))
             if attempts < max_attempts:
                 wait = retry_wait(backoff[attempts - 1], result)
                 self.log("retry", case_id=case["id"], repeat=repeat,
@@ -1722,7 +1732,7 @@ class Runner:
         # Every attempt got the same 5xx, body and all -- a timeout, a 429 or
         # a different 5xx on any one of them breaks the run. repeated_5xx()
         # reads this across the repeats (F-165); it is not in response.json.
-        same_5xx = answers_5xx[0][0] if (
+        same_5xx = answers_5xx[0] if (
             error is not None and len(answers_5xx) == attempts
             and len(set(answers_5xx)) == 1) else None
         return {"request": request, "response": response, "error": error,
