@@ -81,7 +81,7 @@ def latest_run(reports_dir, mode):
 
 REQUIRED_COUNTS = ("n", "passes", "failures", "gating_failures")
 # May be absent (an older run), but never a string or a float.
-OPTIONAL_COUNTS = ("unscored", "skipped", "scorer_errors")
+OPTIONAL_COUNTS = ("unscored", "skipped", "scorer_errors", "repeated_5xx")
 
 
 def count(summary, key):
@@ -199,6 +199,7 @@ def evaluate(results, max_infra_rate):
         "unscored": count(summary, "unscored"),
         "skipped": count(summary, "skipped"),
         "infra_errors": count(summary, "infra_errors"),
+        "repeated_5xx": count(summary, "repeated_5xx"),
         "infra_rate": infra_rate, "crash_rate": summary.get("crash_rate"),
         "scorer_errors": count(summary, "scorer_errors"),
         "unscorable_layers": summary.get("unscorable_layers") or [],
@@ -234,6 +235,16 @@ def render(facts, reasons):
              f"  infra {percent(facts['infra_rate'])}, crash "
              f"{percent(facts['crash_rate'])}, scorer errors "
              f"{facts['scorer_errors']}"]
+    if facts["repeated_5xx"]:
+        # An exhausted 5xx is infra, never a fail -- but a case that got the
+        # SAME 5xx on every attempt of every repeat may be the app's own
+        # error (the 2026-09-26 user test's guard-blocked injection read as
+        # provider noise, F-165). Re-running or raising --max-infra-rate
+        # would hide it; say so where the infra number is read.
+        lines.append(
+            f"  {facts['repeated_5xx']} infra case(s) got the same 5xx on "
+            "every attempt: possibly the app's own error, not the provider "
+            "-- read their response.json before re-running")
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):
         lines.append(f"  canaries {canaries.get('passed')}/{canaries.get('n')}")

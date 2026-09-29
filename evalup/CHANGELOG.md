@@ -364,6 +364,38 @@ or runner semantics changed. What did:
   parser; a bad line is a data error naming the line. Found writing the
   recipe above; nothing in the trajectory's meaning changed. (F-040)
 
+### Fixed — the 2026-09-26 user test (round 2)
+
+A second first-time-user round on the same app (two sessions, 66 findings,
+F-101…F-166) re-ran the 2026-09-25 fixes and found two runner defects that
+gave wrong numbers. Each claim was reproduced or read in the source before a
+change; fixes below are bugfixes inside the runner freeze.
+
+- **A k>1 case with an infra repeat could read `pass`.** The pass^k fold
+  knew only "all passed" and "some failed", so `[pass, infra_error]` kept
+  repeat 1's `pass` while `[infra_error, pass]` kept its `infra_error` — one
+  pair, two verdicts. `summary.infra_errors` hid the provider failure,
+  `--verify` agreed (it recounts the same files), and a canary that missed a
+  repeat read "canaries 1/1". The fold is now written into the contract
+  (§5.5): any `fail` → `fail`; all `pass` → `pass`; else `infra_error`, then
+  `infra_incomplete`, else `unscored`. The case-level files are the first
+  repeat whose verdict is the case's. A test ports the session's stub-server
+  reproduction and runs both orders. (F-158, F-139, F-146)
+- **An app's own 5xx read as provider noise, and the contract contradicted
+  itself about it.** §5's `http` row implied a declared `expect.http.status`
+  is compared against a 5xx; §7 and the code file every exhausted 5xx as
+  `infra_error` before the comparison runs. The verdict is unchanged —
+  the session's guard-blocked injection (an app defect) and its Gemma outage
+  returned byte-identical 500 bodies, so no rule on the response can separate
+  them, and HTTP defines a 500 as a failure to answer. What is new: a case
+  whose every attempt of every repeat got the same 5xx carries
+  `repeated_5xx: {status, attempts}` in `verdict.json`, `summary.repeated_5xx`
+  counts them (`--verify` recounts it when present), and `gate.py` prints
+  "N infra case(s) got the same 5xx on every attempt: possibly the app's own
+  error". `run/SKILL.md` §3 says to read that line before re-running or
+  raising `--max-infra-rate`, both of which would hide it; the contract's
+  `http` row now says what the code does. (F-165)
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

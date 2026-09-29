@@ -1070,6 +1070,57 @@ def roll_up(layers, skipped_reason):
     return UNSCORED
 
 
+def fold_repeats(values):
+    """SS5.5's fold of k repeat verdicts into one case verdict.
+
+    pass^k (decision D7): a case passes only if EVERY repeat passed. The modes
+    that use k>1 are asking for reliability, and a case that passes 2 of 3 is
+    not a case that passes; the pass@k/pass^k gap is reported by
+    reduce_repeats.py, never hidden.
+
+    An observed `fail` wins first: it already makes "every repeat passed"
+    false, and filing it under provider noise would lose the one thing the run
+    saw. Otherwise any repeat that was not a `pass` decides, in roll_up()'s
+    order -- a repeat the app never answered cannot count toward pass^k. The
+    fold used to stop at pass/fail, so [pass, infra_error] kept repeat 1's
+    `pass` while [infra_error, pass] kept its `infra_error`: one pair, two
+    verdicts, and a canary that missed a repeat read "passed" (F-158, the
+    2026-09-26 user test).
+    """
+    if len(values) == 1:
+        return values[0]
+    if FAIL in values:
+        return FAIL
+    if all(v == PASS for v in values):
+        return PASS
+    for value in (INFRA_ERROR, INFRA_INCOMPLETE, SKIPPED):
+        if value in values:
+            return value
+    return UNSCORED
+
+
+def repeated_5xx(attempts):
+    """The one 5xx status every attempt of every repeat got, else None.
+
+    An exhausted 5xx is `infra_error` (SS7) and stays so: the app's own
+    500 and a throttled provider's 500 can carry byte-identical bodies (the
+    2026-09-26 user test's guard-blocked injection and its Gemma outage did),
+    so nothing in one response can tell them apart. What CAN be said is that
+    the same status came back on every attempt, which is how a deterministic
+    app error looks and a passing blip does not -- so it is recorded, counted
+    in summary.repeated_5xx and printed by gate.py, and never rescored (F-165).
+    Fewer than two observations prove nothing and give None.
+    """
+    records = [a["record"] for a in attempts]
+    statuses = {r.get("same_5xx") for r in records}
+    observed = sum(r["response"]["attempts"] for r in records)
+    if len(statuses) != 1 or observed < 2:
+        return None
+    status = statuses.pop()
+    return None if status is None else {"status": status,
+                                        "attempts": observed}
+
+
 def case_text(case):
     """The user turn the app is asked. Last user message, per case-format.md."""
     messages = ((case.get("input") or {}).get("messages")) or []
@@ -1623,6 +1674,7 @@ class Runner:
         max_attempts = self.execution["max_attempts"]
         backoff = self.execution["backoff_s"]
         result, error, crashed, attempts = None, None, False, 0
+        answers_5xx = []        # (status, body) of each 5xx attempt
         while attempts < max_attempts:
             attempts += 1
             try:
@@ -1645,6 +1697,9 @@ class Runner:
                     error = None
                     break
                 error = f"HTTP {status}"
+                if status != 429:
+                    answers_5xx.append((status, json.dumps(
+                        result["body"], sort_keys=True, ensure_ascii=False)))
             if attempts < max_attempts:
                 wait = retry_wait(backoff[attempts - 1], result)
                 self.log("retry", case_id=case["id"], repeat=repeat,
@@ -1664,8 +1719,15 @@ class Runner:
                 (None if answer is None else json.dumps(answer,
                                                         ensure_ascii=False))
             response["trace_id"] = self.read_trace_id(result)
+        # Every attempt got the same 5xx, body and all -- a timeout, a 429 or
+        # a different 5xx on any one of them breaks the run. repeated_5xx()
+        # reads this across the repeats (F-165); it is not in response.json.
+        same_5xx = answers_5xx[0][0] if (
+            error is not None and len(answers_5xx) == attempts
+            and len(set(answers_5xx)) == 1) else None
         return {"request": request, "response": response, "error": error,
-                "crashed": crashed and error is not None}
+                "crashed": crashed and error is not None,
+                "same_5xx": same_5xx}
 
     def execute_case(self, case):
         """Run one case (k repeats), score it, and write its directory.
@@ -1711,11 +1773,12 @@ class Runner:
                     self.crashes += 1
 
             # SS6: the case-level files are the REPRESENTATIVE repeat -- the
-            # first FAILING one if any repeat failed, else repeat 1.
+            # first repeat whose verdict IS the case verdict (SS5.5's fold),
+            # so response.json shows the evidence that decided the case.
             # Deterministic, and it makes the report's example excerpt the
             # informative one rather than an arbitrary one.
-            chosen = next((a for a in attempts if a["verdict"] == FAIL),
-                          attempts[0])
+            case_verdict = fold_repeats([a["verdict"] for a in attempts])
+            chosen = next(a for a in attempts if a["verdict"] == case_verdict)
             if not skip and self.k > 1:
                 self.write_repeats(case_dir, case, attempts)
             self.publish(case_dir, chosen)
@@ -1725,16 +1788,7 @@ class Runner:
                 verdict["repeats"] = [
                     {"n": a["n"], "verdict": a["verdict"], "layers": a["layers"]}
                     for a in attempts]
-                # pass^k (decision D7): a case passes only if EVERY repeat
-                # passed. The modes that use k>1 are asking for reliability,
-                # and a case that passes 2 of 3 is not a case that passes. The
-                # pass@k/pass^k gap is reported by reduce_repeats.py, never
-                # hidden.
-                values = [a["verdict"] for a in attempts]
-                if all(v == PASS for v in values):
-                    verdict["verdict"] = PASS
-                elif FAIL in values:
-                    verdict["verdict"] = FAIL
+            verdict["repeated_5xx"] = None if skip else repeated_5xx(attempts)
             self.record_routing_row(verdict)
             atomic_write_json(os.path.join(case_dir, "verdict.json"), verdict)
         finally:
@@ -2068,7 +2122,12 @@ class Runner:
 
     @staticmethod
     def score_http(expect, record):
-        """The one layer with no script: the runner compares (SS5)."""
+        """The one layer with no script: the runner compares (SS5).
+
+        An exhausted 5xx never gets here -- score_layers() files it as
+        infra_error on every layer first (SS7) -- so the 5xx branch below only
+        guards a caller that bypasses that path.
+        """
         status = record["response"]["status"]
         expected = (expect.get("http") or {}).get("status")
         if expected is not None:
@@ -2350,6 +2409,9 @@ class Runner:
                                    if v["gating"] and v["verdict"] == FAIL),
             "unscored": counts[UNSCORED], "skipped": counts[SKIPPED],
             "infra_errors": infra,
+            # Of those, the cases that got one 5xx on every attempt of every
+            # repeat: still infra, but possibly the app's own error (F-165).
+            "repeated_5xx": sum(1 for v in graded if v.get("repeated_5xx")),
             "infra_rate": round(infra / self.attempted, 4)
             if self.attempted else 0.0,
             "crash_rate": round(self.crashes / self.attempted, 4)
@@ -2914,6 +2976,10 @@ def check_results_json(results, cases):
         "gating_failures": sum(1 for v in graded if v.get("gating")
                                and v.get("verdict") == FAIL),
     }
+    if "repeated_5xx" in summary:
+        # Absent from runs older than the 2026-09-26 user-test fixes.
+        recounted["repeated_5xx"] = sum(1 for v in graded
+                                        if v.get("repeated_5xx"))
     for key, value in recounted.items():
         if summary.get(key) != value:
             problems.append(

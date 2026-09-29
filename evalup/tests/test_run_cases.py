@@ -831,6 +831,58 @@ class TestInfraTaxonomy(RunnerCase):
         self.assertEqual((summary["passes"], summary["failures"]), (0, 0))
         self.assertEqual(summary["infra_rate"], 1.0)
 
+    def test_the_same_5xx_on_every_attempt_is_flagged_not_rescored(self):
+        """F-165 (user test round 2): the app's own 500 and a throttled
+        provider's 500 carried byte-identical bodies, so an exhausted 5xx
+        stays `infra_error`. A case that got the SAME 5xx on every attempt of
+        every repeat is flagged, counted, and named by the gate -- the one
+        honest thing the runner can say about it."""
+        plan = make_plan(self.state, self.app.base_url, k=2)
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["verdict"], "infra_error")
+        self.assertEqual(verdict["repeated_5xx"],
+                         {"status": 500, "attempts": 4})
+        summary = self.read("results.json")["summary"]
+        self.assertEqual(summary["repeated_5xx"], 1)
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(verify.returncode, 0, verify.stdout)
+        gate = subprocess.run(
+            [sys.executable, str(SCRIPTS / "gate.py"), str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertIn("1 infra case(s) got the same 5xx on every attempt",
+                      gate.stdout)
+
+    def test_a_5xx_that_clears_on_the_next_repeat_is_not_flagged(self):
+        """The provider pattern from the same run: one repeat got the same 500
+        twice, the next repeat got a 200. Not every attempt of every repeat,
+        so no flag -- and [infra_error, pass] is still infra (F-158)."""
+        counts = {"n": 0}
+
+        def blip(path, body, headers):
+            if path == "/":
+                return 200, {"message": "up"}, {}
+            counts["n"] += 1
+            if counts["n"] <= 2:
+                return 500, {"error": "boom"}, {}
+            return 200, {"message": "ok"}, {}
+
+        self.app.server.responder = blip
+        plan = make_plan(self.state, self.app.base_url, k=2)
+        plan["execution"]["infra_rate_abort"] = 1.0
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual([r["verdict"] for r in verdict["repeats"]],
+                         ["infra_error", "pass"])
+        self.assertEqual(verdict["verdict"], "infra_error")
+        self.assertIsNone(verdict["repeated_5xx"])
+        self.assertEqual(self.read("results.json")["summary"]["repeated_5xx"],
+                         0)
+
     def test_infra_rate_abort(self):
         """Burning a full suite against a down service is an expensive way of
         learning the service is down."""
@@ -1794,6 +1846,92 @@ class TestReliability(RunnerCase):
                          ["c-0001"])
         self.assertIn("bias the estimate", report["excluded_note"])
         self.assertEqual(len(self.jsonl("repeats.jsonl")), 3)   # c-0002 only
+
+    def test_an_infra_repeat_decides_the_case_in_either_order(self):
+        """F-158 (user test round 2, `run/repro-f139`): repeats [pass,
+        infra_error] rolled up to `pass` and [infra_error, pass] to
+        `infra_error` -- the same evidence, two verdicts, and a canary that
+        missed a repeat still read "passed". pass^k cannot be claimed for a
+        repeat that was never observed, so infra wins over pass whatever the
+        order, and the representative repeat is the one that decided it."""
+        for first, later, label in ((200, 503, "pass-then-infra"),
+                                    (503, 200, "infra-then-pass")):
+            with self.subTest(label):
+                self.setUp()
+                counts = {}
+
+                def per_message(path, body, headers,
+                                counts=counts, first=first, later=later):
+                    if path == "/":
+                        return 200, {"message": "up"}, {}
+                    message = body.get("message")
+                    counts[message] = counts.get(message, 0) + 1
+                    status = first if counts[message] == 1 else later
+                    if status == 200:
+                        return 200, {"message": "ok"}, {}
+                    return status, {"error": "service unavailable"}, {}
+
+                self.app.server.responder = per_message
+                canary = make_case(
+                    "c-canary", split=["smoke", "canary"],
+                    input={"messages": [{"role": "user",
+                                         "content": "canary question"}]})
+                plan = make_plan(self.state, self.app.base_url, k=2,
+                                 cases=[make_case("c-0001"), canary])
+                plan["execution"] = {"timeout_s": 5, "max_attempts": 1,
+                                     "backoff_s": [], "infra_rate_abort": 1.0,
+                                     "insecure_tls": False}
+                rc, _, proc = self.invoke(plan)
+                self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+                for case_id in ("c-0001", "c-canary"):
+                    verdict = self.read("cases", case_id, "verdict.json")
+                    self.assertEqual(verdict["verdict"], "infra_error",
+                                     case_id)
+                    self.assertEqual(sorted(r["verdict"]
+                                            for r in verdict["repeats"]),
+                                     ["infra_error", "pass"])
+                    # The case-level files are the repeat that decided it.
+                    self.assertEqual(
+                        self.read("cases", case_id, "response.json")
+                        ["status"], 503)
+                summary = self.read("results.json")["summary"]
+                self.assertEqual(summary["infra_errors"], 1)
+                self.assertEqual((summary["passes"], summary["failures"]),
+                                 (0, 0))
+                self.assertEqual(summary["canaries"], {"n": 1, "passed": 0})
+                verify = subprocess.run(
+                    [sys.executable, str(RUNNER), "--verify",
+                     str(self.out_dir())], capture_output=True, text=True)
+                self.assertEqual(verify.returncode, 0, verify.stdout)
+                self.assertEqual(json.loads(verify.stdout)["status"], "ok")
+
+    def test_an_observed_failure_outranks_an_infra_repeat(self):
+        """[fail, infra_error] is a `fail`: one observed failure already makes
+        "every repeat passed" false, and hiding it behind provider noise would
+        lose the one thing the run did see."""
+        counts = {"n": 0}
+
+        def fail_then_503(path, body, headers):
+            if path == "/":
+                return 200, {"message": "up"}, {}
+            counts["n"] += 1
+            if counts["n"] == 1:
+                return 200, {"message": "wrong"}, {}
+            return 503, {"error": "service unavailable"}, {}
+
+        self.app.server.responder = fail_then_503
+        plan = make_plan(self.state, self.app.base_url, k=2)
+        plan["execution"] = {"timeout_s": 5, "max_attempts": 1,
+                             "backoff_s": [], "infra_rate_abort": 1.0,
+                             "insecure_tls": False}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual([r["verdict"] for r in verdict["repeats"]],
+                         ["fail", "infra_error"])
+        self.assertEqual(verdict["verdict"], "fail")
+        self.assertEqual(self.read("cases", "c-0001", "response.json")
+                         ["status"], 200)
 
     def test_nothing_to_reduce_is_not_a_scorer_error(self):
         self.app.server.responder = health_only(

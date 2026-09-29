@@ -271,7 +271,7 @@ it is **enabled** iff `capability_matrix[<layer>].enabled` is not `false`.
 
 | Layer | Trigger on the case | Script | Argv | Runner must materialize |
 |---|---|---|---|---|
-| `http` | always | *(none — runner compares)* | — | observed status vs `expect.http.status`; absent expectation ⇒ any 2xx passes, 5xx is `infra_error` |
+| `http` | always | *(none — runner compares)* | — | observed status vs `expect.http.status`; absent expectation ⇒ any 2xx passes. A 5xx never reaches this comparison: it is retried and, exhausted, is `infra_error` whatever the case expects (§7) |
 | `trajectory` (normalize) | trace collected | `normalize_trace.py` | `--trace-id <id> spans.json` | `spans.json` from the trace store |
 | `routing` | `expect.route` or `expect.route_acceptable` | `score_routing.py` | `routing_results.jsonl [--oos-route X]` | **run-level**, once, after all cases (§5.2) |
 | `trajectory` | `expect.tools` | `trajectory_match.py` | `trajectory.json expect.json [--fail-on-errored-calls]` | `trajectory.json`, `expect.json` |
@@ -515,7 +515,17 @@ an `answer.txt` materialized to score repeat 3 must not land beside them.
 The **case-level** verdict for k>1 is `pass^k`: pass only if every repeat
 passed. Rationale: the hard-gated modes that use k>1 are asking for reliability,
 and a case that passes 2 of 3 is not a case that passes. The gap is reported,
-never hidden.
+never hidden. The fold, first match wins:
+
+1. any repeat `fail` → `fail` (an observed failure already settles pass^k);
+2. every repeat `pass` → `pass`;
+3. any repeat `infra_error` → `infra_error`, then `infra_incomplete`;
+4. otherwise `unscored`.
+
+A repeat the app never answered cannot count toward "every repeat passed", so
+`[pass, infra_error]` is `infra_error` — and so is `[infra_error, pass]`: the
+order of the repeats never changes the verdict. A canary with an infra repeat
+therefore does not count as `passed`.
 
 ### 5.6 The baseline comparison (decision D3)
 
@@ -630,8 +640,9 @@ outside the tree the completeness check walks.
 - `repeats/` exists **iff** `k > 1`. When it exists, it holds every repeat
   including the first — no asymmetry between "the run" and "the extra runs".
 - With `k > 1`, the case-level `request.json`/`response.json` are the
-  **representative** repeat: the first *failing* repeat if any repeat failed,
-  else repeat 1. That is deterministic, and it means the report's example
+  **representative** repeat: the first repeat whose verdict is the case
+  verdict under §5.5's fold (so the first failing repeat if any failed, the
+  first infra repeat of an infra case, else repeat 1). That is deterministic, and it means the report's example
   excerpt is the informative one. `verdict.json` at case level is always the
   reduced verdict and carries `repeats: [{n, verdict, layers}...]`.
 - `verdict.json` is written last, via temp-then-rename. **A case directory
@@ -696,7 +707,7 @@ Exit 2 makes the gap loud at the one moment someone can act on it.
 
 | Condition | Handling |
 |---|---|
-| connection error, timeout, HTTP 429, HTTP 5xx | retry up to `max_attempts` with `backoff_s` (a 429/503 `Retry-After: <seconds>` longer than the declared wait is honored, capped at 60s); on exhaustion → `infra_error`, `retry_count` recorded in `response.json` |
+| connection error, timeout, HTTP 429, HTTP 5xx | retry up to `max_attempts` with `backoff_s` (a 429/503 `Retry-After: <seconds>` longer than the declared wait is honored, capped at 60s); on exhaustion → `infra_error`, `retry_count` recorded in `response.json` — whatever `expect.http.status` says. When every attempt of every repeat got the same 5xx and body (≥ 2 attempts in all), `verdict.json` carries `repeated_5xx: {status, attempts}` and `summary.repeated_5xx` counts the case: still infra, but possibly the app's own error rather than the provider's. The two cannot be told apart from the response (an app that wraps provider errors returns the same envelope for both), so the runner flags and never rescores |
 | HTTP 4xx other than 429 | **not** retried — it is a response, and often the expected one (the field test asserts a deliberate 400 on OOS) |
 | app crash / connection reset on a `noise` or `adversarial-refusal` case | `infra_error` **and** increments `summary.crash_rate`'s numerator — a first-class number, not just an excluded row |
 | trace requested, quiescence not reached by `max_wait_s` | `infra_incomplete`; the case's non-trace layers still score |
@@ -927,6 +938,7 @@ the shipped run already does. See Open decision **D1**.
  "trace": {"expected": true, "collected": false,
            "reason": "traces.correlation: none — heuristic matching forbidden"},
  "repeats": null,                     // or [{"n": 1, "verdict": "pass", "layers": {…}}, …] when k > 1
+ "repeated_5xx": null,                // or {"status": 500, "attempts": 4}: the same 5xx on every attempt (§7)
  "notes": ""}                         // free text for investigation context; runner writes "", humans may edit
 ```
 
@@ -976,6 +988,7 @@ files to check they match.
              "gating_failures": 0,
              "unscored": 0, "skipped": 0,
              "infra_errors": 0, "infra_rate": 0.0,
+             "repeated_5xx": 0,        // infra cases with the same 5xx on every attempt (§7)
              "crash_rate": 0.0,
              "scorer_errors": 0,
              "unscorable_layers": ["trajectory", "tool_selection", "loops"],

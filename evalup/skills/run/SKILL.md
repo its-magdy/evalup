@@ -159,10 +159,15 @@ budget; `gate.py` refuses a *finished* run above `--max-infra-rate` (0.05). A
 run can therefore finish and still close the gate on infra alone — finishing
 preserves the verdicts already paid for, and the gate stays strict. On a
 throttled provider (429/503 walls; each 5xx is retried and counts as
-`infra_error` on exhaustion, never as an app failure) fix or wait out the
+`infra_error` on exhaustion, whatever the case expects) fix or wait out the
 provider, or raise `--max-infra-rate` for that one job and say so in the
-report. Never lower the abort, and never read a partial pass rate as the
-app's score.
+report. **First read `gate.py`'s "same 5xx on every attempt" line**
+(`summary.repeated_5xx`; the case's `verdict.json` names the status): a case
+that got one 5xx on every attempt of every repeat may be the app's own error
+— a guard that throws looks exactly like this — and re-running or raising
+the threshold would hide it. Open its `response.json`, and report it as a
+possible app defect, still counted as infra. Never lower the abort, and never
+read a partial pass rate as the app's score.
 
 ## 4. Baseline and the holdout ledger
 
