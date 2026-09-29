@@ -153,9 +153,11 @@ code, not to "non-zero".
 
 A red suite exits **0** — gating is §6's job, not the runner's.
 
-Two infra thresholds, on purpose. The plan aborts a run at
-`infra_rate_abort` (0.25) so a degraded service does not burn the whole
-budget; `gate.py` refuses a *finished* run above `--max-infra-rate` (0.05). A
+Two infra thresholds, on purpose, over two denominators. The plan aborts a
+run at `infra_rate_abort` (0.25) of every case attempted so far, canaries
+included, so a degraded service does not burn the whole budget; `gate.py`
+refuses a *finished* run whose `summary.infra_rate` — the non-canary cases
+sent — is above `--max-infra-rate` (0.05). A
 run can therefore finish and still close the gate on infra alone — finishing
 preserves the verdicts already paid for, and the gate stays strict. On a
 throttled provider (429/503 walls; each 5xx is retried and counts as
@@ -195,7 +197,7 @@ read a partial pass rate as the app's score.
 The runner always leaves `manifest.yaml`, `results.json`, `verdicts.jsonl` (the
 durable per-case record) and `verdicts_for_stats.jsonl` (its `pass`/`fail`
 subset, exactly what `stats.py` pairs), and, when they apply,
-`routing_report.json` (routing was scored), `reliability.json` (k > 1, so never
+`routing_report.json` (a non-canary case's routing was scored), `reliability.json` (k > 1, so never
 under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
 number you quote comes from those. You add `report.md`
 beside them, then `report.html` via

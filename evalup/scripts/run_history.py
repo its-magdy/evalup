@@ -527,7 +527,11 @@ def point_metrics(point):
                                      scored),
         "unscored_rate": ratio(number(summary.get("unscored")), n),
         "skipped_rate": ratio(number(summary.get("skipped")), n),
-        "infra_rate": number(summary.get("infra_rate")),
+        # Recomputed, not read: runs before the 2026-09-26 user-test fix
+        # divided by `attempted` (canaries in) inside the same harness
+        # version, and a series mixing the two would show the definition
+        # change as drift. Every run carries these counts (SS10's table).
+        "infra_rate": infra_rate(summary, n),
         "crash_rate": number(summary.get("crash_rate")),
         "scorer_errors": number(summary.get("scorer_errors")),
         "cases_scored": scored,
@@ -562,6 +566,42 @@ def point_metrics(point):
     return metrics
 
 
+def infra_rate(summary, n):
+    infra, skipped = number(summary.get("infra_errors")), \
+        number(summary.get("skipped"))
+    if None in (infra, skipped, n):
+        return number(summary.get("infra_rate"))
+    sent = n - skipped
+    return round(infra / sent, 6) if sent else 0.0
+
+
+def undefined_reason(point, name):
+    """Why a run holds no value for a metric it did record the inputs of.
+
+    None means the plain case -- the run's files do not carry it (SS6's
+    `# only when:`). The two others are not that, and saying "see SS6" for
+    them sent the reader to the wrong section: a rate over zero scored cases
+    is 0/0, and a holdout run older than summary.holdout.failures has no
+    scored holdout denominator.
+    """
+    summary = point["summary"]
+    passes, failures = number(summary.get("passes")), \
+        number(summary.get("failures"))
+    holdout = summary.get("holdout")
+    if name in ("holdout_pass_rate", "visible_pass_rate"):
+        if not isinstance(holdout, dict):
+            return None
+        if number(holdout.get("failures")) is None:
+            return ("its summary.holdout has no `failures` (a run older than "
+                    "the 2026-09-26 user-test fixes), so it has no scored "
+                    "holdout denominator")
+    elif name not in ("pass_rate", "gating_failure_rate"):
+        return None
+    if None in (passes, failures):
+        return None
+    return "no case was scored pass or fail there, so the rate is 0/0"
+
+
 def series_metrics(points, alpha, max_runs):
     """Time series + drift per metric, and the metrics that are not one series.
 
@@ -583,10 +623,12 @@ def series_metrics(points, alpha, max_runs):
                              "`# only when:` conditions")
             continue
         if absent:
+            first = next(i for i, v in enumerate(values) if v is None)
+            why = undefined_reason(points[first], name) or (
+                "see SS6's `# only when:` conditions")
             skipped[name] = (
                 f"not recorded by {len(absent)} of {len(values)} run(s) "
-                f"(e.g. {absent[0]}), so it is not one series -- see SS6's "
-                "`# only when:` conditions")
+                f"(e.g. {absent[0]}: {why}), so it is not one series")
             continue
         out[name] = {
             "values": values,

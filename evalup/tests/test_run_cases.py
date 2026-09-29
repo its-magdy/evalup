@@ -1597,6 +1597,26 @@ class TestRoutingRunLevel(RunnerCase):
         self.assertEqual([r["case_id"] for r in rows], ["c-units"])
         self.assertEqual(self.read("routing_report.json")["n"], 1)
 
+    def test_a_run_whose_only_routed_case_is_a_canary_is_complete(self):
+        """Review of the F-161 fix: with canary rows kept out, a run whose
+        only routing-scorable case is a canary writes no routing file -- and
+        the completeness check must not then call the run incomplete."""
+        cases = [
+            make_case("c-plain"),
+            make_case("c-canary", split=["smoke", "canary"],
+                      input={"messages": [{"role": "user",
+                                           "content": "canary?"}]},
+                      expect={"http": {"status": 200}, "route": "units"}),
+        ]
+        plan = self.routing_plan(cases, route_from_status={"200": "units"})
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertFalse((self.out_dir() / "routing_results.jsonl").exists())
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(verify.returncode, 0, verify.stdout)
+
     def test_without_the_block_routing_is_unscored_and_excluded(self):
         """Refusing to infer is the point: the runner never invents a route."""
         cases = [make_case("c-units", expect={"http": {"status": 200},

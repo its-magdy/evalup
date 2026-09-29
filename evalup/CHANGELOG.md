@@ -416,7 +416,14 @@ change; fixes below are bugfixes inside the runner freeze.
   `summary.holdout` gains an aggregate `failures`, so `holdout_pass_rate` and
   `visible_pass_rate` use the same scored denominator (a run older than it
   reports neither); and `run/SKILL.md` §5 no longer calls `n` "the graded
-  cases". (F-122, F-135, F-161)
+  cases". `run_history.py` recomputes `infra_rate` from the counts, so a
+  series mixing runs from either side of the change does not read the new
+  denominator as drift; a rate over zero scored cases, or a holdout run
+  older than `holdout.failures`, now says so instead of pointing at §6. The
+  smaller denominator makes `infra_rate` equal or higher than before, so a
+  run near `--max-infra-rate` can now close the gate. The mid-run abort
+  keeps its own share (every case attempted, canaries in), and its message
+  says so. (F-122, F-135, F-161)
 
 ### Fixed — the 2026-09-21 shape audit
 

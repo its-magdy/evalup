@@ -114,7 +114,7 @@ REQUIRED_ALWAYS = ("manifest.yaml", "results.json", "verdicts.jsonl",
 REQUIRED_PER_CASE = ("request.json", "response.json", "verdict.json",
                      "expect.json", "answer.txt")
 REQUIRED_IF = {
-    "routing_results.jsonl": "any case is routing-scorable",
+    "routing_results.jsonl": "any non-canary case is routing-scorable",
     "routing_report.json": "routing_results.jsonl exists",
     "repeats.jsonl": "k > 1",
     "reliability.json": "k > 1",
@@ -2647,7 +2647,11 @@ class Runner:
             if rate > self.execution["infra_rate_abort"]:
                 self.log("abort", reason="infra", rate=round(rate, 4))
                 return ("aborted_infra", EXIT_INFRA,
-                        "infra rate {:.0%} exceeds infra_rate_abort {:.0%} "
+                        # Over every attempted case, canaries included --
+                        # not summary.infra_rate's denominator (SS10's
+                        # counts), so it says which share it is.
+                        "infra verdicts are {:.0%} of all cases attempted "
+                        "(canaries included), above infra_rate_abort {:.0%}, "
                         "after {} attempted cases".format(
                             rate, self.execution["infra_rate_abort"],
                             self.attempted))
@@ -2890,8 +2894,11 @@ def verify_run_dir(out_dir):
 
     # ...and the run-level ones. Each condition is read off the tree too, so
     # --verify evaluates exactly what finalize evaluated.
+    # Canaries write no routing row (record_routing_row), so they cannot
+    # make the run-level file required either.
     routing_scorable = any(
-        ((v.get("layers") or {}).get("routing") or {}).get("verdict")
+        not v.get("canary")
+        and ((v.get("layers") or {}).get("routing") or {}).get("verdict")
         in (PASS, FAIL) for v in cases.values())
     conditions = {
         "routing_results.jsonl": routing_scorable,

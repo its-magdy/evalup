@@ -536,6 +536,30 @@ class TestDenominators(HistoryCase):
         self.assertEqual(metrics["gating_failure_rate"]["values"], [0.25])
         self.assertEqual(metrics["skipped_rate"]["values"], [0.2])
 
+    def test_a_run_with_nothing_scored_says_so(self):
+        """0 / 0 is not "not recorded": the run recorded passes and failures,
+        and there were none. The series cannot carry the rate, and the reason
+        must say why rather than send the reader to SS6."""
+        self.ramp([["pass", "fail"], ["unscored", "unscored"],
+                   ["pass", "pass"]])
+        series = self.only_series()
+        self.assertNotIn("pass_rate", series["metrics"])
+        reason = series["metrics_not_one_series"]["pass_rate"]
+        self.assertIn("no case was scored", reason)
+        self.assertNotIn("SS6", reason)
+
+    def test_infra_rate_is_recomputed_from_the_counts(self):
+        """The runner's infra_rate denominator changed (F-161) inside one
+        harness version; a series mixing old and new runs must not show the
+        definition change as drift. The counts every run carries give one
+        definition: infra_errors / (n - skipped)."""
+        self.write_run("smoke-20260901T120000Z",
+                       cases=[("c-1", "pass"), ("c-2", "pass"),
+                              ("c-3", "fail"), ("c-4", "infra_error")],
+                       summary_extra={"infra_errors": 1, "infra_rate": 0.1667})
+        metrics = self.only_series()["metrics"]
+        self.assertEqual(metrics["infra_rate"]["values"], [0.25])
+
 
 class TestHoldoutSeal(HistoryCase):
     """results.json carries holdout as an AGGREGATE ONLY, so a history view
@@ -559,6 +583,23 @@ class TestHoldoutSeal(HistoryCase):
         self.assertEqual(
             [r["case_id"] for r in series["case_journal"]["cases"]], [])
         self.assertEqual(series["case_journal"]["cases_ever_seen"], 2)
+
+    def test_an_older_holdout_run_names_the_missing_field(self):
+        """A run from before summary.holdout.failures cannot give a scored
+        holdout denominator; the reason says which field is missing."""
+        self.write_run("holdout-20260901T120000Z",
+                       cases=[("visible-1", "pass")],
+                       holdout={"n": 2, "passes": 1, "gating_failures": 1,
+                                "looks_recorded": 1},
+                       started_at="2026-09-01T12:00:00Z")
+        self.write_run("holdout-20260902T120000Z",
+                       cases=[("visible-1", "pass")],
+                       holdout={"n": 2, "passes": 1, "failures": 1,
+                                "gating_failures": 1, "looks_recorded": 2},
+                       started_at="2026-09-02T12:00:00Z")
+        series = self.history()["series"][0]
+        reason = series["metrics_not_one_series"]["holdout_pass_rate"]
+        self.assertIn("summary.holdout has no `failures`", reason)
 
     def test_the_ledger_and_the_holdout_verdicts_file_are_never_read(self):
         source = (SCRIPTS / "run_history.py").read_text(encoding="utf-8")

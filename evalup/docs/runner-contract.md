@@ -349,7 +349,7 @@ matrix's accuracy — not the `accuracy` field, which counts accepted alternates
 the matrix excludes. It is kept because the macro-vs-micro gap is the
 minority-route skew warning; see the scorer's docstring before "simplifying"
 it away.) So: the runner accumulates one row
-per routing-applicable case as cases complete, writes
+per routing-applicable non-canary case as cases complete, writes
 `<out>/routing_results.jsonl`, and invokes the scorer **once**, after the last
 case, before finalize.
 
@@ -607,7 +607,7 @@ reports/
     results.json                 # §10. Written at pre-flight (status: running), rewritten per case, finalized at end.
     verdicts.jsonl               # §9. Rewritten from the case dirs after every case.
     verdicts_for_stats.jsonl     # §9. Same, filtered.
-    routing_results.jsonl        # only when: any case is routing-scorable
+    routing_results.jsonl        # only when: any non-canary case is routing-scorable
     routing_report.json          # only when: routing_results.jsonl exists
     repeats.jsonl                # only when: k > 1
     reliability.json             # only when: k > 1
@@ -801,7 +801,7 @@ REQUIRED_ALWAYS = ("manifest.yaml", "results.json", "verdicts.jsonl",
                    "verdicts_for_stats.jsonl")
 REQUIRED_PER_CASE = ("request.json", "response.json", "verdict.json",
                      "expect.json", "answer.txt")
-REQUIRED_IF = {"routing_results.jsonl": "any case is routing-scorable",
+REQUIRED_IF = {"routing_results.jsonl": "any non-canary case is routing-scorable",
                "routing_report.json":   "routing_results.jsonl exists",
                "repeats.jsonl":         "k > 1",
                "reliability.json":      "k > 1",
@@ -826,7 +826,8 @@ infra row into a second, spurious completeness failure. `actual.json` keys on
 `expect.json` plus "the case ran", because a case the safety gates **skipped**
 made no call and has no result to extract. The run-level conditions read the
 manifest (`k`, `baseline_verdicts`) and the case verdicts (routing-scorable =
-at least one case whose `layers.routing` scored `pass` or `fail`).
+at least one non-canary case whose `layers.routing` scored `pass` or `fail`;
+a canary's row never reaches the run-level file, §6).
 
 **(c) A finalize check that can fail the run.** Before writing the terminal
 `results.json` and returning, the runner:
@@ -1014,7 +1015,7 @@ files to check they match.
 | `crash_rate` | crashes ÷ `attempted` | in | out | in |
 | `infra_rate_abort` (§7, mid-run) | every infra verdict so far ÷ `attempted` | in | out | — |
 | `canaries` | `{n, passed}`; `passed` is pass^k for k > 1 (§5.5) | only | — | — |
-| `routing_report.json` `n` | non-canary cases with a routing row | out | out | out |
+| `routing_report.json` `n` | non-canary cases whose route was observed (a routing row) | out | out | `infra_error` out; `infra_incomplete` in when the route came from the response or status |
 
 `n` is not a pass-rate denominator: a run of 3 pass, 1 fail and 1 skipped has
 `n: 5` and a pass rate of 3 / 4. Holdout cases are inside `n`, `passes` and
