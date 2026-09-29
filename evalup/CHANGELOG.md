@@ -401,6 +401,22 @@ change; fixes below are bugfixes inside the runner freeze.
   `--verify` cannot see either (it recounts, it does not re-fold). Re-run
   rather than resume across this change; the harness version is unchanged
   because 0.1.0 is unreleased.
+- **One run, four denominators.** `run_history.py` divided passes by
+  `summary.n`, which counts skipped and infra cases, and printed 0.6 for a
+  3-pass, 1-fail, 1-skipped run (and labelled `n` "cases_scored");
+  `infra_rate` counted non-canary infra cases but divided by `attempted`,
+  which counts canaries, so one infra case beside one canary read 50 %;
+  `routing_report.json` counted canaries that `results.json` leaves out; and
+  the contract never defined `n` or `attempted` (its example was impossible).
+  `n` keeps its meaning (every non-canary case selected — nothing that reads
+  it changes). What changed: the contract's §10 has one counts table;
+  `pass_rate` and `gating_failure_rate` in `run_history.py` divide by
+  `passes + failures`; `infra_rate` divides by the non-canary cases sent;
+  canaries stay out of the routing rows (their own layer still scores);
+  `summary.holdout` gains an aggregate `failures`, so `holdout_pass_rate` and
+  `visible_pass_rate` use the same scored denominator (a run older than it
+  reports neither); and `run/SKILL.md` §5 no longer calls `n` "the graded
+  cases". (F-122, F-135, F-161)
 
 ### Fixed — the 2026-09-21 shape audit
 

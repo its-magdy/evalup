@@ -661,7 +661,9 @@ outside the tree the completeness check walks.
 - Holdout cases get ordinary directories here, like any other case. The seal is
   enforced at §10's `results.json`, not by withholding files.
 - Canary cases get ordinary directories too, with `canary: true` in
-  `verdict.json`, and are excluded from every denominator in `results.json`.
+  `verdict.json`, and are excluded from every denominator in `results.json`
+  and from `routing_results.jsonl` / `routing_report.json` (their own
+  `routing` layer still scores).
 
 **Holdout ledger** (decision **D8**). When `mode` is `holdout` or `full`, or
 `selecting_split` is `holdout`, the runner appends one line —
@@ -842,7 +844,7 @@ at least one case whose `layers.routing` scored `pass` or `fail`).
 
 Check 3 says "completed case directory", not "cases attempted": a case the
 safety gates **skipped** carries a `verdict.json` and a `verdicts.jsonl` row but
-is deliberately not in `summary.attempted` (§7), so equating the two would fail
+is deliberately not in `summary.attempted` (§10's counts), so equating the two would fail
 every run that refused a case. The case directories are the source of truth in
 §9(a), so they are what both derived files are checked against here — and being
 derivable from the tree alone is what makes checks 3 and 4 runnable under
@@ -985,7 +987,7 @@ files to check they match.
             "layers": {"http": "pass", "answer": "pass", "trajectory": "unscorable"},
             "latency_s": 6.68}],
  "summary": {"status": "ok",           // running | ok | incomplete | aborted_canary | aborted_infra
-             "n": 4, "attempted": 4, "passes": 4, "failures": 0,
+             "n": 4, "attempted": 6, "passes": 4, "failures": 0,
              "gating_failures": 0,
              "unscored": 0, "skipped": 0,
              "infra_errors": 0, "infra_rate": 0.0,
@@ -995,10 +997,28 @@ files to check they match.
              "unscorable_layers": ["trajectory", "tool_selection", "loops"],
              "unjudged": "mode: smoke",
              "canaries": {"n": 2, "passed": 2},
-             "holdout": null,          // or {"n": 2, "passes": 1, "gating_failures": 1} — aggregate ONLY
+             "holdout": null,          // or {"n": 2, "passes": 1, "failures": 1, "gating_failures": 1} — aggregate ONLY
              "missing_artifacts": []},
  "exit_code": 0}
 ```
+
+**The counts, one definition each.** Every consumer — `gate.py`,
+`run_history.py`, the skills' reports — reads them this way:
+
+| Field | Counts | Canaries | Skipped | Infra |
+|---|---|---|---|---|
+| `n` | every non-canary case **selected** — the gate line's "N cases" | out | in | in |
+| `attempted` | every case **sent** to the app, one per case however many repeats | in | out | in |
+| `passes` + `failures` | the **scored** cases: the denominator of any pass or gating-failure rate | out | out | out |
+| `infra_rate` | `infra_errors` ÷ the non-canary cases sent (`n` − `skipped`) | out | out | — |
+| `crash_rate` | crashes ÷ `attempted` | in | out | in |
+| `infra_rate_abort` (§7, mid-run) | every infra verdict so far ÷ `attempted` | in | out | — |
+| `canaries` | `{n, passed}`; `passed` is pass^k for k > 1 (§5.5) | only | — | — |
+| `routing_report.json` `n` | non-canary cases with a routing row | out | out | out |
+
+`n` is not a pass-rate denominator: a run of 3 pass, 1 fail and 1 skipped has
+`n: 5` and a pass rate of 3 / 4. Holdout cases are inside `n`, `passes` and
+`failures`; `holdout` carries their aggregate so a reader can take them out.
 
 **The holdout seal, concretely:** a holdout case contributes **no row** to
 `results.json.cases`. Its `case_id` appears nowhere in this file. It appears only

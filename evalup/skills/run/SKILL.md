@@ -217,10 +217,13 @@ open Claude Code. Never hand-write HTML.
   `data.may_contain_pii`. If true, redact the excerpts and say they are
   redacted: reports are written to be shared and committed.
 - **Count cases the way `results.json` does, and say which count you mean.**
-  `summary.n` is the GRADED cases; canaries are counted apart under
-  `summary.canaries`, and `summary.attempted` is every case that was not
-  skipped, canaries included. "6 test cases and 2 canaries ran; 1 failed" — never
-  "8 ran" beside an `n` of 6. A failure on a `gating: false` case is reported
+  `summary.n` is every non-canary case SELECTED — skipped and infra cases
+  included — so it is never a pass-rate denominator: divide `passes` by
+  `passes + failures` (a run of 3 pass, 1 fail, 1 skipped is 3/4, not 3/5).
+  Canaries are counted apart under `summary.canaries`, and
+  `summary.attempted` is every case that was sent, canaries included. The
+  contract's §10 counts table defines each. "6 test cases and 2 canaries
+  ran; 1 failed, 1 skipped" — never "8 ran" beside an `n` of 6. A failure on a `gating: false` case is reported
   as a failure that did not close the gate.
 - **Page one = the top-3 failure clusters**, each with 1–2 expected-vs-actual
   excerpts, the implicated surface (router prompt, tool description X, missing

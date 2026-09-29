@@ -87,10 +87,12 @@ line could differ only because the vendor changed its price sheet between them.
 THE HOLDOUT SEAL holds by construction. `results.json` carries holdout cases as
 an AGGREGATE ONLY (`summary.holdout`) and no holdout `case_id` appears in the
 file at all, so the per-case journal -- which reads `results.json.cases` -- can
-name none. Note the asymmetry this script has to respect: `summary.n` and
-`summary.passes` DO include holdout cases while `results.json.cases` does not,
-so `visible_pass_rate` (the journal's denominator) is reported beside
-`pass_rate` by subtracting `summary.holdout`. `verdicts.jsonl` is the other
+name none. Note the asymmetry this script has to respect: `summary.passes` and
+`summary.failures` DO include holdout cases while `results.json.cases` does
+not, so `visible_pass_rate` is reported beside `pass_rate` by subtracting
+`summary.holdout`'s passes and failures. Both rates divide by the SCORED cases
+(passes + failures), never by `summary.n`, which counts skipped and infra
+cases too (runner-contract SS9). `verdicts.jsonl` is the other
 per-case record and it is NOT read here, precisely because it carries holdout
 ids. The `datasets/holdout-looks.jsonl` ledger is likewise untouched: reading
 it is not a look, but this script has no use for the count either.
@@ -511,30 +513,44 @@ def point_metrics(point):
     summary = point["summary"]
     n = number(summary.get("n"))
     passes = number(summary.get("passes"))
+    failures = number(summary.get("failures"))
+    # runner-contract SS9: `n` is every non-canary case SELECTED, skipped
+    # and infra included; pass/fail rates divide by the SCORED cases
+    # (passes + failures) because SS7 keeps skipped and infra out of every
+    # pass/fail denominator. Dividing by `n` printed 0.6 for a 3-pass,
+    # 1-fail, 1-skipped run (F-135). The shares of what was selected --
+    # unscored, skipped -- stay over `n`.
+    scored = None if None in (passes, failures) else passes + failures
     metrics = {
-        "pass_rate": ratio(passes, n),
-        "gating_failure_rate": ratio(number(summary.get("gating_failures")), n),
+        "pass_rate": ratio(passes, scored),
+        "gating_failure_rate": ratio(number(summary.get("gating_failures")),
+                                     scored),
         "unscored_rate": ratio(number(summary.get("unscored")), n),
         "skipped_rate": ratio(number(summary.get("skipped")), n),
         "infra_rate": number(summary.get("infra_rate")),
         "crash_rate": number(summary.get("crash_rate")),
         "scorer_errors": number(summary.get("scorer_errors")),
-        "cases_scored": n,
+        "cases_scored": scored,
     }
     canaries = summary.get("canaries")
     if isinstance(canaries, dict):
         metrics["canary_pass_rate"] = ratio(number(canaries.get("passed")),
                                             number(canaries.get("n")))
-    # THE SEAL: aggregate counts, never ids. summary.n and summary.passes
+    # THE SEAL: aggregate counts, never ids. summary.passes and .failures
     # INCLUDE holdout cases while results.json.cases excludes them, so the
-    # journal's denominator is reported separately rather than left to differ
-    # from pass_rate without saying why.
+    # visible rate is reported separately rather than left to differ from
+    # pass_rate without saying why. A run older than holdout.failures has no
+    # scored holdout denominator, and gets neither rate rather than a
+    # different one.
     holdout = summary.get("holdout")
     if isinstance(holdout, dict):
-        h_n, h_pass = number(holdout.get("n")), number(holdout.get("passes"))
-        metrics["holdout_pass_rate"] = ratio(h_pass, h_n)
-        if None not in (n, passes, h_n, h_pass):
-            metrics["visible_pass_rate"] = ratio(passes - h_pass, n - h_n)
+        h_pass = number(holdout.get("passes"))
+        h_fail = number(holdout.get("failures"))
+        if None not in (h_pass, h_fail):
+            metrics["holdout_pass_rate"] = ratio(h_pass, h_pass + h_fail)
+            if scored is not None:
+                metrics["visible_pass_rate"] = ratio(
+                    passes - h_pass, scored - h_pass - h_fail)
     routing = point["routing"]
     if isinstance(routing, dict):
         metrics["routing_accuracy"] = number(routing.get("accuracy"))

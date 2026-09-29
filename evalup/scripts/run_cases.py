@@ -2309,8 +2309,10 @@ class Runner:
         Read back off the VERDICT rather than kept in a parallel list, so a
         --resume rebuilds it from the case dirs like everything else in SS9(a).
         """
+        # A canary measures the harness and enters no denominator (SS9) --
+        # the routing report's included (F-161). Its own layer still scores.
         row = (verdict["layers"].get("routing") or {}).get("row")
-        if row:
+        if row and not verdict["canary"]:
             self.routing_rows.append(row)
 
     def build_verdict(self, case, attempt, skip):
@@ -2405,6 +2407,12 @@ class Runner:
                   for value in (PASS, FAIL, UNSCORED, SKIPPED, INFRA_ERROR,
                                 INFRA_INCOMPLETE)}
         infra = counts[INFRA_ERROR] + counts[INFRA_INCOMPLETE]
+        # SS9's denominators: infra_rate is over the non-canary cases that
+        # were SENT (n - skipped), the same cases its count comes from.
+        # `attempted` counts canaries too, and dividing the canary-free infra
+        # count by it read one infra case beside one passing canary as 50%
+        # (F-161). crash_rate counts every sent case, so `attempted` is its.
+        sent = len(graded) - counts[SKIPPED]
         canaries = [v for v in verdicts if v["canary"]]
         holdouts = [v for v in verdicts if v["holdout"]]
         disabled = sorted(
@@ -2422,8 +2430,7 @@ class Runner:
             # Of those, the cases that got one 5xx on every attempt of every
             # repeat: still infra, but possibly the app's own error (F-165).
             "repeated_5xx": sum(1 for v in graded if v.get("repeated_5xx")),
-            "infra_rate": round(infra / self.attempted, 4)
-            if self.attempted else 0.0,
+            "infra_rate": round(infra / sent, 4) if sent else 0.0,
             "crash_rate": round(self.crashes / self.attempted, 4)
             if self.attempted else 0.0,
             "scorer_errors": self.scorer_errors,
@@ -2437,6 +2444,7 @@ class Runner:
             "holdout": None if not holdouts else {
                 "n": len(holdouts),
                 "passes": sum(1 for v in holdouts if v["verdict"] == PASS),
+                "failures": sum(1 for v in holdouts if v["verdict"] == FAIL),
                 "gating_failures": sum(1 for v in holdouts
                                        if v["gating"]
                                        and v["verdict"] == FAIL),

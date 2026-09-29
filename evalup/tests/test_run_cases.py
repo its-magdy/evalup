@@ -902,6 +902,31 @@ class TestInfraTaxonomy(RunnerCase):
         self.assertEqual(verdict["verdict"], "infra_error")
         self.assertIsNone(verdict["repeated_5xx"])
 
+    def test_infra_rate_counts_and_divides_by_the_same_cases(self):
+        """F-161's family, seen in the F-158 reproduction: one app case
+        (infra) and one canary (pass) read "1 cases ... infra 50.0%" -- the
+        numerator left the canary out and the denominator counted it. Both
+        sides are now the non-canary cases that were sent (SS9)."""
+        def canary_up(path, body, headers):
+            if path == "/":
+                return 200, {"message": "up"}, {}
+            if body.get("message") == "canary?":
+                return 200, {"message": "ok"}, {}
+            return 500, {"error": "boom"}, {}
+
+        self.app.server.responder = canary_up
+        plan = make_plan(self.state, self.app.base_url, cases=[
+            make_case("c-0001"),
+            make_case("c-canary", split=["smoke", "canary"],
+                      input={"messages": [{"role": "user",
+                                           "content": "canary?"}]})])
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        summary = self.read("results.json")["summary"]
+        self.assertEqual((summary["n"], summary["attempted"]), (1, 2))
+        self.assertEqual(summary["infra_errors"], 1)
+        self.assertEqual(summary["infra_rate"], 1.0)
+
     def test_infra_rate_abort(self):
         """Burning a full suite against a down service is an expensive way of
         learning the service is down."""
@@ -983,6 +1008,9 @@ class TestHoldoutSeal(RunnerCase):
             encoding="utf-8"))
         self.assertEqual(results["cases"], [])
         self.assertEqual(results["summary"]["holdout"]["n"], 2)
+        # Aggregate only; `failures` lets a reader take holdout out of the
+        # scored denominator (passes + failures) as well as out of `n`.
+        self.assertEqual(results["summary"]["holdout"]["failures"], 0)
         self.assertNotIn("c-0001", (out / "results.json").read_text(
             encoding="utf-8"))
         # The durable record DOES carry them: a paired diff needs them.
@@ -1544,6 +1572,30 @@ class TestRoutingRunLevel(RunnerCase):
         self.assertEqual(report["layer"], "routing")
         self.assertEqual(report["accuracy"], 1.0)
         self.assertEqual(report["n"], 2)
+
+    def test_a_canary_stays_out_of_the_routing_report(self):
+        """F-161 (user test round 2): routing_report.json counted the two
+        canaries that results.json leaves out, so one run had a routing `n`
+        of 4 beside a `summary.n` of 2. A canary measures the harness; it
+        enters no denominator (SS9)."""
+        cases = [
+            make_case("c-units", expect={"http": {"status": 200},
+                                         "route": "units"}),
+            make_case("c-canary", split=["smoke", "canary"],
+                      input={"messages": [{"role": "user",
+                                           "content": "canary?"}]},
+                      expect={"http": {"status": 200}, "route": "units"}),
+        ]
+        plan = self.routing_plan(cases, route_from_status={"200": "units"})
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        # The canary's own layer still scores; it is only kept out of the
+        # run-level report.
+        self.assertEqual(self.read("cases", "c-canary", "verdict.json")
+                         ["layers"]["routing"]["verdict"], "pass")
+        rows = self.jsonl("routing_results.jsonl")
+        self.assertEqual([r["case_id"] for r in rows], ["c-units"])
+        self.assertEqual(self.read("routing_report.json")["n"], 1)
 
     def test_without_the_block_routing_is_unscored_and_excluded(self):
         """Refusing to infer is the point: the runner never invents a route."""

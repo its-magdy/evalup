@@ -112,6 +112,7 @@ class HistoryCase(unittest.TestCase):
             # INCLUDE holdout cases; results.json.cases does not.
             summary["n"] += holdout["n"]
             summary["passes"] += holdout["passes"]
+            summary["failures"] += holdout.get("failures", 0)
         summary.update(summary_extra or {})
         if status is None:
             summary.pop("status")
@@ -518,6 +519,24 @@ class TestMetrics(HistoryCase):
         self.assertGreater(series["metrics_tested"], 1)
 
 
+class TestDenominators(HistoryCase):
+    def test_pass_rate_divides_by_the_scored_cases_only(self):
+        """F-135 (user test round 2): a smoke run of 3 pass, 1 fail and 1
+        skipped printed pass_rate 0.6 -- passes over summary.n, which counts
+        the skipped case. SS7: skipped and infra never enter a pass/fail
+        denominator, so the rate is 3 / (3 + 1)."""
+        self.write_run("smoke-20260901T120000Z",
+                       cases=[("c-1", "pass"), ("c-2", "pass"),
+                              ("c-3", "pass"), ("c-4", "fail"),
+                              ("c-5", "skipped")],
+                       summary_extra={"skipped": 1})
+        metrics = self.only_series()["metrics"]
+        self.assertEqual(metrics["pass_rate"]["values"], [0.75])
+        self.assertEqual(metrics["cases_scored"]["values"], [4])
+        self.assertEqual(metrics["gating_failure_rate"]["values"], [0.25])
+        self.assertEqual(metrics["skipped_rate"]["values"], [0.2])
+
+
 class TestHoldoutSeal(HistoryCase):
     """results.json carries holdout as an AGGREGATE ONLY, so a history view
     built on it can name no sealed case. Trap 4."""
@@ -525,8 +544,8 @@ class TestHoldoutSeal(HistoryCase):
     def test_a_holdout_run_contributes_counts_and_no_ids(self):
         self.write_run("holdout-20260901T120000Z",
                        cases=[("visible-1", "pass"), ("visible-2", "fail")],
-                       holdout={"n": 4, "passes": 3, "gating_failures": 1,
-                                "looks_recorded": 2})
+                       holdout={"n": 4, "passes": 3, "failures": 1,
+                                "gating_failures": 1, "looks_recorded": 2})
         payload = self.history()
         series = payload["series"][0]
         self.assertEqual(series["metrics"]["holdout_pass_rate"]["values"],
