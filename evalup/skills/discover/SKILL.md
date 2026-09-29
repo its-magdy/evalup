@@ -43,7 +43,8 @@ scope.
 session sent you here: do steps 1–4 and 8 (plus step 5's one sentence on the
 state location before the first write), set `stage: pre-stability`, and list
 steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
-with what each unlocks. Do not offer a patch to the user's source and do not
+with what each unlocks — step 7 includes `environment.safe_to_attack`, which
+stays false until asked, so attack cases are skipped until then. Do not offer a patch to the user's source and do not
 interview them before they have seen a result. Everything below is the full
 procedure; a later `/evalup:discover` runs the deferred steps.
 
@@ -187,11 +188,28 @@ the answers under `confirmed_by_human:` in profile.yaml:
 - What a good answer looks like, per route target (or overall) → seeds the rubric.
 - Who is the domain arbiter, the final word on answer quality → `roles:`. That
   role name is fixed regardless of architecture.
+- May the eval send attack prompts to this environment →
+  `environment.safe_to_attack` in adapter.yaml. It is a governance decision,
+  never a default you pick: while it is false every `adversarial-refusal` case
+  is skipped (runner-contract §7). Name the environment's `kind` and the tools'
+  side effects when you ask.
 
 ### 8. Report findings
 `findings.md`: design gaps (no OOS route, overlapping route targets, vague tool
 descriptions, missing confirmation on destructive tools), each with evidence and
 a suggested fix. Present the top 3 in chat.
+
+**Tag every claim about what the app does** — the IS half of a finding — with
+where it came from: `[observed: <the request, response or trace>]` when a
+live call showed it, `[from code: <file:line>]` when it was read. A claim read
+from code states the conditions it needs, pipeline order included: "the guard
+throws and maps to 500 `[from code: …]` — reached only once the classifier
+has picked a domain". The 2026-09-26 user test's finding said "a user who types
+'ignore previous instructions' is told the server broke"; it was read from
+the guard's code, and a real bare injection never reached the guard, because
+the classifier ran first and refused it. Findings are the SHOULD source
+analyze and the trace-analyzer cite, so an untagged code reading gets
+repeated as behaviour.
 
 ## `--diff` mode (after app changes)
 Re-run steps 2–4 against the current code, topology detection included: a

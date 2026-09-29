@@ -139,10 +139,18 @@ derivation, the enabled-layer rule and adversarial refusals. case-format.md
 carries the per-layer rules: `expect.result` with its `reference_query`,
 `expect.authz` derived under the persona's real access scope, and which fields
 are RESERVED (`excluded_tools` among them — documentation, not a measurement).
-This skill adds two. **Real seeds first**: seed from real messages or traces
+This skill adds three. **Real seeds first**: seed from real messages or traces
 where they exist, and record which cases are synthetic-only — a regression
-scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
-still spend suite slots, so hold them to §1's ratio and floor.
+scaffold, not a measure of real-world quality. INV/DIR cases are cheap but
+still spend suite slots, so hold them to §1's ratio and floor. And **read the
+adapter's `environment.safe_to_attack` before authoring
+`adversarial-refusal` cases**: while it is not true, every run skips them
+(runner-contract §7) and the validator warns `attack_category_will_skip`.
+Author them anyway when findings name an attack surface — they document the
+defect — but tell the user, where the suite is handed over, that they will not
+run until the app's owner sets the flag, and ask the owner if one is present.
+Never relabel such a case as `edge` or `oos` to get it past the gate; the flag
+is the owner's call, not the suite's.
 
 ## 3. Targeted review — 15 minutes, not 100 cases
 Never ask the user to review everything; they won't, and silent label errors
@@ -160,13 +168,17 @@ Everything the generator produces starts `pending`. **Never derive an
 expectation by reading the app's source**, and prefer probing the app BEFORE
 labeling. generation-method.md says why each of these three matters.
 
-**No reviewer in the session** (headless, or the user said not to ask): leave
-every case `pending` and set `gating: false` on all of them — an unreviewed
-label must not close a gate, which is what `validate_cases.py`'s
-`gating_unreviewed` warns about per case. Say so in the delegation prompt —
-the agent's own brief flips only quarantined cases, so told nothing it emits
-`gating: true` on the rest — and check its output before validating; the
-validator's per-case warning is the backstop, not the instruction. Then say what that means, as the
+**The generator emits `gating: false` on every case** (its brief, rule 3):
+an unreviewed label must not close a gate, which is what
+`validate_cases.py`'s `gating_unreviewed` warns about per case. A reviewer
+who accepts a case flips `gating` to true in the same edit. The 2026-09-26
+user test saw the agent write `gating: true` on 6 of 12 cases under an older
+brief, so check its output before validating anyway — count the cases with
+`gating: true` and set them back to false, naming them; the validator's
+per-case warning is the backstop, not the instruction.
+
+**No reviewer in the session** (headless, or the user said not to ask): every
+case stays `pending` and `gating: false`. Say what that means, as the
 last line of the handover and under a free-text `review:` key in
 `dataset.yaml`: "N cases, 0 accepted: this suite cannot fail a build until a
 human accepts cases and flips `gating`." The validator states the same fact at

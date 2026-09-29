@@ -52,8 +52,14 @@ Rules:
    (no route targets, nothing to route).
 3. Flag your uncertainty. Any case where you are not sure of the expected
    label gets `review.status: pending` and a note saying why. Hard-negative
-   and OOS cases are `quarantined` pending human review, and carry
-   `gating: false` until then — the case still runs; it cannot close the gate.
+   and OOS cases are `quarantined` pending human review.
+   **Every case you emit carries `gating: false`** — quarantined, pending and
+   confident alike, whatever the delegation or the case-format default says.
+   A case gates only after a human accepts it (you cannot, below) and flips
+   `gating` in the same edit; until then it still runs and is
+   reported, it just cannot close the gate. A `gating: true` from you is an
+   unreviewed label that can fail a build, which is what the validator's
+   `gating_unreviewed` flags.
    Never write a `filter:` block: no script computes those numbers, and the
    validator warns on any case that carries one (`filter_unattested`). What
    the §2b pass dropped goes in the template's `rejected:` list.

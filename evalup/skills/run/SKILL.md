@@ -197,8 +197,8 @@ read a partial pass rate as the app's score.
 The runner always leaves `manifest.yaml`, `results.json`, `verdicts.jsonl` (the
 durable per-case record) and `verdicts_for_stats.jsonl` (its `pass`/`fail`
 subset, exactly what `stats.py` pairs), and, when they apply,
-`routing_report.json` (a non-canary case's routing was scored), `reliability.json` (k > 1, so never
-under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
+`routing_report.json` (a non-canary case's routing was scored),
+`reliability.json` (k > 1, so never under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
 number you quote comes from those. You add `report.md`
 beside them, then `report.html` via
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
@@ -231,7 +231,13 @@ open Claude Code. Never hand-write HTML.
   excerpts, the implicated surface (router prompt, tool description X, missing
   OOS route) and an effort tag. That narrative is what the LLM here is for.
   Metrics tables and the confusion matrix follow, with `execution` and `authz`
-  as their own rows — never folded into `answer` or `trajectory`. Surface
+  as their own rows — never folded into `answer` or `trajectory`. **Say what
+  routing measured:** when the per-case routing rows carry
+  `observed_from: "status"` (the adapter's `route_from_status`), the routing
+  accuracy is the share of cases whose HTTP status mapped to the expected
+  label — answered-vs-refused — and says nothing about which route target
+  handled the request (runner-contract §5.2). Head the routing section with
+  that sentence; never quote the number as routing accuracy. Surface
   `spurious_labels` (a route no case asks for is a finding), the pass@k /
   pass^k gap, and `reliability.json`'s `excluded_cases`.
 - Deltas read "improved / worsened / within noise (n=52 can only detect ~14pp)",

@@ -25,7 +25,10 @@ architecture:
   #   tool_agent      -> full trajectory: tool selection + args + loop termination.
   #   router_executor -> routing scored AS A CLASSIFIER (precision/recall/confusion
   #                       matrix per route target), kept separate from conditional
-  #                       executor quality per route.
+  #                       executor quality per route. Only when a route is
+  #                       observable per target (traces or route_from_response):
+  #                       under route_from_status alone it measures
+  #                       answered-vs-refused, never the targets.
   #   multi_agent     -> per-agent trajectory. Per-HANDOFF capture (prompt+response at
   #                       each agent-to-agent boundary) is RESERVED: normalize_trace.py
   #                       records no prompt or response text at all, and tool calls carry
@@ -96,7 +99,11 @@ oracle:                           # ground-truth capability for the execution la
 capability_matrix:               # which eval layers apply and what blocks them
   answer_quality:  { enabled: true,  judged: provisional }
   routing:         { enabled: true }   # router_executor/multi_agent/workflow only;
-                                       # single_llm/tool_agent: no dispatch step -> N/A
+                                       # single_llm/tool_agent: no dispatch step -> N/A.
+                                       # Trace-less + route_from_status: enabled, but it
+                                       # measures answered-vs-refused (runner-contract
+                                       # SS5.2); per-target numbers need route_from_response
+                                       # or traces.
   tool_selection:  { enabled: true }
   trajectory:      { enabled: false, blocked_by: "stage: pre-stability" }
                                        # also forced off outright when kind: single_llm

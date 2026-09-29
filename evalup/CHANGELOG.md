@@ -424,6 +424,30 @@ change; fixes below are bugfixes inside the runner freeze.
   run near `--max-infra-rate` can now close the gate. The mid-run abort
   keeps its own share (every case attempted, canaries in), and its message
   says so. (F-122, F-135, F-161)
+- **The generator wrote `gating: true` on 6 of 12 cases** although the
+  delegation said none may gate: its brief set `gating: false` only on
+  quarantined cases, and that rule won. `test-generator` now emits
+  `gating: false` on every case — a human flips it when accepting — and
+  generate §3 has the skill count and reset any `gating: true` before
+  validating. The 2026-09-25 entry's F-019 fix held only for the wording of
+  the delegation. (F-119)
+- **An attack case was authored, then skipped by every run, and nothing in
+  between said so.** `validate_cases.py --adapter` warns
+  `attack_category_will_skip` on an `adversarial-refusal` case while
+  `environment.safe_to_attack` is not true (a test keeps its category list
+  equal to the runner's). generate §2c reads the flag and tells the user;
+  discover's interview asks the owner, and lean mode lists it as deferred.
+  Relabelling the case to get past the gate is ruled out: the flag is the
+  owner's. (F-124)
+- **A finding read from code was presented as observed behaviour.** Discover
+  §8 tags every claim about what the app does `[observed: …]` or
+  `[from code: file:line]`, with the pipeline conditions a code reading
+  needs — the finding in question described a guard a real request never
+  reached. (F-163)
+- **Status-routed routing numbers read as domain-routing accuracy.** The
+  contract already said `route_from_status` measures answered-vs-refused;
+  `profile-schema.md` (the `router_executor` and `routing` comments) and
+  run §5 now say it where the number is written and reported. (F-123, F-110)
 
 ### Fixed — the 2026-09-21 shape audit
 

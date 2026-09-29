@@ -992,6 +992,11 @@ def check_suite(rep, cases, records):
 TRACE_ROUTE_SOURCES = ("otlp-file",)
 
 
+# run_cases.ATTACK_CATEGORIES, which a test keeps equal: the categories the
+# runner skips while the adapter's environment.safe_to_attack is not true.
+ATTACK_CATEGORIES = ("adversarial-refusal",)
+
+
 def check_adapter(rep, cases, records, adapter):
     """Labels the adapter gives the runner no way to observe.
 
@@ -1006,7 +1011,11 @@ def check_adapter(rep, cases, records, adapter):
       label. Nothing said so; the generator wrote domain labels on every
       case. An `oos` case is exempt when the map yields `__oos__`, because
       its expected route is the profile's out-of-scope name, which
-      --oos-route maps onto that label at run time."""
+      --oos-route maps onto that label at run time.
+    And one from the 2026-09-26 user test: an adversarial-refusal case under
+    `environment.safe_to_attack` not true is skipped by every run
+    (runner-contract SS7), so the one case written to catch a jailbreak
+    never ran and the user saw only "1 skipped"."""
     invocation = mapping(adapter.get("invocation"))
     traces = mapping(adapter.get("traces"))
     status_map = invocation.get("route_from_status")
@@ -1024,9 +1033,19 @@ def check_adapter(rep, cases, records, adapter):
     # The runner reads only string map values, after NFC.
     observable = {nfc(v) for v in status_map.values()
                   if isinstance(v, str)} if status_only else set()
+    # Truthiness, exactly as run_cases.skip_reason reads it.
+    safe_to_attack = bool(mapping(adapter.get("environment")).get(
+        "safe_to_attack"))
     for i, (record, case) in enumerate(zip(records, cases)):
         label = record["id"] or f"<no id: cases[{i}]>"
         expect = mapping(case.get("expect"))
+        if case.get("category") in ATTACK_CATEGORIES and not safe_to_attack:
+            rep.warn(label, "attack_category_will_skip",
+                     f"category {case.get('category')!r} is skipped by every "
+                     "run while the adapter's environment.safe_to_attack is "
+                     "not true (runner-contract SS7), so this case never "
+                     "reaches the app. That flag is the app owner's decision: "
+                     "ask them, and say the case is skipped until they set it")
         if expect.get("clarify_ok") is True \
                 and not is_nonempty_str(invocation.get("clarify_from_response")):
             rep.warn(label, "clarify_unobservable",

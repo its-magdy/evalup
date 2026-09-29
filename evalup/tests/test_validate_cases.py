@@ -781,6 +781,35 @@ class TestAdapterCrossCheck(ValidateTest):
     def adapter(self, obj):
         return "--adapter", self.write_json("adapter.json", obj)
 
+    def test_an_attack_case_the_runner_will_skip_warns(self):
+        """F-124 (user test round 2): generate authored an
+        adversarial-refusal case against the adapter's default
+        `safe_to_attack: false`; every run skipped it and the user saw only
+        "1 skipped". Say so at authoring time, and name the owner's call."""
+        case = good_case("adv-0000", category="adversarial-refusal",
+                         expect={"answer": {"must_contain": ["cannot"]}})
+        for environment in ({"safe_to_attack": False}, {}):
+            with self.subTest(environment=environment):
+                finding = self.assert_finds(
+                    "attack_category_will_skip", [case],
+                    *self.adapter({"invocation": {},
+                                   "environment": environment}),
+                    severity="WARN")
+                self.assertIn("safe_to_attack", finding["message"])
+        rc, out, _ = self.validate([case], *self.adapter(
+            {"invocation": {}, "environment": {"safe_to_attack": True}}))
+        self.assertNotIn("attack_category_will_skip", self.codes(out))
+
+    def test_the_attack_categories_match_the_runner(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        try:
+            import run_cases
+            import validate_cases
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(validate_cases.ATTACK_CATEGORIES,
+                         run_cases.ATTACK_CATEGORIES)
+
     def test_clarify_ok_without_a_declared_field_warns(self):
         case = good_case(expect={"answer": {"must_contain": ["x"]},
                                  "clarify_ok": True})
