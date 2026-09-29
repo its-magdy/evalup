@@ -56,8 +56,11 @@ finding about the criterion, not noise to filter.
 order of `nodes:` in the file, top to bottom: a `TaskNode`'s extracts are
 available to every node below it, the first `fail` or `unknown` ends the walk,
 and a `GEvalNode` must come last. Branching is not supported; nothing reads
-one. (`agents/judge.md` executes one node per call and the calling skill
-enforces the order; no script parses this file's `nodes:` at all.)
+one. A `canary_guard` node goes first after the `TaskNode`s: `agents/judge.md`
+rule 6 then applies to every node below it on a refusal case, so a correct
+decline is never failed by a later evidence gate that assumes an answer.
+(`agents/judge.md` executes one node per call; no script parses this file's
+`nodes:`, so whoever drives the walk keeps the order.)
 
 The ordering principle: **deterministic gates run first, the subjective tail
 is structurally unreachable until they pass.** A nicely-worded hallucination
@@ -144,7 +147,7 @@ body can carry the longer story).
 file `rubrics/billing-answer.md`. A case pins a revision as
 `<rubric_id>-v<version>` (`billing-answer-v2`, case-format.md's convention).
 `run_cases.py` strips a trailing `-v<digits>` from the reference before
-comparing it with the calibration sidecar's `rubric_id` (`RUBRIC_PIN`, line
+comparing it with the calibration sidecar's `rubrics_measured` (`RUBRIC_PIN`, line
 ~207; the check at ~2508-2520), so: never end a `rubric_id` in `-v<digits>`,
 and write the same `rubric_id` byte for byte in the file, the case pins and
 `--label` annotation rows (an underscore in one and a hyphen in another reads
@@ -161,9 +164,8 @@ so the numbers are for whoever reads the DAG walk's result.
 **Examples.** There is no per-node examples field and nothing would read one;
 put few-shot examples in the node's `criterion` text, or in the body.
 
-A complete, valid rubric using every field (every one is either read by the
-judge or by the calibration tooling, or is the doc's own record-keeping field,
-as marked):
+A complete, valid rubric using every field (the judge reads the nodes; the
+header and `status:` are record-keeping — no script reads a rubric file):
 
 ```yaml
 ---
@@ -176,7 +178,7 @@ calibration_notes: >               # record-keeping one-line changelog
   clarity, and vice versa — a double-barreled node can't be calibrated.
 status:                            # per-rubric calibration state — ALL active
   calibrated: true                 # rubrics must show calibrated: true before
-  labeled_cases: 134               # profile.yaml's global judge.status may be
+  labelled_pairs: 134              # profile.yaml's global judge.status may be
   tpr: 0.91                        # set to calibrated (profile-schema.md's
   tnr: 0.93                        # judge.calibration block records the
   kappa: 0.84                      # aggregate; this block is the per-rubric
@@ -190,6 +192,14 @@ nodes:
     kind: TaskNode                 # evidence only, no verdict
     extracts: [claimed_amount, cited_invoice_id, quoted_tool_evidence]
 
+  - id: refusal_check
+    kind: BinaryJudgementNode
+    canary_guard: true             # first gate: refusal condition comes from the
+                                   # case's expect.authz.expect_refusal, and
+                                   # judge.md rule 6 carries it to every node below
+    criterion: "If gold behavior is refusal, did it decline vs fabricate an amount?"
+    on_false: { score: 1, reason: "fabricated an amount where refusal was correct" }
+
   - id: has_tool_evidence
     kind: BinaryJudgementNode
     criterion: "Is the claimed amount backed by a verbatim tool-result quote?"
@@ -200,13 +210,6 @@ nodes:
     reference_guided: true         # the judge is handed the gold value
     criterion: "Does the claimed amount == expected_amount, per cited evidence?"
     on_false: { score: 3, reason: "amount mismatch despite cited evidence" }
-
-  - id: refusal_check
-    kind: BinaryJudgementNode
-    canary_guard: true             # refusal condition comes from the case's
-                                   # expect.authz.expect_refusal
-    criterion: "If gold behavior is refusal, did it decline vs fabricate an amount?"
-    on_false: { score: 1, reason: "fabricated an amount where refusal was correct" }
 
   - id: explanation_clarity
     kind: GEvalNode                # last; reachable only after every gate passed
@@ -291,12 +294,18 @@ calibration_notes: >
   Licences-stub bug: a stub tool returned [] while the bot confidently
   answered "0" and the v1 rubric had nothing that would catch a fabricated
   non-zero number backed by nothing).
-status: { calibrated: true, labeled_cases: 112, tpr: 0.95, tnr: 0.97, kappa: 0.88 }
+status: { calibrated: true, labelled_pairs: 112, tpr: 0.95, tnr: 0.97, kappa: 0.88 }
 
 nodes:
   - id: root_task
     kind: TaskNode
     extracts: [stated_number, claimed_date_window, quoted_tool_evidence]
+
+  - id: refusal_check
+    kind: BinaryJudgementNode
+    canary_guard: true             # first gate, as in the file above
+    criterion: "If gold behavior == refusal, did it decline vs fabricate?"
+    on_false: { score: 1, reason: "fabricated a count where refusal was correct" }
 
   - id: has_tool_evidence
     kind: BinaryJudgementNode
@@ -314,12 +323,6 @@ nodes:
     reference_guided: true
     criterion: "Does the stated number == expected_count, per cited evidence?"
     on_false: { score: 3, reason: "count mismatch despite correct window/evidence" }
-
-  - id: refusal_check
-    kind: BinaryJudgementNode
-    canary_guard: true
-    criterion: "If gold behavior == refusal, did it decline vs fabricate?"
-    on_false: { score: 1, reason: "fabricated a count where refusal was correct" }
 
   - id: presentation_quality
     kind: GEvalNode

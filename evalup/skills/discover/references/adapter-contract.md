@@ -16,7 +16,8 @@ app:
   name: my-chat-app
   repo: .                      # relative to this file, or absolute; omit for endpoint-only
   repo_access: read-write | read-only   # read-only: no code patches; discover records
-                               # each declined patch + its cost in findings.md
+                               # each declined patch + its cost in findings.md,
+                               # and optimize writes recommendations only
   git_pinned: true             # runs record the app's git SHA in the manifest
 
 state_location: .evalup/   # where all eval state lives. Default: `.evalup/`

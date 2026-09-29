@@ -102,7 +102,10 @@ Read the code for: agent definitions and their system prompts (files, constants,
 DB references), tool schemas and descriptions, routing/dispatch definitions (the
 route targets the app chooses between, if any), model configuration,
 conversation/session handling, OTel setup. Record as you go:
-- Every **optimizable surface** — prompt and tool-description locations → `prompts[]`.
+- Every **optimizable surface** — prompt and tool-description locations → `prompts[]`
+  — and whether an edit to it takes effect only after a rebuild or restart
+  (compiled-in, embedded, or loaded at startup). Record that in findings.md
+  beside the surface; optimize's precondition 6 reads it.
 - Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
   adapter-contract.md defines them. Confirm each with the human.
 - `record_id_pattern` — the regex matching the app's own record identifiers

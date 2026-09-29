@@ -222,7 +222,9 @@ You approve every kept edit; nothing is committed or merged for you. It runs
 only when you type it, and stays locked until its preconditions hold: a
 calibrated judge (when any objective is judged), about 100 usable cases (50
 for deterministic-only objectives), `stage: stable` or later, white-box prompt
-access, and a budget. A first session is several sessions away from that;
+access, a budget, and an edit that can reach the running app (a read-only
+repo gets recommendations only; a prompt compiled into the build waits for
+you to rebuild). A first session is several sessions away from that;
 `/evalup:start` says how far.
 
 ### Without Claude (CI)

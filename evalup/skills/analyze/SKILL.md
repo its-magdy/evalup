@@ -266,7 +266,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
 ```
 
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <work-dir>`
-writes the JSON inputs from the YAML — never transcribe them yourself
+(run/SKILL.md §1 defines `<work-dir>`) writes the JSON inputs from the YAML — never transcribe them yourself
 (run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
 and case-format.md owns the rules it enforces. `--manifest` matters most here
 (pass it whenever `datasets/dataset.yaml` exists — convert_suite writes

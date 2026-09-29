@@ -225,7 +225,7 @@ because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
 First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
-<work-dir>` — it writes the JSON inputs from the YAML (`suite.json`,
+<work-dir>` (run/SKILL.md §1 defines `<work-dir>`) — it writes the JSON inputs from the YAML (`suite.json`,
 `capabilities.json`, `adapter.json`, and `manifest.json` only when
 `datasets/dataset.yaml` exists), and refuses a duplicate YAML key or one id in
 two files; never transcribe a suite by hand. Then run

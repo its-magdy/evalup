@@ -120,5 +120,5 @@ change) and "Distributed tracing concepts" (inbound header adoption).
 Trace-less scoring stays honest as it is: routing and answer checks score,
 the trace-dependent layers report `unscorable` with the `blocked_by` reason
 copied from the capability matrix, and
-`score_cost.py` refuses to price a trace-less run. None of the above makes a
+`score_cost.py` reports a trace-less run as `status: "unpriced"` with the reason. None of the above makes a
 number mean something different; it only makes more runs have the number.

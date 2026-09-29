@@ -73,8 +73,11 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
 ```
 
-`<work-dir>` is a directory beside the state location — never `/tmp`, which
-the shell rule above forbids in any call — reused run to run.
+`<work-dir>` is `<state>/work/`: derived files only (`converted.json`, the
+split JSON, `plan.json`), rebuilt every run and never committed. Never
+`/tmp`, which the shell rule above forbids. When the state location is
+inside the app's repo, tell the user once to add it to their `.gitignore`;
+otherwise it reads as uncommitted changes.
 
 - **`convert_suite.py`** is the run's parse of the YAML, not a second opinion,
   which is why you do not re-type it. It leaves `${VAR}` refs unresolved (the
@@ -220,9 +223,9 @@ open Claude Code. Never hand-write HTML.
   eyeball-scoring this file forbids.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
-  (when nothing needed redacting, say "redaction pass, 0 redactions" — the
-  check still happened)
-  redacted: reports are written to be shared and committed.
+  redacted: reports are written to be shared and committed. When nothing
+  needed redacting, say "redaction pass, 0 redactions" — the check still
+  happened.
 - **Count cases the way `results.json` does, and say which count you mean.**
   `summary.n` is every non-canary case SELECTED — skipped and infra cases
   included — so it is never a pass-rate denominator: divide `passes` by
