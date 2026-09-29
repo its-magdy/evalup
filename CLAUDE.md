@@ -27,7 +27,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 799 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 815 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -41,8 +41,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   fast-forwarded 2026-09-25 and 2026-09-26). It is the only branch. Nothing
   is pushed; **there is still no remote**, so nothing here has ever been
   checked by CI.
-- **Health:** 799 tests pass on 3.14; 791 + 8 skips on the 3.9 floor (all 8
-  skips need PyYAML: 799 pass with `--with pyyaml`), ruff clean, 21 CLIs
+- **Health:** 815 tests pass on 3.14; 806 + 9 skips on the 3.9 floor (all 9
+  skips need PyYAML: 815 pass with `--with pyyaml`), ruff clean, 21 CLIs
   answer `--help`, `claude plugin validate` clean for the plugin and the
   root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-26 on
   `main` after the merge.
@@ -87,6 +87,21 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   fixes; `evalup/docs/traces-jaeger.md` is the Jaeger design note (not built).
   **Left open by decision:** F-001 (`$ARGUMENTS` backticks, all seven skills),
   F-037 (headless open questions have no home), F-014/F-020/F-030 (friction).
+- **The 2026-09-26 user test, round 2** (fixed 2026-09-29 on branch
+  `usertest2-fixes`, NOT yet merged to `main`): 66 findings in
+  `~/Documents/Personal/Sandboxes/evalup-usertest-2/` (read-only; REPORT.md
+  §2 ranks them). Each fix was reproduced or read in source first, then got an
+  adversarial review; every group's review found real defects in the first
+  version. Two runner bugs gave wrong numbers: the k>1 fold let
+  `[pass, infra_error]` read `pass` (order-dependent; F-158), and counts used
+  four denominators (F-122/F-135/F-161; the contract §10 now has one counts
+  table). An app's own 5xx stays `infra_error` by decision — its body was
+  byte-identical to a provider outage's — but a same-5xx-every-attempt case
+  is flagged (`repeated_5xx`, F-165). Declined as freeze-crossing:
+  `--env-file` (F-159), `redact.py` (F-162), a probe script (F-103),
+  scorer-side routing notes (F-123/F-140/F-141); deferred: the validator's
+  profile-name check (F-155); not a script bug: F-166 (Mac sleep).
+  `evalup/CHANGELOG.md` "the 2026-09-26 user test (round 2)" lists the rest.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
