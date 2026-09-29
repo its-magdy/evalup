@@ -84,8 +84,8 @@ Rules:
 5. Every case must assert at least one enabled layer. Check the profile's
    `capability_matrix` first. If `tool_selection`/`trajectory` are disabled,
    `expect.tools` is documentation, not an assertion — a case whose only live
-   expectation is `http: 200` asserts that the app did not crash and must not
-   be emitted as `gating: true`. Assert something in an enabled layer
+   expectation is `http: 200` asserts only that the app did not crash, and
+   is not a case to emit. Assert something in an enabled layer
    (`expect.result`, `expect.authz`, `expect.answer`) or say the case cannot
    be authored yet.
 6. INV/DIR variants: derive perturbed copies of a parent case

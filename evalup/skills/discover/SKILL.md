@@ -44,8 +44,9 @@ session sent you here: do steps 1–4 and 8 (plus step 5's one sentence on the
 state location before the first write), set `stage: pre-stability`, and list
 steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
 with what each unlocks — step 7 includes `environment.safe_to_attack`, which
-stays false until asked, so attack cases are skipped until then. Do not offer a patch to the user's source and do not
-interview them before they have seen a result. Everything below is the full
+stays false until asked, so attack cases are skipped until then. Do not
+offer a patch to the user's source and do not interview them before they
+have seen a result. Everything below is the full
 procedure; a later `/evalup:discover` runs the deferred steps.
 
 Write three artifacts to the state location (default `<app>/.evalup/`, or
@@ -203,11 +204,9 @@ a suggested fix. Present the top 3 in chat.
 where it came from: `[observed: <the request, response or trace>]` when a
 live call showed it, `[from code: <file:line>]` when it was read. A claim read
 from code states the conditions it needs, pipeline order included: "the guard
-throws and maps to 500 `[from code: …]` — reached only once the classifier
-has picked a domain". The 2026-09-26 user test's finding said "a user who types
-'ignore previous instructions' is told the server broke"; it was read from
-the guard's code, and a real bare injection never reached the guard, because
-the classifier ran first and refused it. Findings are the SHOULD source
+throws and maps to 500 `[from code: …]` — reached only after an earlier step
+has accepted the request". A code reading that skips that clause turns into a
+user-facing claim a real request contradicts. Findings are the SHOULD source
 analyze and the trace-analyzer cite, so an untagged code reading gets
 repeated as behaviour.
 

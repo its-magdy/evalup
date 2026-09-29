@@ -428,9 +428,13 @@ change; fixes below are bugfixes inside the runner freeze.
   delegation said none may gate: its brief set `gating: false` only on
   quarantined cases, and that rule won. `test-generator` now emits
   `gating: false` on every case — a human flips it when accepting — and
-  generate §3 has the skill count and reset any `gating: true` before
-  validating. The 2026-09-25 entry's F-019 fix held only for the wording of
-  the delegation. (F-119)
+  generate §3 has the skill reset, among the cases it just wrote, any whose
+  `gating` is not `false`. `validate_cases.py` read an absent `gating` as
+  false while the runner and case-format.md read it as true, so a pending
+  case with no key gated unwarned and `nothing_gates` fired on a suite that
+  could fail; it now reads the key as the runner does. analyze's promotion
+  and `--mine` paths write `gating: false` too. The 2026-09-25 entry's F-019
+  fix held only for the wording of the delegation. (F-119)
 - **An attack case was authored, then skipped by every run, and nothing in
   between said so.** `validate_cases.py --adapter` warns
   `attack_category_will_skip` on an `adversarial-refusal` case while

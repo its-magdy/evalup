@@ -146,9 +146,13 @@ still spend suite slots, so hold them to §1's ratio and floor. And **read the
 adapter's `environment.safe_to_attack` before authoring
 `adversarial-refusal` cases**: while it is not true, every run skips them
 (runner-contract §7) and the validator warns `attack_category_will_skip`.
-Author them anyway when findings name an attack surface — they document the
-defect — but tell the user, where the suite is handed over, that they will not
-run until the app's owner sets the flag, and ask the owner if one is present.
+Author them when findings name an attack surface and the owner has not been
+asked — they document the defect — but tell the user, where the suite is
+handed over, that they will not run until the owner sets the flag, and ask
+the owner if one is present. When the owner has said no, leave them out and
+record the decision in findings.md: `--strict` promotes the warning to an
+error, so a CI job validating with `--strict --adapter` would fail on them
+for good.
 Never relabel such a case as `edge` or `oos` to get it past the gate; the flag
 is the owner's call, not the suite's.
 
@@ -173,12 +177,15 @@ an unreviewed label must not close a gate, which is what
 `validate_cases.py`'s `gating_unreviewed` warns about per case. A reviewer
 who accepts a case flips `gating` to true in the same edit. The 2026-09-26
 user test saw the agent write `gating: true` on 6 of 12 cases under an older
-brief, so check its output before validating anyway — count the cases with
-`gating: true` and set them back to false, naming them; the validator's
-per-case warning is the backstop, not the instruction.
+brief, so check its output before validating anyway: among the cases this
+delegation just wrote — never a case a human already accepted — find every
+one whose `gating` is not `false` (an absent key means true), set it to
+`false`, and list their ids in chat. The validator's per-case warning is the
+backstop, not the instruction.
 
-**No reviewer in the session** (headless, or the user said not to ask): every
-case stays `pending` and `gating: false`. Say what that means, as the
+Only the cases a human accepted gate, so the handover always says how many
+do. **No reviewer in the session** (headless, or the user said not to ask):
+every case stays `pending` and `gating: false`. Say what that means, as the
 last line of the handover and under a free-text `review:` key in
 `dataset.yaml`: "N cases, 0 accepted: this suite cannot fail a build until a
 human accepts cases and flips `gating`." The validator states the same fact at
@@ -232,7 +239,8 @@ the runner could never observe: `clarify_ok` with no `clarify_from_response`
 (`clarify_unobservable`), or a domain `expect.route` on a trace-less app whose
 adapter maps the HTTP status (`route_not_observable`) — there the observed
 route is the map's value, `<answered>` or `__oos__`, so expect that label and
-keep the domain in `unit`. `--capabilities` is required — pass `--no-capabilities`
+keep the domain in `unit`. It also warns `attack_category_will_skip` on an
+`adversarial-refusal` case while `environment.safe_to_attack` is not true. `--capabilities` is required — pass `--no-capabilities`
 only with genuinely no profile, and expect `capabilities_unchecked`.
 `--manifest` catches a stale `dataset.yaml`, so re-run it after ANY later
 hand-edit to a case file.

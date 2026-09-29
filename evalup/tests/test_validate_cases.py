@@ -526,6 +526,20 @@ class TestWarnFindings(ValidateTest):
                 good_case("e-oos-5", category="oos")]
         self.assertEqual(self.validate(even)[0], 0)
 
+    def test_an_absent_gating_key_gates_as_the_runner_reads_it(self):
+        """Review of the F-119 fix: case-format.md and the runner default an
+        absent `gating` to true, but the linter read it as false -- so a
+        pending case with no key raised no `gating_unreviewed`, and
+        `nothing_gates` said nothing could fail while every case could."""
+        pending = {"status": "pending", "by": None}
+        cases = [good_case(f"c-happy-{i}", review=pending) for i in range(2)]
+        for case in cases:
+            del case["gating"]
+        rc, out, _ = self.validate(cases)
+        codes = self.codes(out)
+        self.assertEqual(codes.count("gating_unreviewed"), 2)
+        self.assertNotIn("nothing_gates", codes)
+
     def test_nothing_gates(self):
         # The field test's headless generate flipped every case to gating
         # false (correct: nobody had reviewed them) and the run then closed

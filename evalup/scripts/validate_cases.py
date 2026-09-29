@@ -599,6 +599,14 @@ def check_echo_assertions(rep, case_id, case, expect):
                      "something only a correct answer contains")
 
 
+def gates(case):
+    """Whether the RUNNER will let this case close a gate: an absent key is
+    true (case-format.md; run_cases.build_verdict reads
+    `case.get("gating", True) is not False`). Reading an absent key as false
+    here let a pending case with no key gate unwarned."""
+    return case.get("gating", True) is not False
+
+
 def check_review(rep, case_id, case):
     review = mapping(case.get("review"))
     status = review.get("status")
@@ -609,9 +617,10 @@ def check_review(rep, case_id, case):
                  f"review.status is accepted but review.by is {by!r}; only a "
                  "human may set accepted — a case accepted by the generator "
                  "that wrote it has never been reviewed by anyone")
-    if case.get("gating") and status in ("pending", "quarantined"):
+    if gates(case) and status in ("pending", "quarantined"):
         rep.warn(case_id, "gating_unreviewed",
-                 f"gating is true while review.status is {status!r}; an "
+                 f"gating is not false (absent means true) while "
+                 f"review.status is {status!r}; an "
                  "unreviewed case is deciding whether the suite passes")
 
 
@@ -978,7 +987,7 @@ def check_suite(rep, cases, records):
     # the harness, not the app, so a gating canary opens no gate on the app.
     graded_cases = [c for c in cases
                     if "canary" not in (c.get("split") or [])]
-    if graded_cases and not any(c.get("gating") for c in graded_cases):
+    if graded_cases and not any(gates(c) for c in graded_cases):
         rep.warn(None, "nothing_gates",
                  f"none of the {len(graded_cases)} non-canary cases has "
                  "gating: true, so a run of this suite cannot close a gate: "
@@ -1098,7 +1107,9 @@ def main():
                     help="JSON adapter (convert_suite.py --split-dir writes "
                          "adapter.json); cross-checks each case's labels "
                          "against what the adapter lets the runner observe "
-                         "(clarify_ok, route under route_from_status)")
+                         "(clarify_ok, route under route_from_status) and "
+                         "warns on attack cases environment.safe_to_attack "
+                         "would skip")
     ap.add_argument("--manifest",
                     help="JSON with dataset.yaml's cases/splits/coverage_grid "
                          "fields (caller extracts them with its own YAML "

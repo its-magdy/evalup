@@ -58,7 +58,8 @@ that file and run annotation-ux.md's open→axial pass with the user: ~20–50
 conversations, free-text critique first, categories only once they repeat.
 End with the failure taxonomy by count and an offer to promote the clearest
 failures into cases (origin `real-trace:<id>`, expectation = what SHOULD have
-happened, `review.status: pending`) — which is `generate`'s "real seeds
+happened, `review.status: pending`, `gating: false` until a human accepts
+it) — which is `generate`'s "real seeds
 first" done literally. This is not `--mine`: that queries a live trace
 backend and needs `stage: traffic`; this reads files the user already has.
 
@@ -225,7 +226,8 @@ and ordinary conversations unlike anything in the dataset (embedding distance).
 Per candidate: show it, then propose the case with expected values from what
 SHOULD have happened. When the adapter declares `may_contain_pii`, redact
 before anything reaches a dataset file and show the redacted version for
-approval. Origin: `real-trace:<id>`. Real-seeded cases progressively retire
+approval. Origin: `real-trace:<id>`, `review.status: pending`,
+`gating: false` until a human accepts the case. Real-seeded cases progressively retire
 synthetic-only ones. A trace already annotated through the viewer is most of
 this review already done — reuse it (annotation-ux.md, "the flywheel").
 

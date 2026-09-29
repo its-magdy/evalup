@@ -232,12 +232,13 @@ open Claude Code. Never hand-write HTML.
   OOS route) and an effort tag. That narrative is what the LLM here is for.
   Metrics tables and the confusion matrix follow, with `execution` and `authz`
   as their own rows — never folded into `answer` or `trajectory`. **Say what
-  routing measured:** when the per-case routing rows carry
-  `observed_from: "status"` (the adapter's `route_from_status`), the routing
-  accuracy is the share of cases whose HTTP status mapped to the expected
-  label — answered-vs-refused — and says nothing about which route target
-  handled the request (runner-contract §5.2). Head the routing section with
-  that sentence; never quote the number as routing accuracy. Surface
+  routing measured:** when a case's `layers.routing.observed_from` in
+  `verdict.json` is `"status"` (the adapter's `route_from_status`), its
+  routing verdict is whether the HTTP status mapped to the expected label —
+  answered-vs-refused — and says nothing about which route target handled
+  the request (runner-contract §5.2). If every scored case says `status`,
+  head the routing section with that sentence and never quote the number as
+  routing accuracy; if only some do, say how many. Surface
   `spurious_labels` (a route no case asks for is a finding), the pass@k /
   pass^k gap, and `reliability.json`'s `excluded_cases`.
 - Deltas read "improved / worsened / within noise (n=52 can only detect ~14pp)",
