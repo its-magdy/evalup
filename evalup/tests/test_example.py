@@ -438,6 +438,33 @@ class TestTheExampleRuns(ExampleCase):
             row["blocked_by"],
             self.converted["capability_matrix"]["trajectory"]["blocked_by"])
 
+    def test_layer_routing_scores_routing_and_nothing_else(self):
+        """make_plan.py and the runner, joined: each half was tested and the
+        seam was not. `--layer routing` wrote `answer_quality: {enabled:
+        false}`, the runner looked for `answer`, and the answer layer went on
+        scoring -- and could fail -- a run that had asked for routing only."""
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "make_plan.py"),
+             str(EXAMPLE / "converted.json"), "--mode", "smoke",
+             "--state-dir", str(self.state), "--layer", "routing"],
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        plan = json.loads(proc.stdout)
+        rc, payload, run = self.invoke(plan)
+        self.assertEqual(rc, 0, run.stdout + run.stderr)
+        verdict = json.loads(
+            (self.state / "reports" / plan["run_id"] / "cases" / "c-4f2a91c7"
+             / "verdict.json").read_text(encoding="utf-8"))
+        layers = verdict["layers"]
+        self.assertEqual(layers["routing"]["verdict"], "pass")
+        for name in ("answer", "execution"):
+            self.assertEqual(layers[name],
+                             {"layer": name, "verdict": "unscorable",
+                              "blocked_by": "--layer routing"}, name)
+        # `http` has no matrix key, so the liveness row is still there.
+        self.assertEqual(layers["http"]["verdict"], "pass")
+        self.assertEqual(verdict["verdict"], "pass")
+
     def test_the_out_of_scope_case_routes_to_the_canonical_oos_label(self):
         """`none` is the app's route name; `__oos__` is score_routing.py's
         internal label. scoring.oos_route is the mapping between them, and it

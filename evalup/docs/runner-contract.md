@@ -438,6 +438,15 @@ runner writes exactly what the scorer expects:
 `expected` is never computed at run time — it is already on the case as
 `expect.result`, and `reference_query` is provenance the runner never executes.
 
+The file is written for **every sent case whose `expect` has a `result` key**
+— which covers every case §9(b) requires it of — including the two paths that
+never reach `score_execution.py`. With the `execution` layer disabled the
+result is still extracted (reading it is not scoring it, and it is what lets
+the run be re-scored later); when the app call failed (a transport error, or a
+5xx on every attempt) the file is `{"missing": true, "reason": …}` naming that
+failure. It used to be written only for a live layer, so either path ended the
+run with exit 6.
+
 Each of the three priorities is an **adapter declaration**, because "hunt the
 response for the field that looks like a result" is a heuristic that works on
 four cases and picks the wrong field on the fifth:

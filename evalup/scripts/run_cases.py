@@ -2000,10 +2000,22 @@ class Runner:
                 layers[name] = {"layer": name, "verdict": SKIPPED,
                                 "reason": skip}
             return layers
+        # SS9(b) requires actual.json of every SENT case carrying expect.result,
+        # whatever became of the execution layer -- so it is written on the
+        # two paths below that never reach the scorer as well. It used to be
+        # written only for a live layer, and a run with one execution case
+        # whose app call failed, or with `execution` disabled (every
+        # `make_plan.py --layer X` plan), exited 6 over a file nothing wrote.
+        actual_path = os.path.join(scratch, "actual.json")
         if record["error"]:
             for name in applicable - set(blocked):
                 layers[name] = {"layer": name, "verdict": INFRA_ERROR,
                                 "reason": record["error"]}
+            if "execution" in applicable:
+                atomic_write_json(actual_path, {
+                    "missing": True,
+                    "reason": "the app call failed, so there is no result "
+                              "to extract: {}".format(record["error"])})
             return layers
 
         trajectory_path = os.path.join(scratch, "trajectory.json")
@@ -2112,10 +2124,13 @@ class Runner:
                     "score_answer.py", [answer_path, expect_path], "answer")
 
         # -- execution --------------------------------------------------------
-        if live("execution"):
-            actual_path = os.path.join(scratch, "actual.json")
+        if "execution" in applicable:
+            # Extracted even when the matrix disabled the layer: reading the
+            # app's result is not scoring it, and the file is what lets the
+            # run be re-scored later without re-invoking the app (SS9/D9).
             atomic_write_json(actual_path, self.extract_actual(
                 record, trajectory_path if trace_collected else None))
+        if live("execution"):
             argv = [actual_path, expect_path]
             if scoring["float_tolerance"]:
                 argv += ["--float-tolerance", scoring["float_tolerance"]]

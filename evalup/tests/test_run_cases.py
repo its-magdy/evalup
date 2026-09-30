@@ -1788,6 +1788,42 @@ class TestExecutionLayer(RunnerCase):
         self.assertEqual(self.read("cases", "c-0001", "actual.json"),
                          {"scalar": "7"})
 
+    def test_a_disabled_layer_still_leaves_the_file_the_check_requires(self):
+        """SS9(b) requires actual.json of every sent case carrying
+        expect.result. It was written only for a LIVE layer, so a plan with
+        `execution` disabled -- every `make_plan.py --layer X` plan -- exited
+        6 over a file nothing wrote. Extracting is not scoring."""
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.execution_case()])
+        plan["adapter"]["invocation"]["result_from_response"] = "data.count"
+        plan["capability_matrix"]["execution"] = {
+            "enabled": False, "blocked_by": "--layer routing"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0001", "actual.json"),
+                         {"scalar": 7})
+        self.assertEqual(
+            self.read("cases", "c-0001", "verdict.json")["layers"]["execution"],
+            {"layer": "execution", "verdict": "unscorable",
+             "blocked_by": "--layer routing"})
+
+    def test_an_unanswered_case_still_leaves_the_file_the_check_requires(self):
+        """The same file on the other path that never reaches the scorer: the
+        app failed every attempt. One such case made the whole run exit 6."""
+        self.app.server.responder = health_only(
+            lambda p, b, h: (500, {"message": "boom"}, {}))
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[self.execution_case()])
+        plan["adapter"]["invocation"]["result_from_response"] = "data.count"
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        actual = self.read("cases", "c-0001", "actual.json")
+        self.assertIs(actual["missing"], True)
+        self.assertIn("the app call failed", actual["reason"])
+        self.assertEqual(self.read("cases", "c-0001",
+                                   "verdict.json")["layers"]["execution"]
+                         ["verdict"], "infra_error")
+
     def test_no_declared_extraction_is_unscored_never_a_mismatch(self):
         """An unread result must never be scored as a mismatch: that
         manufactures a failure the app never had."""
