@@ -39,7 +39,8 @@ matrix key, or the runner's name for one: `answer`, `rules` and `judged` all
 mean `answer_quality`. `http` and `loops` have no matrix key (every case gets
 the first, a collected trace triggers the second), so nothing here switches
 them off and neither can be X. A canary that asserts only a disabled layer
-rolls up `unscored`, so the run reports it as not passed.
+rolls up `unscored`; stderr and the summary's `notes` name each one, because
+gate.py will report the harness as not verified by it.
 
 Exit 0 and the plan on stdout, or with -o a one-object summary naming the run
 id, the --out directory and the exact runner command. Exit 2 on bad input
@@ -68,6 +69,7 @@ from _common import (
     load_object,
     write_output,
 )
+from validate_cases import asserted_layers
 
 # mode -> (selecting_split, default k, gate)
 MODES = {
@@ -337,6 +339,31 @@ def main():
         matrix = {name: body if name == keep else
                   {"enabled": False, "blocked_by": f"--layer {a.layer}"}
                   for name, body in matrix.items()}
+        # A canary verifies the harness through whatever it asserts. One that
+        # asserts only layers this flag just disabled rolls up `unscored`:
+        # gate.py then reports it NOT VERIFIED, and --require-canaries closes
+        # on it. True of the plan, so said here rather than found at the gate.
+        live = {name for name, body in matrix.items()
+                if not (isinstance(body, dict) and body.get("enabled") is False)}
+        unverified = []
+        for case in cases:
+            expect = case.get("expect")
+            # The linter's own notion of "asserts something" (`http` is
+            # liveness and counts for nothing there either).
+            asserted = asserted_layers(expect) \
+                if isinstance(expect, dict) else set()
+            if "canary" in case["split"] and isinstance(case.get("id"), str) \
+                    and asserted and not asserted & live:
+                unverified.append(case["id"])
+        unverified.sort()
+        if unverified:
+            note = ("--layer {} leaves canary {} with no enabled layer: "
+                    "unscored on this run, so gate.py will report the harness "
+                    "as not verified by {}".format(
+                        a.layer, ", ".join(unverified),
+                        "it" if len(unverified) == 1 else "them"))
+            print(note, file=sys.stderr)
+            notes.append(note)
 
     ledger = a.holdout_ledger
     if ledger is None and split == "holdout":

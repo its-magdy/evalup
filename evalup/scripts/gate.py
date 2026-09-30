@@ -35,7 +35,20 @@ The gate closes when any of these holds:
     being audited, so its own `missing_artifacts: []` is not evidence: the
     verdicts are recounted from cases/*/verdict.json. --no-verify skips this
     for a results.json shipped without its run directory, and the summary says
-    so.
+    so;
+  - --require-canaries was passed and the harness was not verified: a canary
+    did not pass, or the run carries none.
+
+Canaries close nothing by default, deliberately. A canary that scored `fail`
+already aborted the run (exit 4, status aborted_canary), which the first rule
+closes on. One that never reached a verdict -- the provider dropped its call,
+its only layer was disabled by `--layer X` -- says nothing about drift, sits
+outside infra_rate, and closing on it would close on provider noise; and
+"0/1 closes" beside "no canaries at all opens" is not a rule. So the summary
+says how many were NOT VERIFIED, and --require-canaries is the strict form
+for a release gate: no verified canary, no pass. (A holdout run selects the
+`holdout` split, and canaries normally live in `smoke`/`full`: expect the
+flag to close a holdout gate.)
 
 `--latest` takes a reports/ directory and picks the newest run by the
 TIMESTAMP SEGMENT of its run id (<mode>-<YYYYMMDDTHHMMSSZ>), never by mtime,
@@ -44,7 +57,8 @@ narrows it, because the newest run is often a smoke and the gate wants the
 regression.
 
 Usage:
-  gate.py <reports/<run-id>> [--max-infra-rate 0.05] [--no-verify] [--json]
+  gate.py <reports/<run-id>> [--max-infra-rate 0.05] [--require-canaries]
+          [--no-verify] [--json]
   gate.py <reports/> --latest [--mode regression] [--json]
 """
 import argparse
@@ -87,6 +101,11 @@ OPTIONAL_COUNTS = ("unscored", "skipped", "scorer_errors", "repeated_5xx")
 def count(summary, key):
     value = summary.get(key)
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def is_count(value):
+    return isinstance(value, int) and not isinstance(value, bool) \
+        and value >= 0
 
 
 def malformed_counts(summary):
@@ -149,7 +168,7 @@ def gating_rows(results, limit=5):
     return named[:limit] + ([f"and {more} more"] if more > 0 else [])
 
 
-def evaluate(results, max_infra_rate):
+def evaluate(results, max_infra_rate, require_canaries=False):
     """(reasons, facts). An empty `reasons` is an open gate."""
     summary = results.get("summary")
     if not isinstance(summary, dict):
@@ -190,6 +209,24 @@ def evaluate(results, max_infra_rate):
                 count(summary, "skipped"), count(summary, "unscored"),
                 count(summary, "n")))
 
+    canaries = summary.get("canaries")
+    if require_canaries:
+        # Open only on 0 < passed == n, both real counts. Anything else --
+        # absent, malformed, negative, passed > n -- is the closed reading:
+        # nothing here verified the harness.
+        block = canaries if isinstance(canaries, dict) else {}
+        total, passed = block.get("n"), block.get("passed")
+        why = None
+        if canaries is None or (total == 0 and passed == 0
+                                and is_count(total) and is_count(passed)):
+            why = "the run carries no canary"
+        elif not (is_count(total) and is_count(passed) and passed <= total):
+            why = f"summary.canaries is {canaries!r}, not a pair of counts"
+        elif passed < total:
+            why = f"{passed}/{total} canaries passed"
+        if why:
+            reasons.append(f"harness not verified (--require-canaries): {why}")
+
     facts = {
         "run_id": results.get("run_id"), "mode": results.get("mode"),
         "status": status, "n": count(summary, "n"),
@@ -204,7 +241,8 @@ def evaluate(results, max_infra_rate):
         "scorer_errors": count(summary, "scorer_errors"),
         "unscorable_layers": summary.get("unscorable_layers") or [],
         "unjudged": summary.get("unjudged"),
-        "canaries": summary.get("canaries"), "holdout": holdout,
+        "canaries": canaries, "require_canaries": require_canaries,
+        "holdout": holdout,
     }
     return reasons, facts
 
@@ -250,7 +288,19 @@ def render(facts, reasons):
             f"-- {where}")
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):
-        lines.append(f"  canaries {canaries.get('passed')}/{canaries.get('n')}")
+        passed, total = canaries.get("passed"), canaries.get("n")
+        line = f"  canaries {passed}/{total} pass"
+        if facts["status"] == "ok" and facts["verify_clean"] \
+                and is_count(passed) and is_count(total) and passed < total:
+            # A bare "0/1" read as a failed canary, and in a run that
+            # finished it never is one: a canary `fail` aborts, and --verify
+            # refuses `ok` beside one. That second half is why the claim is
+            # made only over a run directory that just verified -- under
+            # --no-verify, or beside a verify failure, the counts stand alone.
+            line += (f"; {total - passed} NOT VERIFIED (infra, unscored or "
+                     "skipped -- no verdict either way; a canary `fail` "
+                     "aborts the run)")
+        lines.append(line)
     holdout = facts["holdout"]
     if isinstance(holdout, dict):
         # Over the SCORED holdout cases when the run records failures
@@ -290,6 +340,11 @@ def main():
     ap.add_argument("--max-infra-rate", type=float, default=0.05,
                     help="close the gate above this infra_rate "
                          "(default: %(default)s)")
+    ap.add_argument("--require-canaries", action="store_true",
+                    help="also close the gate when the harness was not "
+                         "verified: a canary did not pass, or the run has "
+                         "none (for a release gate; a holdout run normally "
+                         "has none)")
     ap.add_argument("--no-verify", action="store_true",
                     help="skip run_cases.py --verify over the run directory "
                          "(for a results.json shipped without its cases/); "
@@ -308,10 +363,12 @@ def main():
         die(f"bad input: {run_dir}: holds no results.json -- a run directory is "
             "reports/<run-id>; pass --latest to gate the newest run under a "
             "reports/ directory")
-    reasons, facts = evaluate(load_object(results_path), a.max_infra_rate)
-    if not a.no_verify:
-        reasons.extend(verify_reasons(run_dir))
+    reasons, facts = evaluate(load_object(results_path), a.max_infra_rate,
+                              a.require_canaries)
+    problems = [] if a.no_verify else verify_reasons(run_dir)
+    reasons.extend(problems)
     facts["verified"] = not a.no_verify
+    facts["verify_clean"] = facts["verified"] and not problems
     if a.json:
         print(json.dumps(dict(facts, gate="closed" if reasons else "open",
                               reasons=reasons), ensure_ascii=False))

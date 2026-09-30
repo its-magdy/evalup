@@ -94,8 +94,9 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `unscorable` with `blocked_by: "--layer X"`, never `pass`; X is a matrix key
   or a report row's name — `answer`, `rules` and `judged` all mean
   `answer_quality` — and `http` and `loops` have no matrix key, so they still
-  run; a canary that asserts only a disabled layer reads `unscored`, so the
-  gate line shows it as not passed). `scoring.oos_route` comes from the
+  run; a canary that asserts only a disabled layer reads `unscored` —
+  `make_plan.py` names each in `notes`, and the gate line counts it NOT
+  VERIFIED, which is not a failure). `scoring.oos_route` comes from the
   profile's `oos_handling: route:<name>`; pass `--oos-route <name>` when the
   app's out-of-scope route is declared any other way, or OOS metrics go
   unreported. `--filter-failing` is `--failing-in reports/<last comparable
@@ -156,7 +157,7 @@ code, not to "non-zero".
 | 1 | Internal error. | Harness bug; report the traceback, don't retry blind. |
 | 2 | Bad plan or usage. **Nothing was written.** | Fix the plan, re-run. Free. |
 | 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. A missing env var (`missing_env` names each) cannot be fixed in-session — an `export` does not outlive its Bash call and `source … &&` breaks the shell rule: ask the user to export them before launching `claude`, or to put them under `env` in `.claude/settings.local.json` (read however `claude` was launched, and applied to a running session when the file is saved). Never write a value into a file yourself. |
-| 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. |
+| 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. `--resume` exits 4 again: fix the drift, then start a new run id. |
 | 5 | Infra rate above `infra_rate_abort` (plan default 0.25). | The service is degraded. Re-run when healthy; never report the partial pass rate. |
 | 6 | Completeness check failed: **a required artifact is missing or inconsistent**. | Read `summary.missing_artifacts`. Not quotable, not a baseline. `--resume` or re-run; never write a report over it. |
 | 7 | A scorer exited 2: artifacts complete, **numbers not**. | Read `summary.scorer_errors` and the `error` layers, fix the malformed `expect` or scorer input, re-score. Report anyway only while naming the layers left unscored. |
@@ -274,7 +275,12 @@ path**: it produces the run, then a separate tokenless step —
 summary and exits 0 open / 1 closed. Run it after every interactive run too:
 it is the fastest honest summary, and the runner's own exit 0 says nothing
 about pass/fail (§3). Its `--max-infra-rate` (0.05) is stricter than the
-plan's abort (0.25) by design — §3 says what to do on a throttled provider. That step, the
+plan's abort (0.25) by design — §3 says what to do on a throttled provider.
+Its canary line reads `canaries 1/2 pass; 1 NOT VERIFIED` when a canary got
+no verdict (infra, or a layer `--layer` disabled): report that as "the
+harness was not verified by that canary", never as a canary failure — a
+failed canary is exit 4. `--require-canaries` closes the gate on it, for a
+release pipeline. That step, the
 `claude -p ... --bare --plugin-dir` invocation, and the two checks that must
 precede trusting either — the session's exit code with `result.is_error`,
 then `system/init`'s plugin load:

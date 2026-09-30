@@ -94,6 +94,54 @@ class TestGate(TempDirTest):
                        self.write_run(status="aborted_infra", exit_code=5))
         self.assertEqual(rc, 1)
 
+    def test_unverified_counts_make_no_claim_about_a_canary(self):
+        """A canary short of a pass does not close the gate: with no verdict
+        it is provider noise or a disabled layer, not drift. But "NOT
+        VERIFIED" is a claim that it did not FAIL, and that rests on --verify
+        having refused `ok` beside a failed canary -- so under --no-verify,
+        and on an aborted run, the counts stand alone. (The verified half is
+        TestCanariesAndRepeats in test_run_cases.py: it needs a real run.)"""
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+            canaries={"n": 2, "passed": 1}))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("canaries 1/2 pass", out)
+        self.assertNotIn("NOT VERIFIED", out)
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+            status="aborted_canary", exit_code=4,
+            canaries={"n": 1, "passed": 0}))
+        self.assertEqual(rc, 1)
+        self.assertIn("canaries 0/1 pass", out)
+        self.assertNotIn("NOT VERIFIED", out)
+
+    def test_require_canaries_is_the_strict_form(self):
+        """No verified canary, no pass -- opt-in, because a suite may
+        legitimately have none and a holdout run never does."""
+        for label, canaries, want in (
+                ("all passed", {"n": 2, "passed": 2}, 0),
+                ("one without a verdict", {"n": 2, "passed": 1}, 1),
+                ("none in the run", {"n": 0, "passed": 0}, 1),
+                ("no block at all", None, 1),
+                ("a count that is not one", {"n": "2", "passed": "2"}, 1),
+                ("a flag that is not one", {"n": True, "passed": True}, 1),
+                ("negative counts", {"n": -1, "passed": -1}, 1),
+                ("more passed than ran", {"n": 1, "passed": 2}, 1)):
+            with self.subTest(label):
+                path = self.write_run(canaries=canaries)
+                rc, out, err = run("gate.py", "--no-verify", path)
+                self.assertEqual(rc, 0, out)
+                self.assertNotIn("Traceback", err)
+                rc, out, err = run("gate.py", "--no-verify",
+                                   "--require-canaries", path)
+                self.assertEqual(rc, want, out)
+                self.assertNotIn("Traceback", err)
+                if want:
+                    self.assertIn("gate closed: harness not verified", out)
+        # --json says whether the strict form was applied: an open gate reads
+        # differently with and without it.
+        rc, out, _ = run("gate.py", "--no-verify", "--json",
+                         "--require-canaries", self.write_run())
+        self.assertIs(json.loads(out)["require_canaries"], True)
+
     def test_the_infra_threshold_is_a_flag(self):
         path = self.write_run(infra_rate=0.2)
         self.assertEqual(run("gate.py", "--no-verify", path)[0], 1)
@@ -438,6 +486,44 @@ class TestMakePlan(TempDirTest):
                         self.assertEqual(
                             body, {"enabled": False,
                                    "blocked_by": f"--layer {spelling}"})
+
+    def test_layer_names_the_canary_it_leaves_unscored(self):
+        """A canary that asserts only a layer --layer just disabled rolls up
+        `unscored`, and gate.py then reports the harness as not verified. It
+        is a fact about the plan, so the plan step says it."""
+        def one_canary(cases):
+            cases[0]["split"] = ["smoke", "full", "canary"]
+            cases[0]["expect"] = {"http": {"status": 200},
+                                  "answer": {"must_contain": ["x"]}}
+        converted = self.with_cases(one_canary)
+        canary_id = json.loads(
+            pathlib.Path(converted).read_text("utf-8"))["cases"][0]["id"]
+        plan_path = str(self.tmp / "plan.json")
+        rc, out, err = run("make_plan.py", converted, "--state-dir",
+                           str(self.state), "--mode", "smoke", "--layer",
+                           "routing", "-o", plan_path)
+        self.assertEqual(rc, 0, out + err)
+        notes = json.loads(out)["notes"]
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn(f"leaves canary {canary_id} with no enabled layer",
+                      notes[0])
+        self.assertIn(notes[0], err)
+        # Kept: the canary's own layer is the one that stays on.
+        rc, out, err = run("make_plan.py", converted, "--state-dir",
+                           str(self.state), "--mode", "smoke", "--layer",
+                           "answer", "-o", plan_path)
+        self.assertEqual((rc, json.loads(out)["notes"], err), (0, [], ""))
+
+        # "Asserts" is the linter's notion: an empty `answer: {}` asserts
+        # nothing, so this canary rests on routing alone.
+        def empty_answer(cases):
+            one_canary(cases)
+            cases[0]["expect"] = {"route": "billing", "answer": {}}
+        rc, out, err = run("make_plan.py", self.with_cases(empty_answer),
+                           "--state-dir", str(self.state), "--mode", "smoke",
+                           "--layer", "answer", "-o", plan_path)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(len(json.loads(out)["notes"]), 1, out)
 
     def test_what_it_refuses(self):
         def no_smoke(cases):

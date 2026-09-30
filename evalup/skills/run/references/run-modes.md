@@ -214,6 +214,10 @@ python3 "$EVALUP_ROOT/scripts/gate.py" reports/ --latest --mode regression \
 `gate.py` lists **every** reason it closed; the docstring at the top of
 `${CLAUDE_PLUGIN_ROOT}/scripts/gate.py` owns the list of closing conditions (a gating failure is one; so are an aborted run, a run that
 scored nothing, and a run directory that fails `run_cases.py --verify`).
+Canaries close nothing by default — a canary `fail` already aborted the run,
+and one that reached no verdict is printed as NOT VERIFIED — so a release
+pipeline that wants "no verified canary, no pass" adds `--require-canaries`
+(expect it to close a holdout gate: canaries normally live in `smoke`/`full`).
 `--json` prints the same facts for a dashboard. Deterministic-only CI needs no
 `claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
 `gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
