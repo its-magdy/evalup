@@ -327,10 +327,10 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-791 passed and 8 skipped; add `--with pyyaml` to run the skipped eight.
+851 passed and 9 skipped; add `--with pyyaml` to run the skipped nine.
 
-`.github/workflows/ci.yml` has never run: the repository has no remote. These
-local commands are the only checked claim.
+`.github/workflows/ci.yml` runs the same checks on Linux (3.9/3.11/3.13) on
+every push.
 
 ---
 

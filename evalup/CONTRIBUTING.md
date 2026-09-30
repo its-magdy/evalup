@@ -79,10 +79,9 @@ a supported interpreter and check the floor with `uv`, which fetches a real 3.9
 without making you install an end-of-life one. The file says so in a comment.
 
 `.github/workflows/ci.yml` runs all three depths plus a `--help` check on a
-real 3.9/3.11/3.13 matrix — **but it has never executed.** This repository has
-no git remote, so nothing has ever evaluated that file; it is a specification
-parked for the day one is added, and its header says so. Until then the
-commands above are the only checked claim.
+real 3.9/3.11/3.13 matrix on every push to github.com/its-magdy/evalup (first
+run 2026-09-30). Run the commands above anyway: CI checks what was pushed, and
+it is Linux-only.
 
 ## Rules that look arbitrary and are not
 
@@ -209,8 +208,8 @@ committed and its run is NOT: edit any YAML there and you must regenerate
 `converted.json` (the one-liner is in its README) or a test fails.
 `validate_cases.py --strict` over it must stay at **0 errors and 0 warnings**.
 
-## CI has never run
+## CI
 
-`.github/workflows/ci.yml` (repo root) has no remote to run on, so it is a
-*specification* — its own header says so. The three commands above are the only
-checked claim. **Never report CI as green.**
+`.github/workflows/ci.yml` (repo root) runs on every push since 2026-09-30.
+**Never report CI as green without reading the run** (`gh run list`,
+`gh run view`) for the commit in question.

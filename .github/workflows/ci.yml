@@ -1,19 +1,11 @@
-# STATUS: SPECIFICATION. This workflow has never executed.
+# The executable form of README.md "Requirements": the local command set in
+# evalup/CONTRIBUTING.md on a real 3.9/3.11/3.13 matrix, so the floor policy
+# lives somewhere a machine acts on rather than only in prose.
 #
-# As of 2026-09-21 this repository has no git remote -- `git remote -v` is
-# empty -- so GitHub Actions has never seen this file. Nothing here is
-# evidence that anything passes. It is the executable form of
-# README.md "Requirements", parked so that adding a remote makes the checks
-# start running unchanged, and so the floor policy lives somewhere a machine
-# can act on rather than only in prose.
-#
-# What IS checked today is the local command set in evalup/CONTRIBUTING.md. Run
-# those. Do not cite a green badge; there is no badge.
-#
-# Every step below was run by hand on macOS on 2026-09-10 before this file was
-# committed, so the commands themselves are known-good; what is unverified is
-# the YAML around them (runner images, action versions, the matrix wiring).
-# Expect to debug that once, on the first real push.
+# Written 2026-09-10 as a specification, with no remote to run on. It first
+# ran on the 2026-09-30 push to github.com/its-magdy/evalup: every job passed
+# except cli-help, whose CLI count had gone stale (below). A green run is
+# evidence only for the commit it ran on -- read the run, not a badge.
 
 name: ci
 
@@ -125,7 +117,8 @@ jobs:
             n=$((n + 1))
           done
           echo "checked $n CLIs"
-          [ "$n" -eq 20 ] || {
-            echo "expected 20 CLIs, found $n -- update this count and say why" >&2
+          # 21: wait_run.py joined on 2026-09-25 (field test fix C1).
+          [ "$n" -eq 21 ] || {
+            echo "expected 21 CLIs, found $n -- update this count and say why" >&2
             exit 1
           }
