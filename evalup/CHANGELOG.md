@@ -609,6 +609,18 @@ round-2 user test. Answering it found a runner defect first.
   layer**, on stderr and in the summary's `notes`: that canary will read
   `unscored` and the gate will count it not verified.
 
+### Fixed — the 2026-09-30 security review
+
+- **XSS in `md_to_html.py` through a code span used as a link URL.**
+  ``[t](`" onfocus="alert(1)" autofocus x="`)`` rendered a live event handler:
+  code spans are stashed before links are parsed, so `safe_href` checked only
+  the placeholder, and the unstash put the span's raw quotes inside
+  `href="..."`. A URL holding a code span now stays literal text; code-span
+  quotes are escaped; and the page carries a CSP that allows no script
+  (`default-src 'none'; style-src 'unsafe-inline'`). Reachable from an app
+  answer quoted into `report.md`. The rest of the whole-plugin review came
+  back clean.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

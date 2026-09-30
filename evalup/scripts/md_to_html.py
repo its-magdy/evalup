@@ -127,10 +127,18 @@ def render_inline(text):
     stashed = []
 
     def stash_code(m):
-        stashed.append(f"<code>{m.group(1)}</code>")
+        # Quotes too: a stashed span must be safe in any context it lands in.
+        code = m.group(1).replace('"', "&quot;").replace("'", "&#39;")
+        stashed.append(f"<code>{code}</code>")
         return _STASH.format(len(stashed) - 1)
 
     def render_link(m):
+        # A code span as the URL (`[t](`...`)`) reaches safe_href as a bare
+        # placeholder, which passes every check, and the unstash below then
+        # drops the span's raw HTML inside href="..." -- a live attribute
+        # (2026-09-30 security review). A URL is never a code span: literal.
+        if _STASH_CHARS.search(m.group(2)):
+            return m.group(0)
         href = safe_href(m.group(2))
         if href is None:
             return m.group(0)  # leave the (already-escaped) [text](url) literal
@@ -337,6 +345,8 @@ PAGE_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'none'; style-src 'unsafe-inline'">
 <title>{title}</title>
 <style>
   :root {{ color-scheme: light dark; }}

@@ -175,6 +175,27 @@ class TestR4Regressions(MdToHtmlTest):
         self.assertNotIn(' onerror=', out)          # no separate live attribute
         self.assertIn("&quot;onerror", out)          # quote escaped inside href
 
+    def test_code_span_as_link_url_cannot_break_out_of_attribute(self):
+        # The code-span stash hid the URL from safe_href, and the unstash put
+        # the span's raw quotes inside href="..." (2026-09-30 security review).
+        for md in ('[d](`" autofocus onfocus="alert(1)" x="`)',
+                   '| a |\n| --- |\n| [x](`" onmouseover="alert(1)`) |\n',
+                   "[d](`' onfocus='alert(1)`)"):
+            with self.subTest(md=md):
+                out = self.render(md)
+                self.assertNotIn("<a ", out)
+                self.assertNotIn('" onfocus', out)
+                self.assertNotIn('" onmouseover', out)
+
+    def test_code_span_quotes_are_escaped(self):
+        out = self.render("""Say `"hi" it's` here.""")
+        self.assertIn("<code>&quot;hi&quot; it&#39;s</code>", out)
+
+    def test_page_forbids_script(self):
+        # Defence in depth: the page needs no script, so its CSP allows none.
+        out = self.render("x")
+        self.assertIn("default-src 'none'; style-src 'unsafe-inline'", out)
+
     def test_dangerous_scheme_link_is_not_a_link(self):
         out = self.render('[click](javascript:alert(1))')
         self.assertNotIn('<a href="javascript', out)
