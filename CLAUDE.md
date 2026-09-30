@@ -36,9 +36,10 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 
 - **`main`** holds everything: the remediation wave, the worked example, the
   rename, the doc cleanup, all four September audits' fixes, the 2026-09-24
-  prompt audit and its follow-ups, the 2026-09-24 field-test fixes, and the
-  2026-09-25 user-test fixes (`evalup/CHANGELOG.md` lists both waves;
-  fast-forwarded 2026-09-25 and 2026-09-26). It is the only branch. Nothing
+  prompt audit and its follow-ups, the 2026-09-24 field-test fixes, the
+  2026-09-25 user-test fixes and the round-2 user-test fixes
+  (`evalup/CHANGELOG.md` lists all three waves; fast-forwarded 2026-09-25,
+  2026-09-26 and 2026-09-30). It is the only branch. Nothing
   is pushed; **there is still no remote**, so nothing here has ever been
   checked by CI.
 - **Health:** 819 tests pass on 3.14; 810 + 9 skips on the 3.9 floor (all 9
@@ -88,7 +89,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   **Left open by decision:** F-001 (`$ARGUMENTS` backticks, all seven skills),
   F-037 (headless open questions have no home), F-014/F-020/F-030 (friction).
 - **The 2026-09-26 user test, round 2** (fixed 2026-09-29 on branch
-  `usertest2-fixes`, NOT yet merged to `main`): 66 findings in
+  `usertest2-fixes`, fast-forwarded to `main` 2026-09-30 after 819 tests and
+  ruff passed): 66 findings in
   `~/Documents/Personal/Sandboxes/evalup-usertest-2/` (read-only; REPORT.md
   §2 ranks them). Each fix was reproduced or read in source first, then got an
   adversarial review; every group's review found real defects in the first
