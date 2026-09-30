@@ -60,7 +60,7 @@ evalup is not published yet. Install it from a clone.
 **Load it for one session:**
 
 ```bash
-git clone <this-repo> evalup-repo
+git clone https://github.com/its-magdy/evalup.git evalup-repo
 claude --plugin-dir ./evalup-repo/evalup
 ```
 
@@ -321,7 +321,7 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 799 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 860 tests, ~3 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
