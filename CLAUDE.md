@@ -27,89 +27,67 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 819 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 826 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 ## State
 
-- **`main`** holds everything: the remediation wave, the worked example, the
-  rename, the doc cleanup, all four September audits' fixes, the 2026-09-24
-  prompt audit and its follow-ups, the 2026-09-24 field-test fixes, the
-  2026-09-25 user-test fixes and the round-2 user-test fixes
-  (`evalup/CHANGELOG.md` lists all three waves; fast-forwarded 2026-09-25,
-  2026-09-26 and 2026-09-30). It is the only branch. Nothing
-  is pushed; **there is still no remote**, so nothing here has ever been
-  checked by CI.
-- **Health:** 819 tests pass on 3.14; 810 + 9 skips on the 3.9 floor (all 9
-  skips need PyYAML: 819 pass with `--with pyyaml`), ruff clean, 21 CLIs
-  answer `--help`, `claude plugin validate` clean for the plugin and the
-  root marketplace. Tests, ruff and the 3.9 floor re-verified 2026-09-26 on
-  `main` after the merge.
-- **A live session works**, re-run twice 2026-09-21 after `make_plan.py`:
-  headless `/evalup:start` on an unseen toy app reached a scored run in 4.5 min
-  (was 14), 3/3 planted flaws found, no script failures. That run needed
-  `--dangerously-skip-permissions`; after the permission fixes (uncommitted) a
-  second run completed under `--permission-mode acceptEdits` + `Bash(curl *)`
-  alone, 4 harmless denials. **Known limit, by platform design:** a skill's
-  pre-approvals last one turn, so a headless `--resume` turn is denied — put
-  the whole request in one prompt (README §Permissions). Toy app, single
-  samples; not yet tried on a real LLM app.
-- **The 2026-09-24 field test** (fixed on `fieldtest-fixes`, merged 2026-09-25): a
-  first run on a real ASP.NET Core app with five planted flaws, nine headless
-  sessions. Runs surfaced 3/5 flaws; headless `run` orphaned its runner twice
-  (background shell killed at turn end), 48 permission denials, `help`
-  promised Jaeger unlocks tool-use layers, generate never read discover's
-  findings, a headless suite ended with nothing gating unsaid. Eleven fixes,
-  one commit each plus one follow-up from the live proof session (C1–C11; `evalup/CHANGELOG.md` "the 2026-09-24 field
-  test"): `wait_run.py`, the README permission recipe, app-path scoping,
-  `--insecure-tls`, the out-of-tree state offer, the CI-gate recipe's first
-  check, the traces claim, findings as a grid input, `nothing_gates`, and
-  two doc-only items. Five eval cases live in `evalup/evals/`; the three
-  app-bound ones need a Bash-granting sandbox, which this machine refuses
-  (symlinks inside `~/.docker`; `DOCKER_CONFIG` does not bypass it), so they
-  were proven by two live `claude -p` sessions instead: a full first session
-  ($5.58, 13.6 min) and a slow smoke run that crossed the ten-minute cap and
-  came back through `wait_run.py` ($1.79, 16 min). C5 took three
-  placements and three more sessions (~$5 each): the out-of-tree statement
-  finally appears, but in the closing summary, never before the first write
-  — headless that is the same information, so it was left there. Later
-  sessions had 0 denials. The field-test folder is untouched.
-- **The 2026-09-25 user test** (fixed and merged 2026-09-26, 19 commits, one
-  per finding): a separate session ran evalup as a first-time user on RefApp
-  (trace-less, Gemma on Google's free tier) and wrote 42 findings to
-  `~/Documents/Personal/Sandboxes/evalup-usertest/` (read-only; REPORT.md §2 is
-  the ranked list). Nine confirmed as written, four confirmed but fixed another
-  way because the proposed fix crossed the runner freeze (canaries, the routing
-  wildcard, ordered answer templates, PASS→OPEN), two not reproduced (the .NET
-  adapter doc exists at `skills/discover/references/adapters/dotnet.md`), the
-  rest by design. `evalup/CHANGELOG.md` "the 2026-09-25 user test" lists the
-  fixes; `evalup/docs/traces-jaeger.md` is the Jaeger design note (not built).
-  **Left open by decision:** F-001 (`$ARGUMENTS` backticks, all seven skills),
-  F-037 (headless open questions have no home), F-014/F-020/F-030 (friction).
-- **The 2026-09-26 user test, round 2** (fixed 2026-09-29 on branch
-  `usertest2-fixes`, fast-forwarded to `main` 2026-09-30 after 819 tests and
-  ruff passed): 66 findings in
-  `~/Documents/Personal/Sandboxes/evalup-usertest-2/` (read-only; REPORT.md
-  §2 ranks them). Each fix was reproduced or read in source first, then got an
-  adversarial review; every group's review found real defects in the first
-  version. Two runner bugs gave wrong numbers: the k>1 fold let
-  `[pass, infra_error]` read `pass` (order-dependent; F-158), and counts used
-  four denominators (F-122/F-135/F-161; the contract §10 now has one counts
-  table). An app's own 5xx stays `infra_error` by decision — its body was
-  byte-identical to a provider outage's — but a same-5xx-every-attempt case
-  is flagged (`repeated_5xx`, F-165). Declined as freeze-crossing:
-  `--env-file` (F-159), `redact.py` (F-162), a probe script (F-103),
-  scorer-side routing notes (F-123/F-140/F-141); deferred: the validator's
-  profile-name check (F-155). F-166 (`wait_run.py` overran the 600 s cap):
-  not changed — a reviewer's reading, not the tester's, is that the script
-  cannot overrun on its own and macOS sleep stops its clock. Not addressed:
-  F-106, F-125 (friction), F-129 (the bench's agents), F-133, F-144, F-147,
-  F-149 (nits). `evalup/CHANGELOG.md` "the 2026-09-26 user test (round 2)"
-  lists every change. **Open for the owner:** a canary with an infra repeat
-  now reads "canaries 0/1", but only a canary `fail` aborts a run and
-  `gate.py` does not close on it.
+- **Branches.** `main` holds everything through the round-2 user-test fixes
+  (fast-forwarded 2026-09-30). `layer-names-and-rates` (2026-09-30, **not
+  merged**) adds the refactor review's three fixes. Nothing is pushed;
+  **there is still no remote**, so nothing here has ever been checked by CI.
+- **Health** (`layer-names-and-rates`, 2026-09-30): 826 tests pass on 3.14;
+  817 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 826 pass with
+  `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
+  validate` clean for the plugin and the root marketplace.
+- **What live sessions have shown.** Headless `/evalup:start` reaches a scored
+  run on an unseen toy app (4.5 min, 3/3 planted flaws) and on a real ASP.NET
+  Core app (3/5 planted flaws); two first-time-user rounds ran on RefApp
+  (trace-less, Gemma on Google's free tier). **Known limit, by platform
+  design:** a skill's pre-approvals last one turn, so a headless `--resume`
+  turn is denied — put the whole request in one prompt (README §Permissions).
+  A headless `run` that outlives its turn comes back through `wait_run.py`.
+- **`claude plugin eval`:** five cases in `evalup/evals/`. The three app-bound
+  ones need a Bash-granting sandbox, which this machine refuses (symlinks
+  inside `~/.docker`; `DOCKER_CONFIG` does not bypass it); they were proven by
+  live `claude -p` sessions instead.
+- **Where the evidence is.** `evalup/CHANGELOG.md` has one section per wave
+  (four September audits, the field test, two user tests, the refactor
+  review) saying what was fixed and why. The user tests' findings are in
+  `~/Documents/Personal/Sandboxes/evalup-usertest/` (42) and
+  `evalup-usertest-2/` (66) — **read-only**; each REPORT.md §2 is the ranked
+  list. The field-test folder is untouched. `evalup/docs/traces-jaeger.md` is
+  the Jaeger design note (not built).
+- **Decided — do not re-propose:**
+  - An app's own 5xx stays `infra_error`: its body was byte-identical to a
+    provider outage's. A same-5xx-every-attempt case is flagged instead
+    (`repeated_5xx`, F-165).
+  - Declined as freeze-crossing: `--env-file` (F-159), `redact.py` (F-162), a
+    probe script (F-103), scorer-side routing notes (F-123/F-140/F-141).
+  - The capability matrix keeps the key `answer_quality`; the runner
+    translates (`_common.MATRIX_KEY_OF_LAYER`). Renaming it to `answer` would
+    break every profile and split `run_history.py`'s series key.
+  - `--verify` recounts from disk with its own code; only the `infra_rate`
+    definition is shared (`_common.infra_rate`).
+  - F-166 (`wait_run.py` overran the 600 s cap) was not changed: a reviewer's
+    reading, not the tester's, is that the script cannot overrun on its own
+    and macOS sleep stops its clock.
+  - The out-of-tree state statement appears in the closing summary, never
+    before the first write; headless that is the same information.
+  - Left open: F-001 (`$ARGUMENTS` backticks, all seven skills), F-037
+    (headless open questions have no home), F-014/F-020/F-030, F-106, F-125
+    (friction), F-129 (the bench's agents), F-133, F-144, F-147, F-149
+    (nits). Deferred: the validator's profile-name check (F-155).
+- **Open for the owner:**
+  - A canary with an infra repeat reads "canaries 0/1", but only a canary
+    `fail` aborts a run and `gate.py` does not close on it. Same reading
+    under `--layer X` for a canary that asserts only a disabled layer: it
+    rolls up `unscored`, and can no longer abort that run.
+  - A profile that disables `state` in the matrix (the schema's default)
+    gets a `state` row of `unscorable`; contract §5 says `unscored` "on
+    every path". Both are non-pass, so nothing is mis-scored.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.

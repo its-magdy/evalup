@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-819 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
+826 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
 real HTTP server per test, and one test kills a runner mid-run.
 
 ```sh
@@ -31,9 +31,9 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 810 passed, 9 skipped, 259 subtests.
+whatever `python3` happens to be. Expect 817 passed, 9 skipped, 265 subtests.
 All nine skips need PyYAML (eight are `convert_suite.py`'s, one is the
-example's fidelity check); add `--with pyyaml` and they run (819 passed, none
+example's fidelity check); add `--with pyyaml` and they run (826 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -139,6 +139,14 @@ commands above are the only checked claim.
 - **The holdout ledger is a `.jsonl` sidecar** (`paths.holdout_ledger`), never
   the YAML metadata a stdlib-only runner would corrupt, and its total is a LINE
   COUNT.
+- **The matrix says `answer_quality`; the runner's rows are `answer`, `rules`
+  and `judged`.** `_common.MATRIX_KEY_OF_LAYER` is the one translation, used
+  by the runner's lookup and by `make_plan.py --layer`. `http` and `loops`
+  map to `None`: no matrix key switches them off. A new layer row owes an
+  entry there (a test diffs the map against `LAYER_ORDER`).
+- **`actual.json` is written for every sent case carrying `expect.result`**,
+  live `execution` layer or not — contract §9(b) requires it on exactly that
+  condition, and a path that skips it ends the run with exit 6.
 - **`__oos__` is `score_routing.py`'s internal label**, never a data value;
   `--oos-route` maps a profile's route onto it.
 - **The scorers' error contract puts errors on STDOUT** as JSON with exit 2

@@ -506,6 +506,47 @@ change; fixes below are bugfixes inside the runner freeze.
   canary, which the runner never lets gate; `gate.py`'s holdout line divides
   by the scored holdout cases.
 
+### Fixed — the 2026-09-30 refactor review
+
+A review asking what was worth refactoring found little, and two runner
+defects at one seam: between the capability matrix's names and the runner's.
+Both were reproduced before a change and are bugfixes inside the runner
+freeze.
+
+- **`answer_quality: {enabled: false}` disabled nothing.** The matrix, the
+  linter and every profile say `answer_quality`; the runner scores that one
+  capability as three rows (`answer`, `rules`, `judged`) and looked each up
+  under its own name. So the documented key switched nothing off — which is
+  what `make_plan.py --layer X` writes for every other layer — and the answer
+  layer went on deciding cases the linter had already called ungraded.
+  `_common.MATRIX_KEY_OF_LAYER` is now the one translation: the runner's
+  lookup goes through it, and `--layer` accepts a report row's name
+  (`--layer answer` used to die as "not in the capability matrix"). `http`
+  and `loops` have no matrix key and are never switched off; `--layer http`
+  says so. Two consequences of the key now working: with `answer_quality`
+  off, `rules` and `judged` read `unscorable` rather than `unscored` /
+  `unjudged (…)`, and a canary asserting only a disabled layer rolls up
+  `unscored` — under `--layer X` the gate line can read "canaries 0/n". Contract §5 said "looked up under the layer's own name" beside an
+  example matrix keyed `answer_quality`; it now states the map.
+- **A run exited 6 over an `actual.json` nothing wrote.** §9(b) requires the
+  file of every sent case carrying `expect.result`, and the runner wrote it
+  only for a live `execution` layer. One execution case whose app call failed
+  every attempt, or any plan with `execution` disabled — so every `--layer X`
+  plan over a suite with result cases, the shipped example included — ended
+  "incomplete". The file is now written on both paths: the extracted result
+  under a disabled layer, `{"missing": true, "reason": …}` naming the
+  failure when the app call failed (contract §5.3). `--resume` does not
+  repair a run that ended this way on the old code — adopted case
+  directories are not rewritten — so re-run it. Found by a test that joins
+  `make_plan.py --layer routing` to a real run of the example; each half had
+  been tested and the seam had not.
+- **`infra_rate` has one definition.** The runner's summary, its `--verify`
+  recount and `run_history.py` each carried "infra ÷ (`n` − `skipped`)", and
+  the one time it changed (F-161) it changed in three places.
+  `_common.infra_rate` is that definition; precision stays the caller's
+  (4 places in `results.json`, 6 in a history series like its other ratios).
+  No number changes.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
