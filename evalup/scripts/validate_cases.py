@@ -150,8 +150,9 @@ LAYER_OF_EXPECT = {
 # is the sentence the per-case WARN explains itself with.
 RESERVED_EXPECT = {
     "state": "no state-diff scorer exists in the harness; run_cases.py "
-             "never compares environment snapshots and records the state "
-             "layer unscored on every path",
+             "never compares environment snapshots, so the state layer is "
+             "never scored (`unscored`, or `unscorable` when the matrix "
+             "disables `state`)",
 }
 LAYERS = ("routing", "tool_selection", "trajectory", "execution", "authz",
           "answer_quality")

@@ -282,7 +282,7 @@ it is **enabled** iff its capability-matrix entry's `enabled` is not `false`
 | `execution` | `expect.result` | `score_execution.py` | `actual.json expect.json [--float-tolerance F]` | `actual.json` per §5.3 |
 | `authz` | `expect.authz` | `score_authz.py` | `trajectory.json expect.json [--answer answer.txt] [--id-pattern P]` | `trajectory.json`, `expect.json`, `answer.txt` |
 | `rules` | `expect.answer.rules` | *(no script)* | — | `unscored`, `reason: "business rules are evaluated by the skill"` |
-| `state` | `expect.state` non-null | *(no script)* | — | `unscored`, `reason: "state-diff is RESERVED: no scorer compares environment snapshots, and the runner never invokes environment.seed/.reset/.snapshot_state"` — on **every** path, whatever the adapter declares; §5.4 |
+| `state` | `expect.state` non-null | *(no script)* | — | `unscored`, `reason: "state-diff is RESERVED: no scorer compares environment snapshots, and the runner never invokes environment.seed/.reset/.snapshot_state"` — on **every** path where the matrix leaves `state` enabled, whatever the adapter declares. The profile schema ships `state: {enabled: false}`, and a disabled row is `unscorable` with the matrix's own reserved reason first, like any other; §5.4 |
 | judged | `expect.answer.rubric` | *(no script)* | — | `unjudged (mode: <mode>)` for smoke/targeted; else `unjudged (judge not calibrated)` unless `judge.status == calibrated` **and** `paths.judge_calibration` backs it (§5.4), in which case `unjudged (deferred to skill)` |
 | `reliability` | `k > 1` | `reduce_repeats.py` | `repeats.jsonl [--k N]` | **run-level**, §5.5 |
 

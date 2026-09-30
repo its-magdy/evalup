@@ -546,6 +546,11 @@ freeze.
   `_common.infra_rate` is that definition; precision stays the caller's
   (4 places in `results.json`, 6 in a history series like its other ratios).
   No number changes.
+- **The contract said the `state` row is `unscored` "on every path"**, and
+  the profile schema ships `state: {enabled: false}`, which makes it
+  `unscorable` with the matrix's reserved reason — §5's own decision order.
+  Both are non-pass and the runner is unchanged; the §5 table and the
+  linter's reserved-field message now say what it does.
 
 ### Fixed — the 2026-09-21 shape audit
 

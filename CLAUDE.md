@@ -34,11 +34,10 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 
 ## State
 
-- **Branches.** `main` holds everything through the round-2 user-test fixes
-  (fast-forwarded 2026-09-30). `layer-names-and-rates` (2026-09-30, **not
-  merged**) adds the refactor review's three fixes. Nothing is pushed;
+- **`main`** holds everything, through the 2026-09-30 refactor review's fixes
+  (fast-forwarded that day). It is the only branch. Nothing is pushed;
   **there is still no remote**, so nothing here has ever been checked by CI.
-- **Health** (`layer-names-and-rates`, 2026-09-30): 826 tests pass on 3.14;
+- **Health** (2026-09-30): 826 tests pass on 3.14;
   817 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 826 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
@@ -85,9 +84,6 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
     `fail` aborts a run and `gate.py` does not close on it. Same reading
     under `--layer X` for a canary that asserts only a disabled layer: it
     rolls up `unscored`, and can no longer abort that run.
-  - A profile that disables `state` in the matrix (the schema's default)
-    gets a `state` row of `unscorable`; contract §5 says `unscored` "on
-    every path". Both are non-pass, so nothing is mis-scored.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
