@@ -16,8 +16,9 @@ documents named below, not here.
   five `claude plugin eval` cases in `evals/`.
 - **`EVAL-DESIGN-RECOMMENDATION.md`** + **`research/`** — why the plugin works
   the way it does. Authoritative for *direction*, not for current state.
-- **`.github/workflows/ci.yml`** — a specification. There is no remote, so **it
-  has never run. Never report CI as green.**
+- **`.github/workflows/ci.yml`** — first ran on the 2026-09-30 push; its
+  header warned the YAML would need one round of debugging. **Never report CI
+  as green without reading the run** (`gh run list`).
 
 ## Working on the plugin
 
@@ -34,10 +35,10 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 
 ## State
 
+- **Remote:** `git@github.com:its-magdy/evalup.git` (public), `main` only.
 - **`main`** holds everything, through the 2026-09-30 refactor review, code
-  review and canary work (all fast-forwarded that day). It is the only branch. Nothing
-  is pushed; **there is still no remote**, so nothing here has ever been
-  checked by CI.
+  review and canary work (all fast-forwarded that day). It is the only branch,
+  first pushed 2026-09-30.
 - **Health** (2026-09-30): 860 tests pass on 3.14;
   851 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 860 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
@@ -99,8 +100,12 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   runner, scorers, statistics or holdout — which is where evalup is alone.
   (`evalloop`/`evalview` exist only as tiny GitHub projects; an earlier note
   calling them marketplace plugins was never confirmed.)
-- **History was rewritten 2026-09-20** to carry a personal author email rather
-  than a work one. Every SHA therefore changed; SHAs quoted in commit messages
+- **History was rewritten 2026-09-30** before the first public push: every
+  commit is authored as `its-magdy` (GitHub noreply email, set repo-locally),
+  the reference app's real name, paths and ports became `RefApp` /
+  `/path/to/…`, and `field-test-qa/` was purged. Pre-rewrite state is in
+  `../evalup-backup-2026-09-30.bundle` (local only — never push it). An
+  earlier **rewrite 2026-09-20** replaced a work author email. Every SHA therefore changed; SHAs quoted in commit messages
   written before that date refer to the pre-rewrite history and will not
   resolve.
 
@@ -125,7 +130,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 
 The audit, the review, the build plan and the session handoff were deleted
 2026-09-20 once their work was closed — as was `field-test-qa/`, a 2026-07-18
-QA archive (`git show de9641a` has it). Code comments refer to "the 2026-09
+QA archive. It was then purged from history (below); only the local bundle
+`../evalup-backup-2026-09-30.bundle` still has it. Code comments refer to "the 2026-09
 audit" or "the 2026-08 review"; those are the commit history, not files. Don't
 recreate them as files. When a doc's job ends, delete it and let the commit
 messages carry the reasoning.
