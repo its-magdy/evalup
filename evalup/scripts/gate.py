@@ -21,7 +21,8 @@ The gate closes when any of these holds:
   - summary.status is not "ok", or results.json's own exit_code is not 0
     (an aborted, incomplete or scorer-errored run has no quotable number, so
     "0 gating failures" from one is not a pass);
-  - summary.gating_failures > 0, or the sealed holdout's aggregate has any;
+  - summary.gating_failures > 0 (holdout cases included: the sealed
+    aggregate is a subset of that count, runner-contract.md SS10);
   - summary.infra_rate is above --max-infra-rate (a run that mostly could not
     reach the app passed nothing; default 0.05, the snippet's own number);
   - no case was scored pass or fail. `skipped` and `unscored` are never a
@@ -183,16 +184,24 @@ def evaluate(results, max_infra_rate, require_canaries=False):
         reasons.append(f"the runner exited {exit_code} (runner-contract.md "
                        "SS11)")
     gating = count(summary, "gating_failures")
-    if gating:
-        rows = gating_rows(results)
-        reasons.append(f"{gating} gating failure(s)"
-                       + (": " + "; ".join(rows) if rows else ""))
     holdout = summary.get("holdout")
     holdout_gating = count(holdout, "gating_failures") \
         if isinstance(holdout, dict) else 0
-    if holdout_gating:
-        reasons.append(f"{holdout_gating} gating failure(s) in the sealed "
-                       "holdout (aggregate only)")
+    # SS10: holdout cases are inside summary's counts, and `holdout` is their
+    # aggregate so a reader can take them OUT. Adding it back counted every
+    # sealed failure twice -- "1 fail (2 gating)" (2026-09-30 review).
+    if gating:
+        rows = gating_rows(results)
+        reasons.append(f"{gating} gating failure(s)"
+                       + (": " + "; ".join(rows) if rows else "")
+                       + (f" ({holdout_gating} of them in the sealed holdout, "
+                          "aggregate only)" if holdout_gating else ""))
+    if holdout_gating > gating:
+        # A part larger than its whole: these counts were not written by the
+        # runner's summary(), and the gate does not guess which one is right.
+        reasons.append(f"summary.holdout.gating_failures ({holdout_gating}) "
+                       f"exceeds summary.gating_failures ({gating}), which "
+                       "includes it")
     infra_rate = summary.get("infra_rate")
     if isinstance(infra_rate, (int, float)) and not isinstance(infra_rate, bool) \
             and infra_rate > max_infra_rate:
@@ -232,7 +241,7 @@ def evaluate(results, max_infra_rate, require_canaries=False):
         "status": status, "n": count(summary, "n"),
         "passes": count(summary, "passes"),
         "failures": count(summary, "failures"),
-        "gating_failures": gating + holdout_gating,
+        "gating_failures": gating,
         "unscored": count(summary, "unscored"),
         "skipped": count(summary, "skipped"),
         "infra_errors": count(summary, "infra_errors"),

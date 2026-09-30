@@ -621,6 +621,56 @@ round-2 user test. Answering it found a runner defect first.
   answer quoted into `report.md`. The rest of the whole-plugin review came
   back clean.
 
+### Fixed — the 2026-09-30 code review
+
+Nine of ten findings fixed, each verified against the code first and pinned by
+a test that fails on the old runner.
+
+- **A `loops` pass carried a case it does not grade.** Rollup rules 5-6
+  excluded `http` but not `loops`, which a collected trace adds to every
+  case. A traced rubric-only or `expect.state`-only case rolled up to `pass`,
+  and an http-only case was `pass` or `unscored` depending on whether `loops`
+  scored. Both rules now exclude `loops` (runner-contract §10). A `loops`
+  `fail` still fails the case. The change can only turn `pass` into
+  `unscored`.
+- **`gate.py` counted a sealed gating failure twice.**
+  `summary.gating_failures` already includes holdout cases (§10), and the
+  gate added `summary.holdout.gating_failures` on top of it. One holdout
+  failure read "1 fail (2 gating)" and gave two closing reasons. The gate now
+  counts it once, notes how many of those failures are sealed, and closes
+  when the holdout figure exceeds the total.
+- **Sealed holdout ids leaked through `--verify`.** Its missing-artifact
+  lines named cases by id. `finalize` writes those lines into `results.json`
+  (`summary.missing_artifacts`) and `gate.py` prints them verbatim. Sealed
+  cases now appear as `<a sealed holdout case>`.
+- **A malformed reply killed the run.** urllib wraps only `OSError`, so
+  `http.client`'s `IncompleteRead`, `BadStatusLine` and `LineTooLong`
+  escaped `send_http` and the runner exited 1. They are now a
+  `TransportError`: a body cut short counts as `connection`, the same as a
+  crash, and a reply that is not HTTP counts as `transport`.
+- **`traceparent-echo` was case-sensitive.** Go's net/http sends
+  `Traceparent`, so pre-flight exited 3 even though the traces joined.
+  RFC 9110 §5.1 and W3C Trace Context both require accepting any case.
+- **A non-string trace id raised `TypeError`** (exit 1). This happened, for
+  example, with a number at `response-field:`. Such an id is now treated as
+  no trace id at all.
+- **`invocation.result_pattern` had no regex watchdog.** It ran in the
+  runner's own process, so `(a+)+$` against a near-miss hung the whole run.
+  It now runs under `_common.run_bounded`, and a timeout counts as a missing
+  actual.
+- **`--resume` lost a crash on a non-representative repeat.** Only the
+  case-level `response.json` was read, so with k > 1 the same artifacts gave
+  two different `crash_rate`s. Resume now reads every repeat.
+- **`unscorable_layers` listed row names such as `answer`** used as matrix
+  keys. Those keys switch nothing, so the report said a layer went unscored
+  when it had been scored.
+
+Left as is: `collect_trace` copies the whole trace store into each case's
+`trace.json`. It costs disk space and time, but no number is wrong. Filtering
+it safely would mean parsing the unshimmed format that `mapping_shim`
+exists to handle, and it would change what `normalize_trace.py`'s
+`spans_in_file` diagnostic reports.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

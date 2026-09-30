@@ -15,12 +15,14 @@ a check anyone can re-run).
 
 Run: python3 -m unittest discover -s tests -v   (from the plugin root)
 """
+import contextlib
 import http.server
 import json
 import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1008,6 +1010,49 @@ class TestCrashRate(RunnerCase):
         self.assertEqual(summary["infra_errors"], 1)
 
 
+class TestCrashRateOnResume(RunnerCase):
+    """A crash on ANY repeat counts, live and on --resume alike.
+
+    Resume read only the case-level response.json -- the representative
+    repeat's -- so [fail, crash, pass] folded to `fail`, published repeat 1,
+    and a resumed run found no crash where the live run had counted one."""
+
+    sessions = []
+
+    @classmethod
+    def responder(cls, path, body, headers):
+        if path == "/":
+            return 200, {"ok": True}, {}
+        session = body.get("sessionId")
+        if session not in cls.sessions:
+            cls.sessions.append(session)
+        repeat = cls.sessions.index(session) + 1
+        if repeat == 1:
+            return 200, {"message": "nope"}, {}
+        if repeat == 2:
+            return None, None, None
+        return 200, {"message": "ok"}, {}
+
+    def test_resume_counts_a_crash_on_a_non_representative_repeat(self):
+        type(self).sessions = []
+        plan = make_plan(self.state, self.app.base_url, k=3,
+                         mode="regression", selecting_split="full",
+                         cases=[make_case("c-0001", category="noise")])
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual([r["verdict"] for r in verdict["repeats"]],
+                         ["fail", "infra_error", "pass"])
+        self.assertFalse(self.read("cases", "c-0001",
+                                   "response.json")["crashed"])
+        self.assertEqual(self.read("results.json")["summary"]["crash_rate"],
+                         1.0)
+        rc, _, proc = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("results.json")["summary"]["crash_rate"],
+                         1.0)
+
+
 class TestHoldoutSeal(RunnerCase):
     """SS6/SS10 + decision D8."""
 
@@ -1029,6 +1074,22 @@ class TestHoldoutSeal(RunnerCase):
         results = json.loads((out / "results.json").read_text(
             encoding="utf-8"))
         self.assertEqual(results["cases"], [])
+        # Nor in --verify's or gate.py's account of a damaged run: finalize
+        # writes the first into results.json, and the second is the line CI
+        # shows.
+        (out / "cases" / "c-0001" / "answer.txt").unlink()
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(out)],
+            capture_output=True, text=True)
+        self.assertEqual(verify.returncode, 6, verify.stdout)
+        self.assertIn(f"cases/{run_cases.SEALED_CASE}/answer.txt",
+                      verify.stdout)
+        gate = subprocess.run(
+            [sys.executable, str(SCRIPTS / "gate.py"), str(out)],
+            capture_output=True, text=True)
+        self.assertEqual(gate.returncode, 1, gate.stdout)
+        for text in (verify.stdout, verify.stderr, gate.stdout, gate.stderr):
+            self.assertNotIn("c-0001", text)
         self.assertEqual(results["summary"]["holdout"]["n"], 2)
         # Aggregate only; `failures` lets a reader take holdout out of the
         # scored denominator (passes + failures) as well as out of `n`.
@@ -2018,6 +2079,25 @@ class TestTrajectoryLayers(RunnerCase):
         layers = self.read("cases", "c-0001", "verdict.json")["layers"]
         self.assertEqual(layers["loops"]["verdict"], "pass")
 
+    def test_a_loops_pass_does_not_carry_a_case_it_does_not_grade(self):
+        """SS10 rules 5-6 leave `loops` out, like `http`: a collected trace
+        triggers it, so its `pass` grades nothing the case asserts."""
+        case = make_case("c-0001")
+        case["expect"] = {"http": {"status": 200}, "state": {"rows": 1}}
+        rc, _, proc = self.invoke(self.traced_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["loops"]["verdict"], "pass")
+        self.assertEqual(verdict["verdict"], "unscored")
+
+    def test_an_http_only_case_passes_traced_or_not(self):
+        case = make_case("c-0001")
+        case["expect"] = {"http": {"status": 200}}
+        rc, _, proc = self.invoke(self.traced_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0001",
+                                   "verdict.json")["verdict"], "pass")
+
     def test_a_collected_trace_feeds_every_trajectory_layer(self):
         case = make_case("c-0001")
         case["expect"]["tools"] = {"subset": ["list_invoices"]}
@@ -2472,6 +2552,178 @@ class TestRetryWait(unittest.TestCase):
                        {"status": 429, "headers": {"Retry-After": "-5"}}):
             with self.subTest(result=result):
                 self.assertEqual(run_cases.retry_wait(2, result), 2)
+
+
+class TestUnscorableLayersNameOnlyKeys(RunnerCase):
+    """A row's name used as a matrix key switches nothing -- the linter warns
+    not_a_matrix_key -- so the row still scores and must not be reported as
+    NOT scored beside the very verdicts it produced."""
+
+    responder = staticmethod(health_only(ok_responder))
+
+    def test_a_row_name_in_the_matrix_is_not_listed(self):
+        plan = make_plan(self.state, self.app.base_url)
+        plan["capability_matrix"]["answer"] = {
+            "enabled": False, "blocked_by": "meant answer_quality"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        self.assertEqual(layers["answer"]["verdict"], "pass")
+        summary = self.read("results.json")["summary"]
+        self.assertNotIn("answer", summary["unscorable_layers"])
+        self.assertIn("trajectory", summary["unscorable_layers"])
+
+
+class TestResultPatternIsBounded(RunnerCase):
+    """invocation.result_pattern is the author's regex over the model's text,
+    run in the runner's own process: `(a+)+$` against a near-miss hung the
+    whole run. It gets the scorers' watchdog, and a timeout is a missing
+    actual, not a hang."""
+
+    responder = staticmethod(health_only(
+        lambda p, b, h: (200, {"message": "a" * 40 + "!"}, {})))
+
+    def test_a_backtracking_pattern_times_out_as_missing(self):
+        case = make_case("c-0001", expect={"http": {"status": 200},
+                                           "result": {"scalar": 7}})
+        plan = make_plan(self.state, self.app.base_url, cases=[case])
+        plan["adapter"]["invocation"]["result_pattern"] = r"(a+)+$"
+        started = time.time()
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertLess(time.time() - started, 30)
+        actual = self.read("cases", "c-0001", "actual.json")
+        self.assertTrue(actual["missing"])
+        self.assertIn("did not finish", actual["reason"])
+
+
+class TestTraceIdShape(RunnerCase):
+    """The trace id as the app hands it back: any header case, and only a
+    string."""
+
+    TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+    trace_field = TRACE_ID
+
+    def setUp(self):
+        super().setUp()
+        self.spans = self.tmp / "spans.json"
+        self.spans.write_text(json.dumps(otlp([
+            span(self.TRACE_ID, "aaaaaaaaaaaaaaa1", "invoke_agent", "units"),
+        ])), encoding="utf-8")
+
+    @classmethod
+    def responder(cls, path, body, headers):
+        # Go's net/http canonicalises the name to `Traceparent`.
+        return 200, {"message": "ok", "traceId": cls.trace_field}, {
+            "Traceparent": f"00-{cls.TRACE_ID}-00f067aa0ba902b7-01"}
+
+    def traced_plan(self, correlation):
+        plan = make_plan(self.state, self.app.base_url)
+        plan["adapter"]["traces"] = {
+            "source": "otlp-file", "convention": "gen_ai",
+            "correlation": correlation, "location": str(self.spans),
+            "completeness": {"quiescence_ms": 10, "max_wait_s": 2}}
+        plan["adapter"]["invocation"]["health_check"] = {
+            "method": "POST", "path": "/api/chat/ask", "expect_status": [200]}
+        return plan
+
+    def test_a_capitalised_traceparent_echo_joins(self):
+        """RFC 9110 SS5.1: field names are case-insensitive, and W3C Trace
+        Context says a receiver MUST accept any case."""
+        rc, _, proc = self.invoke(self.traced_plan("traceparent-echo"))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertTrue(self.read("manifest.yaml")["traces"]["collected"])
+        self.assertTrue((self.out_dir() / "cases" / "c-0001" /
+                         "trace.json").is_file())
+
+    def test_a_numeric_trace_id_is_no_trace_id_not_a_crash(self):
+        type(self).trace_field = 12345
+        self.addCleanup(setattr, type(self), "trace_field", self.TRACE_ID)
+        rc, payload, proc = self.invoke(
+            self.traced_plan("response-field:traceId"))
+        self.assertEqual(rc, 3, proc.stdout + proc.stderr)
+        self.assertIn("a non-empty string", payload["error"])
+
+
+class TestRollUpRunTriggeredRows(unittest.TestCase):
+    """SS10 rules 5-6 over `loops`, the row a collected trace adds to every
+    case."""
+
+    @staticmethod
+    def roll(**verdicts):
+        return run_cases.roll_up(
+            {name: {"verdict": v} for name, v in verdicts.items()}, None)
+
+    def test_loops_pass_beside_nothing_scored_is_unscored(self):
+        self.assertEqual(self.roll(http="pass", judged="unscored",
+                                   state="unscored", loops="pass"),
+                         "unscored")
+
+    def test_http_only_is_a_pass_whatever_loops_says(self):
+        for loops in ("pass", "unscored", "unscorable", "n/a"):
+            with self.subTest(loops=loops):
+                self.assertEqual(self.roll(http="pass", answer="n/a",
+                                           loops=loops), "pass")
+
+    def test_a_loops_infra_verdict_is_still_infra(self):
+        # Rules 1-2 come first: a trace that never arrived is not a pass.
+        self.assertEqual(self.roll(http="pass", answer="n/a",
+                                   loops="infra_incomplete"),
+                         "infra_incomplete")
+
+    def test_a_loops_fail_still_fails_the_case(self):
+        self.assertEqual(self.roll(http="pass", answer="pass", loops="fail"),
+                         "fail")
+
+
+class TestMalformedReplies(unittest.TestCase):
+    """urllib wraps only OSError: http.client's own exceptions arrive bare,
+    and one used to escape send_http to main() -- exit 1, the whole run lost
+    over one reply. Each is a TransportError now."""
+
+    def serve(self, payload):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+
+        def answer():
+            conn, _ = listener.accept()
+            with conn:
+                conn.recv(65536)
+                conn.sendall(payload)
+                conn.shutdown(socket.SHUT_WR)
+                # Hold the socket open until the client is done, so a body
+                # cut short is IncompleteRead rather than a racing reset.
+                conn.settimeout(5)
+                with contextlib.suppress(OSError):
+                    conn.recv(1)
+
+        thread = threading.Thread(target=answer, daemon=True)
+        thread.start()
+        return f"http://127.0.0.1:{listener.getsockname()[1]}/"
+
+    def kind_of(self, payload):
+        url = self.serve(payload)
+        with self.assertRaises(run_cases.TransportError) as caught:
+            run_cases.send_http(url, "POST", {}, {"x": 1}, 5, False)
+        return caught.exception.kind
+
+    def test_a_body_cut_short_is_the_app_dropping_the_connection(self):
+        self.assertEqual(self.kind_of(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"a\":"),
+            "connection")
+
+    def test_an_error_body_cut_short_is_caught_too(self):
+        # Read inside the HTTPError handler, where the sibling excepts
+        # never see it.
+        self.assertEqual(self.kind_of(
+            b"HTTP/1.1 500 Oops\r\nContent-Length: 100\r\n\r\n{\"a\":"),
+            "connection")
+
+    def test_a_reply_that_is_not_http_is_transport(self):
+        self.assertEqual(self.kind_of(b"SSH-2.0-OpenSSH_9.0\r\n"),
+                         "transport")
 
 
 if __name__ == "__main__":

@@ -86,8 +86,31 @@ class TestGate(TempDirTest):
         self.assertEqual(rc, 1)
         payload = json.loads(out)
         self.assertEqual(payload["gate"], "closed")
-        self.assertEqual(len(payload["reasons"]), 6)
-        self.assertEqual(payload["gating_failures"], 2)
+        self.assertEqual(len(payload["reasons"]), 5)
+        self.assertEqual(payload["gating_failures"], 1)
+
+    def test_a_sealed_gating_failure_is_counted_once(self):
+        """SS10: holdout cases are inside summary.gating_failures, and
+        summary.holdout is their aggregate. The gate added the two, so one
+        sealed failure read "1 fail (2 gating)" with two reasons."""
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+            passes=1, failures=1, gating_failures=1,
+            holdout={"n": 2, "passes": 1, "failures": 1,
+                     "gating_failures": 1}))
+        self.assertEqual(rc, 1)
+        self.assertIn("1 fail (1 gating)", out)
+        self.assertIn("1 gating failure(s) (1 of them in the sealed holdout",
+                      out)
+        self.assertEqual(out.count("gating failure(s)"), 1)
+
+    def test_a_holdout_count_above_its_total_closes(self):
+        rc, out, _ = run("gate.py", "--json", "--no-verify", self.write_run(
+            passes=1, failures=0, gating_failures=0,
+            holdout={"n": 1, "passes": 0, "failures": 1,
+                     "gating_failures": 1}))
+        self.assertEqual(rc, 1)
+        self.assertIn("exceeds summary.gating_failures",
+                      " ".join(json.loads(out)["reasons"]))
 
     def test_zero_failures_from_an_aborted_run_is_not_a_pass(self):
         rc, _, _ = run("gate.py", "--no-verify",

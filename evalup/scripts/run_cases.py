@@ -51,6 +51,7 @@ Usage:
 import argparse
 import contextlib
 import hashlib
+import http.client
 import importlib
 import json
 import os
@@ -71,12 +72,15 @@ from datetime import datetime, timezone
 from _common import (
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
+    REGEX_TIMEOUT_S,
     RUN_ID_RE,
     BadJSON,
+    RegexTimeout,
     add_version_flag,
     infra_rate,
     loads_strict,
     nfc,
+    run_bounded,
     unsafe_case_id,
 )
 
@@ -827,6 +831,21 @@ def retry_wait(declared, result):
     return max(declared, min(int(value), RETRY_AFTER_CAP_S))
 
 
+def transport_kind(exc):
+    """(kind, message) for a failure while reading a reply.
+
+    A body cut short, like a reset, is the app dropping the connection
+    mid-answer -- the crash SS7 counts. A reply that is not HTTP at all is
+    something else listening on the port: transport, not a crash."""
+    if isinstance(exc, socket.timeout):
+        kind = "timeout"
+    elif isinstance(exc, (ConnectionError, http.client.IncompleteRead)):
+        kind = "connection"
+    else:
+        kind = "transport"
+    return kind, f"{type(exc).__name__}: {exc}"
+
+
 def send_http(url, method, headers, body, timeout, insecure):
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") \
         if body is not None else None
@@ -844,7 +863,11 @@ def send_http(url, method, headers, body, timeout, insecure):
         # expected one (the field test asserts a deliberate 400 on OOS). It
         # must reach the taxonomy in SS7 as a status, not as an exception.
         status = exc.code
-        raw = exc.read()
+        try:
+            raw = exc.read()
+        except (http.client.HTTPException, OSError) as read_exc:
+            # Raised inside this handler, so the siblings below never see it.
+            raise TransportError(*transport_kind(read_exc)) from read_exc
         response_headers = dict(exc.headers.items()) if exc.headers else {}
     except socket.timeout as exc:
         raise TransportError(
@@ -864,6 +887,13 @@ def send_http(url, method, headers, body, timeout, insecure):
         else:
             kind = "transport"
         raise TransportError(kind, str(reason)) from exc
+    except http.client.HTTPException as exc:
+        # urllib wraps only OSError, so a response that is not HTTP
+        # (BadStatusLine, LineTooLong) or a body cut short of its
+        # Content-Length (IncompleteRead) arrives here unwrapped -- and used to
+        # escape to main() as exit 1, killing the run over one case's reply.
+        # (RemoteDisconnected is also a ConnectionError: caught above.)
+        raise TransportError(*transport_kind(exc)) from exc
     except OSError as exc:
         raise TransportError("transport", str(exc)) from exc
     latency = round(time.time() - started, 3)
@@ -1027,6 +1057,10 @@ def dotted_get(node, path):
     return node
 
 
+# SS10 rules 5-6: rows every case gets from the run, not from what it asserts.
+RUN_TRIGGERED = ("http", "loops")
+
+
 def roll_up(layers, skipped_reason):
     """SS10's case-verdict rollup, first match wins.
 
@@ -1034,7 +1068,8 @@ def roll_up(layers, skipped_reason):
     back n/a / unscorable / unscored is NOT a pass. That is the vacuous-case
     failure validate_cases.py lints for at authoring time, caught again here at
     run time -- and rules 5-6 are what make it bite (see below): `http` alone
-    is a pass only for a case that asserts nothing else.
+    is a pass only for a case that asserts nothing else. `loops` is left out
+    of both for the same reason: the run triggers it, not the case.
 
     The scorer-error rule sits ABOVE `fail` deliberately (SS5.1: "the case rolls
     up to unscored"). A case with a broken scorer has a number nobody should
@@ -1062,12 +1097,18 @@ def roll_up(layers, skipped_reason):
     # unscorable trajectory row "would have been a lie"; this is where the lie
     # was told, one level up. A case that asserts nothing BUT http is still a
     # pass -- there the liveness check is the whole claim.
-    if any(name != "http" and layer.get("verdict") == PASS
+    #
+    # `loops` is excluded for the same reason (2026-09-30 review): a collected
+    # trace triggers it, not anything the case asserts, so its `pass` let a
+    # traced run carry a rubric-only or state-only case to `pass` -- and made
+    # an http-only case `pass` or `unscored` by whether loops scored. Its
+    # `fail` still fails the case (rule 4): a loop is a real pathology.
+    if any(name not in RUN_TRIGGERED and layer.get("verdict") == PASS
            for name, layer in layers.items()):
         return PASS
     if layers.get("http", {}).get("verdict") == PASS and not [
             name for name, layer in layers.items()
-            if name != "http" and layer.get("verdict") != NA]:
+            if name not in RUN_TRIGGERED and layer.get("verdict") != NA]:
         return PASS
     return UNSCORED
 
@@ -1396,8 +1437,8 @@ class Runner:
         if not health.get("trace_id"):
             preflight_fail(
                 "traces are declared queryable with correlation "
-                f"{correlation!r}, but no trace id came back from the "
-                "health check; declare "
+                f"{correlation!r}, but no trace id (a non-empty string) "
+                "came back from the health check; declare "
                 "invocation.health_check as a real app call so the join can "
                 "be verified before spend")
         if not self.trace_present(location, health["trace_id"]):
@@ -1556,7 +1597,17 @@ class Runner:
         There is no fallback that guesses a trace from timing or from the only
         recent trace in the store: a scored layer that silently used the WRONG
         trace is worse than a layer that reports it has none.
+
+        A trace id is a string (W3C: 32 lowercase hex). A number or an object
+        at the declared field is not one, and it used to reach `in` and
+        normalize_trace.py's argv as-is -- a TypeError, exit 1. Stringifying
+        it would be a guess (a numeric id has already lost any leading zero),
+        so it is no trace id: infra_incomplete, like any other missing join.
         """
+        value = self.raw_trace_id(result)
+        return value if isinstance(value, str) and value else None
+
+    def raw_trace_id(self, result):
         correlation = (self.adapter.get("traces") or {}).get("correlation")
         body = result.get("body")
         if isinstance(correlation, str) \
@@ -1564,7 +1615,12 @@ class Runner:
             field = correlation.split(":", 1)[1]
             return (body or {}).get(field) if isinstance(body, dict) else None
         if correlation == "traceparent-echo":
-            header = result.get("headers", {}).get("traceparent")
+            # Field names are case-insensitive (RFC 9110 SS5.1), and W3C
+            # Trace Context says a receiver MUST accept any case: Go's
+            # net/http sends `Traceparent`. The dict keeps the sender's case.
+            header = {name.lower(): value for name, value
+                      in (result.get("headers") or {}).items()}.get(
+                          "traceparent")
             parts = header.split("-") if isinstance(header, str) else []
             return parts[1] if len(parts) >= 3 else None
         if self.trace_id_path and isinstance(body, dict):
@@ -1618,7 +1674,8 @@ class Runner:
         """
         location = self.trace_state.get("location")
         if not trace_id:
-            return False, ("no trace id on the response; correlation is "
+            return False, ("no trace id (a non-empty string) on the "
+                           "response; correlation is "
                            "{!r}".format(self.trace_state["correlation"]))
         quiet = self.wait_for_quiescence(location)
         if not self.trace_present(location, trace_id):
@@ -2327,11 +2384,19 @@ class Runner:
         if pattern:
             answer = record["response"]["answer"] or ""
             try:
-                match = re.search(pattern, answer)
+                # The scorers' own watchdog: this regex is the author's and
+                # the text is the model's, and here a catastrophic backtrack
+                # would stall the runner itself, not a scorer subprocess.
+                match = run_bounded(lambda: re.search(pattern, answer))
             except re.error as exc:
                 return {"missing": True,
                         "reason": f"invocation.result_pattern is not a valid "
                                   f"regex: {exc}"}
+            except RegexTimeout:
+                return {"missing": True,
+                        "reason": "invocation.result_pattern did not finish "
+                                  f"within {REGEX_TIMEOUT_S}s on this answer "
+                                  "(catastrophic backtracking?)"}
             if match:
                 return shape_actual(match.group(1) if match.groups()
                                     else match.group(0))
@@ -2455,9 +2520,14 @@ class Runner:
         infra = counts[INFRA_ERROR] + counts[INFRA_INCOMPLETE]
         canaries = [v for v in verdicts if v["canary"]]
         holdouts = [v for v in verdicts if v["holdout"]]
+        # A row's name used as a matrix key (`answer`, `http`) switches
+        # nothing -- capability_blocked_by never reads it, and the row still
+        # scores -- so it is not listed as unscored either. Same test as
+        # validate_cases.py's not_a_matrix_key warning.
         disabled = sorted(
             {name for name, block in self.plan["capability_matrix"].items()
-             if isinstance(block, dict) and block.get("enabled") is False}
+             if isinstance(block, dict) and block.get("enabled") is False
+             and MATRIX_KEY_OF_LAYER.get(name, name) == name}
             | set(self.trace_state["disabled_layers"]))
         return {
             "status": status,
@@ -2673,13 +2743,25 @@ class Runner:
         return None
 
     def crashed_on_disk(self, case):
+        """execute_case's rule, read back: a crash on ANY repeat counts.
+
+        The case-level response.json is only the representative repeat's, so
+        with k > 1 reading it alone let [fail, crash, pass] resume with no
+        crash -- one set of artifacts, two crash rates."""
         if case.get("category") not in CRASH_RATE_CATEGORIES:
             return False
-        path = os.path.join(self.cases_dir, case["id"], "response.json")
-        try:
-            return bool(read_json(path).get("crashed"))
-        except (OSError, ValueError):
-            return False
+        case_dir = os.path.join(self.cases_dir, case["id"])
+        paths = [os.path.join(case_dir, "response.json")]
+        if self.k > 1:
+            paths += [os.path.join(case_dir, "repeats", str(n), "response.json")
+                      for n in range(1, self.k + 1)]
+        for path in paths:
+            try:
+                if read_json(path).get("crashed"):
+                    return True
+            except (OSError, ValueError, AttributeError):
+                continue
+        return False
 
     # -- the run -----------------------------------------------------------
     def execute(self, already_done):
@@ -2915,6 +2997,26 @@ def case_requires(name, out_dir, case_id, verdict):
     return False
 
 
+SEALED_CASE = "<a sealed holdout case>"
+
+
+def sealed_ids(cases, rows=None):
+    """The case ids THE HOLDOUT SEAL keeps out of every message below.
+
+    Those messages are not private: finalize writes them into results.json's
+    summary.missing_artifacts -- the file the seal is about -- and gate.py
+    prints --verify's verbatim. A verdicts.jsonl row stands in for a case
+    whose directory is gone."""
+    sealed = {cid for cid, v in cases.items() if v.get("holdout")}
+    sealed |= {row.get("case_id") for row in rows or []
+               if isinstance(row, dict) and row.get("holdout")}
+    return sealed
+
+
+def named(case_id, sealed):
+    return SEALED_CASE if case_id in sealed else case_id
+
+
 def verify_run_dir(out_dir):
     """Return the list of missing or inconsistent artifacts. Empty == complete.
 
@@ -2945,19 +3047,21 @@ def verify_run_dir(out_dir):
 
     cases = completed_cases(out_dir)
     manifest = docs.get("manifest.yaml") or {}
+    sealed = sealed_ids(cases, docs.get("verdicts.jsonl"))
 
     # (2) every completed case dir, with its conditionals.
     for case_id, verdict in cases.items():
+        shown = f"cases/{named(case_id, sealed)}"
         for name in REQUIRED_PER_CASE:
-            relative = f"cases/{case_id}/{name}"
-            if not os.path.isfile(os.path.join(out_dir, relative)):
-                missing.append(relative)
+            if not os.path.isfile(os.path.join(out_dir, "cases", case_id,
+                                               name)):
+                missing.append(f"{shown}/{name}")
         for name in REQUIRED_IF_PER_CASE:
             if not case_requires(name, out_dir, case_id, verdict):
                 continue
-            relative = f"cases/{case_id}/{name}"
-            if not os.path.isfile(os.path.join(out_dir, relative)):
-                missing.append(f"{relative} ({REQUIRED_IF[name]})")
+            if not os.path.isfile(os.path.join(out_dir, "cases", case_id,
+                                               name)):
+                missing.append(f"{shown}/{name} ({REQUIRED_IF[name]})")
 
     # ...and the run-level ones. Each condition is read off the tree too, so
     # --verify evaluates exactly what finalize evaluated.
@@ -2987,20 +3091,22 @@ def verify_run_dir(out_dir):
             case_id = row.get("case_id")
             if case_id in by_id:
                 missing.append(
-                    f"verdicts.jsonl (duplicate row for {case_id})")
+                    f"verdicts.jsonl (duplicate row for "
+                    f"{named(case_id, sealed)})")
             by_id[case_id] = row.get("verdict")
         for case_id in sorted(set(cases) - set(by_id)):
             missing.append(
-                f"verdicts.jsonl (no row for completed case {case_id})")
+                f"verdicts.jsonl (no row for completed case "
+                f"{named(case_id, sealed)})")
         for case_id in sorted(set(by_id) - set(cases)):
             missing.append(
-                f"verdicts.jsonl (row for {case_id}, which has no completed case "
-                "directory)")
+                f"verdicts.jsonl (row for {named(case_id, sealed)}, which has "
+                "no completed case directory)")
         for case_id in sorted(set(by_id) & set(cases)):
             if by_id[case_id] != cases[case_id].get("verdict"):
                 missing.append(
                     "verdicts.jsonl ({}: {!r}, but its verdict.json says "
-                    "{!r})".format(case_id, by_id[case_id],
+                    "{!r})".format(named(case_id, sealed), by_id[case_id],
                                    cases[case_id].get("verdict")))
         stats_rows = docs.get("verdicts_for_stats.jsonl")
         if stats_rows is not None:
@@ -3017,11 +3123,11 @@ def verify_run_dir(out_dir):
     # (4) results.json against the same case dirs.
     results = docs.get("results.json")
     if results is not None and rows is not None:
-        missing.extend(check_results_json(results, cases))
+        missing.extend(check_results_json(results, cases, sealed))
     return missing
 
 
-def check_results_json(results, cases):
+def check_results_json(results, cases, sealed=None):
     """SS9(c) check 4. Only what is derivable from the tree.
 
     The run-time bookkeeping counters (attempted, crash_rate, scorer_errors)
@@ -3032,19 +3138,23 @@ def check_results_json(results, cases):
     shown = {row.get("case_id"): row for row in (results.get("cases") or [])}
     # THE HOLDOUT SEAL: a holdout case contributes no row here, and its
     # case_id must appear nowhere in this file.
+    # These messages are themselves written into results.json and printed by
+    # gate.py, so a sealed id is never spelled in one (sealed_ids).
     expected_ids = {cid for cid, v in cases.items() if not v.get("holdout")}
-    sealed = {cid for cid, v in cases.items() if v.get("holdout")}
+    holdout_ids = {cid for cid, v in cases.items() if v.get("holdout")}
+    sealed = holdout_ids | (sealed or set())
     for case_id in sorted(expected_ids - set(shown)):
         problems.append(
             f"results.json (no row for completed case {case_id})")
-    for case_id in sorted(set(shown) - expected_ids):
+    for case_id in sorted(set(shown) - expected_ids - sealed):
         problems.append(
-            f"results.json (row for {case_id}, which is holdout or has no completed "
+            f"results.json (row for {case_id}, which has no completed "
             "case directory)")
-    for case_id in sorted(sealed & set(shown)):
+    leaked = sealed & set(shown)
+    if leaked:
         problems.append(
-            f"results.json (holdout case {case_id} is named in the shareable summary; "
-            "the seal is broken)")
+            f"results.json ({len(leaked)} holdout case(s) named in the "
+            "shareable summary; the seal is broken)")
     for case_id in sorted(expected_ids & set(shown)):
         if shown[case_id].get("verdict") != cases[case_id].get("verdict"):
             problems.append(

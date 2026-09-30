@@ -27,19 +27,19 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 844 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 860 tests, ~3min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 ## State
 
-- **`main`** holds everything, through the 2026-09-30 refactor review and
-  canary work (both fast-forwarded that day). It is the only branch. Nothing
+- **`main`** holds everything, through the 2026-09-30 refactor review, code
+  review and canary work (all fast-forwarded that day). It is the only branch. Nothing
   is pushed; **there is still no remote**, so nothing here has ever been
   checked by CI.
-- **Health** (2026-09-30): 844 tests pass on 3.14;
-  835 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 844 pass with
+- **Health** (2026-09-30): 860 tests pass on 3.14;
+  851 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 860 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored

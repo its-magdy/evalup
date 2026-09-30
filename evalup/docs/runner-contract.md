@@ -983,8 +983,8 @@ the shipped run already does. See Open decision **D1**.
 2. any layer `infra_incomplete` → `infra_incomplete`
 3. the case was skipped by a safety gate → `skipped`
 4. any applicable, enabled layer `fail` → `fail`
-5. at least one **non-`http`** layer `pass` → `pass`
-6. `http` passed and no other layer is applicable → `pass`
+5. at least one layer other than `http` and `loops` `pass` → `pass`
+6. `http` passed and no layer other than `http` and `loops` is applicable → `pass`
 7. otherwise → `unscored`
 
 Rule 7 is the point: a case whose every layer came back `n/a`/`unscorable`/
@@ -1003,6 +1003,13 @@ have been a lie" — this is where that lie was being told, one level up. Rule 6
 keeps the deliberate liveness-only case (nothing asserted but `http`) a pass,
 because there the liveness check is the whole claim. The change can only make a
 run more conservative: it converts `pass` to `unscored`, never to `fail`.
+
+**`loops` is excluded from rules 5-6 for the same reason** (2026-09-30
+review). A collected trace triggers it, not anything the case asserts, so its
+`pass` carried a traced run's rubric-only, `expect.state`-only or
+unreachable-answer case to `pass` — the same lie — and made an http-only case
+`pass` or `unscored` depending on whether `loops` scored. Its `fail` still
+fails the case (rule 4): a detected loop is a real observation.
 
 `gating` is `false` for a canary and for a case that says `gating: false`
 (the boolean); anything else, an absent key included, is `true`
