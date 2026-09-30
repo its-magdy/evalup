@@ -589,6 +589,16 @@ round-2 user test. Answering it found a runner defect first.
   `holdout_not_sealed` now fires for holdout beside any other split. It had
   no test; it has one per pairing.
 
+- **A matrix entry under a report row's name was ignored silently.** A
+  report shows rows `answer`, `rules`, `judged`, `http` and `loops`; the
+  matrix has no such keys, so `answer: {enabled: false}` switched nothing
+  off (before the 2026-09-30 key map it did, by accident). The linter now
+  warns `not_a_matrix_key` and names the key that does the job.
+- **`agents/judge.md` used `${CLAUDE_PLUGIN_ROOT}` in its frontmatter
+  `description`**, where Claude Code does not document substitution (it
+  does for the body). The description names the doc without the
+  placeholder; a test keeps agent frontmatter free of it.
+
 ### Added — the canary question (2026-09-30)
 
 - **`gate.py --require-canaries`**, opt-in: closes the gate when any canary

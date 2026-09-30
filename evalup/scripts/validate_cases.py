@@ -105,6 +105,7 @@ import sys
 
 from _common import (
     HARNESS_VERSION,
+    MATRIX_KEY_OF_LAYER,
     BadJSON,
     RegexTimeout,
     add_version_flag,
@@ -286,14 +287,10 @@ def load_cases(path):
     return doc
 
 
-def load_enabled_layers(path):
-    """The set of layers currently graded, from a profile capability_matrix.
-
-    A layer is enabled unless its entry says otherwise, so a matrix that simply
-    omits a layer does not silently disable it — under-reporting a layer as off
-    would flag every honest case in it as ungraded."""
+def load_matrix(path):
+    """The profile's capability_matrix as an object; None without one."""
     if path is None:
-        return set(LAYERS)
+        return None
     try:
         doc = loads_strict(load_text(path))
     except BadJSON as e:
@@ -307,9 +304,20 @@ def load_enabled_layers(path):
     # the opposite of what the file says. Only ABSENCE may default.
     if "capability_matrix" in doc:
         doc = mapping(doc.get("capability_matrix"))
+    return doc
+
+
+def enabled_layers(matrix):
+    """The set of layers currently graded, from a profile capability_matrix.
+
+    A layer is enabled unless its entry says otherwise, so a matrix that simply
+    omits a layer does not silently disable it — under-reporting a layer as off
+    would flag every honest case in it as ungraded."""
+    if matrix is None:
+        return set(LAYERS)
     enabled = set()
     for layer in LAYERS:
-        entry = doc.get(layer)
+        entry = matrix.get(layer)
         if entry is None:
             enabled.add(layer)
         elif isinstance(entry, dict):
@@ -318,6 +326,28 @@ def load_enabled_layers(path):
         elif entry:
             enabled.add(layer)
     return enabled
+
+
+def check_matrix_keys(rep, matrix):
+    """A report row's name written as a matrix key.
+
+    A run's report shows rows named `answer`, `rules`, `judged`, `http` and
+    `loops`; the matrix has no such keys (`_common.MATRIX_KEY_OF_LAYER`), and
+    the runner ignores an entry under one. So `answer: {enabled: false}` --
+    the natural thing to write after reading a report -- switches nothing
+    off and says nothing about it. Every other unknown key is left alone:
+    a profile may carry capabilities this linter does not grade."""
+    for name in sorted(matrix):
+        key = MATRIX_KEY_OF_LAYER.get(name, name)
+        if key == name:
+            continue
+        rep.warn(None, "not_a_matrix_key",
+                 f"capability_matrix.{name} is a report row's name, not a "
+                 "matrix key, and the runner ignores it: "
+                 + (f"the `{name}` row is switched by `{key}`, so put the "
+                    "entry there" if key else
+                    f"no key switches `{name}` off (every case gets `http`, "
+                    "a collected trace triggers `loops`)"))
 
 
 def asserts_something(value):
@@ -1146,8 +1176,11 @@ def main():
             "thing a forgotten flag turns off")
 
     cases = load_cases(a.cases)
-    enabled = load_enabled_layers(a.capabilities)
+    matrix = load_matrix(a.capabilities)
+    enabled = enabled_layers(matrix)
     rep = Report(a.strict)
+    if matrix is not None:
+        check_matrix_keys(rep, matrix)
     if a.no_capabilities:
         rep.warn(None, "capabilities_unchecked",
                  "linted with --no-capabilities: every layer is treated as "

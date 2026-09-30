@@ -63,6 +63,17 @@ class TestPluginLayout(unittest.TestCase):
                 for key in ("description", "model", "tools"):
                     self.assertIn(key, keys)
 
+    def test_no_agent_frontmatter_relies_on_the_plugin_root_placeholder(self):
+        # Claude Code documents ${CLAUDE_PLUGIN_ROOT} substitution for the
+        # Markdown BODY of an agent, not its frontmatter, and `description`
+        # is what the delegating model reads. judge.md carried the literal
+        # placeholder there (2026-09-30 docs check).
+        for path in sorted((ROOT / "agents").glob("*.md")):
+            with self.subTest(agent=path.name):
+                lines = path.read_text(encoding="utf-8").split("\n")
+                block = "\n".join(lines[1:lines.index("---", 1)])
+                self.assertNotIn("CLAUDE_PLUGIN_ROOT", block)
+
     def test_manifest_lists_exactly_the_agents_on_disk(self):
         listed = sorted(Path(p).name for p in self.manifest["agents"])
         on_disk = sorted(p.name for p in (ROOT / "agents").glob("*.md"))

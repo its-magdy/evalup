@@ -372,7 +372,8 @@ duplicate id). A **warning** is a suite thinner than the guidance recommends
 (no INV/DIR at all, all one-offs, a skewed category mix, a machine-stamped
 `accepted`, a suite in which no non-canary case gates, a `must_contain` the
 input already satisfies, a canary outside `smoke`, an authored `filter:`
-block, and — with `--adapter` — a label the runner cannot observe or an
+block, a capability-matrix entry under a report row's name such as `answer`
+(the key is `answer_quality`), and — with `--adapter` — a label the runner cannot observe or an
 attack case `environment.safe_to_attack` will skip) — a budget judgement
 the author is allowed to make, and one `--strict` promotes for a gating CI
 job. A required field enforced by a

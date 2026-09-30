@@ -918,6 +918,49 @@ class TestCanarySplit(ValidateTest):
         self.assertNotIn("canary_not_in_smoke", self.codes(out))
 
 
+class TestMatrixKeys(ValidateTest):
+    """A report's rows are named `answer`, `rules`, `judged`, `http`, `loops`
+    and the matrix has no such keys: the runner reads `answer_quality` for
+    the first three and nothing for the last two. An entry under a row's
+    name was ignored without a word."""
+
+    # The bare matrix; ALL_LAYERS_ENABLED is the wrapped profile form.
+    MATRIX = ALL_LAYERS_ENABLED["capability_matrix"]
+
+    def lint(self, matrix):
+        return self.validate([good_case()], "--capabilities",
+                             self.write_json("caps.json", matrix))
+
+    def test_a_row_name_is_not_a_matrix_key(self):
+        for name, needle in (("answer", "`answer_quality`"),
+                             ("rules", "`answer_quality`"),
+                             ("judged", "`answer_quality`"),
+                             ("http", "no key switches `http` off"),
+                             ("loops", "no key switches `loops` off")):
+            with self.subTest(name):
+                rc, out, err = self.lint(dict(
+                    self.MATRIX, **{name: {"enabled": False}}))
+                self.assertEqual(rc, 0, err)
+                finding = next(f for f in out["findings"]
+                               if f["code"] == "not_a_matrix_key")
+                self.assertEqual(finding["severity"], "WARN")
+                self.assertIn(f"capability_matrix.{name}", finding["message"])
+                self.assertIn(needle, finding["message"])
+
+    def test_the_real_keys_and_unknown_ones_are_left_alone(self):
+        rc, out, err = self.lint(dict(
+            self.MATRIX, state={"enabled": False},
+            multi_turn={"enabled": False}, cost_latency={"enabled": True},
+            something_new={"enabled": True}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.codes(out), [])
+
+    def test_the_wrapped_profile_form_is_checked_too(self):
+        rc, out, err = self.lint({"capability_matrix": dict(
+            self.MATRIX, answer={"enabled": False})})
+        self.assertEqual(self.codes(out), ["not_a_matrix_key"])
+
+
 class TestHoldoutIsExclusive(ValidateTest):
     """The seal rests on `holdout` sharing a case with no other split. Only
     `full` was checked: `[holdout, smoke]` linted clean and ran on every

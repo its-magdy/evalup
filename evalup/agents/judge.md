@@ -2,7 +2,7 @@
 name: judge
 description: >-
   Decomposed-binary, reference-guided, evidence-citing judge for evalup.
-  Executes ONE node of a rubric DAG (${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md)
+  Executes ONE node of a rubric DAG (the plugin's docs/rubric-format.md)
   per call — a TaskNode extraction or a BinaryJudgementNode/GEvalNode verdict —
   never a holistic score. An Agent-as-a-Judge: reads the trace/code/DB-state
   directly as inspectable evidence rather than trusting a pasted summary. Use
