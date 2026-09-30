@@ -90,8 +90,12 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `k` and `gate`, fills every required key, and prints the `run_id`, the
   `--out` directory and the exact runner command. Its flags are the mode's:
   `--tag <unit-or-route>` and `--failing-in <run-dir>` for `targeted`, `--k N`
-  (not under smoke), `--layer X` (every other layer becomes `unscorable` with
-  `blocked_by: "--layer X"`, never `pass`). `scoring.oos_route` comes from the
+  (not under smoke), `--layer X` (every other capability-matrix layer becomes
+  `unscorable` with `blocked_by: "--layer X"`, never `pass`; X is a matrix key
+  or a report row's name — `answer`, `rules` and `judged` all mean
+  `answer_quality` — and `http` and `loops` have no matrix key, so they still
+  run; a canary that asserts only a disabled layer reads `unscored`, so the
+  gate line shows it as not passed). `scoring.oos_route` comes from the
   profile's `oos_handling: route:<name>`; pass `--oos-route <name>` when the
   app's out-of-scope route is declared any other way, or OOS metrics go
   unreported. `--filter-failing` is `--failing-in reports/<last comparable
@@ -214,7 +218,8 @@ open Claude Code. Never hand-write HTML.
 
 - **What a run does not score today.** `run_cases.py` has no scorer for the
   **judged** layer (`expect.answer.rubric`) or for **business rules**
-  (`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`,
+  (`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`
+  (or `unscorable`, like `answer`, when the matrix disables `answer_quality`),
   and nothing else scores them either. The judge agent runs only inside
   `analyze --label`, where a human labels beside it; its verdicts live in the
   calibration record, never in a run's pass/fail. So

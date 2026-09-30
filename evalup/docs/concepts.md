@@ -88,7 +88,8 @@ matching fails correct agents and teaches people to ignore the suite.
 
 **What a run does not score today.** `run_cases.py` has no scorer for the
 **judged** layer (`expect.answer.rubric`) or for **business rules**
-(`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`, and
+(`expect.answer.rules`): it records them as `unjudged (…)` and `unscored` (or
+`unscorable`, like `answer`, when the matrix disables `answer_quality`), and
 nothing else scores them either. The judge agent runs only inside `analyze
 --label`, where a human labels beside it; its verdicts live in the calibration
 record, never in a run's pass/fail. Calibration is therefore groundwork: it

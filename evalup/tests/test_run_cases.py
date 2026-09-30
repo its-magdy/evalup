@@ -1429,6 +1429,40 @@ class TestLayerTable(RunnerCase):
                           # this layer is off and said why.
                           "blocked_by": "no trace-id correlation"})
 
+    def test_answer_quality_switches_off_the_three_rows_it_names(self):
+        """The matrix says `answer_quality`; SS5's table scores it as `answer`,
+        `rules` and `judged`. Each row used to be looked up under its own
+        name, so the documented key disabled nothing: `make_plan.py --layer
+        routing` wrote `answer_quality: {enabled: false}` and the answer layer
+        went on deciding cases the linter had already called ungraded."""
+        case = make_case("c-0001")
+        case["expect"]["answer"].update(rules=["cites the invoice id"],
+                                        rubric="r-helpfulness")
+        layers = self.layers_of(case, capability_matrix={
+            "answer_quality": {"enabled": False,
+                               "blocked_by": "--layer routing"}})
+        for name in ("answer", "rules", "judged"):
+            self.assertEqual(layers[name],
+                             {"layer": name, "verdict": "unscorable",
+                              "blocked_by": "--layer routing"}, name)
+        # ...and the liveness row that is left does not carry the case.
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["http"]["verdict"], "pass")
+        self.assertEqual(verdict["verdict"], "unscored")
+
+    def test_http_has_no_matrix_key(self):
+        """Every case gets `http` and a collected trace triggers `loops`;
+        neither is a capability a profile declares, so an entry under either
+        name switches nothing off -- and every other row names its key.
+        (TestTrajectoryLayers has the `loops` half: it needs a trace.)"""
+        keys = run_cases.MATRIX_KEY_OF_LAYER
+        self.assertEqual(set(keys), set(run_cases.LAYER_ORDER))
+        self.assertEqual({name for name, key in keys.items() if key is None},
+                         {"http", "loops"})
+        layers = self.layers_of(make_case("c-0001"), capability_matrix={
+            "http": {"enabled": False, "blocked_by": "nobody can say this"}})
+        self.assertEqual(layers["http"]["verdict"], "pass")
+
     def test_applicable_and_enabled_but_no_input_is_unscored(self):
         case = make_case("c-0001")
         case["expect"]["authz"] = {"forbidden_tools": ["delete_user"]}
@@ -1826,6 +1860,17 @@ class TestTrajectoryLayers(RunnerCase):
                                      "trajectory": {"enabled": True},
                                      "tool_selection": {"enabled": True}}
         return plan
+
+    def test_loops_has_no_matrix_key(self):
+        """A collected trace triggers `loops` and no capability switches it
+        off: a matrix entry under its name is not one the runner reads."""
+        plan = self.traced_plan([make_case("c-0001")])
+        plan["capability_matrix"]["loops"] = {
+            "enabled": False, "blocked_by": "nobody can say this"}
+        rc, payload, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        self.assertEqual(layers["loops"]["verdict"], "pass")
 
     def test_a_collected_trace_feeds_every_trajectory_layer(self):
         case = make_case("c-0001")

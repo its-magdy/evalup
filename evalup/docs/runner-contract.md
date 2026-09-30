@@ -267,7 +267,8 @@ runner has no user to ask and must be safe to call from CI.
 
 This is the mechanical core. For each case the runner walks this table top to
 bottom. A layer is **applicable** iff its trigger field is present on the case;
-it is **enabled** iff `capability_matrix[<layer>].enabled` is not `false`.
+it is **enabled** iff its capability-matrix entry's `enabled` is not `false`
+(which entry is the second rule under the table).
 
 | Layer | Trigger on the case | Script | Argv | Runner must materialize |
 |---|---|---|---|---|
@@ -298,8 +299,16 @@ Four rules make that mechanical:
   absent row and an `n/a` row are not the same statement, and "this case does
   not assert authz" is worth saying out loud — a reader who has to infer it
   from an absence will eventually infer it wrongly.
-- **Enabled is `capability_matrix[<layer>].enabled is not false`**, looked up
-  under the layer's own name. `blocked_by` is *copied*; `unscorable` means
+- **Enabled is `capability_matrix[<key>].enabled is not false`**, where
+  `<key>` is the layer's own name with one exception: the matrix has a single
+  `answer_quality` capability and this table scores it as three rows, so
+  `answer`, `rules` and `judged` are all looked up under `answer_quality`.
+  `http` and `loops` have no key — every case gets the first and a collected
+  trace triggers the second — so nothing in the matrix, `make_plan.py --layer`
+  included, switches them off. The map is `_common.MATRIX_KEY_OF_LAYER`, the
+  one definition the runner and `make_plan.py` share. (Each row used to be
+  looked up under its own name, which left `answer_quality: {enabled: false}`
+  disabling nothing.) `blocked_by` is *copied*; `unscorable` means
   somebody decided this layer is off and said why, so a reason the runner
   invented would let the matrix and the report disagree about that why.
 - The decision order per layer is **not applicable → disabled → input
@@ -450,7 +459,9 @@ that manufactures a failure the app never had.
 ### 5.4 What the runner refuses to do
 
 Business rules, state-diff, and judged layers have no script. The runner records
-them `unscored`/`unjudged` with a reason and **never** attempts them. An LLM
+them `unscored`/`unjudged` with a reason and **never** attempts them. (A row
+whose matrix key is disabled is `unscorable` first, like any other: `rules` and
+`judged` under `answer_quality`, `state` under `state` — §5's decision order.) An LLM
 step may fill them in afterward by rewriting `verdict.json`; the runner's own
 output is deterministic and reproducible without a model.
 

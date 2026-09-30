@@ -367,6 +367,7 @@ class TestExpectMapsToTheLayerTheRunnerScores(ValidateTest):
         way test_run_cases.py imports it for its constants."""
         sys.path.insert(0, str(SCRIPT.parent))
         try:
+            import _common
             import run_cases
             import validate_cases
         finally:
@@ -376,10 +377,15 @@ class TestExpectMapsToTheLayerTheRunnerScores(ValidateTest):
                 case = {"expect": {key: {}}}
                 applicable = run_cases.applicable_layers(
                     case, trace_collected=True)
-                # `answer_quality` is the linter's name for the runner's
-                # `answer` row; every other layer name is shared verbatim.
-                expected = "answer" if layer == "answer_quality" else layer
-                self.assertIn(expected, applicable)
+                # The linter speaks the capability matrix's names and the
+                # runner its own rows'; MATRIX_KEY_OF_LAYER is the one
+                # translation, and the runner's own lookup goes through it.
+                self.assertIn(layer, {_common.MATRIX_KEY_OF_LAYER[name]
+                                      for name in applicable})
+        # Every layer the linter counts as graded is a key the runner honours:
+        # one it did not would be disabled in the lint and scored in the run.
+        self.assertLessEqual(set(validate_cases.LAYERS),
+                             set(_common.MATRIX_KEY_OF_LAYER.values()))
 
 
 class TestWarnFindings(ValidateTest):

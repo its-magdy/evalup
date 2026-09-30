@@ -242,6 +242,31 @@ CASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 # gate.py --latest parses it. Use fullmatch; the groups are (mode, stamp).
 RUN_ID_RE = re.compile(r"([a-z]+)-(\d{8}T\d{6}Z)")
 
+# runner layer (run_cases.LAYER_ORDER) -> the capability_matrix key that
+# switches it off. The matrix is the profile's vocabulary and the layers are
+# the runner's, and they differ in one place: `answer_quality` is ONE
+# capability scored as three rows (`answer`, `rules`, `judged`). The runner
+# used to look each row up under its own name, so `answer_quality: {enabled:
+# false}` -- which is what `make_plan.py --layer X` writes -- disabled nothing
+# and the answer layer went on deciding cases the linter had called ungraded.
+# None = no key: `http` is the liveness row every case gets and `loops` is
+# triggered by the run having a trace, so neither is a capability a profile
+# declares and nothing switches either off. Written once here because the
+# runner, make_plan.py and the linter's tests must agree on it.
+MATRIX_KEY_OF_LAYER = {
+    "http": None,
+    "routing": "routing",
+    "trajectory": "trajectory",
+    "tool_selection": "tool_selection",
+    "loops": None,
+    "answer": "answer_quality",
+    "execution": "execution",
+    "authz": "authz",
+    "rules": "answer_quality",
+    "state": "state",
+    "judged": "answer_quality",
+}
+
 
 def unsafe_case_id(case_id):
     """Why `case_id` cannot name a directory, or None when it can.

@@ -34,7 +34,12 @@ cases that run scored `fail`, if that run is comparable (same dataset and
 harness version); if it is not, the whole tagged set is kept and stderr says so.
 
 --layer X disables every other capability-matrix layer with
-`blocked_by: "--layer X"`, so they report `unscorable`, never `pass`.
+`blocked_by: "--layer X"`, so they report `unscorable`, never `pass`. X is a
+matrix key, or the runner's name for one: `answer`, `rules` and `judged` all
+mean `answer_quality`. `http` and `loops` have no matrix key (every case gets
+the first, a collected trace triggers the second), so nothing here switches
+them off and neither can be X. A canary that asserts only a disabled layer
+rolls up `unscored`, so the run reports it as not passed.
 
 Exit 0 and the plan on stdout, or with -o a one-object summary naming the run
 id, the --out directory and the exact runner command. Exit 2 on bad input
@@ -55,6 +60,7 @@ import sys
 
 from _common import (
     HARNESS_VERSION,
+    MATRIX_KEY_OF_LAYER,
     RUN_ID_RE,
     add_version_flag,
     die,
@@ -315,10 +321,20 @@ def main():
 
     matrix = converted["capability_matrix"]
     if a.layer:
-        if not isinstance(matrix, dict) or a.layer not in matrix:
-            die(f"--layer {a.layer!r} is not in the capability matrix: "
+        # The runner's row names are accepted for the matrix key that switches
+        # them: a user reading `answer` off a report should not have to know
+        # the profile spells it `answer_quality`.
+        keep = MATRIX_KEY_OF_LAYER.get(a.layer, a.layer)
+        if keep is None:
+            die(f"--layer {a.layer!r} is not a capability: no matrix key "
+                "switches it off (`http` is scored on every case, `loops` "
+                "whenever a trace is collected), so it cannot be the one "
+                "layer kept")
+        if not isinstance(matrix, dict) or keep not in matrix:
+            meant = "" if keep == a.layer else f" (the matrix key {keep!r})"
+            die(f"--layer {a.layer!r}{meant} is not in the capability matrix: "
                 f"{sorted(matrix) if isinstance(matrix, dict) else matrix}")
-        matrix = {name: body if name == a.layer else
+        matrix = {name: body if name == keep else
                   {"enabled": False, "blocked_by": f"--layer {a.layer}"}
                   for name, body in matrix.items()}
 

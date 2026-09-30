@@ -70,6 +70,7 @@ from datetime import datetime, timezone
 
 from _common import (
     HARNESS_VERSION,
+    MATRIX_KEY_OF_LAYER,
     RUN_ID_RE,
     BadJSON,
     add_version_flag,
@@ -1897,17 +1898,25 @@ class Runner:
 
     # -- SS5. The layer table ---------------------------------------------
     def capability_blocked_by(self, layer):
-        """SS5: a layer is enabled iff capability_matrix[<layer>].enabled is
-        not false. Returns the matrix's own `blocked_by` when it is not.
+        """SS5: a layer is enabled iff its capability_matrix entry's `enabled`
+        is not false. Returns the matrix's own `blocked_by` when it is not.
+
+        The entry is found through MATRIX_KEY_OF_LAYER, not under the layer's
+        own name: the matrix says `answer_quality` where this table has
+        `answer`, `rules` and `judged`, and `http` and `loops` have no entry
+        to find.
 
         The string is COPIED, never composed here: `unscorable` means "somebody
         decided this layer is off and said why", and a reason the runner made
         up would let the matrix and the report disagree about that why.
         """
-        block = self.plan["capability_matrix"].get(layer)
+        key = MATRIX_KEY_OF_LAYER[layer]
+        if key is None:
+            return None
+        block = self.plan["capability_matrix"].get(key)
         if not isinstance(block, dict) or block.get("enabled") is not False:
             return None
-        return block.get("blocked_by") or f"capability_matrix.{layer}.enabled: false"
+        return block.get("blocked_by") or f"capability_matrix.{key}.enabled: false"
 
     def run_scorer(self, script, argv, layer):
         """SS5.1. Shell out, parse stdout as JSON on EVERY return code.

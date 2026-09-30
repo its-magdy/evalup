@@ -424,6 +424,21 @@ class TestMakePlan(TempDirTest):
                 self.assertEqual(body, {"enabled": False,
                                         "blocked_by": "--layer routing"})
 
+    def test_layer_takes_the_runners_name_for_a_matrix_key(self):
+        """A report row reads `answer`; the profile spells its capability
+        `answer_quality`. `--layer answer` used to die on the difference."""
+        for spelling in ("answer", "rules", "judged", "answer_quality"):
+            with self.subTest(spelling):
+                rc, plan = self.plan("--mode", "smoke", "--layer", spelling)
+                self.assertEqual(rc, 0, plan)
+                matrix = plan["capability_matrix"]
+                self.assertIs(matrix["answer_quality"]["enabled"], True)
+                for name, body in matrix.items():
+                    if name != "answer_quality":
+                        self.assertEqual(
+                            body, {"enabled": False,
+                                   "blocked_by": f"--layer {spelling}"})
+
     def test_what_it_refuses(self):
         def no_smoke(cases):
             for case in cases:
@@ -434,6 +449,11 @@ class TestMakePlan(TempDirTest):
                 ("k under smoke", ["--mode", "smoke", "--k", "3"], "--k", None),
                 ("unknown layer", ["--mode", "smoke", "--layer", "vibes"],
                  "capability matrix", None),
+                ("a row no matrix key switches",
+                 ["--mode", "smoke", "--layer", "http"], "not a capability",
+                 None),
+                ("the other one", ["--mode", "smoke", "--layer", "loops"],
+                 "whenever a trace is collected", None),
                 ("tag outside targeted", ["--mode", "smoke", "--tag", "x"],
                  "targeted", None),
                 ("nothing selected", ["--mode", "smoke"], "no case selected",
