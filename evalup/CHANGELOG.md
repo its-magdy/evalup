@@ -583,12 +583,18 @@ round-2 user test. Answering it found a runner defect first.
   ledger now holds one row per run id. Found by the review of the resume
   fix above.
 
+- **The linter sealed `holdout` against `full` only.** `[holdout, smoke]`
+  linted clean and ran on every smoke run; `[holdout, canary]` ran as a
+  canary, whose id the runner names when it aborts on it.
+  `holdout_not_sealed` now fires for holdout beside any other split. It had
+  no test; it has one per pairing.
+
 ### Added — the canary question (2026-09-30)
 
 - **`gate.py --require-canaries`**, opt-in: closes the gate when any canary
   did not pass or the run carries none ("no verified canary, no pass"). For a
-  release pipeline; a holdout run selects the `holdout` split, where
-  canaries do not normally live, so expect the flag to close that gate.
+  release pipeline; not for a holdout run, which selects the `holdout` split
+  — the linter keeps it exclusive of `canary` — and so always closes.
 - **`make_plan.py --layer X` names each canary it leaves with no enabled
   layer**, on stderr and in the summary's `notes`: that canary will read
   `unscored` and the gate will count it not verified.

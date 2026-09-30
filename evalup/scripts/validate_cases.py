@@ -122,7 +122,7 @@ TEST_TYPES = ("MFT", "INV", "DIR")
 ORDER_MODES = ("in_order", "exact", "any_order")
 CALL_SCOPES = ("any", "all", "first")
 # The four legal splits (generate/SKILL.md §4). `smoke` and `canary` are
-# subsets of `full`; `holdout` is mutually exclusive with `full` — that
+# subsets of `full`; `holdout` is mutually exclusive with all three — that
 # exclusivity is what the seal rests on, so it is checked, not assumed.
 SPLITS = ("full", "smoke", "holdout", "canary")
 
@@ -682,12 +682,20 @@ def check_case(rep, case, all_ids, enabled, index=None):
                      "the mode's split alone, so this canary is silent on "
                      "every smoke run and drift there goes unwatched -- "
                      "add `smoke` (canaries are outside its denominators)")
-        if "holdout" in splits and "full" in splits:
+        shared = [name for name in ("full", "smoke", "canary")
+                  if name in splits]
+        if "holdout" in splits and shared:
+            # Every other split, not only `full`. make_plan.py selects on
+            # the mode's split alone, so `[holdout, smoke]` runs -- and is
+            # read -- on every smoke run, and `[holdout, canary]` runs as a
+            # canary whose id the runner names when it aborts on it. Only
+            # `full` was checked, which is the pairing nobody writes.
             rep.error(label, "holdout_not_sealed",
-                      "case is in both `holdout` and `full`; the seal "
-                      "rests on those being mutually exclusive, so a case "
-                      "in both is trained on and then measured as if held "
-                      "out")
+                      "case is in `holdout` and also in {}; the seal rests "
+                      "on holdout being exclusive, so a case in another "
+                      "split is run, read and optimized against and then "
+                      "measured as if held out".format(
+                          ", ".join(f"`{name}`" for name in shared)))
 
     category = case.get("category")
     if category not in CATEGORIES:

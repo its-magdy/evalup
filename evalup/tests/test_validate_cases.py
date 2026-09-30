@@ -918,6 +918,25 @@ class TestCanarySplit(ValidateTest):
         self.assertNotIn("canary_not_in_smoke", self.codes(out))
 
 
+class TestHoldoutIsExclusive(ValidateTest):
+    """The seal rests on `holdout` sharing a case with no other split. Only
+    `full` was checked: `[holdout, smoke]` linted clean and ran on every
+    smoke run, and `[holdout, canary]` ran as a canary -- whose id the runner
+    names when it aborts on it."""
+
+    def test_holdout_beside_any_other_split_is_an_error(self):
+        for other in ("full", "smoke", "canary"):
+            with self.subTest(other):
+                finding = self.assert_finds(
+                    "holdout_not_sealed",
+                    [good_case(split=["holdout", other])])
+                self.assertIn(f"`{other}`", finding["message"])
+
+    def test_holdout_alone_is_sealed(self):
+        rc, out, _ = self.validate([good_case(split=["holdout"])])
+        self.assertNotIn("holdout_not_sealed", self.codes(out))
+
+
 class TestFilterProvenance(ValidateTest):
     """F-016 (field test 2026-09-25): every generated case carried a
     `filter:` block with ROUGE-L and self-containedness numbers that no

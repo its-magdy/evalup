@@ -46,9 +46,9 @@ its only layer was disabled by `--layer X` -- says nothing about drift, sits
 outside infra_rate, and closing on it would close on provider noise; and
 "0/1 closes" beside "no canaries at all opens" is not a rule. So the summary
 says how many were NOT VERIFIED, and --require-canaries is the strict form
-for a release gate: no verified canary, no pass. (A holdout run selects the
-`holdout` split, and canaries normally live in `smoke`/`full`: expect the
-flag to close a holdout gate.)
+for a release gate: no verified canary, no pass. (Not for a holdout run:
+it selects the `holdout` split, which the linter keeps exclusive of `canary`,
+so the flag always closes that gate.)
 
 `--latest` takes a reports/ directory and picks the newest run by the
 TIMESTAMP SEGMENT of its run id (<mode>-<YYYYMMDDTHHMMSSZ>), never by mtime,
@@ -343,8 +343,8 @@ def main():
     ap.add_argument("--require-canaries", action="store_true",
                     help="also close the gate when the harness was not "
                          "verified: a canary did not pass, or the run has "
-                         "none (for a release gate; a holdout run normally "
-                         "has none)")
+                         "none (for a release gate; not for a holdout run, "
+                         "whose split holds no canary)")
     ap.add_argument("--no-verify", action="store_true",
                     help="skip run_cases.py --verify over the run directory "
                          "(for a results.json shipped without its cases/); "

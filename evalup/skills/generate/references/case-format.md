@@ -30,7 +30,7 @@ split: [full, smoke]                # which splits this case belongs to. A FIELD
                                     # same id and no single source of truth — an
                                     # in-place rewrite updates one and silently
                                     # leaves the other stale. `holdout` stays
-                                    # mutually exclusive with `full` (enforced by
+                                    # exclusive of every other split (enforced by
                                     # the field, not by which folder the bytes are
                                     # in), so a sealed case is never also in full.
                                     # REQUIRED: validate_cases.py errors

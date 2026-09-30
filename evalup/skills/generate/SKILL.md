@@ -197,7 +197,8 @@ by case, what changed and why.
 ## 4. Splits
 The four legal values of `split` are exactly `full`, `smoke`, `holdout`,
 `canary`. `smoke` and `canary` are SUBSETS of `full`, so a case carries both.
-`holdout` is mutually exclusive with `full` — a case is sealed or it is in the
+`holdout` is mutually exclusive with `full` (and so with `smoke` and
+`canary`, its subsets; the validator's `holdout_not_sealed` checks all three) — a case is sealed or it is in the
 training pool, never both, and that exclusivity is what the seal rests on.
 
 - `full`: everything reviewed.
