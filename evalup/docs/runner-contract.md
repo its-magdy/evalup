@@ -711,7 +711,8 @@ convention).
 
 The append happens once, at pre-flight, before the first case — the *look* is
 the spend, so a run that aborts halfway has still spent it. `--resume` does not
-append again.
+append again: the ledger holds one row per run id, and a resume appends only
+when that run id has none (a first attempt that died before its append).
 
 ---
 
@@ -774,7 +775,13 @@ field is recorded in the manifest and otherwise unused here.
 3. Rebuild the in-memory verdict list from those directories, then rewrite
    `verdicts.jsonl` and `verdicts_for_stats.jsonl` from it (§9) before invoking
    anything.
-4. Continue with the first not-done case in plan order.
+4. If an adopted case is a **canary that scored `fail`**, stop here: exit 4,
+   `summary.status: "aborted_canary"`, no case invoked (pre-flight has run, so
+   the health check was made — and a down app is exit 3 first). §7's abort is checked
+   after a case executes and an adopted case never does, so without this step
+   a resume walked past the failed canary and finalized `ok`. The verdict is
+   on disk and would be adopted again; fix the drift and start a new run id.
+5. Continue with the first not-done case in plan order.
 
 Without `--resume`, a non-empty `--out` is exit 2. The runner never silently
 merges into or overwrites an existing run.
@@ -874,7 +881,9 @@ on disk — on runs that carry `summary.repeated_5xx` (the two arrived together;
 an older run's rate used another denominator). The run-time bookkeeping
 counters (`attempted`, `crash_rate`, `scorer_errors`) are **not** recounted:
 they are properties of the execution, not of the tree, and a check that has to
-guess at them would fail honest runs.
+guess at them would fail honest runs. One consistency rule rides along:
+`summary.status: "ok"` beside a canary whose `verdict.json` says `fail` is a
+discrepancy, because §7 aborts on exactly that.
 
 Any discrepancy → the missing/mismatched items are written to
 `results.json.summary.missing_artifacts`, printed as JSON on stdout, and the

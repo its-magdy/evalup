@@ -1462,16 +1462,34 @@ class Runner:
                 "runner is stdlib-only and cannot safely append to a YAML "
                 "document")
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        row = {"run_id": self.plan["run_id"], "date": utc_now(),
-               "mode": self.plan["mode"], "reason": "run"}
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        # SS6: "--resume does not append again". The look is the spend and
+        # it was spent when this run id first reached pre-flight; every
+        # resume used to append another, so a run resumed twice cost three
+        # of the five looks before a reseal. Keyed on the run id's own row
+        # rather than on the flag, so a first attempt that died before its
+        # append still gets counted once.
+        recorded = False
+        if self.resume and os.path.isfile(path):
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    with contextlib.suppress(ValueError):
+                        row = json.loads(line)
+                        recorded = recorded or (
+                            isinstance(row, dict)
+                            and row.get("run_id") == self.plan["run_id"])
+        if not recorded:
+            row = {"run_id": self.plan["run_id"], "date": utc_now(),
+                   "mode": self.plan["mode"], "reason": "run"}
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         with open(path, encoding="utf-8") as fh:
             self.holdout_looks = sum(1 for line in fh if line.strip())
         # stderr, not stdout: stdout carries the machine-readable {"error":...}
         # payload, and a caller parsing one shape must not find prose there.
         sys.stderr.write(
-            f"holdout look recorded: {self.holdout_looks} total in {path}\n")
+            "holdout look {}: {} total in {}\n".format(
+                "already recorded for this run" if recorded else "recorded",
+                self.holdout_looks, path))
 
     # -- SS10. manifest.yaml ----------------------------------------------
     def manifest(self):
@@ -2633,6 +2651,27 @@ class Runner:
         self.refresh_derived()
         return {v["case_id"] for v in self.verdicts}
 
+    def adopted_abort(self):
+        """SS8: a run that aborted on a canary is still aborted when resumed.
+
+        abort_check() runs after a case EXECUTES and an adopted case never
+        does, so `--resume` walked past the failed canary, ran every case
+        after it and finalized `ok`, exit 0 -- and gate.py opened on a run
+        whose own abort had said nothing from it was trustworthy. Drift is
+        not fixed by continuing: the canary's verdict is on disk and would be
+        adopted again, so the answer is a new run id once it is.
+        """
+        for verdict in self.verdicts:
+            if verdict["canary"] and verdict["verdict"] == FAIL:
+                self.log("abort", reason="canary", case_id=verdict["case_id"],
+                         adopted=True)
+                return ("aborted_canary", EXIT_CANARY,
+                        "canary {} scored {} in the run being resumed; "
+                        "harness/judge drift, nothing else from this run is "
+                        "trustworthy -- fix the drift and start a new run "
+                        "id".format(verdict["case_id"], verdict["verdict"]))
+        return None
+
     def crashed_on_disk(self, case):
         if case.get("category") not in CRASH_RATE_CATEGORIES:
             return False
@@ -3043,6 +3082,20 @@ def check_results_json(results, cases):
             problems.append(
                 f"results.json (summary.{key} is {summary.get(key)!r}; the "
                 f"case directories count {value})")
+    if summary.get("status") == "ok":
+        # SS7: a canary `fail` aborts the run, so `ok` beside one is a run
+        # that walked past its own abort (a --resume did, until 2026-09-30)
+        # or a status edited by hand. Either way its numbers are the ones SS7
+        # calls untrustworthy, and gate.py reads this check.
+        for case_id in sorted(cid for cid, v in cases.items()
+                              if v.get("canary") and v.get("verdict") == FAIL):
+            # THE HOLDOUT SEAL: gate.py prints this line, so a sealed id
+            # stays out of it.
+            name = "a holdout canary" if cases[case_id].get("holdout") \
+                else f"canary {case_id}"
+            problems.append(
+                f"results.json (summary.status is 'ok' but {name} scored "
+                "fail; a canary failure aborts the run, SS7)")
     seen = summary.get("canaries") or {}
     want = {"n": len(canaries),
             "passed": sum(1 for v in canaries if v.get("verdict") == PASS)}
@@ -3203,7 +3256,7 @@ def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
     # attempt at the same run id look like a run in progress.
     already_done = runner.adopt_existing() if resume else set()
     runner.preflight()
-    aborted = runner.execute(already_done)
+    aborted = runner.adopted_abort() or runner.execute(already_done)
     return runner.finalize(aborted)
 
 

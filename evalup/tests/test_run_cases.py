@@ -1054,6 +1054,22 @@ class TestHoldoutSeal(RunnerCase):
         self.assertEqual(rows[0]["reason"], "run")
         self.assertEqual(rows[0]["run_id"], "holdout-20260908T120000Z")
 
+    def test_a_resume_does_not_spend_a_second_look(self):
+        """SS6: "--resume does not append again". It did, on every resume, so
+        a holdout run resumed twice cost three of the five looks a reseal
+        allows. One row per run id."""
+        plan = self.holdout_plan()
+        self.assertEqual(self.invoke(plan)[0], 0)
+        rc, _, proc = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertIn("already recorded for this run: 1 total", proc.stderr)
+        ledger = self.state / "datasets" / "holdout-looks.jsonl"
+        self.assertEqual(len(ledger.read_text(encoding="utf-8")
+                             .splitlines()), 1)
+        out = self.state / "reports" / "holdout-20260908T120000Z"
+        self.assertEqual(json.loads((out / "results.json").read_text(
+            encoding="utf-8"))["summary"]["holdout"]["looks_recorded"], 1)
+
     def test_an_everyday_regression_run_does_not_spend_a_look(self):
         # `regression` selects the split NAMED "full", and the seal check
         # compared that name against the MODE names ("holdout", "full"): every
@@ -1105,6 +1121,100 @@ class TestCanariesAndRepeats(RunnerCase):
         summary = self.read("results.json")["summary"]
         self.assertEqual(summary["canaries"], {"n": 1, "passed": 1})
         self.assertEqual(summary["n"], 1)      # the canary is not counted
+
+    def drifted_plan(self):
+        """A canary the app answers wrongly, ahead of one ordinary case."""
+        canary = make_case("c-canary", split=["smoke", "canary"])
+        canary["expect"]["answer"] = {"must_contain": ["not in the answer"]}
+        return make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-app"), canary])
+
+    def test_a_failed_canary_aborts_before_any_other_case(self):
+        """SS7: harness or judge drift. Nothing else from the run is
+        trustworthy, so nothing else is sent."""
+        rc, payload, proc = self.invoke(self.drifted_plan())
+        self.assertEqual(rc, 4, proc.stdout + proc.stderr)
+        self.assertIn("c-canary", payload["error"])
+        results = self.read("results.json")
+        self.assertEqual(results["summary"]["status"], "aborted_canary")
+        self.assertEqual([c["case_id"] for c in results["cases"]],
+                         ["c-canary"])
+        self.assertFalse((self.out_dir() / "cases" / "c-app").exists())
+
+    def test_a_resumed_canary_abort_stays_aborted(self):
+        """The abort is checked after a case EXECUTES and an adopted case
+        never does, so --resume walked past the failed canary, ran the rest
+        and finalized `ok`, exit 0 -- and gate.py opened on it."""
+        plan = self.drifted_plan()
+        self.assertEqual(self.invoke(plan)[0], 4)
+        rc, payload, proc = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 4, proc.stdout + proc.stderr)
+        self.assertIn("start a new run id", payload["error"])
+        results = self.read("results.json")
+        self.assertEqual(results["summary"]["status"], "aborted_canary")
+        self.assertEqual(results["exit_code"], 4)
+        # Nothing after the canary was sent by the resume either: the canary
+        # is the one case call this app ever saw.
+        self.assertFalse((self.out_dir() / "cases" / "c-app").exists())
+        self.assertEqual(len([c for c in self.app.calls
+                              if c["path"] != "/"]), 1)
+
+    def test_verify_refuses_ok_beside_a_failed_canary(self):
+        """What such a resume left on disk, or a status edited by hand:
+        `ok` over a canary whose verdict.json says `fail`."""
+        self.assertEqual(self.invoke(self.drifted_plan())[0], 4)
+        path = self.out_dir() / "results.json"
+        results = json.loads(path.read_text(encoding="utf-8"))
+        results["summary"]["status"] = "ok"
+        results["exit_code"] = 0
+        path.write_text(json.dumps(results), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 6, proc.stdout + proc.stderr)
+        problems = json.loads(proc.stdout)["missing_artifacts"]
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("canary c-canary scored fail", problems[0])
+        # ...which is what closes gate.py on it, and its canary line makes no
+        # "not verified" claim about a canary that in fact failed.
+        gate = subprocess.run(
+            [sys.executable, str(SCRIPTS / "gate.py"), str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(gate.returncode, 1, gate.stdout)
+        self.assertIn("canaries 0/1 pass", gate.stdout)
+        self.assertNotIn("NOT VERIFIED", gate.stdout)
+
+    def test_a_canary_the_provider_dropped_is_not_verified_not_failed(self):
+        """A bare "canaries 0/1" read as a failed canary. In a finished,
+        verified run it never is one, so the gate says what it is -- nobody
+        got an answer about the harness from that case -- and stays open:
+        closing on it would close on provider noise. --require-canaries is
+        the opt-in strict form."""
+        def canary_down(path, body, headers):
+            if path == "/":
+                return 200, {}, {}
+            if body.get("message") == "canary?":
+                return 503, {"message": "upstream unavailable"}, {}
+            return 200, {"message": "ok"}, {}
+        self.app.server.responder = canary_down
+        plan = make_plan(self.state, self.app.base_url, cases=[
+            make_case("c-app"),
+            make_case("c-canary", split=["smoke", "canary"],
+                      input={"messages": [{"role": "user",
+                                           "content": "canary?"}]})])
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("results.json")["summary"]["canaries"],
+                         {"n": 1, "passed": 0})
+        gate = [sys.executable, str(SCRIPTS / "gate.py"), str(self.out_dir())]
+        proc = subprocess.run(gate, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("canaries 0/1 pass; 1 NOT VERIFIED", proc.stdout)
+        proc = subprocess.run([*gate, "--require-canaries"],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("harness not verified (--require-canaries): 0/1 "
+                      "canaries passed", proc.stdout)
 
     def test_repeats_directory_holds_every_repeat(self):
         """SS6: repeats/ exists iff k > 1, and holds the first repeat too --
