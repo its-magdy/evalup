@@ -74,6 +74,7 @@ from _common import (
     RUN_ID_RE,
     BadJSON,
     add_version_flag,
+    infra_rate,
     loads_strict,
     nfc,
     unsafe_case_id,
@@ -2434,12 +2435,6 @@ class Runner:
                   for value in (PASS, FAIL, UNSCORED, SKIPPED, INFRA_ERROR,
                                 INFRA_INCOMPLETE)}
         infra = counts[INFRA_ERROR] + counts[INFRA_INCOMPLETE]
-        # SS9's denominators: infra_rate is over the non-canary cases that
-        # were SENT (n - skipped), the same cases its count comes from.
-        # `attempted` counts canaries too, and dividing the canary-free infra
-        # count by it read one infra case beside one passing canary as 50%
-        # (F-161). crash_rate counts every sent case, so `attempted` is its.
-        sent = len(graded) - counts[SKIPPED]
         canaries = [v for v in verdicts if v["canary"]]
         holdouts = [v for v in verdicts if v["holdout"]]
         disabled = sorted(
@@ -2457,7 +2452,13 @@ class Runner:
             # Of those, the cases that got one 5xx on every attempt of every
             # repeat: still infra, but possibly the app's own error (F-165).
             "repeated_5xx": sum(1 for v in graded if v.get("repeated_5xx")),
-            "infra_rate": round(infra / sent, 4) if sent else 0.0,
+            # SS10's denominators: infra_rate is over the non-canary cases
+            # that were SENT (n - skipped), the same cases its count comes
+            # from. `attempted` counts canaries too, and dividing the
+            # canary-free infra count by it read one infra case beside one
+            # passing canary as 50% (F-161). crash_rate counts every sent
+            # case, so `attempted` is its.
+            "infra_rate": infra_rate(infra, len(graded), counts[SKIPPED]),
             "crash_rate": round(self.crashes / self.attempted, 4)
             if self.attempted else 0.0,
             "scorer_errors": self.scorer_errors,
@@ -2984,10 +2985,9 @@ def verify_run_dir(out_dir):
 def check_results_json(results, cases):
     """SS9(c) check 4. Only what is derivable from the tree.
 
-    The run-time bookkeeping counters (attempted, crash_rate, infra_rate,
-    scorer_errors) are properties of the EXECUTION, not of the tree, so they
-    are recorded and not recounted -- a check that had to guess at them would
-    fail honest runs.
+    The run-time bookkeeping counters (attempted, crash_rate, scorer_errors)
+    are properties of the EXECUTION, not of the tree, so they are recorded and
+    not recounted -- a check that had to guess at them would fail honest runs.
     """
     problems = []
     shown = {row.get("case_id"): row for row in (results.get("cases") or [])}
@@ -3036,9 +3036,8 @@ def check_results_json(results, cases):
         # is not failed for the definition it was written under.
         recounted["repeated_5xx"] = sum(1 for v in graded
                                         if v.get("repeated_5xx"))
-        sent = recounted["n"] - recounted["skipped"]
-        recounted["infra_rate"] = round(
-            recounted["infra_errors"] / sent, 4) if sent else 0.0
+        recounted["infra_rate"] = infra_rate(
+            recounted["infra_errors"], recounted["n"], recounted["skipped"])
     for key, value in recounted.items():
         if summary.get(key) != value:
             problems.append(

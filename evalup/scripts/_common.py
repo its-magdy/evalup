@@ -268,6 +268,21 @@ MATRIX_KEY_OF_LAYER = {
 }
 
 
+def infra_rate(infra_errors, n, skipped, ndigits=4):
+    """runner-contract SS10: infra verdicts over the non-canary cases SENT.
+
+    `n` counts every non-canary case selected and `skipped` the ones the
+    safety gates refused, so `n - skipped` is what reached the app. Written
+    once because the runner's summary, its --verify recount and
+    run_history.py each carried this denominator, and the one time it changed
+    (F-161, the 2026-09-26 user test) it had to change in all three. The
+    precision is the caller's: results.json records 4 places, a history
+    series 6 like every other ratio it reports.
+    """
+    sent = n - skipped
+    return round(infra_errors / sent, ndigits) if sent else 0.0
+
+
 def unsafe_case_id(case_id):
     """Why `case_id` cannot name a directory, or None when it can.
 

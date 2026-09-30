@@ -182,6 +182,7 @@ from _common import (
     HARNESS_VERSION,
     add_version_flag,
     die,
+    infra_rate,
     load_json,
     require_range,
     write_output,
@@ -531,7 +532,7 @@ def point_metrics(point):
         # divided by `attempted` (canaries in) inside the same harness
         # version, and a series mixing the two would show the definition
         # change as drift. Every run carries these counts (SS10's table).
-        "infra_rate": infra_rate(summary, n),
+        "infra_rate": recomputed_infra_rate(summary, n),
         "crash_rate": number(summary.get("crash_rate")),
         "scorer_errors": number(summary.get("scorer_errors")),
         "cases_scored": scored,
@@ -566,13 +567,12 @@ def point_metrics(point):
     return metrics
 
 
-def infra_rate(summary, n):
+def recomputed_infra_rate(summary, n):
     infra, skipped = number(summary.get("infra_errors")), \
         number(summary.get("skipped"))
     if None in (infra, skipped, n):
         return number(summary.get("infra_rate"))
-    sent = n - skipped
-    return round(infra / sent, 6) if sent else 0.0
+    return infra_rate(infra, n, skipped, ndigits=6)
 
 
 def undefined_reason(point, name):
