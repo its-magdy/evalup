@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-826 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
+834 tests, ~2.5 min, the blessed command. `test_run_cases.py` is most of that: a
 real HTTP server per test, and one test kills a runner mid-run.
 
 ```sh
@@ -31,9 +31,9 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 817 passed, 9 skipped, 265 subtests.
+whatever `python3` happens to be. Expect 825 passed, 9 skipped, 273 subtests.
 All nine skips need PyYAML (eight are `convert_suite.py`'s, one is the
-example's fidelity check); add `--with pyyaml` and they run (826 passed, none
+example's fidelity check); add `--with pyyaml` and they run (834 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -98,6 +98,10 @@ commands above are the only checked claim.
 - **`gate.py` fails closed.** Zero scored cases, a count that is not an int, or
   a run directory that fails `--verify` closes the gate. `results.json` is the
   file under audit; never let the gate take its word for its own integrity.
+  **Canaries are the one thing it does not close on by default**, and that is
+  decided: a canary `fail` already aborts the run (and a `--resume` re-aborts),
+  while one with no verdict is provider noise or a disabled layer — it prints
+  NOT VERIFIED, and `--require-canaries` is the opt-in strict form.
 - **A tool call the harness cannot name is never evidence of absence.**
   `_common.load_trajectory` refuses it, for every consumer at once.
 - **Only the MODES `holdout`/`full` and the SPLIT `holdout` touch the seal**
@@ -138,7 +142,7 @@ commands above are the only checked claim.
   brittle.
 - **The holdout ledger is a `.jsonl` sidecar** (`paths.holdout_ledger`), never
   the YAML metadata a stdlib-only runner would corrupt, and its total is a LINE
-  COUNT.
+  COUNT — so it holds one row per run id, and a `--resume` does not add one.
 - **The matrix says `answer_quality`; the runner's rows are `answer`, `rules`
   and `judged`.** `_common.MATRIX_KEY_OF_LAYER` is the one translation, used
   by the runner's lookup and by `make_plan.py --layer`. `http` and `loops`

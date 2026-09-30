@@ -27,18 +27,21 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 826 tests, ~2.5min
+python3 -m unittest discover -s tests                    # 834 tests, ~2.5min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 ## State
 
-- **`main`** holds everything, through the 2026-09-30 refactor review's fixes
-  (fast-forwarded that day). It is the only branch. Nothing is pushed;
-  **there is still no remote**, so nothing here has ever been checked by CI.
-- **Health** (2026-09-30): 826 tests pass on 3.14;
-  817 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 826 pass with
+- **Branches.** `main` holds everything through the 2026-09-30 refactor
+  review's fixes (fast-forwarded that day). `canary-gate` (2026-09-30, **not
+  merged**) adds the canary work: a resumed canary abort stays aborted, one
+  ledger row per run id, the gate's NOT VERIFIED line and
+  `--require-canaries`. Nothing is pushed; **there is still no remote**, so
+  nothing here has ever been checked by CI.
+- **Health** (`canary-gate`, 2026-09-30): 834 tests pass on 3.14;
+  825 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 834 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
@@ -70,6 +73,11 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
     break every profile and split `run_history.py`'s series key.
   - `--verify` recounts from disk with its own code; only the `infra_rate`
     definition is shared (`_common.infra_rate`).
+  - `gate.py` does not close on a canary that reached no verdict (infra, or
+    a layer `--layer` disabled): that is provider noise, not drift, and a
+    canary `fail` already aborts. It prints NOT VERIFIED;
+    `--require-canaries` is the opt-in strict form. Not split by gate kind —
+    `gate.py` never reads it, and `--layer` is legal under `regression`.
   - F-166 (`wait_run.py` overran the 600 s cap) was not changed: a reviewer's
     reading, not the tester's, is that the script cannot overrun on its own
     and macOS sleep stops its clock.
@@ -79,11 +87,6 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
     (headless open questions have no home), F-014/F-020/F-030, F-106, F-125
     (friction), F-129 (the bench's agents), F-133, F-144, F-147, F-149
     (nits). Deferred: the validator's profile-name check (F-155).
-- **Open for the owner:**
-  - A canary with an infra repeat reads "canaries 0/1", but only a canary
-    `fail` aborts a run and `gate.py` does not close on it. Same reading
-    under `--layer X` for a canary that asserts only a disabled layer: it
-    rolls up `unscored`, and can no longer abort that run.
 - **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
   cases are skipped); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.

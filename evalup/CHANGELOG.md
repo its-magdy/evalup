@@ -526,8 +526,9 @@ freeze.
   says so. Two consequences of the key now working: with `answer_quality`
   off, `rules` and `judged` read `unscorable` rather than `unscored` /
   `unjudged (…)`, and a canary asserting only a disabled layer rolls up
-  `unscored` — under `--layer X` the gate line can read "canaries 0/n". Contract §5 said "looked up under the layer's own name" beside an
-  example matrix keyed `answer_quality`; it now states the map.
+  `unscored` (the canary entries below are what the gate and `make_plan.py`
+  say about that). Contract §5 said "looked up under the layer's own name"
+  beside an example matrix keyed `answer_quality`; it now states the map.
 - **A run exited 6 over an `actual.json` nothing wrote.** §9(b) requires the
   file of every sent case carrying `expect.result`, and the runner wrote it
   only for a live `execution` layer. One execution case whose app call failed
@@ -551,6 +552,46 @@ freeze.
   `unscorable` with the matrix's reserved reason — §5's own decision order.
   Both are non-pass and the runner is unchanged; the §5 table and the
   linter's reserved-field message now say what it does.
+
+### Fixed — the canary question (2026-09-30)
+
+"Should `gate.py` close when a canary did not pass?" had been open since the
+round-2 user test. Answering it found a runner defect first.
+
+- **`--resume` turned a canary abort into `ok`.** A canary `fail` aborts the
+  run (exit 4, `aborted_canary`: "nothing else from this run is
+  trustworthy"), but the abort was checked only after a case executed, and a
+  resumed run adopts its finished cases without executing them. So `--resume`
+  walked past the failed canary, ran the rest, finalized `ok` with exit 0,
+  and `gate.py` opened on it. Reproduced. A resume now re-aborts before
+  invoking anything (contract §8 step 4), and `--verify` reports `ok` beside
+  a failed canary as a discrepancy, so the gate also closes on a run the old
+  code left that way.
+- **The gate line said "canaries 0/1" for a canary nobody got an answer
+  about**, which read as a failed one. In a finished run it never is — a
+  `fail` aborts — so over a run directory that verifies, the line now reads
+  `canaries 1/2 pass; 1 NOT VERIFIED (infra, unscored or skipped …)`; under
+  `--no-verify` or beside a verify failure it stays at the bare counts, which
+  make no claim. The exit code is unchanged, by decision:
+  a canary with no verdict says nothing about drift and sits outside
+  `infra_rate`, so closing on it would close on provider noise, and "0/1
+  closes" beside "no canaries at all opens" is not a rule.
+
+- **Every `--resume` of a holdout run spent another look.** Contract §6
+  says "`--resume` does not append again"; the ledger append never checked.
+  A run resumed twice cost three of the five looks a reseal allows. The
+  ledger now holds one row per run id. Found by the review of the resume
+  fix above.
+
+### Added — the canary question (2026-09-30)
+
+- **`gate.py --require-canaries`**, opt-in: closes the gate when any canary
+  did not pass or the run carries none ("no verified canary, no pass"). For a
+  release pipeline; a holdout run selects the `holdout` split, where
+  canaries do not normally live, so expect the flag to close that gate.
+- **`make_plan.py --layer X` names each canary it leaves with no enabled
+  layer**, on stderr and in the summary's `notes`: that canary will read
+  `unscored` and the gate will count it not verified.
 
 ### Fixed — the 2026-09-21 shape audit
 
