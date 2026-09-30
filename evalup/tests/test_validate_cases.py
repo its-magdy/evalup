@@ -956,9 +956,16 @@ class TestMatrixKeys(ValidateTest):
         self.assertEqual(self.codes(out), [])
 
     def test_the_wrapped_profile_form_is_checked_too(self):
-        rc, out, err = self.lint({"capability_matrix": dict(
-            self.MATRIX, answer={"enabled": False})})
+        wrapped = {"capability_matrix": dict(
+            self.MATRIX, answer={"enabled": False})}
+        rc, out, err = self.lint(wrapped)
         self.assertEqual(self.codes(out), ["not_a_matrix_key"])
+        # ...and --strict promotes it like every other warning.
+        rc, out, err = self.validate(
+            [good_case()], "--strict", "--capabilities",
+            self.write_json("caps.json", wrapped))
+        self.assertEqual(rc, 1, err)
+        self.assertEqual(out["findings"][0]["severity"], "ERROR")
 
 
 class TestHoldoutIsExclusive(ValidateTest):
@@ -974,6 +981,13 @@ class TestHoldoutIsExclusive(ValidateTest):
                     "holdout_not_sealed",
                     [good_case(split=["holdout", other])])
                 self.assertIn(f"`{other}`", finding["message"])
+
+    def test_a_sealed_canary_is_not_told_to_join_smoke(self):
+        """One finding for [holdout, canary]: "add `smoke`" beside the seal
+        error is advice that would make the case worse."""
+        rc, out, _ = self.validate([good_case(split=["holdout", "canary"])])
+        self.assertIn("holdout_not_sealed", self.codes(out))
+        self.assertNotIn("canary_not_in_smoke", self.codes(out))
 
     def test_holdout_alone_is_sealed(self):
         rc, out, _ = self.validate([good_case(split=["holdout"])])

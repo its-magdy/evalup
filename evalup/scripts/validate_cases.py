@@ -683,7 +683,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
         # unbacked at once: no run mode selects this case (run-modes.md
         # selects ON THE FIELD), and a case sitting in a holdout/ DIRECTORY
         # is not sealed by anything a script can see — the seal is the
-        # `holdout` membership, checked below against `full`.
+        # `holdout` membership, checked below against every other split.
         rep.error(label, "missing_split",
                   "case declares no `split`; splits are a FIELD, not a "
                   "directory (case-format.md), so a case with none is "
@@ -700,7 +700,10 @@ def check_case(rep, case, all_ids, enabled, index=None):
                           f"split {name!r} is not one of "
                           f"{', '.join(SPLITS)}; a typo here silently "
                           "drops the case from the run that names it")
-        if "canary" in splits and "smoke" not in splits:
+        if "canary" in splits and "smoke" not in splits \
+                and "holdout" not in splits:
+            # (Not beside `holdout`: that pairing is the ERROR below, and
+            # "add `smoke`" is advice that would make it worse.)
             # make_plan.py selects on the mode's split alone and the runner
             # refuses a case that does not carry it (it labels every verdict
             # with that split), so a canary without `smoke` is silent on
