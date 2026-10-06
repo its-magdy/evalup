@@ -1293,9 +1293,17 @@ def check_adapter(rep, cases, records, adapter):
     # Truthiness, exactly as run_cases.skip_reason reads it.
     safe_to_attack = bool(mapping(adapter.get("environment")).get(
         "safe_to_attack"))
+    conversation = invocation.get("conversation")
     for i, (record, case) in enumerate(zip(records, cases)):
         label = record["id"] or f"<no id: cases[{i}]>"
         expect = mapping(case.get("expect"))
+        if "turns" in mapping(case.get("input")) and conversation is None:
+            rep.warn(label, "conversation_undeclared",
+                     "this case is a conversation (input.turns) but the "
+                     "adapter declares no invocation.conversation, so every "
+                     "run skips it (docs/multi-turn.md SS2): nothing says "
+                     "how the app keeps the turns in one conversation. "
+                     "discover writes the block")
         if case.get("category") in ATTACK_CATEGORIES and not safe_to_attack:
             rep.warn(label, "attack_category_will_skip",
                      f"category {case.get('category')!r} is skipped by every "

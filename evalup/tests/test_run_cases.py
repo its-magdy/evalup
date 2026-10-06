@@ -784,14 +784,14 @@ class TestSkipGates(RunnerCase):
         self.assertIn("hard rule 3", verdict["layers"]["http"]["reason"])
 
     def test_multi_turn_case_skips_even_with_a_session_contract(self):
-        """Multi-turn is RESERVED, so the gate ignores invocation.session.
+        """Two user messages are skipped whatever the adapter declares.
 
         The old gate skipped only when no session contract was declared. An
         adapter that declared one (adapters/dotnet.md shipped that block)
         therefore ran the case single-turn -- last user message only, earlier
         turns dropped -- and scored the truncated conversation as a real
-        verdict. Nothing drives start/send_turn/end, so the declaration could
-        never have made the run correct.
+        verdict. A conversation is input.turns now (docs/multi-turn.md), and
+        input.messages still sends exactly one user message.
         """
         plan = make_plan(self.state, self.app.base_url,
                          cases=[self.multi_turn_case()])
@@ -803,7 +803,7 @@ class TestSkipGates(RunnerCase):
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         verdict = self.read("cases", "c-0001", "verdict.json")
         self.assertEqual(verdict["verdict"], "skipped")
-        self.assertIn("RESERVED", verdict["layers"]["http"]["reason"])
+        self.assertIn("input.turns", verdict["layers"]["http"]["reason"])
         # And nothing was sent: a truncated turn is not a cheaper datapoint.
         self.assertEqual([c for c in self.app.calls if c["path"] != "/"], [])
 

@@ -21,7 +21,7 @@ capability_matrix:
   authz:           { enabled: false, blocked_by: "app has one anonymous identity; no permission model to score against" }
   tool_selection:  { enabled: false, blocked_by: "no trace store: tool calls are not observable" }
   trajectory:      { enabled: false, blocked_by: "no trace store: tool calls are not observable" }
-  multi_turn:      { enabled: false, blocked_by: "reserved: no conversation driver in the harness" }
+  multi_turn:      { enabled: false, blocked_by: "adapter declares no invocation.conversation" }
   cost_latency:    { enabled: false, blocked_by: "no trace store, so no token counts; latency alone is still recorded in results.json" }
 
 # `answer_quality.judged: uncalibrated` matters. The judged gate is DERIVED

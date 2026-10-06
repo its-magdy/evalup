@@ -713,6 +713,16 @@ class TestConversationCases(ValidateTest):
             every_turn={"tools": {"order_mode": "loose"}})])
         self.assertTrue(f["message"].startswith("every_turn"), f["message"])
 
+    def test_undeclared_conversation_warns_with_an_adapter(self):
+        adapter = self.write_json("adapter.json", {"invocation": {}})
+        f = self.assert_finds("conversation_undeclared", [conversation()],
+                              "--adapter", adapter, severity="WARN")
+        self.assertIn("invocation.conversation", f["message"])
+        adapter = self.write_json("adapter2.json", {"invocation": {
+            "conversation": {"style": "client-id"}}})
+        self.assertNotIn("conversation_undeclared", self.codes(self.validate(
+            [conversation()], "--adapter", adapter)[1]))
+
     def test_echo_counts_every_user_turn(self):
         case = conversation(
             expect={"answer": {"must_contain": ["Cairo"]}})

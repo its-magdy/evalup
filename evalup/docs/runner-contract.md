@@ -106,7 +106,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
     "trajectory":     {"enabled": false, "blocked_by": "no trace-id correlation"},
     "tool_selection": {"enabled": false, "blocked_by": "stage: pre-stability"},
     "cost_latency":   {"enabled": false, "blocked_by": "..."},
-    "multi_turn":     {"enabled": false, "blocked_by": "reserved: no conversation driver in the harness"},
+    "multi_turn":     {"enabled": false, "blocked_by": "adapter declares no invocation.conversation"},
     "answer_quality": {"enabled": true, "judged": "provisional"}
   },
 

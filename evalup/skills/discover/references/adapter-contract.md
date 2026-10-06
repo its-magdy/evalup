@@ -49,10 +49,14 @@ invocation:
   endpoint: "POST /api/chat/ask"          # <METHOD> /<path>, appended to base_url
   request_body: '{"sessionId": "<uuid>", "message": "<user turn>"}'
   response_body: '{"message": "<answer>"}'
-  # Request placeholders: <user turn> (the case's last user message), <uuid>
-  # (a fresh session id per repeat), <persona>, <case id>. A string that IS a
-  # placeholder becomes the typed value; one that merely CONTAINS one gets
-  # textual substitution.
+  # Request placeholders: <user turn> (the case's one user message, or the
+  # current turn of a conversation), <uuid> (a fresh id per repeat -- per
+  # conversation attempt, reused on every turn), <persona>, <case id>, and
+  # <session> (the id a server-id app returned on turn 1; see `conversation`
+  # below). A string that IS a placeholder becomes the typed value; one that
+  # merely CONTAINS one gets textual substitution. An unset <session> as a
+  # key's whole value DROPS the key (turn 1, every single-turn case) rather
+  # than sending null.
   # Response placeholders: <answer> (REQUIRED -- which field carries the final
   # text) and optionally <trace id>. ONE template, looked up by exact,
   # case-sensitive key: an app whose error envelope spells the field
@@ -132,9 +136,35 @@ invocation:
                                           # NOTE: timeout_s is NOT enforced in this mode
                                           # (an in-process call cannot be interrupted from
                                           # the stdlib) -- the callable owns its timeout.
-  # NO session block. Multi-turn is RESERVED (hard rule 3): the harness has no
-  # conversation driver, so there is nothing for start/send_turn/end to feed.
-  # Declaring one is not forward-compatible, it is harmful -- see hard rule 3.
+  conversation:                           # optional: how the app keeps a conversation
+    style: client-id                      # (docs/multi-turn.md SS2). WITHOUT this block
+                                          # every input.turns case is SKIPPED (hard rule 3).
+                                          # client-id: the app takes an id the client
+                                          #   invents -- the runner renders <uuid> once per
+                                          #   conversation attempt and reuses it every turn;
+                                          #   the request body must carry <uuid>.
+                                          # server-id: the app mints the id and returns it
+                                          #   on turn 1; the runner reads session_from and
+                                          #   renders it into <session> on turns 2+ (the body
+                                          #   must carry <session>). Turn 1 without it =>
+                                          #   the case is `unscored`, never a turn 2 sent
+                                          #   without a session.
+                                          # cookie: the app keeps a session cookie; the runner
+                                          #   keeps one jar per conversation attempt and merges
+                                          #   it with auth: {type: cookie} into ONE Cookie
+                                          #   header (http mode only).
+    # session_from: { body: "conversationId" }   # server-id only, exactly one of:
+    # session_from: { header: "X-Conversation-Id" }  # body (dotted path) | header
+    turn_delay_s: 0                       # optional pause between turns, for an app that
+                                          # writes history/memory AFTER replying
+    memory: session                       # session | user: what discover found. `user` =
+                                          # memory outlives the session (per user), so any
+                                          # case can see an earlier one's turns; the manifest
+                                          # and report say verdicts may be contaminated.
+  # NO `session` block. It is NOT this one: an earlier adapters/dotnet.md
+  # shipped `session: {start, send_turn, end}`, and declaring a block must
+  # never be enough to turn on a driver by accident (hard rule 3). The runner
+  # reads `conversation` only, and checks it at pre-flight (exit 3).
   # NO streaming field: completion is EOF (http) or return (function), and
   # no TTFT is recorded anywhere. If the app answers ONLY over SSE,
   # the runner reads the raw event-stream text as the body, so point the

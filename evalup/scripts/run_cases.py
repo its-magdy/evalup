@@ -77,6 +77,7 @@ from _common import (
     BadJSON,
     RegexTimeout,
     add_version_flag,
+    conversation_turns,
     infra_rate,
     loads_strict,
     nfc,
@@ -655,7 +656,18 @@ def secret_header_names(adapter, secret_paths):
 # loudly is the only honest thing to do with a mode nothing implements.
 # --------------------------------------------------------------------------
 
-REQUEST_PLACEHOLDERS = ("<user turn>", "<uuid>", "<persona>", "<case id>")
+REQUEST_PLACEHOLDERS = ("<user turn>", "<uuid>", "<persona>", "<case id>",
+                        "<session>")
+# docs/multi-turn.md SS2. The id a `server-id` app minted on turn 1, rendered
+# into turns 2+. Unset (turn 1, every single-turn case) a dict entry that IS
+# this placeholder is DROPPED rather than sent as null: an app binding a
+# non-nullable id answers null with a 400, and an app that accepts null also
+# accepts a missing key -- the reverse is false.
+SESSION_MARKER = "<session>"
+# The adapter's invocation.conversation block (SS2), checked at pre-flight.
+CONVERSATION_KEYS = ("style", "session_from", "turn_delay_s", "memory")
+CONVERSATION_STYLES = ("client-id", "server-id", "cookie")
+CONVERSATION_MEMORY = ("session", "user")
 ANSWER_MARKER = "<answer>"
 TRACE_ID_MARKER = "<trace id>"
 
@@ -713,10 +725,14 @@ def render_template(node, values):
     A string that IS a placeholder becomes the typed value; a string that
     merely CONTAINS one gets textual substitution, so both
     `"message": "<user turn>"` and `"prompt": "User says: <user turn>"` work.
+    The one exception is an unset `<session>` as a dict entry's whole value:
+    the entry is dropped (SESSION_MARKER says why).
     """
     if isinstance(node, dict):
         return {key: render_template(value, values)
-                for key, value in node.items()}
+                for key, value in node.items()
+                if not (value == SESSION_MARKER
+                        and values.get(SESSION_MARKER) is None)}
     if isinstance(node, list):
         return [render_template(value, values) for value in node]
     if not isinstance(node, str):
@@ -728,6 +744,15 @@ def render_template(node, values):
         if marker in out:
             out = out.replace(marker, "" if value is None else str(value))
     return out
+
+
+def template_mentions(node, marker):
+    """Does any string in a parsed template contain `marker`?"""
+    if isinstance(node, dict):
+        return any(template_mentions(v, marker) for v in node.values())
+    if isinstance(node, list):
+        return any(template_mentions(v, marker) for v in node)
+    return isinstance(node, str) and marker in node
 
 
 def find_marker_path(node, marker, path=()):
@@ -1256,6 +1281,9 @@ class Runner:
         self.record_url = None
         self.record_template = None
         self.method = "POST"
+        # invocation.conversation, checked at pre-flight; None = undeclared,
+        # and every input.turns case is skipped (docs/multi-turn.md SS2).
+        self.conversation = None
 
         self.trace_state = {"source": None, "correlation": None,
                             "collected": False, "disabled_layers": []}
@@ -1303,6 +1331,7 @@ class Runner:
             preflight_fail(
                 "runner v1 implements invocation.mode: http and function "
                 f"only (got: {mode!r})")
+        self.prepare_conversation(invocation, mode)
         # What request.json and the manifest RECORD, as opposed to what is
         # sent: the same template and url with every env ref put back (SS3).
         self.record_template = unresolve(self.request_template, self.sent_refs)
@@ -1363,6 +1392,75 @@ class Runner:
         self.request_template = json.loads(raw) if isinstance(raw, str) \
             else {"message": "<user turn>", "session_id": "<uuid>"}
         self.answer_path = ("text",)
+
+    def prepare_conversation(self, invocation, mode):
+        """docs/multi-turn.md SS2: the adapter's invocation.conversation.
+
+        A malformed block is a pre-flight failure, like a malformed body
+        template: discovering it one conversation at a time would bill turn
+        1 of every case to learn turn 2 can never be sent. The block is the
+        ONLY switch that turns the driver on. It is named `conversation`,
+        not `session`, because adapters/dotnet.md once shipped a `session`
+        block, and hard rule 3's history is that declaring one must never be
+        enough to turn a driver on by accident.
+        """
+        block = invocation.get("conversation")
+        if block is None:
+            return
+        where = "adapter.invocation.conversation"
+        if not isinstance(block, dict):
+            preflight_fail(f"{where} must be an object, got "
+                           f"{type(block).__name__}")
+        unknown = sorted(set(block) - set(CONVERSATION_KEYS))
+        if unknown:
+            preflight_fail("unknown key(s) in {}: {}".format(
+                where, ", ".join(unknown)))
+        style = block.get("style")
+        if style not in CONVERSATION_STYLES:
+            preflight_fail("{}.style must be one of {}, got {!r}".format(
+                where, "|".join(CONVERSATION_STYLES), style))
+        source = block.get("session_from")
+        if style == "server-id":
+            if not isinstance(source, dict) or len(source) != 1 \
+                    or not set(source) <= {"body", "header"} \
+                    or not isinstance(next(iter(source.values())), str) \
+                    or not next(iter(source.values())).strip():
+                preflight_fail(
+                    f"{where}.session_from must name exactly one of body: "
+                    "<dotted path> or header: <name> for style: server-id, "
+                    f"got {source!r}")
+            if "header" in source and mode != "http":
+                preflight_fail(f"{where}.session_from.header needs "
+                               "invocation.mode: http; a function returns "
+                               "no headers")
+            if not template_mentions(self.request_template, SESSION_MARKER):
+                preflight_fail(
+                    f"{where}.style is server-id but the request body "
+                    f"template has no {SESSION_MARKER} placeholder, so the "
+                    "id turn 1 returns would never be sent on turn 2")
+        elif source is not None:
+            preflight_fail(f"{where}.session_from is for style: server-id "
+                           f"only (style is {style!r})")
+        if style == "client-id" \
+                and not template_mentions(self.request_template, "<uuid>"):
+            preflight_fail(
+                f"{where}.style is client-id but the request body template "
+                "has no <uuid> placeholder, so no turn would carry the "
+                "conversation's id")
+        if style == "cookie" and mode != "http":
+            preflight_fail(f"{where}.style: cookie needs invocation.mode: "
+                           "http")
+        delay = block.get("turn_delay_s", 0)
+        if not isinstance(delay, (int, float)) or isinstance(delay, bool) \
+                or delay < 0:
+            preflight_fail(f"{where}.turn_delay_s must be a number >= 0, got "
+                           f"{delay!r}")
+        memory = block.get("memory")
+        if memory is not None and memory not in CONVERSATION_MEMORY:
+            preflight_fail("{}.memory must be one of {}, got {!r}".format(
+                where, "|".join(CONVERSATION_MEMORY), memory))
+        self.conversation = {"style": style, "session_from": source,
+                             "turn_delay_s": delay, "memory": memory}
 
     def health_check(self, mode):
         """SS4.3. One trivial request, or the entrypoint import.
@@ -1611,6 +1709,11 @@ class Runner:
                            "timeout_enforced":
                                invocation.get("mode") != "function"},
             "traces": traces,
+            # docs/multi-turn.md SS2/SS6: how conversations were kept, and
+            # whether memory outlives a session (`user`): then any case's
+            # verdict may be contaminated by an earlier one, and the report
+            # says so. null = undeclared, and no conversation ran.
+            "conversation": self.conversation,
             "capability_matrix": self.plan["capability_matrix"],
             "scoring": self.plan["scoring"],
             "execution": self.execution,
@@ -1751,20 +1854,30 @@ class Runner:
                 return ("never-live tool(s) {} with environment.kind {!r} "
                         "(adapter hard rule 2)".format(
                             ", ".join(blocked), environment.get("kind")))
+        turns = conversation_turns(case)
+        if turns is not None:
+            if self.conversation is None:
+                # docs/multi-turn.md SS2: the block is the only switch. An
+                # adapter that never said how the app keeps a conversation
+                # would have every turn land in a fresh one, and the case
+                # would score "forgot the context" for a harness gap.
+                return (f"multi-turn case ({len(turns)} turns) but the "
+                        "adapter declares no invocation.conversation, so "
+                        "there is no way to keep the turns in one "
+                        "conversation (adapter hard rule 3); discover "
+                        "writes the block")
+            return ("multi-turn case: the conversation driver is not built "
+                    "yet")
         if user_turn_count(case) > 1:
-            # Reserved, not merely unsupported, and the gate is deliberately
-            # blind to invocation.session. It used to skip only when no
-            # session contract was declared -- so an adapter that DID declare
-            # one (adapters/dotnet.md shipped exactly that block) fell through
-            # to invoke_once, where case_text() sends the LAST user message
-            # and the earlier turns vanish. That scored a truncated
-            # conversation as an ordinary pass or fail. Nothing drives
-            # session.start/send_turn/end, so declaring the contract could
-            # only ever buy a wrong number instead of an honest skip.
-            return (f"multi-turn case ({user_turn_count(case)} user turns); "
-                    "multi-turn evals are RESERVED -- no conversation driver "
-                    "exists, so only the last turn would reach the app "
-                    "(adapter hard rule 3)")
+            # Two user messages in input.messages are not a conversation:
+            # case_text() would send the LAST one and the earlier turns would
+            # vanish, scoring a truncated conversation as an ordinary pass
+            # or fail. A conversation is input.turns (case-format.md), which
+            # is the one shape the driver sends turn by turn.
+            return (f"multi-turn case ({user_turn_count(case)} user turns in "
+                    "input.messages): only the last turn would reach the "
+                    "app (adapter hard rule 3) -- write the conversation as "
+                    "input.turns")
         context = context_messages_reason(case)
         if context:
             return context
@@ -1779,7 +1892,8 @@ class Runner:
         session_id = str(uuid.uuid4())
         persona = case.get("persona") or (case.get("identity") or {}).get("role")
         values = {"<user turn>": case_text(case), "<uuid>": session_id,
-                  "<persona>": persona, "<case id>": case["id"]}
+                  "<persona>": persona, "<case id>": case["id"],
+                  SESSION_MARKER: None}
         body = render_template(self.request_template, values)
         headers = build_headers(self.adapter, case, self.identity_map,
                                 self.auth_values)
@@ -1927,7 +2041,8 @@ class Runner:
         """
         persona = case.get("persona") or (case.get("identity") or {}).get("role")
         values = {"<user turn>": case_text(case), "<uuid>": None,
-                  "<persona>": persona, "<case id>": case["id"]}
+                  "<persona>": persona, "<case id>": case["id"],
+                  SESSION_MARKER: None}
         headers = build_headers(self.adapter, case, self.identity_map,
                                 self.auth_values)
         request = {"case_id": case["id"], "repeat": 1, "persona": persona,
