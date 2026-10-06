@@ -61,13 +61,18 @@ def exec_contract_block(after):
 
 
 def contract_tree_conditions():
-    """SS6's tree, as {filename: condition} off the `# only when:` markers."""
+    """SS6's tree, as {path: condition} off the `# only when:` markers.
+
+    A path is a bare filename or, for a conversation's turns, a
+    `turns/<t>/<name>` line, which REQUIRED_IF keys as `turns/*/<name>`
+    (docs/multi-turn.md SS7)."""
     block = contract_block("## 6. The output tree")
     found = {}
     for line in block.splitlines():
-        match = re.match(r"\s*([\w.]+)\s+#\s*only when:\s*(.+?)\s*$", line)
+        match = re.match(r"\s*([\w.<>/]+)\s+#\s*only when:\s*(.+?)\s*$",
+                         line)
         if match:
-            found[match.group(1)] = match.group(2)
+            found[match.group(1).replace("<t>", "*")] = match.group(2)
     return found
 
 

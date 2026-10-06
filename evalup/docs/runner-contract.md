@@ -627,7 +627,7 @@ reports/
     results.json                 # §10. Written at pre-flight (status: running), rewritten per case, finalized at end.
     verdicts.jsonl               # §9. Rewritten from the case dirs after every case.
     verdicts_for_stats.jsonl     # §9. Same, filtered.
-    routing_results.jsonl        # only when: any non-canary case is routing-scorable
+    routing_results.jsonl        # only when: any non-canary single-turn case is routing-scorable
     routing_report.json          # only when: routing_results.jsonl exists
     repeats.jsonl                # only when: k > 1
     reliability.json             # only when: k > 1
@@ -643,8 +643,16 @@ reports/
         trajectory.json          # only when: a trace was collected for this case
         actual.json              # only when: expect.result is present and the case ran
         trace.json               # only when: a trace was collected for this case
+        turns/<t>/request.json   # only when: the case is multi-turn
+        turns/<t>/response.json  # only when: the case is multi-turn
+        turns/<t>/verdict.json   # only when: the case is multi-turn
+        turns/<t>/expect.json    # only when: the case is multi-turn
+        turns/<t>/answer.txt     # only when: the case is multi-turn
+        turns/<t>/trajectory.json  # only when: a trace was collected for this turn
+        turns/<t>/trace.json     # only when: a trace was collected for this turn
         repeats/<n>/             # only when k > 1; n = 1..k
           request.json  response.json  verdict.json
+        repeats/<n>/turns/<t>/   # only when k > 1 and the case is multi-turn: the same five files
 ```
 
 **`# only when:` is machine-read.** Every conditional file above carries its
@@ -659,6 +667,20 @@ outside the tree the completeness check walks.
 
 - `repeats/` exists **iff** `k > 1`. When it exists, it holds every repeat
   including the first — no asymmetry between "the run" and "the extra runs".
+  Each `repeats/<n>/` holds three files, plus, for a conversation,
+  `turns/<t>/` with the five files every sent turn has.
+- **A conversation** (`input.turns`, docs/multi-turn.md) keeps every file
+  above at case level, holding its **deciding turn** (the turn that stopped
+  it, or the last) — `expect.json` included, which is that turn's expect with
+  `every_turn` overlaid — so a reader that does not know it is a conversation
+  still reads it. Beside them, `turns/<t>/` is present **iff** the case is a
+  conversation that sent a turn, numbered contiguously from 1, and holds
+  exactly `verdict.json`'s `turns_sent` turns; each turn's `trace.json` /
+  `trajectory.json` is there iff that turn's own `verdict.json` says a trace
+  was collected for it. `REQUIRED_IF` keys these by path pattern
+  (`turns/*/<name>`), since a bare filename cannot carry a turn's condition.
+  `collect_trace` copies the whole span store per turn, so each
+  `turns/<t>/trace.json` holds the full store; acceptable, and stated.
 - With `k > 1`, the case-level `request.json`/`response.json` are the
   **representative** repeat: the first repeat whose verdict is the case
   verdict under §5.5's fold — the first failing repeat if any failed, else
@@ -828,14 +850,21 @@ REQUIRED_ALWAYS = ("manifest.yaml", "results.json", "verdicts.jsonl",
                    "verdicts_for_stats.jsonl")
 REQUIRED_PER_CASE = ("request.json", "response.json", "verdict.json",
                      "expect.json", "answer.txt")
-REQUIRED_IF = {"routing_results.jsonl": "any non-canary case is routing-scorable",
+REQUIRED_IF = {"routing_results.jsonl": "any non-canary single-turn case is routing-scorable",
                "routing_report.json":   "routing_results.jsonl exists",
                "repeats.jsonl":         "k > 1",
                "reliability.json":      "k > 1",
                "comparison.json":       "--baseline-verdicts was passed",
                "trajectory.json":       "a trace was collected for this case",
                "actual.json":           "expect.result is present and the case ran",
-               "trace.json":            "a trace was collected for this case"}
+               "trace.json":            "a trace was collected for this case",
+               "turns/*/request.json":    "the case is multi-turn",
+               "turns/*/response.json":   "the case is multi-turn",
+               "turns/*/verdict.json":    "the case is multi-turn",
+               "turns/*/expect.json":     "the case is multi-turn",
+               "turns/*/answer.txt":      "the case is multi-turn",
+               "turns/*/trajectory.json": "a trace was collected for this turn",
+               "turns/*/trace.json":      "a trace was collected for this turn"}
 ```
 
 A 5b test asserts this table matches §6 of this document — it execs the block
@@ -851,10 +880,15 @@ queryable": a queryable store that never produced this case's trace is
 `infra_incomplete` (§7), and demanding the file anyway would turn one honest
 infra row into a second, spurious completeness failure. `actual.json` keys on
 `expect.json` plus "the case ran", because a case the safety gates **skipped**
-made no call and has no result to extract. The run-level conditions read the
-manifest (`k`, `baseline_verdicts`) and the case verdicts (routing-scorable =
-at least one non-canary case whose `layers.routing` scored `pass` or `fail`;
-a canary's row never reaches the run-level file, §6).
+made no call and has no result to extract. The `turns/*/…` conditions read the
+case's `verdict.json` (`multi_turn`, `turns_sent`, and each repeat's
+`turns_sent`) and each turn's own `verdict.json` (`trace.collected`). The
+run-level conditions read the manifest (`k`, `baseline_verdicts`) and the
+case verdicts (routing-scorable = at least one non-canary **single-turn** case
+whose `layers.routing` scored `pass` or `fail`; a canary's row and a
+conversation's never reach the run-level file, §5.2/§6 — so a suite of
+route-less single-turn cases beside conversations asserting a route demands
+no file nobody wrote).
 
 **(c) A finalize check that can fail the run.** Before writing the terminal
 `results.json` and returning, the runner:

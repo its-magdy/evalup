@@ -12,6 +12,8 @@ Run: python3 -m unittest discover -s tests -v   (from the plugin root)
 """
 import json
 import pathlib
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -19,6 +21,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from test_run_cases import (  # noqa: E402 - the shared fixtures
+    RUNNER,
     SCRIPTS,
     FakeApp,
     RunnerCase,
@@ -204,6 +207,10 @@ class LicenceApp:
                                            body.get("message", ""))}, {}
 
 
+TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
+OTHER = "5bf92f3577b34da6a3ce929d0e0e4737"
+
+
 def licence_case(case_id="c-convo-01", **overrides):
     case = make_case(case_id, **overrides)
     case["input"] = {"turns": [
@@ -234,6 +241,35 @@ class ConversationCase(RunnerCase):
         rc, payload, proc = self.invoke(plan)
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         return payload
+
+    def traced(self, ids):
+        """A traced plan whose app returns the trace ids in `ids`, one per
+        turn (the health check gets TRACE), over a store holding spans for
+        TRACE and OTHER."""
+        spans = self.tmp / "spans.json"
+        spans.write_text(json.dumps(otlp([
+            span(tid, f"aaaaaaaaaaaaaa{i}{n}", "execute_tool", "list_licences")
+            for i, tid in enumerate((TRACE, OTHER))
+            for n in range(1)])), encoding="utf-8")
+        licences = LicenceApp()
+        sequence = iter(ids)
+
+        def handler(path, body, headers):
+            status, payload, extra = licences(path, body, headers)
+            tid = TRACE if path == "/" else next(sequence)
+            return status, dict(payload, traceId=tid), extra
+        app = self.start(handler)
+        case = licence_case()
+        case["expect"]["tools"] = {"subset": ["list_licences"]}
+        plan = self.plan_for(app, [case])
+        plan["adapter"]["traces"] = {
+            "source": "otlp-file", "convention": "gen_ai",
+            "correlation": "response-field:traceId", "location": str(spans),
+            "completeness": {"quiescence_ms": 10, "max_wait_s": 2}}
+        plan["adapter"]["invocation"]["health_check"] = {
+            "method": "GET", "path": "/", "expect_status": [200]}
+        plan["capability_matrix"]["trajectory"] = {"enabled": True}
+        return plan
 
 
 class TestConversationDriver(ConversationCase):
@@ -586,37 +622,8 @@ class TestCookieStyle(ConversationCase):
 class TestSharedTraceId(ConversationCase):
     """SS5: two turns returning one trace id cannot be attributed."""
 
-    TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
-    OTHER = "5bf92f3577b34da6a3ce929d0e0e4737"
-
-    def traced(self, ids):
-        spans = self.tmp / "spans.json"
-        spans.write_text(json.dumps(otlp([
-            span(tid, f"aaaaaaaaaaaaaa{i}{n}", "execute_tool", "list_licences")
-            for i, tid in enumerate((self.TRACE, self.OTHER))
-            for n in range(1)])), encoding="utf-8")
-        licences = LicenceApp()
-        sequence = iter(ids)
-
-        def handler(path, body, headers):
-            status, payload, extra = licences(path, body, headers)
-            tid = self.TRACE if path == "/" else next(sequence)
-            return status, dict(payload, traceId=tid), extra
-        app = self.start(handler)
-        case = licence_case()
-        case["expect"]["tools"] = {"subset": ["list_licences"]}
-        plan = self.plan_for(app, [case])
-        plan["adapter"]["traces"] = {
-            "source": "otlp-file", "convention": "gen_ai",
-            "correlation": "response-field:traceId", "location": str(spans),
-            "completeness": {"quiescence_ms": 10, "max_wait_s": 2}}
-        plan["adapter"]["invocation"]["health_check"] = {
-            "method": "GET", "path": "/", "expect_status": [200]}
-        plan["capability_matrix"]["trajectory"] = {"enabled": True}
-        return plan
-
     def test_a_reused_trace_id_makes_every_trace_layer_unscorable(self):
-        self.run_ok(self.traced([self.TRACE, self.TRACE]))
+        self.run_ok(self.traced([TRACE, TRACE]))
         verdict = self.read("cases", "c-convo-01", "verdict.json")
         layers = verdict["layers"]
         for name in ("t1.loops", "t2.loops", "t2.trajectory"):
@@ -628,7 +635,7 @@ class TestSharedTraceId(ConversationCase):
         self.assertFalse(verdict["trace"]["collected"])
 
     def test_distinct_trace_ids_score_per_turn(self):
-        self.run_ok(self.traced([self.TRACE, self.OTHER]))
+        self.run_ok(self.traced([TRACE, OTHER]))
         layers = self.read("cases", "c-convo-01", "verdict.json")["layers"]
         self.assertEqual(layers["t2.trajectory"]["verdict"], "pass")
         self.assertEqual(layers["t1.loops"]["verdict"], "pass")
@@ -656,6 +663,153 @@ class TestFunctionModeConversation(ConversationCase):
         self.run_ok(plan)
         self.assertEqual(self.read("cases", "c-convo-01",
                                    "verdict.json")["verdict"], "pass")
+
+
+class TestTurnTree(ConversationCase):
+    """SS7: every sent turn on disk, and --verify holding the tree to it."""
+
+    def verify(self):
+        proc = subprocess.run([sys.executable, str(RUNNER), "--verify",
+                               str(self.out_dir())],
+                              capture_output=True, text=True)
+        return proc.returncode, json.loads(proc.stdout)
+
+    def run_licences(self, k=1, cases=None):
+        app = self.start(LicenceApp())
+        plan = self.plan_for(app, cases or [licence_case()])
+        plan["k"] = k
+        self.run_ok(plan)
+        return self.out_dir() / "cases" / "c-convo-01"
+
+    def test_every_sent_turn_has_its_five_files(self):
+        case_dir = self.run_licences()
+        for turn in ("1", "2"):
+            for name in run_cases.TURN_FILES:
+                self.assertTrue((case_dir / "turns" / turn / name).is_file(),
+                                f"turns/{turn}/{name}")
+        turn_one = json.loads((case_dir / "turns" / "1" / "verdict.json")
+                              .read_text(encoding="utf-8"))
+        self.assertEqual((turn_one["turn"], turn_one["verdict"]), (1, "pass"))
+        self.assertEqual(
+            json.loads((case_dir / "turns" / "1" / "expect.json")
+                       .read_text(encoding="utf-8")),
+            {"answer": {"must_contain": ["Cairo"]}})
+        self.assertEqual(self.verify()[0], 0)
+
+    def test_verify_names_a_missing_turn_file(self):
+        case_dir = self.run_licences()
+        (case_dir / "turns" / "2" / "answer.txt").unlink()
+        rc, payload = self.verify()
+        self.assertEqual(rc, 6)
+        self.assertIn("cases/c-convo-01/turns/2/answer.txt (the case is "
+                      "multi-turn)", payload["missing_artifacts"])
+
+    def test_verify_counts_turns_against_turns_sent(self):
+        case_dir = self.run_licences()
+        shutil.rmtree(case_dir / "turns" / "2")
+        rc, payload = self.verify()
+        self.assertEqual(rc, 6)
+        self.assertTrue(any("expected turns 1..2" in m
+                            for m in payload["missing_artifacts"]),
+                        payload)
+        shutil.copytree(case_dir / "turns" / "1", case_dir / "turns" / "2")
+        shutil.copytree(case_dir / "turns" / "1", case_dir / "turns" / "3")
+        self.assertEqual(self.verify()[0], 6)
+
+    def test_a_single_turn_case_has_no_turns(self):
+        plan = make_plan(self.state, self.app.base_url)
+        self.run_ok(plan)
+        case_dir = self.out_dir() / "cases" / "c-0001"
+        self.assertFalse((case_dir / "turns").exists())
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual((verdict["multi_turn"], verdict["turns_sent"]),
+                         (False, 1))
+        self.assertEqual(self.verify()[0], 0)
+        (case_dir / "turns" / "1").mkdir(parents=True)
+        rc, payload = self.verify()
+        self.assertEqual(rc, 6)
+        self.assertTrue(any("a single-turn case has no turns/" in m
+                            for m in payload["missing_artifacts"]))
+
+    def test_a_skipped_conversation_sent_no_turn(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[licence_case()])
+        self.run_ok(plan)
+        verdict = self.read("cases", "c-convo-01", "verdict.json")
+        self.assertEqual((verdict["verdict"], verdict["multi_turn"],
+                          verdict["turns_sent"]), ("skipped", True, 0))
+        self.assertEqual(self.verify()[0], 0)
+
+    def test_repeats_hold_their_turns(self):
+        case_dir = self.run_licences(k=2)
+        for n in ("1", "2"):
+            for turn in ("1", "2"):
+                for name in run_cases.TURN_FILES:
+                    self.assertTrue(
+                        (case_dir / "repeats" / n / "turns" / turn / name)
+                        .is_file(), f"repeats/{n}/turns/{turn}/{name}")
+        self.assertEqual(self.verify()[0], 0)
+        (case_dir / "repeats" / "2" / "turns" / "2" / "request.json").unlink()
+        rc, payload = self.verify()
+        self.assertEqual(rc, 6)
+        self.assertIn("cases/c-convo-01/repeats/2/turns/2/request.json (the "
+                      "case is multi-turn)", payload["missing_artifacts"])
+
+    def test_a_turns_trace_is_required_when_collected(self):
+        self.run_ok(self.traced([TRACE, OTHER]))
+        case_dir = self.out_dir() / "cases" / "c-convo-01"
+        for turn in ("1", "2"):
+            for name in run_cases.TURN_TRACE_FILES:
+                self.assertTrue((case_dir / "turns" / turn / name).is_file())
+        (case_dir / "turns" / "1" / "trace.json").unlink()
+        rc, payload = self.verify()
+        self.assertEqual(rc, 6)
+        self.assertIn("cases/c-convo-01/turns/1/trace.json (a trace was "
+                      "collected for this turn)", payload["missing_artifacts"])
+
+
+class TestRoutingStaysSingleTurn(ConversationCase):
+    """SS4: the run-level routing report keeps meaning single-turn routing,
+    and its file is required only by a single-turn routing row. The two
+    changes together, or every run with a conversation ends incomplete."""
+
+    def routed_app(self):
+        licences = LicenceApp()
+
+        def handler(path, body, headers):
+            status, payload, extra = licences(path, body, headers)
+            return status, dict(payload, route="licences"), extra
+        return self.start(handler)
+
+    def routed_conversation(self):
+        case = licence_case()
+        case["expect"]["route"] = "licences"
+        return case
+
+    def plan_routed(self, app, cases):
+        plan = self.plan_for(app, cases)
+        plan["adapter"]["invocation"]["route_from_response"] = "route"
+        return plan
+
+    def test_a_conversation_alone_requires_no_routing_file(self):
+        app = self.routed_app()
+        plain = make_case("c-plain", expect={"answer": {
+            "must_contain": ["hello"]}})
+        plain["input"] = {"messages": [{"role": "user", "content": "hi"}]}
+        rc, payload, proc = self.invoke(self.plan_routed(
+            app, [plain, self.routed_conversation()]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-convo-01", "verdict.json")
+        self.assertEqual(verdict["layers"]["t2.routing"]["verdict"], "pass")
+        self.assertFalse((self.out_dir() / "routing_results.jsonl").exists())
+
+    def test_only_single_turn_rows_reach_the_report(self):
+        app = self.routed_app()
+        routed = make_case("c-routed", expect={"route": "licences"})
+        self.run_ok(self.plan_routed(app, [routed,
+                                           self.routed_conversation()]))
+        self.assertEqual([row["case_id"] for row in
+                          self.jsonl("routing_results.jsonl")], ["c-routed"])
 
 
 class TestRollUpUnion(unittest.TestCase):

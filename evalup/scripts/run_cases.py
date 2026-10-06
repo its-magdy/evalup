@@ -123,7 +123,8 @@ REQUIRED_ALWAYS = ("manifest.yaml", "results.json", "verdicts.jsonl",
 REQUIRED_PER_CASE = ("request.json", "response.json", "verdict.json",
                      "expect.json", "answer.txt")
 REQUIRED_IF = {
-    "routing_results.jsonl": "any non-canary case is routing-scorable",
+    "routing_results.jsonl":
+        "any non-canary single-turn case is routing-scorable",
     "routing_report.json": "routing_results.jsonl exists",
     "repeats.jsonl": "k > 1",
     "reliability.json": "k > 1",
@@ -131,11 +132,25 @@ REQUIRED_IF = {
     "trajectory.json": "a trace was collected for this case",
     "actual.json": "expect.result is present and the case ran",
     "trace.json": "a trace was collected for this case",
+    # docs/multi-turn.md SS7: a conversation's turns, beside the case-level
+    # files (which hold its deciding turn). Keyed by PATH PATTERN, `*` the
+    # turn number, since a bare filename cannot carry a turn's condition.
+    "turns/*/request.json": "the case is multi-turn",
+    "turns/*/response.json": "the case is multi-turn",
+    "turns/*/verdict.json": "the case is multi-turn",
+    "turns/*/expect.json": "the case is multi-turn",
+    "turns/*/answer.txt": "the case is multi-turn",
+    "turns/*/trajectory.json": "a trace was collected for this turn",
+    "turns/*/trace.json": "a trace was collected for this turn",
 }
 # The three per-case conditions above, as predicates over a case DIRECTORY --
 # never over the plan, which is what lets --verify evaluate them months later
-# with no plan in hand.
+# with no plan in hand. The turns/ entries are checked by check_turn_tree.
 REQUIRED_IF_PER_CASE = ("trajectory.json", "actual.json", "trace.json")
+# The five files every sent turn has, case level and under repeats/<n>/.
+TURN_FILES = ("request.json", "response.json", "verdict.json", "expect.json",
+              "answer.txt")
+TURN_TRACE_FILES = ("trajectory.json", "trace.json")
 
 TOP_LEVEL_KEYS = (
     "plan_version", "run_id", "mode", "k", "gate", "selecting_split", "paths",
@@ -2404,6 +2419,9 @@ class Runner:
             if not skip and self.k > 1:
                 self.write_repeats(case_dir, case, attempts)
             self.publish(case_dir, chosen)
+            if chosen.get("multi_turn"):
+                self.write_turns(os.path.join(case_dir, "turns"), case,
+                                 chosen, traces=True)
 
             verdict = self.build_verdict(case, chosen, skip)
             if not skip and self.k > 1:
@@ -2518,6 +2536,39 @@ class Runner:
                               {"case_id": case["id"], "repeat": attempt["n"],
                                "verdict": attempt["verdict"],
                                "layers": attempt["layers"]})
+            if attempt.get("multi_turn"):
+                self.write_turns(os.path.join(repeat_dir, "turns"), case,
+                                 attempt, traces=False)
+
+    def write_turns(self, turns_dir, case, attempt, traces):
+        """docs/multi-turn.md SS7: every sent turn's own five files, so a
+        scorer fix re-scores a historical conversation without re-invoking
+        the app (D9), plus its trace under the case-level turns/ (`traces`).
+        A repeat's turns hold the five, as its own directory holds three."""
+        expected = self.trace_state["collected"]
+        for turn in attempt["turns"]:
+            turn_dir = os.path.join(turns_dir, str(turn["turn"]))
+            os.makedirs(turn_dir, exist_ok=True)
+            record = turn["record"]
+            atomic_write_json(os.path.join(turn_dir, "request.json"),
+                              record["request"])
+            atomic_write_json(os.path.join(turn_dir, "response.json"),
+                              record["response"])
+            names = ("expect.json", "answer.txt") \
+                + (TURN_TRACE_FILES if traces else ())
+            for name in names:
+                source = os.path.join(turn["scratch"], name)
+                if os.path.isfile(source):
+                    shutil.copyfile(source, os.path.join(turn_dir, name))
+            atomic_write_json(os.path.join(turn_dir, "verdict.json"), {
+                "case_id": case["id"], "repeat": attempt["n"],
+                "turn": turn["turn"], "verdict": turn["verdict"],
+                "layers": turn["layers"],
+                "trace": {"expected": expected,
+                          "collected": turn["trace_collected"],
+                          "reason": turn["trace_reason"] or (
+                              None if turn["trace_collected"]
+                              else self.trace_state.get("reason"))}})
 
     # -- SS5. The layer table ---------------------------------------------
     def capability_blocked_by(self, layer):
@@ -2969,6 +3020,13 @@ class Runner:
         """
         # A canary measures the harness and enters no denominator (SS9) --
         # the routing report's included (F-161). Its own layer still scores.
+        # A conversation contributes no row (docs/multi-turn.md SS4): the
+        # run-level report keeps meaning single-turn routing, and its turns'
+        # rows stay in turns/<t>/verdict.json for a later per-turn report.
+        # Its union is keyed t<n>.routing, so the lookup below would find
+        # nothing anyway; the flag says so on purpose rather than by luck.
+        if verdict.get("multi_turn"):
+            return
         row = (verdict["layers"].get("routing") or {}).get("row")
         if row and not verdict["canary"]:
             self.routing_rows.append(row)
@@ -2999,7 +3057,7 @@ class Runner:
             "layers": layers,
             # docs/multi-turn.md SS4: one conversation is one case. These say
             # how far it got; nothing downstream of `verdict` changes meaning.
-            "multi_turn": bool(attempt.get("multi_turn")),
+            "multi_turn": conversation_turns(case) is not None,
             "turns_sent": attempt.get("turns_sent",
                                       0 if skip else 1),
             "failed_turn": attempt.get("failed_turn"),
@@ -3552,6 +3610,69 @@ def case_requires(name, out_dir, case_id, verdict):
     return False
 
 
+def turn_numbers(turns_dir):
+    """The entries of a turns/ directory, or [] when it is absent."""
+    return sorted(os.listdir(turns_dir)) if os.path.isdir(turns_dir) else []
+
+
+def check_turn_tree(case_dir, verdict, shown):
+    """docs/multi-turn.md SS7's turns/ rule, read off the case directory.
+
+    turns/ is present iff the case is a conversation that sent a turn,
+    numbered contiguously from 1, and holds exactly verdict.json's
+    turns_sent turns, each with TURN_FILES -- plus its trace files when its
+    own verdict.json says a trace was collected for it. A repeat's turns
+    follow the same count rule against that repeat's turns_sent, holding
+    the five. A run older than the feature has no multi_turn key and no
+    turns/, so it passes unchanged."""
+    problems = []
+    multi = bool(verdict.get("multi_turn"))
+    sent = verdict.get("turns_sent", 0) if multi else 0
+    if not isinstance(sent, int) or isinstance(sent, bool) or sent < 0:
+        return [f"{shown}/verdict.json (turns_sent is {sent!r}, not a "
+                "count)"]
+    trees = [(os.path.join(case_dir, "turns"), sent, f"{shown}/turns", True)]
+    for repeat in (verdict.get("repeats") or []) if multi else []:
+        if isinstance(repeat, dict):
+            trees.append((os.path.join(case_dir, "repeats",
+                                       str(repeat.get("n")), "turns"),
+                          repeat.get("turns_sent"),
+                          f"{shown}/repeats/{repeat.get('n')}/turns", False))
+    for turns_dir, count, label, traces in trees:
+        if not isinstance(count, int) or isinstance(count, bool):
+            problems.append(f"{label} (turns_sent is {count!r}, not a count)")
+            continue
+        want = [str(n) for n in range(1, count + 1)]
+        found = turn_numbers(turns_dir)
+        if found != sorted(want):
+            problems.append(
+                "{} (holds {}, expected turns 1..{}: verdict.json's "
+                "turns_sent{})".format(
+                    label, found or "nothing", count,
+                    "" if multi else "; a single-turn case has no turns/"))
+        for number in want:
+            turn_dir = os.path.join(turns_dir, number)
+            for name in TURN_FILES:
+                if not os.path.isfile(os.path.join(turn_dir, name)):
+                    problems.append("{}/{}/{} ({})".format(
+                        label, number, name,
+                        REQUIRED_IF[f"turns/*/{name}"]))
+            if not traces:
+                continue
+            try:
+                collected = bool((read_json(os.path.join(
+                    turn_dir, "verdict.json")).get("trace") or {})
+                    .get("collected"))
+            except (OSError, ValueError, AttributeError):
+                continue        # the verdict itself is reported missing
+            for name in TURN_TRACE_FILES if collected else ():
+                if not os.path.isfile(os.path.join(turn_dir, name)):
+                    problems.append("{}/{}/{} ({})".format(
+                        label, number, name,
+                        REQUIRED_IF[f"turns/*/{name}"]))
+    return problems
+
+
 SEALED_CASE = "<a sealed holdout case>"
 
 
@@ -3617,13 +3738,17 @@ def verify_run_dir(out_dir):
             if not os.path.isfile(os.path.join(out_dir, "cases", case_id,
                                                name)):
                 missing.append(f"{shown}/{name} ({REQUIRED_IF[name]})")
+        missing.extend(check_turn_tree(
+            os.path.join(out_dir, "cases", case_id), verdict, shown))
 
     # ...and the run-level ones. Each condition is read off the tree too, so
     # --verify evaluates exactly what finalize evaluated.
-    # Canaries write no routing row (record_routing_row), so they cannot
-    # make the run-level file required either.
+    # Canaries and conversations write no routing row (record_routing_row),
+    # so neither can make the run-level file required: a suite of
+    # route-less single-turn cases plus conversations asserting a route
+    # would otherwise demand a file nobody wrote (docs/multi-turn.md SS4).
     routing_scorable = any(
-        not v.get("canary")
+        not v.get("canary") and not v.get("multi_turn")
         and ((v.get("layers") or {}).get("routing") or {}).get("verdict")
         in (PASS, FAIL) for v in cases.values())
     conditions = {
