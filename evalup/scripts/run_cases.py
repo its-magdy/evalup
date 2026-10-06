@@ -2005,12 +2005,23 @@ class Runner:
                         "there is no way to keep the turns in one "
                         "conversation (adapter hard rule 3); discover "
                         "writes the block")
-            if len(turns) < 2 or not all(text for text, _ in turns):
-                # Not a second linter: the one shape that would SEND
-                # something nobody wrote (an empty user turn) is refused.
-                return ("input.turns is malformed (fewer than two turns, or "
-                        "a turn with no `user` text); validate_cases.py "
-                        "names the defect")
+            raw = (case.get("input") or {}).get("turns") or []
+            if len(turns) < 2 or not all(text for text, _ in turns) \
+                    or not all(isinstance(turn, dict) for turn in raw) \
+                    or "expect" in raw[-1] \
+                    or "messages" in (case.get("input") or {}):
+                # Not a second linter: only the shapes that would SEND
+                # something nobody wrote (an empty or non-object turn) or
+                # silently DROP a claim (the final turn's own `expect`,
+                # which conversation_turns never reads; `input.messages`
+                # beside the turns) are refused. Each is a validator ERROR,
+                # and run unvalidated each scored an http-only pass
+                # (2026-10-06 review).
+                return ("input.turns is malformed (fewer than two turns, a "
+                        "turn that is not an object or has no `user` text, "
+                        "an `expect` on the final turn instead of the "
+                        "top-level one, or input.messages beside it); "
+                        "validate_cases.py names the defect")
             if len(turns) > self.execution["max_turns"]:
                 # SS3: a bound for cost and loop safety whatever the author
                 # wrote. The validator's WARN above 8 is the guidance.
@@ -3645,8 +3656,15 @@ def case_requires(name, out_dir, case_id, verdict):
 
 
 def turn_numbers(turns_dir):
-    """The entries of a turns/ directory, or [] when it is absent."""
-    return sorted(os.listdir(turns_dir)) if os.path.isdir(turns_dir) else []
+    """The turn directories (`1`, `2`, ...) under turns/, or [] when it is
+    absent. Only numbered directories count: a stray `.DS_Store` beside
+    them is not a turn, and must not close the gate months later (the
+    same tolerance completed_cases() gives cases/)."""
+    if not os.path.isdir(turns_dir):
+        return []
+    return sorted(name for name in os.listdir(turns_dir)
+                  if name.isdigit()
+                  and os.path.isdir(os.path.join(turns_dir, name)))
 
 
 def check_turn_tree(case_dir, verdict, shown):

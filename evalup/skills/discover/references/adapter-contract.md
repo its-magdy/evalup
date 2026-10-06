@@ -152,7 +152,11 @@ invocation:
                                           # cookie: the app keeps a session cookie; the runner
                                           #   keeps one jar per conversation attempt and merges
                                           #   it with auth: {type: cookie} into ONE Cookie
-                                          #   header (http mode only).
+                                          #   header (http mode only). The jar keeps the
+                                          #   stdlib's rules: a `Secure` cookie is not sent
+                                          #   over http://, and a redirect's Set-Cookie is
+                                          #   not kept -- point base_url at the final https
+                                          #   URL, or turn 2 opens a new session.
     # session_from: { body: "conversationId" }   # server-id only, exactly one of:
     # session_from: { header: "X-Conversation-Id" }  # body (dotted path) | header
     turn_delay_s: 0                       # optional pause between turns, for an app that

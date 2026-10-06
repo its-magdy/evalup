@@ -387,6 +387,31 @@ class TestConversationDriver(ConversationCase):
                       verdict["layers"]["http"]["reason"])
         self.assertEqual(self.asks(app), [])
 
+    def test_a_claim_the_runner_would_drop_is_refused(self):
+        """Each shape below is a validator ERROR; run unvalidated, the
+        runner used to drop the claim and score an http-only pass on an app
+        that forgets (2026-10-06 review)."""
+        def final_turn_expect(case):
+            case["input"]["turns"][1]["expect"] = case.pop("expect")
+
+        def bare_string(case):
+            case["input"]["turns"][0] = "show me the licences"
+
+        def both(case):
+            case["input"]["messages"] = [{"role": "user", "content": "x"}]
+        for mutate in (final_turn_expect, bare_string, both):
+            with self.subTest(mutate=mutate.__name__):
+                shutil.rmtree(self.out_dir(), ignore_errors=True)
+                app = self.start(LicenceApp(forget=True))
+                case = licence_case()
+                mutate(case)
+                self.run_ok(self.plan_for(app, [case]))
+                verdict = self.read("cases", "c-convo-01", "verdict.json")
+                self.assertEqual(verdict["verdict"], "skipped")
+                self.assertIn("malformed",
+                              verdict["layers"]["http"]["reason"])
+                self.assertEqual(self.asks(app), [])
+
     def test_max_turns_is_validated(self):
         plan = make_plan(self.state, self.app.base_url)
         plan["execution"]["max_turns"] = 1
@@ -716,6 +741,11 @@ class TestTurnTree(ConversationCase):
         shutil.copytree(case_dir / "turns" / "1", case_dir / "turns" / "2")
         shutil.copytree(case_dir / "turns" / "1", case_dir / "turns" / "3")
         self.assertEqual(self.verify()[0], 6)
+
+    def test_a_stray_file_is_not_a_turn(self):
+        case_dir = self.run_licences()
+        (case_dir / "turns" / ".DS_Store").write_text("x", encoding="utf-8")
+        self.assertEqual(self.verify()[0], 0)
 
     def test_a_single_turn_case_has_no_turns(self):
         plan = make_plan(self.state, self.app.base_url)
