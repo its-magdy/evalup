@@ -949,6 +949,24 @@ def count_turns(case):
                if isinstance(m, dict) and m.get("role") == "user")
 
 
+def context_messages(case):
+    """What `input.messages` holds besides exactly one user message, as a
+    phrase, or None. Mirrors run_cases.context_messages_reason, which skips
+    the case on the same condition."""
+    messages = mapping(case.get("input")).get("messages")
+    if not isinstance(messages, list):
+        messages = [] if messages is None else [messages]
+    if count_turns(case) == 0:
+        return "no user message"
+    others = sorted({str(m.get("role")) if isinstance(m, dict)
+                     else type(m).__name__ for m in messages
+                     if not (isinstance(m, dict) and m.get("role") == "user")})
+    if others:
+        return "{} message(s) besides the user message ({})".format(
+            len(messages) - 1, ", ".join(others))
+    return None
+
+
 def tally(values):
     counts = {}
     for value in values:
@@ -992,8 +1010,19 @@ def check_suite(rep, cases, records):
                      f"this case has {turns} user turns; multi-turn is "
                      "RESERVED, so run_cases.py will SKIP it and it will "
                      "score nothing. Split it into single-turn cases, or "
-                     "fold the earlier turns into assistant/system context "
-                     "so exactly one user message remains")
+                     "fold the earlier turns into the one user message")
+        elif context_messages(case):
+            # docs/multi-turn.md SS0. run_cases.py sends the one user message
+            # and nothing else, so it SKIPS a case carrying more (the
+            # context would never reach the app, and the case used to score
+            # as if it had). WARN, on the line above: a skip inflates nothing.
+            rep.warn(record["id"] or f"<no id: cases[{i}]>",
+                     "not_one_user_message",
+                     f"input.messages holds {context_messages(case)}; "
+                     "run_cases.py sends exactly one user message and "
+                     "nothing else, so it will SKIP this case rather than "
+                     "score it as if the rest had reached the app. Fold the "
+                     "context into the one user message")
 
     metamorphic = sum(1 for r in records
                       if r["test_type"] in ("INV", "DIR"))

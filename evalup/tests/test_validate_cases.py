@@ -447,13 +447,42 @@ class TestWarnFindings(ValidateTest):
         # Per-case: it names the case the author has to fix.
         self.assertEqual(f["case_id"], "c-happy-0")
         self.assertIn("2 user turns", f["message"])
-        # Prior assistant/system turns as fixed context do NOT trip it: one
-        # user message is one user turn regardless of what precedes it.
+        # Prior assistant/system messages do NOT trip it: one user message
+        # is one user turn. They trip not_one_user_message instead (SS0).
         cases[0]["input"]["messages"] = [{"role": "system", "content": "s"},
                                          {"role": "assistant", "content": "b"},
                                          {"role": "user", "content": "c"}]
         self.assertNotIn("multi_turn_case_reserved",
                          self.codes(self.validate(cases)[1]))
+
+    def test_context_messages_are_reported(self):
+        """docs/multi-turn.md SS0: run_cases.py sends exactly one user
+        message and SKIPS a case holding anything else. This used to say
+        prior system/assistant messages were "fine as fixed context" -- they
+        were never sent, and the case scored as if they had been."""
+        self.assertNotIn("not_one_user_message",
+                         self.codes(self.validate([good_case()])[1]))
+        for messages, fragment in (
+                ([{"role": "system", "content": "s"},
+                  {"role": "user", "content": "c"}], "system"),
+                ([{"role": "assistant", "content": "b"},
+                  {"role": "user", "content": "c"}], "assistant"),
+                ([], "no user message")):
+            with self.subTest(messages=messages):
+                case = good_case(input={"messages": messages})
+                f = self.assert_finds("not_one_user_message", [case],
+                                      severity="WARN")
+                self.assertEqual(f["case_id"], case["id"])
+                self.assertIn(fragment, f["message"])
+                self.assertIn("SKIP", f["message"])
+        # Two user turns keep their own finding, not this one as well.
+        case = good_case(input={"messages": [
+            {"role": "user", "content": "a"},
+            {"role": "assistant", "content": "b"},
+            {"role": "user", "content": "c"}]})
+        codes = self.codes(self.validate([case])[1])
+        self.assertIn("multi_turn_case_reserved", codes)
+        self.assertNotIn("not_one_user_message", codes)
 
     def test_reserved_expectation_warns_beside_a_real_layer(self):
         """With a graded layer present the case is fine; the state key is dead

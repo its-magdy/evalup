@@ -758,6 +758,27 @@ class TestSkipGates(RunnerCase):
             {"role": "assistant", "content": "hello"},
             {"role": "user", "content": "and then?"}]})
 
+    def test_context_messages_are_skipped_not_dropped(self):
+        """docs/multi-turn.md SS0. case_text() sends the user message and
+        nothing else, so a system or assistant message never reached the app
+        -- and the case scored as if it had. Anything besides exactly one
+        user message is a skip with the reason, never a truncated send."""
+        for messages, fragment in (
+                ([{"role": "system", "content": "you are terse"},
+                  {"role": "user", "content": "how many?"}], "system"),
+                ([{"role": "assistant", "content": "hello"},
+                  {"role": "user", "content": "how many?"}], "assistant"),
+                ([], "no user message"),
+                ([{"role": "system", "content": "s"}], "no user message")):
+            with self.subTest(messages=messages):
+                self.app.calls.clear()
+                shutil.rmtree(self.out_dir(), ignore_errors=True)
+                verdict = self.skip_reason_for(
+                    make_case("c-0001", input={"messages": messages}))
+                self.assertIn(fragment, verdict["layers"]["http"]["reason"])
+                self.assertEqual(
+                    [c for c in self.app.calls if c["path"] != "/"], [])
+
     def test_multi_turn_case_without_a_session_contract(self):
         verdict = self.skip_reason_for(self.multi_turn_case())
         self.assertIn("hard rule 3", verdict["layers"]["http"]["reason"])

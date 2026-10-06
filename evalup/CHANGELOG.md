@@ -671,6 +671,22 @@ it safely would mean parsing the unshimmed format that `mapping_shim`
 exists to handle, and it would change what `normalize_trace.py`'s
 `spans_in_file` diagnostic reports.
 
+### Fixed — before multi-turn (2026-10-06)
+
+- **A system or assistant message in `input.messages` was dropped, and the
+  case still scored.** `case_text()` sends the last user message and nothing
+  else. `case-format.md` called prior messages "fine as fixed context", but
+  they never reached the app, and the verdict read as if they had. This is the
+  truncated-conversation verdict that adapter hard rule 3 refuses, reached by
+  another route. A case whose `input.messages` holds anything besides exactly
+  one user message (an extra role, or no user message at all) is now
+  `skipped` with that reason. `validate_cases.py` WARNs `not_one_user_message`
+  at authoring time. **This changes existing suites' numbers.** Such a case
+  scored before and is skipped now, so `n` stays the same but `passes` +
+  `failures` drop, and pass rates are computed over fewer cases. Fold the
+  context into the user message to keep the case scoring.
+  (docs/multi-turn.md §0)
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

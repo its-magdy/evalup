@@ -125,13 +125,16 @@ metamorphic_parent: null             # or a case id — the parent this INV/DIR 
                                      # while perturbing nothing.
 
 input:
-  messages:                          # OpenAI-schema. ONE user message: multi-turn
+  messages:                          # OpenAI-schema. EXACTLY ONE user message and
     - { role: user, content: "why was my last invoice higher than usual?" }
-                                     # is RESERVED, and a case with >1 user turn is
-                                     # SKIPPED by run_cases.py (adapter-contract.md
-                                     # hard rule 3) -- it never scores. Prior
-                                     # assistant/system turns as fixed context are
-                                     # fine; it is the second USER turn that skips.
+                                     # nothing else. run_cases.py sends that message
+                                     # alone, so a case holding a second user turn
+                                     # (adapter-contract.md hard rule 3) or a
+                                     # system/assistant message is SKIPPED -- it never
+                                     # scores. Context in a system/assistant message
+                                     # would never reach the app; fold it into the
+                                     # user message (validate_cases.py WARNs:
+                                     # not_one_user_message).
   session: fresh                     # `fresh` only. A named seeded conversation
                                      # state is reserved with multi-turn.
 
@@ -397,7 +400,8 @@ Scoring semantics:
   later); the first four earn a `validate_cases.py` WARN so no one mistakes
   them for a measurement, and `difficulty` is read by no script at all.
   Multi-turn (`>1` user turn) is reserved harder still: those cases
-  are SKIPPED.
+  are SKIPPED, and so is a case whose `input.messages` holds anything
+  besides its one user message.
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
 - Judged dimensions are skipped (reported as `unjudged`) while the judge is
   uncalibrated — never silently included.

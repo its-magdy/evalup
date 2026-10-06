@@ -1190,6 +1190,33 @@ def user_turn_count(case):
                if isinstance(m, dict) and m.get("role") == "user")
 
 
+def context_messages_reason(case):
+    """Why `input.messages` is not exactly one user message, or None.
+
+    case_text() sends the user message and nothing else. A system or
+    assistant message beside it never reached the app, and the case used to
+    score as if it had -- the truncated-conversation verdict hard rule 3
+    refuses, one door over (docs/multi-turn.md SS0). So such a case is
+    skipped with this reason, and validate_cases.py reports it first.
+    """
+    messages = ((case.get("input") or {}).get("messages")) or []
+    if not isinstance(messages, list):
+        messages = [messages]
+    users = user_turn_count(case)
+    if users == 0:
+        return ("input.messages holds no user message, so there is nothing "
+                "to send")
+    others = sorted({str(m.get("role")) if isinstance(m, dict)
+                     else type(m).__name__ for m in messages
+                     if not (isinstance(m, dict) and m.get("role") == "user")})
+    if users == 1 and others:
+        return ("input.messages holds {} message(s) besides the user message "
+                "({}); only the user message would be sent, so the case "
+                "would score as if that context had reached the app".format(
+                    len(messages) - 1, ", ".join(others)))
+    return None
+
+
 def flatten_layers(layers):
     return {name: layer.get("verdict") for name, layer in layers.items()}
 
@@ -1738,6 +1765,9 @@ class Runner:
                     "multi-turn evals are RESERVED -- no conversation driver "
                     "exists, so only the last turn would reach the app "
                     "(adapter hard rule 3)")
+        context = context_messages_reason(case)
+        if context:
+            return context
         if case.get("identity") and not self.identity_map:
             return ("case declares an identity but the adapter has no "
                     "invocation.identity_map; running it under the default "
