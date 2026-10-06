@@ -345,6 +345,7 @@ every push.
 | `docs/runner-contract.md` | The plan and run-directory format `run_cases.py` reads and writes |
 | `docs/rubric-format.md` | The decomposed-binary judge rubric and calibration |
 | `docs/traces-jaeger.md` | Feeding `otlp-file` from a Jaeger/Tempo setup today, and the design note for a Jaeger client and header-based correlation |
+| `docs/multi-turn.md` | Design for multi-turn conversations (not built yet): the scripted-turn driver, how app sessions are handled, and why a conversation counts as one case |
 | `skills/analyze/references/annotation-ux.md` | The open → axial error-analysis workflow |
 | `docs/research.md` | The research behind the design decisions |
 | `CHANGELOG.md` | What changed, release by release |
