@@ -1316,6 +1316,30 @@ def context_messages_reason(case):
     return None
 
 
+def conversation_fields(verdict):
+    """The row fields docs/multi-turn.md SS4 adds to verdicts.jsonl and
+    results.json: one row per conversation, saying how far it got. A run
+    older than the feature carries none, and reads as single-turn."""
+    return {"multi_turn": bool(verdict.get("multi_turn")),
+            "turns_sent": verdict.get("turns_sent"),
+            "failed_turn": verdict.get("failed_turn")}
+
+
+def multi_turn_counts(graded):
+    """summary.multi_turn over the non-canary conversations, or None.
+
+    The single-turn figures are the totals minus these, which is what lets
+    gate.py print the two rates side by side without a second definition."""
+    rows = [v for v in graded if v.get("multi_turn")]
+    if not rows:
+        return None
+    return {"n": len(rows),
+            "passes": sum(1 for v in rows if v.get("verdict") == PASS),
+            "failures": sum(1 for v in rows if v.get("verdict") == FAIL),
+            "gating_failures": sum(1 for v in rows if v.get("gating")
+                                   and v.get("verdict") == FAIL)}
+
+
 def flatten_layers(layers):
     return {name: layer.get("verdict") for name, layer in layers.items()}
 
@@ -3086,10 +3110,11 @@ class Runner:
         over a run, which is worth less than the correctness.
         """
         atomic_write_jsonl(os.path.join(self.out, "verdicts.jsonl"), [
-            {"case_id": v["case_id"], "set": v["set"],
-             "category": v["category"], "canary": v["canary"],
-             "gating": v["gating"], "verdict": v["verdict"],
-             "layers": flatten_layers(v["layers"])}
+            dict({"case_id": v["case_id"], "set": v["set"],
+                  "category": v["category"], "canary": v["canary"],
+                  "gating": v["gating"], "verdict": v["verdict"],
+                  "layers": flatten_layers(v["layers"])},
+                 **conversation_fields(v))
             for v in self.verdicts])
         # Exactly what stats.py pairs. It treats a third verdict value as a
         # hard error rather than filtering silently, so the filtering stays a
@@ -3178,6 +3203,10 @@ class Runner:
                                        if v["gating"]
                                        and v["verdict"] == FAIL),
                 "looks_recorded": self.holdout_looks},
+            # docs/multi-turn.md SS4: conversations' own counts, so a report
+            # never shows only a blend -- pass^k over every turn makes them
+            # look worse by construction. null when the run held none.
+            "multi_turn": multi_turn_counts(graded),
             "missing_artifacts": missing or [],
         }
 
@@ -3268,10 +3297,11 @@ class Runner:
         check has something to fail on from the first second -- rather than the
         shipped run's shape, where absence looked like success.
         """
-        rows = [{"case_id": v["case_id"], "verdict": v["verdict"],
-                 "gating": v["gating"],
-                 "layers": flatten_layers(v["layers"]),
-                 "latency_s": v.get("latency_s")}
+        rows = [dict({"case_id": v["case_id"], "verdict": v["verdict"],
+                      "gating": v["gating"],
+                      "layers": flatten_layers(v["layers"]),
+                      "latency_s": v.get("latency_s")},
+                     **conversation_fields(v))
                 for v in self.verdicts if not v["holdout"]]
         atomic_write_json(os.path.join(self.out, "results.json"), {
             "run_id": self.plan["run_id"],
@@ -3279,6 +3309,10 @@ class Runner:
             "dataset_version": (self.plan.get("manifest_extra")
                                 or {}).get("dataset_version"),
             "mode": self.plan["mode"],
+            # docs/multi-turn.md SS6: `user` means memory outlives a session,
+            # so any case's verdict may be contaminated by an earlier one --
+            # single-turn and multi-turn alike. Said, never silently reset.
+            "memory": (self.conversation or {}).get("memory"),
             "cases": rows,
             "summary": self.summary(status or self.status, missing),
             "exit_code": exit_code,
@@ -3867,6 +3901,10 @@ def check_results_json(results, cases, sealed=None):
                                         if v.get("repeated_5xx"))
         recounted["infra_rate"] = infra_rate(
             recounted["infra_errors"], recounted["n"], recounted["skipped"])
+    if "multi_turn" in summary:
+        # Present on runs written since docs/multi-turn.md; null when the
+        # run held no conversation.
+        recounted["multi_turn"] = multi_turn_counts(graded)
     for key, value in recounted.items():
         if summary.get(key) != value:
             problems.append(
@@ -3924,6 +3962,19 @@ def load_plan(source):
 def dry_run_report(runner):
     """SS1: pre-flight and the resolved inputs, zero app calls, zero writes."""
     plan = runner.plan
+    completeness = (runner.adapter.get("traces") or {}).get(
+        "completeness") or {}
+    quiet_s = (completeness.get("quiescence_ms") or 3000) / 1000.0 \
+        if runner.trace_state["collected"] else 0.0
+    delay_s = (runner.conversation or {}).get("turn_delay_s") or 0
+    planned = []            # (app calls, seconds of waiting) per sent case
+    for case in plan["cases"]:
+        if runner.skip_reason(case) is not None:
+            continue
+        turns = conversation_turns(case)
+        n = len(turns) if turns is not None else 1
+        planned.append((plan["k"] * n,
+                        plan["k"] * (n * quiet_s + (n - 1) * delay_s)))
     return {
         "dry_run": True,
         "run_id": plan["run_id"], "mode": plan["mode"], "k": plan["k"],
@@ -3933,13 +3984,21 @@ def dry_run_report(runner):
                        .get("mode"), "url": runner.record_url,
                        "timeout_s": runner.timeout()},
         "traces": runner.trace_state,
-        "cases": [{"id": case["id"], "category": case.get("category"),
-                   "canary": is_canary(case), "holdout": is_holdout(case),
-                   "skip_reason": runner.skip_reason(case)}
+        "cases": [dict({"id": case["id"], "category": case.get("category"),
+                        "canary": is_canary(case), "holdout": is_holdout(case),
+                        "skip_reason": runner.skip_reason(case)},
+                       **({"turns": len(conversation_turns(case))}
+                          if conversation_turns(case) is not None else {}))
                   for case in runner.ordered_cases()],
-        "app_calls_planned": sum(
-            plan["k"] for case in plan["cases"]
-            if runner.skip_reason(case) is None),
+        # docs/multi-turn.md SS5: a conversation is one app call PER TURN,
+        # and a retry replays it from turn 1 -- so this is the floor.
+        "app_calls_planned": sum(calls for calls, _ in planned),
+        "wait_floor_s": round(sum(wait for _, wait in planned), 3),
+        "wait_floor_note": (
+            "seconds the run waits beyond the app's own latency, with no "
+            "retry: the trace quiescence window after every app call when "
+            "traces are collected, plus turn_delay_s between a "
+            "conversation's turns. A real run is slower"),
         "execution": runner.execution,
     }
 

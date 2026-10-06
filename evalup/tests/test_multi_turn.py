@@ -15,6 +15,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -810,6 +811,211 @@ class TestRoutingStaysSingleTurn(ConversationCase):
                                            self.routed_conversation()]))
         self.assertEqual([row["case_id"] for row in
                           self.jsonl("routing_results.jsonl")], ["c-routed"])
+
+
+class TestOneConversationOneRow(ConversationCase):
+    """SS4: verdicts.jsonl, results.json and the gate see one row per
+    conversation; the row says how far it got; the summary keeps the
+    conversations' own rate beside the blend."""
+
+    def mixed_run(self, forget=True, memory=None):
+        app = self.start(LicenceApp(forget=forget))
+        plain = make_case("c-plain", expect={"answer": {
+            "must_contain": ["hello"]}})
+        block = {"style": "client-id"}
+        if memory:
+            block["memory"] = memory
+        self.run_ok(self.plan_for(app, [plain, licence_case()], **block))
+
+    def test_rows_carry_the_conversation_fields(self):
+        self.mixed_run()
+        for rows in (self.jsonl("verdicts.jsonl"),
+                     self.read("results.json")["cases"]):
+            by_id = {row["case_id"]: row for row in rows}
+            self.assertEqual(
+                {k: by_id["c-convo-01"][k] for k in
+                 ("multi_turn", "turns_sent", "failed_turn")},
+                {"multi_turn": True, "turns_sent": 2, "failed_turn": 2})
+            self.assertEqual(
+                {k: by_id["c-plain"][k] for k in
+                 ("multi_turn", "turns_sent", "failed_turn")},
+                {"multi_turn": False, "turns_sent": 1, "failed_turn": None})
+        # stats.py's input is unchanged: one {case_id, verdict} per case.
+        self.assertEqual(
+            sorted(self.jsonl("verdicts_for_stats.jsonl"),
+                   key=lambda r: r["case_id"]),
+            [{"case_id": "c-convo-01", "verdict": "fail"},
+             {"case_id": "c-plain", "verdict": "pass"}])
+
+    def test_summary_splits_the_conversations_out(self):
+        self.mixed_run()
+        summary = self.read("results.json")["summary"]
+        self.assertEqual(summary["multi_turn"],
+                         {"n": 1, "passes": 0, "failures": 1,
+                          "gating_failures": 1})
+        self.assertEqual((summary["n"], summary["passes"],
+                          summary["failures"]), (2, 1, 1))
+
+    def test_a_single_turn_run_has_no_split(self):
+        self.run_ok(make_plan(self.state, self.app.base_url))
+        self.assertIsNone(self.read("results.json")["summary"]["multi_turn"])
+        self.assertIsNone(self.read("results.json")["memory"])
+
+    def test_verify_recounts_the_split(self):
+        self.mixed_run()
+        path = self.out_dir() / "results.json"
+        results = json.loads(path.read_text(encoding="utf-8"))
+        results["summary"]["multi_turn"]["failures"] = 0
+        path.write_text(json.dumps(results), encoding="utf-8")
+        proc = subprocess.run([sys.executable, str(RUNNER), "--verify",
+                               str(self.out_dir())],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 6)
+        self.assertIn("summary.multi_turn", proc.stdout)
+
+    def gate(self):
+        proc = subprocess.run([sys.executable, str(SCRIPTS / "gate.py"),
+                               str(self.out_dir())],
+                              capture_output=True, text=True)
+        return proc.stdout + proc.stderr
+
+    def test_gate_prints_both_rates(self):
+        self.mixed_run()
+        text = self.gate()
+        self.assertIn("multi-turn: 0/1 pass (1 conversation(s)); "
+                      "single-turn: 1/1 pass", text)
+        self.assertNotIn("memory: user", text)
+
+    def test_user_memory_is_said(self):
+        """SS6: memory that outlives the session can contaminate ANY case,
+        and no per-case verdict can see it -- so the run says it."""
+        self.mixed_run(forget=False, memory="user")
+        self.assertEqual(self.read("results.json")["memory"], "user")
+        self.assertIn("memory: user", self.gate())
+
+
+class TestDryRunCountsTurns(ConversationCase):
+    """SS5: app calls are turns, not cases, and a wait floor is stated."""
+
+    def test_calls_and_floor(self):
+        case = licence_case()
+        case["input"]["turns"].append({"user": "and the active ones?"})
+        plan = self.plan_for(self.app, [case, make_case("c-plain")],
+                             style="client-id", turn_delay_s=2)
+        plan["k"] = 2
+        rc, payload, proc = self.invoke(plan, extra_argv=["--dry-run"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(payload["app_calls_planned"], 2 * 3 + 2 * 1)
+        # Trace-less: no quiescence; two gaps of 2 s per repeat.
+        self.assertEqual(payload["wait_floor_s"], 2 * 2 * 2)
+        convo = next(c for c in payload["cases"] if c["id"] == "c-convo-01")
+        self.assertEqual(convo["turns"], 3)
+
+
+class TestCostOfAConversation(unittest.TestCase):
+    """SS4/SS5 in score_cost.py: a conversation is priced as one case, the
+    sum of its turns; a pair that sent different numbers of turns is
+    refused and named."""
+
+    PRICES = {"schema": "evalup/price-table/1", "as_of": "2026-10-06",
+              "currency": "USD", "source": "test",
+              "models": {"m-1": {"input_per_mtok": "1.00",
+                                 "output_per_mtok": "1.00"}}}
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def write_json(self, path, obj):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(obj), encoding="utf-8")
+
+    @staticmethod
+    def trajectory(n_in, n_out):
+        return {"status": "ok", "trajectory": {
+            "trace_id": "t", "agents": [], "tool_calls": [],
+            "llm_calls": [{"model": "m-1", "duration_ms": 1,
+                           "usage": {"input_tokens": n_in,
+                                     "output_tokens": n_out}}],
+            "usage": {"input_tokens": n_in, "output_tokens": n_out}},
+            "checks": {}}
+
+    def write_run(self, run_id, turn_usage, latency, verdict="pass",
+                  drop_turn=None):
+        """One run with a single conversation, c-convo, that sent
+        len(turn_usage) turns."""
+        out = self.tmp / run_id
+        self.write_json(out / "manifest.yaml", {
+            "run_id": run_id, "mode": "smoke", "k": 1,
+            "selecting_split": "smoke", "harness_version": "0.1.0",
+            "dataset_version": 1})
+        case_dir = out / "cases" / "c-convo"
+        for turn, (n_in, n_out) in enumerate(turn_usage, 1):
+            if turn != drop_turn:
+                self.write_json(case_dir / "turns" / str(turn)
+                                / "trajectory.json",
+                                self.trajectory(n_in, n_out))
+        # The case-level file is the deciding turn's only.
+        self.write_json(case_dir / "trajectory.json",
+                        self.trajectory(*turn_usage[-1]))
+        rows = [{"case_id": "c-convo", "verdict": verdict, "gating": True,
+                 "layers": {}, "latency_s": latency, "multi_turn": True,
+                 "turns_sent": len(turn_usage), "failed_turn": None},
+                {"case_id": "c-plain", "verdict": "pass", "gating": True,
+                 "layers": {}, "latency_s": 1.0, "multi_turn": False,
+                 "turns_sent": 1, "failed_turn": None}]
+        self.write_json(out / "results.json", {
+            "run_id": run_id, "harness_version": "0.1.0",
+            "dataset_version": 1, "mode": "smoke", "cases": rows,
+            "summary": {"status": "ok", "n": 2, "passes": 2,
+                        "holdout": None}, "exit_code": 0})
+        return out
+
+    def cost(self, *argv):
+        prices = self.tmp / "prices.json"
+        self.write_json(prices, self.PRICES)
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "score_cost.py"),
+             *[str(a) for a in argv], "--prices", str(prices)],
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_a_conversation_is_the_sum_of_its_turns(self):
+        run = self.write_run("smoke-20261006T000000Z",
+                             [(100, 10), (200, 20), (300, 30)], 3.0)
+        out = self.cost(run)
+        self.assertEqual(out["cost"]["tokens"]["input"], 600)
+        self.assertEqual(out["cost"]["cases_with_trace"], 1)
+
+    def test_one_turn_without_a_trace_withholds_the_case(self):
+        run = self.write_run("smoke-20261006T000000Z",
+                             [(100, 10), (200, 20)], 2.0, drop_turn=1)
+        out = self.cost(run)
+        self.assertEqual(out["cost"]["cases_without_trace"], 2)
+
+    def test_pairs_that_reached_different_turns_are_refused(self):
+        base = self.write_run("smoke-20261006T000000Z", [(100, 10)], 1.2,
+                              verdict="fail")
+        cand = self.write_run("smoke-20261006T000001Z",
+                              [(100, 10)] * 4, 4.8)
+        out = self.cost(cand, "--baseline", base)
+        paired = out["paired"]
+        self.assertEqual(paired["turns_sent_mismatch"]["case_ids"],
+                         ["c-convo"])
+        # Only the single-turn case pairs; the conversation is named above
+        # and is not counted as a case dropped for a missing trace either.
+        # (c-plain has no trajectory in this fixture, so cost pairs none.)
+        self.assertEqual(paired["latency"]["n_paired"], 1)
+        self.assertEqual(paired["cost"]["n_paired"], 0)
+        self.assertEqual(paired["cost"]["cases_dropped_for_missing_trace"], 1)
+
+    def test_pairs_that_sent_the_same_turns_are_paired(self):
+        base = self.write_run("smoke-20261006T000000Z", [(100, 10)] * 2, 2.0)
+        cand = self.write_run("smoke-20261006T000001Z", [(100, 10)] * 2, 3.0)
+        paired = self.cost(cand, "--baseline", base)["paired"]
+        self.assertNotIn("turns_sent_mismatch", paired)
+        self.assertEqual(paired["latency"]["n_paired"], 2)
 
 
 class TestRollUpUnion(unittest.TestCase):
