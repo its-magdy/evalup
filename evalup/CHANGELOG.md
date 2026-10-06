@@ -682,7 +682,10 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   checkpoint; `every_turn` is copied into every turn). The run stops at the
   first turn that rolls up `fail` or `infra_*` and continues past `unscored`.
   The case verdict is the rollup over the union of the turns' rows, keyed
-  `t<n>.<layer>`. One conversation is one case for every count and gate.
+  `t<n>.<layer>`, and a checkpoint can veto it but never certify it: a `pass`
+  needs a graded `pass` on the final turn (a review proved the plain union
+  passed a case whose final turn was `unscored`). One conversation is one
+  case for every count and gate.
 - **`invocation.conversation`** in the adapter (`client-id`, `server-id`
   with `session_from`, or `cookie`; `turn_delay_s`; `memory`) is the only
   switch. Without it a conversation is skipped. Checked at pre-flight.

@@ -31,7 +31,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 937 tests, ~4min
+python3 -m unittest discover -s tests                    # 943 tests, ~4min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -60,10 +60,11 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   Phase 1 built per `evalup/docs/multi-turn.md` — §0 bugfix, `input.turns`,
   `invocation.conversation`, the driver, cookie style, per-turn tree, stats/
   cost/gate split, skills/docs. Live proof on RefApp still owed (the user runs
-  it). Open for the user: the union rollup lets a passing checkpoint carry a
-  case whose FINAL turn is `unscored` to `pass` (reviewer-proved).
-- **Health** (2026-10-06, feat/multi-turn): 937 tests pass on 3.14;
-  928 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 937 pass with
+  it). Decided 2026-10-06 (after a second opinion): a checkpoint can veto a
+  conversation but never certify it — a union `pass` needs a graded `pass`
+  on the final turn (`run_cases.final_turn_certifies`).
+- **Health** (2026-10-06, feat/multi-turn): 943 tests pass on 3.14;
+  934 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 943 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored

@@ -1347,6 +1347,34 @@ def flatten_layers(layers):
 STOPPING = (FAIL, INFRA_ERROR, INFRA_INCOMPLETE)
 
 
+def final_turn_certifies(verdict, union, final_layers):
+    """A conversation's `pass` must rest on its FINAL turn (docs/multi-turn.md
+    SS1: the top-level expect is the case's claim).
+
+    The union rollup alone let a passing checkpoint -- or an every_turn copy
+    on turn 1 -- carry a case whose final turn came back `unscored` to `pass`:
+    the app answered turn 2 with a body lacking the <answer> field, and the
+    memory bug the case was written for read as a pass (2026-10-06 review,
+    reproduced). That is the validator's no_graded_layer rule, broken at run
+    time. So a union `pass` stands only when the final turn has a graded
+    `pass` of its own (a layer other than http/loops), or when the whole
+    conversation asserts nothing but liveness (rule 6 over the union);
+    otherwise it is `unscored`, and the final turn's own rows say why. Every
+    other verdict is returned unchanged: the stop rule, infra and scorer
+    errors are already decided by roll_up().
+    """
+    if verdict != PASS:
+        return verdict
+    if any(name not in RUN_TRIGGERED and layer.get("verdict") == PASS
+           for name, layer in final_layers.items()):
+        return PASS
+    if not any(name.rsplit(".", 1)[-1] not in RUN_TRIGGERED
+               and layer.get("verdict") != NA
+               for name, layer in union.items()):
+        return PASS
+    return UNSCORED
+
+
 def layer_reason(name, layer):
     """One line on why a layer did not pass, for a conversation's stop
     reason (docs/multi-turn.md SS3: "expected route licences, got a
@@ -2330,10 +2358,10 @@ class Runner:
         `max_attempts` counts CONVERSATION attempts, with `backoff_s`
         between them; on exhaustion the case is `infra_error`, as today.
         The case verdict is roll_up() over the union of every sent turn's
-        layers, keyed `t<n>.<layer>` -- which on fail, infra or all-pass is
-        the stop rule's answer, and on `unscored` is today's single-turn
-        semantics. Returns the attempt dict execute_case folds, carrying
-        the DECIDING turn (the stopping turn, or the last) as its record."""
+        layers, keyed `t<n>.<layer>`, and then final_turn_certifies(): a
+        checkpoint can veto a conversation but never certify it. Returns
+        the attempt dict execute_case folds, carrying the DECIDING turn (the
+        stopping turn, or the last) as its record."""
         turns = conversation_turns(case)
         max_attempts = self.execution["max_attempts"]
         backoff = self.execution["backoff_s"]
@@ -2383,7 +2411,8 @@ class Runner:
         union = {f"t{turn['turn']}.{name}": layer
                  for turn in sent for name, layer in turn["layers"].items()}
         verdict = UNSCORED if outcome["session_missing"] \
-            else roll_up(union, None)
+            else final_turn_certifies(roll_up(union, None), union,
+                                      deciding["layers"])
         latencies = [turn["record"]["response"]["latency_s"] for turn in sent
                      if turn["record"]["response"]["latency_s"] is not None]
         return {"n": repeat, "record": deciding["record"],

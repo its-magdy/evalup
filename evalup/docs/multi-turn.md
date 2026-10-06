@@ -169,12 +169,21 @@ One conversation attempt:
    route licences, got a clarification"). A per-turn "continue even if this
    fails" opt-in is left for later (§9).
 
-**The case verdict is `roll_up()` over the union of every sent turn's
-layers**, keyed `t<n>.<layer>` (`t1.routing`, `t2.answer`, …). The rollup
-strips the prefix before checking `RUN_TRIGGERED`, so `http` and `loops`
-still cannot carry a case to `pass` on their own. This is a strict
-generalisation: on fail, infra or all-pass it gives the stop rule's answer,
-and on `unscored` it gives today's single-turn semantics.
+**The case verdict is `roll_up()` over the union of every sent turn's layers**,
+keyed `t<n>.<layer>` (`t1.routing`, `t2.answer`, …), **and then a checkpoint
+may veto it but never certify it.** The rollup strips the prefix before
+checking `RUN_TRIGGERED`, so `http` and `loops` still cannot carry a case to
+`pass` on their own. On fail and infra it gives the stop rule's answer (a
+scorer error on any sent turn outranks a fail, as for any case: `unscored`,
+exit 7). A union `pass` stands only when the **final** turn has a graded
+`pass` of its own (a layer other than `http`/`loops`), or when the whole
+conversation asserts nothing but liveness; otherwise the case is `unscored`.
+That is §1's rule at run time: the top-level `expect` is the claim, and the
+validator already refuses a case graded only by a checkpoint. (As first
+written, this paragraph called the plain union "a strict generalisation"; the
+2026-10-06 review proved it let a passing turn-1 checkpoint, or an
+`every_turn` copy on turn 1, carry a case whose final turn came back
+`unscored` to `pass`.)
 
 **Retries restart the whole conversation.** Today a timeout, 429 or 5xx is
 retried by re-sending the same request (`invoke_once`, `run_cases.py:1764`).

@@ -806,6 +806,11 @@ conversation attempt:
 layers**, keyed `t<n>.<layer>`. The rollup strips the prefix before checking
 §10 rules 5-6, so `http` and `loops` still cannot carry a conversation to
 `pass`. A single-turn case has no prefix and rolls up exactly as before.
+**A checkpoint can veto, never certify:** a union `pass` stands only when the
+final turn has a `pass` on a layer other than `http`/`loops`, or when no layer
+but those is applicable on any turn; otherwise the case is `unscored`
+(`final_turn_certifies`). A scorer error on any sent turn makes the case
+`unscored` even beside a later turn's `fail`, by rule 4's order.
 
 **Retries restart the whole conversation.** Any retryable outcome on any turn
 (connection error, timeout, 429, 5xx) abandons the attempt and starts a new
@@ -1106,7 +1111,8 @@ the shipped run already does. See Open decision **D1**.
 7. otherwise → `unscored`
 
 A conversation's `layers` is the union of its turns' rows, keyed
-`t<n>.<layer>`; rules 5-6 read the layer name after the prefix (§7.1).
+`t<n>.<layer>`; rules 5-6 read the layer name after the prefix, and a union
+`pass` then needs a graded `pass` on the final turn (§7.1).
 
 Rule 7 is the point: a case whose every layer came back `n/a`/`unscorable`/
 `unscored` is **not** a pass. That is the vacuous-case failure

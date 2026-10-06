@@ -402,7 +402,8 @@ gating: false                          # until a baseline exists (generate SS3)
 - **The conversation stops at the first turn that rolls up `fail` or
   `infra_*`**; it continues past `unscored` (the harness could not look,
   which is not the app failing). The case verdict is the rollup over every
-  sent turn's layers, so one failed checkpoint fails the case.
+  sent turn's layers, so one failed checkpoint fails the case; a passing
+  checkpoint never passes it on its own: the final turn must pass.
 - **`every_turn`** copies its keys into every turn's expect, the final one
   included. Without it, `expect.tools.forbidden` checks only the turn it sits
   on, and "never call `update_licence` during the conversation" silently

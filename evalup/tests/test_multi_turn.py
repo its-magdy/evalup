@@ -344,6 +344,78 @@ class TestConversationDriver(ConversationCase):
         self.assertEqual(len(self.asks(app)), 2)
         self.assertEqual(verdict["verdict"], "pass")
 
+    @staticmethod
+    def no_answer_on_turn_two(licences):
+        """The app answers turn 2 with a 200 whose body lacks the declared
+        <answer> field: the final claim cannot be scored."""
+        def handler(path, body, headers):
+            status, payload, extra = licences(path, body, headers)
+            if "expired" in body.get("message", ""):
+                return 200, {"error": "boom"}, {}
+            return status, payload, extra
+        return handler
+
+    def test_a_checkpoint_cannot_certify_an_unscored_final_turn(self):
+        """SS1: the final turn is the claim. A passing turn-1 checkpoint
+        used to carry this case to `pass` (2026-10-06 review)."""
+        app = self.start(self.no_answer_on_turn_two(LicenceApp()))
+        self.run_ok(self.plan_for(app, [licence_case()]))
+        verdict = self.read("cases", "c-convo-01", "verdict.json")
+        self.assertEqual(verdict["layers"]["t1.answer"]["verdict"], "pass")
+        self.assertEqual(verdict["verdict"], "unscored")
+        self.assertEqual(self.read("cases", "c-convo-01", "turns", "2",
+                                   "verdict.json")["verdict"], "unscored")
+        self.assertIsNone(verdict["failed_turn"])
+
+    def test_an_every_turn_copy_cannot_certify_it_either(self):
+        app = self.start(self.no_answer_on_turn_two(LicenceApp()))
+        case = licence_case(every_turn={"answer": {
+            "must_not_contain": ["zzz"]}})
+        del case["input"]["turns"][0]["expect"]
+        case["expect"] = {}
+        self.run_ok(self.plan_for(app, [case]))
+        self.assertEqual(self.read("cases", "c-convo-01",
+                                   "verdict.json")["verdict"], "unscored")
+
+    def test_an_http_only_final_turn_beside_a_graded_checkpoint(self):
+        """The final turn's own rollup is `pass` by rule 6 here, so "the
+        final turn passed" alone would not have caught it."""
+        app = self.start(LicenceApp(forget=True))
+        case = licence_case()
+        case["expect"] = {"http": {"status": 200}}
+        self.run_ok(self.plan_for(app, [case]))
+        self.assertEqual(self.read("cases", "c-convo-01",
+                                   "verdict.json")["verdict"], "unscored")
+
+    def test_a_liveness_only_conversation_still_passes(self):
+        app = self.start(LicenceApp())
+        case = licence_case()
+        del case["input"]["turns"][0]["expect"]
+        case["expect"] = {"http": {"status": 200}}
+        self.run_ok(self.plan_for(app, [case]))
+        self.assertEqual(self.read("cases", "c-convo-01",
+                                   "verdict.json")["verdict"], "pass")
+
+    def test_a_demoted_repeat_folds_to_unscored(self):
+        licences = LicenceApp()
+        calls = {"n": 0}
+
+        def second_repeat_loses_answer(path, body, headers):
+            status, payload, extra = licences(path, body, headers)
+            if path != "/":
+                calls["n"] += 1
+                if calls["n"] == 4:
+                    return 200, {"error": "boom"}, {}
+            return status, payload, extra
+        app = self.start(second_repeat_loses_answer)
+        plan = self.plan_for(app, [licence_case()])
+        plan["k"] = 2
+        self.run_ok(plan)
+        verdict = self.read("cases", "c-convo-01", "verdict.json")
+        self.assertEqual([r["verdict"] for r in verdict["repeats"]],
+                         ["pass", "unscored"])
+        self.assertEqual(verdict["verdict"], "unscored")
+
     def test_every_turn_checks_a_turn_with_no_expect_of_its_own(self):
         app = self.start(LicenceApp())
         case = licence_case(every_turn={"answer": {
@@ -532,6 +604,14 @@ class TestServerId(ConversationCase):
                          "conv-1")
         self.assertEqual(self.read("cases", "c-convo-01",
                                    "verdict.json")["verdict"], "pass")
+
+    def test_a_passing_checkpoint_does_not_rescue_a_missing_session(self):
+        app = self.server_app("nowhere")
+        plan = self.server_plan(app, {"body": "conversationId"})
+        self.run_ok(plan)
+        verdict = self.read("cases", "c-convo-01", "verdict.json")
+        self.assertEqual(verdict["layers"]["t1.answer"]["verdict"], "pass")
+        self.assertEqual(verdict["verdict"], "unscored")
 
     def test_no_session_on_turn_one_is_unscored_and_turn_two_unsent(self):
         app = self.server_app("nowhere")
