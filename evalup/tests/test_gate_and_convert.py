@@ -375,6 +375,29 @@ class TestMakePlan(TempDirTest):
         self.assertIs(json.loads(proc.stdout)["execution"]["insecure_tls"],
                       True)
 
+    def test_max_turns_is_written_only_for_a_conversation(self):
+        """docs/multi-turn.md SS3: the plan carries the conversation cap it
+        runs under, and a single-turn plan is unchanged by the feature."""
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none")
+        self.assertNotIn("execution", plan)
+
+        def converse(cases):
+            for case in cases:
+                if "smoke" in case["split"]:
+                    case["input"] = {"turns": [{"user": "a"}, {"user": "b"}]}
+                    break
+        converted = self.with_cases(converse)
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             converted=converted)
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["execution"], {"max_turns": 12})
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--max-turns", "6", converted=converted)
+        self.assertEqual(plan["execution"], {"max_turns": 6})
+        rc, _ = self.plan("--mode", "smoke", "--oos-route", "none",
+                          "--max-turns", "1", converted=converted)
+        self.assertEqual(rc, 2)
+
     def test_retry_schedule_is_a_flag_not_a_hand_edit(self):
         # F-027 (field test 2026-09-25): a throttled provider behind an app
         # that already retries wanted fewer, longer waits, and the only way

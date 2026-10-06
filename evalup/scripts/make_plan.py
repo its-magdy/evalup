@@ -71,6 +71,10 @@ from _common import (
 )
 from validate_cases import asserted_layers
 
+# docs/multi-turn.md SS3/SS10: run_cases.py's own default, written into a
+# plan that selects a conversation.
+MAX_TURNS_DEFAULT = 12
+
 # mode -> (selecting_split, default k, gate)
 MODES = {
     "smoke": ("smoke", 1, "soft"),
@@ -245,6 +249,11 @@ def main():
                          "entries, e.g. 5,30 (runner default 1,4); a "
                          "throttled provider or an app that already retries "
                          "wants longer, fewer waits")
+    ap.add_argument("--max-turns", type=int, metavar="N",
+                    help="the runner's hard cap on a conversation's turns "
+                         "(default 12; a longer input.turns case is "
+                         "skipped). Written only when the selection holds a "
+                         "conversation")
     ap.add_argument("--insecure-tls", action="store_true",
                     help="set execution.insecure_tls: skip certificate "
                          "verification for a self-signed LOCAL dev host only "
@@ -414,6 +423,16 @@ def main():
     execution.update(retries)
     if a.insecure_tls:
         execution["insecure_tls"] = True
+    # docs/multi-turn.md SS3: the cap on a conversation's turns is the
+    # plan's, so the run records the bound it ran under. Only when a
+    # selected case is a conversation: a single-turn plan stays exactly
+    # what it was.
+    if a.max_turns is not None and a.max_turns < 2:
+        die(f"--max-turns must be >= 2 (a conversation has at least two "
+            f"turns), got {a.max_turns}")
+    if any(isinstance((c.get("input") or {}).get("turns"), list)
+           for c in cases if isinstance(c.get("input"), dict)):
+        execution["max_turns"] = a.max_turns or MAX_TURNS_DEFAULT
     if execution:
         plan["execution"] = execution
 

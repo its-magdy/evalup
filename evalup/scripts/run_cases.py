@@ -234,7 +234,7 @@ SCORING_DEFAULTS = {
 }
 EXECUTION_DEFAULTS = {
     "timeout_s": None, "max_attempts": 3, "backoff_s": [1, 4],
-    "infra_rate_abort": 0.25, "insecure_tls": False,
+    "infra_rate_abort": 0.25, "insecure_tls": False, "max_turns": 12,
 }
 # SS7: checked after each case, but only once the denominator means something.
 INFRA_ABORT_MIN_CASES = 8
@@ -493,6 +493,10 @@ def validate_execution_block(plan):
             or not 0 < rate <= 1:
         bad_input("execution.infra_rate_abort must be a fraction in (0, 1], "
                   f"got {rate!r}")
+    cap = execution["max_turns"]
+    if not isinstance(cap, int) or isinstance(cap, bool) or cap < 2:
+        bad_input("execution.max_turns must be an integer >= 2 (a "
+                  f"conversation has at least two turns), got {cap!r}")
 
 
 def validate_adapter_block(plan):
@@ -1102,6 +1106,10 @@ def roll_up(layers, skipped_reason):
     exactly that number in the report -- while the run still exits 7.
     """
     values = [layer.get("verdict") for layer in layers.values()]
+    # A conversation's union is keyed `t<n>.<layer>` (docs/multi-turn.md
+    # SS3); rules 5-6 judge the LAYER, so the turn prefix comes off first.
+    # A single-turn case has no prefix and reads exactly as before.
+    base = {name: name.rsplit(".", 1)[-1] for name in layers}
     if INFRA_ERROR in values:
         return INFRA_ERROR
     if INFRA_INCOMPLETE in values:
@@ -1128,12 +1136,13 @@ def roll_up(layers, skipped_reason):
     # traced run carry a rubric-only or state-only case to `pass` -- and made
     # an http-only case `pass` or `unscored` by whether loops scored. Its
     # `fail` still fails the case (rule 4): a loop is a real pathology.
-    if any(name not in RUN_TRIGGERED and layer.get("verdict") == PASS
+    if any(base[name] not in RUN_TRIGGERED and layer.get("verdict") == PASS
            for name, layer in layers.items()):
         return PASS
-    if layers.get("http", {}).get("verdict") == PASS and not [
+    http = [layer for name, layer in layers.items() if base[name] == "http"]
+    if http and all(layer.get("verdict") == PASS for layer in http) and not [
             name for name, layer in layers.items()
-            if name not in RUN_TRIGGERED and layer.get("verdict") != NA]:
+            if base[name] not in RUN_TRIGGERED and layer.get("verdict") != NA]:
         return PASS
     return UNSCORED
 
@@ -1185,8 +1194,15 @@ def repeated_5xx(attempts):
     if len(answers) != 1 or observed < 2:
         return None
     answer = answers.pop()
-    return None if answer is None else {"status": answer[0],
-                                        "attempts": observed}
+    if answer is None:
+        return None
+    found = {"status": answer[0], "attempts": observed}
+    if len(answer) > 2:
+        # A conversation (docs/multi-turn.md SS3): the same 5xx and body at
+        # the SAME turn on every attempt, and that turn is recorded -- turns
+        # 1..N-1 were replayed on every attempt to reach it.
+        found["turn"] = answer[2]
+    return found
 
 
 def body_key(body):
@@ -1244,6 +1260,42 @@ def context_messages_reason(case):
 
 def flatten_layers(layers):
     return {name: layer.get("verdict") for name, layer in layers.items()}
+
+
+STOPPING = (FAIL, INFRA_ERROR, INFRA_INCOMPLETE)
+
+
+def layer_reason(name, layer):
+    """One line on why a layer did not pass, for a conversation's stop
+    reason (docs/multi-turn.md SS3: "expected route licences, got a
+    clarification"). Read off the layer's own object -- never re-scored."""
+    if layer.get("reason"):
+        return f"{name}: {layer['reason']}"
+    row = layer.get("row")
+    if isinstance(row, dict):
+        return "{}: expected route {!r}, got {!r}".format(
+            name, row.get("expected"), row.get("observed"))
+    if "status" in layer:
+        expected = layer.get("expected")
+        return "{}: HTTP {}{}".format(
+            name, layer["status"],
+            f", expected {expected}" if expected is not None else "")
+    for check in layer.get("checks") or []:
+        if isinstance(check, dict) and check.get("status") == FAIL:
+            return "{}: {} {!r}: {}".format(
+                name, check.get("check"), check.get("entry"),
+                check.get("reason"))
+    return f"{name}: {layer.get('verdict')}"
+
+
+def turn_stop_reason(turn):
+    """Why a turn stopped its conversation: the first layer, in table order,
+    whose verdict is the turn's own."""
+    for name in LAYER_ORDER:
+        layer = turn["layers"].get(name) or {}
+        if layer.get("verdict") == turn["verdict"]:
+            return "turn {}: {}".format(turn["turn"], layer_reason(name, layer))
+    return "turn {}: {}".format(turn["turn"], turn["verdict"])
 
 
 # --------------------------------------------------------------------------
@@ -1844,17 +1896,22 @@ class Runner:
                 and not environment.get("safe_to_attack"):
             return (f"environment.safe_to_attack is false; category {category!r} "
                     "refuses to run")
+        turns = conversation_turns(case)
         if self.never_live_tools:
             named = set(case.get("available_tools") or [])
-            tools = (case.get("expect") or {}).get("tools") or {}
-            for key in ("subset", "order", "forbidden"):
-                named.update(tools.get(key) or [])
+            # A conversation names tools on every turn's expect, not only
+            # the final one's.
+            expects = [e for _, e in turns] if turns is not None \
+                else [case.get("expect") or {}]
+            for expect in expects:
+                tools = expect.get("tools") or {}
+                for key in ("subset", "order", "forbidden"):
+                    named.update(tools.get(key) or [])
             blocked = sorted(named & self.never_live_tools)
             if blocked:
                 return ("never-live tool(s) {} with environment.kind {!r} "
                         "(adapter hard rule 2)".format(
                             ", ".join(blocked), environment.get("kind")))
-        turns = conversation_turns(case)
         if turns is not None:
             if self.conversation is None:
                 # docs/multi-turn.md SS2: the block is the only switch. An
@@ -1866,9 +1923,18 @@ class Runner:
                         "there is no way to keep the turns in one "
                         "conversation (adapter hard rule 3); discover "
                         "writes the block")
-            return ("multi-turn case: the conversation driver is not built "
-                    "yet")
-        if user_turn_count(case) > 1:
+            if len(turns) < 2 or not all(text for text, _ in turns):
+                # Not a second linter: the one shape that would SEND
+                # something nobody wrote (an empty user turn) is refused.
+                return ("input.turns is malformed (fewer than two turns, or "
+                        "a turn with no `user` text); validate_cases.py "
+                        "names the defect")
+            if len(turns) > self.execution["max_turns"]:
+                # SS3: a bound for cost and loop safety whatever the author
+                # wrote. The validator's WARN above 8 is the guidance.
+                return (f"multi-turn case ({len(turns)} turns) is above "
+                        f"execution.max_turns {self.execution['max_turns']}")
+        elif user_turn_count(case) > 1:
             # Two user messages in input.messages are not a conversation:
             # case_text() would send the LAST one and the earlier turns would
             # vanish, scoring a truncated conversation as an ordinary pass
@@ -1878,9 +1944,10 @@ class Runner:
                     "input.messages): only the last turn would reach the "
                     "app (adapter hard rule 3) -- write the conversation as "
                     "input.turns")
-        context = context_messages_reason(case)
-        if context:
-            return context
+        else:
+            context = context_messages_reason(case)
+            if context:
+                return context
         if case.get("identity") and not self.identity_map:
             return ("case declares an identity but the adapter has no "
                     "invocation.identity_map; running it under the default "
@@ -1960,6 +2027,265 @@ class Runner:
                 "crashed": crashed and error is not None,
                 "same_5xx": same_5xx}
 
+    # -- docs/multi-turn.md SS3. One conversation, turn by turn ------------
+    def send_one(self, body, headers):
+        """One request, no retry: a conversation retries WHOLE (SS3)."""
+        if self.entrypoint is not None:
+            return send_function(self.entrypoint, body)
+        return send_http(self.url, self.method, headers, body, self.timeout(),
+                         self.execution["insecure_tls"])
+
+    def read_session(self, result):
+        """A server-id app's session id, off turn 1's response, or None.
+
+        Read ONLY from the declared place (session_from): a body path or a
+        response header, matched case-insensitively (RFC 9110 SS5.1). A
+        string or an integer id; anything else is no id, never a guess."""
+        source = self.conversation["session_from"]
+        if "header" in source:
+            value = {name.lower(): v for name, v in
+                     (result.get("headers") or {}).items()}.get(
+                         source["header"].lower())
+        else:
+            value = dotted_get(result.get("body"), source["body"])
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int) or (isinstance(value, str)
+                                      and value.strip()):
+            return value
+        return None
+
+    def session_source(self):
+        source = self.conversation["session_from"]
+        kind = "header" if "header" in source else "body"
+        return f"session_from.{kind} {source[kind]!r}"
+
+    def turn_response(self, case, repeat, turn, result, error, crashed,
+                      attempts):
+        """A turn's response.json, in invoke_once's shape plus `turn`."""
+        response = {"case_id": case["id"], "repeat": repeat, "turn": turn,
+                    "status": result["status"] if result else None,
+                    "latency_s": result["latency_s"] if result else None,
+                    "attempts": attempts, "retry_count": attempts - 1,
+                    "body": result["body"] if result else None,
+                    "answer": None, "trace_id": None, "error": error,
+                    "crashed": crashed and error is not None}
+        if result is not None:
+            answer = extract_path(result["body"], self.answer_path)
+            response["answer"] = answer if isinstance(answer, str) else \
+                (None if answer is None else json.dumps(answer,
+                                                        ensure_ascii=False))
+            response["trace_id"] = self.read_trace_id(result)
+        return response
+
+    def score_turn(self, case, turn, expect, record, scratches, shared):
+        """Score one sent turn with the existing layers (SS3 step 2).
+
+        The turn's expect -- a checkpoint, or the final turn's top-level
+        expect, with every_turn overlaid -- is written into the turn's own
+        scratch dir and handed to the scorers exactly as a single-turn
+        case's is. `shared` is the reason this conversation's turns share a
+        trace id (SS5); then this turn reads no trace at all."""
+        scratch = tempfile.mkdtemp(prefix="evalup-run-")
+        scratches.append(scratch)
+        expect_path = os.path.join(scratch, "expect.json")
+        atomic_write_json(expect_path, expect)
+        atomic_write(os.path.join(scratch, "answer.txt"),
+                     record["response"]["answer"] or "")
+        turn_case = dict(case, expect=expect)
+        trace_collected, trace_reason = False, None
+        if record["error"] is None and self.trace_state["collected"] \
+                and not shared:
+            trace_collected, trace_reason = self.collect_trace(
+                scratch, record["response"]["trace_id"])
+        layers = self.score_layers(turn_case, record, None, scratch,
+                                   expect_path, trace_collected, trace_reason)
+        scored = {"turn": turn, "record": record, "scratch": scratch,
+                  "expect": expect, "layers": layers,
+                  "trace_collected": trace_collected,
+                  "trace_reason": trace_reason}
+        if shared:
+            scored["trace_reason"] = shared
+            self.unscorable_trace_layers(scored, shared)
+        scored["verdict"] = roll_up(layers, None)
+        return scored
+
+    @staticmethod
+    def unscorable_trace_layers(scored, reason):
+        """SS5: turns that share a trace id cannot be told apart in it, so
+        every trace-dependent row of the case is `unscorable` with that
+        reason -- honest degradation, the rule score_authz follows. `loops`
+        is in TRAJECTORY_LAYERS and goes too: this runs only on a run that
+        collects traces, where every turn would have had a `loops` row. A
+        row the matrix already disabled keeps the matrix's own reason, and a
+        layer the turn does not assert stays n/a."""
+        layers = scored["layers"]
+        for name in TRAJECTORY_LAYERS:
+            verdict = layers[name].get("verdict")
+            if verdict == UNSCORABLE or (verdict == NA and name != "loops"):
+                continue
+            layers[name] = unscorable(name, reason)
+        scored["verdict"] = roll_up(layers, None)
+
+    def conversation_attempt(self, case, repeat, turns, attempt, scratches):
+        """One attempt at the whole conversation: fresh <uuid>, no
+        <session>, turn by turn until the end or a stop (SS3).
+
+        Returns {"turns": [scored turn...], "retry": None | {...},
+        "stop_reason": str|None, "session_missing": bool}. A retryable
+        outcome on ANY turn (a transport failure, a 429, a 5xx) abandons
+        the attempt: the app may already have stored the turn it failed on,
+        so re-sending that turn alone would score the rest on a corrupted
+        history."""
+        conversation = self.conversation
+        persona = case.get("persona") or (case.get("identity") or {}).get("role")
+        session_id = str(uuid.uuid4())
+        session = None
+        headers = build_headers(self.adapter, case, self.identity_map,
+                                self.auth_values)
+        sent, seen, shared = [], {}, None
+        out = {"turns": sent, "retry": None, "stop_reason": None,
+               "session_missing": False}
+        for index, (text, expect) in enumerate(turns, 1):
+            if index > 1 and conversation["turn_delay_s"]:
+                time.sleep(conversation["turn_delay_s"])
+            values = {"<user turn>": text, "<uuid>": session_id,
+                      "<persona>": persona, "<case id>": case["id"],
+                      SESSION_MARKER: session}
+            body = render_template(self.request_template, values)
+            request = {"case_id": case["id"], "repeat": repeat, "turn": index,
+                       "attempt": attempt, "persona": persona,
+                       "headers_sent": redact(headers, self.secret_names),
+                       "url": self.record_url, "method": self.method,
+                       "body": render_template(self.record_template, values),
+                       "sent_at": utc_now(), "sent": True}
+            try:
+                result = self.send_one(body, headers)
+            except TransportError as exc:
+                out["retry"] = {"turn": index, "request": request,
+                                "result": None, "error": exc.message,
+                                "crashed": exc.kind == "connection",
+                                "five": None}
+                return out
+            status = result["status"]
+            if status == 429 or 500 <= status < 600:
+                out["retry"] = {"turn": index, "request": request,
+                                "result": result, "error": f"HTTP {status}",
+                                "crashed": False,
+                                "five": None if status == 429 else
+                                (status, body_key(result["body"]), index)}
+                return out
+            record = {"request": request,
+                      "response": self.turn_response(case, repeat, index,
+                                                     result, None, False,
+                                                     attempt),
+                      "error": None, "crashed": False, "same_5xx": None}
+            trace_id = record["response"]["trace_id"]
+            if self.trace_state["collected"] and trace_id:
+                if trace_id in seen and not shared:
+                    shared = (f"turns {seen[trace_id]} and {index} returned "
+                              f"the same trace id {trace_id}, so no span in "
+                              "it can be attributed to one turn "
+                              "(docs/multi-turn.md SS5)")
+                    for earlier in sent:
+                        self.unscorable_trace_layers(earlier, shared)
+                seen.setdefault(trace_id, index)
+            scored = self.score_turn(case, index, expect, record, scratches,
+                                     shared)
+            sent.append(scored)
+            if scored["verdict"] in STOPPING:
+                # A fail means the app went off script, and anything sent
+                # after it is a turn built on a derailed conversation.
+                # `unscored` is NOT here: the harness could not look, which
+                # is not the app failing.
+                out["stop_reason"] = turn_stop_reason(scored)
+                return out
+            if conversation["style"] == "server-id" and index == 1 \
+                    and index < len(turns):
+                session = self.read_session(result)
+                if session is None:
+                    out["session_missing"] = True
+                    out["stop_reason"] = (
+                        "turn 1's response carried no session id at "
+                        f"{self.session_source()}, so turn 2 was never "
+                        "sent: without the session it would open a new "
+                        "conversation and score 'forgot the context'")
+                    return out
+        return out
+
+    def converse(self, case, repeat, scratches):
+        """One repeat of a conversation, with whole-conversation retries.
+
+        `max_attempts` counts CONVERSATION attempts, with `backoff_s`
+        between them; on exhaustion the case is `infra_error`, as today.
+        The case verdict is roll_up() over the union of every sent turn's
+        layers, keyed `t<n>.<layer>` -- which on fail, infra or all-pass is
+        the stop rule's answer, and on `unscored` is today's single-turn
+        semantics. Returns the attempt dict execute_case folds, carrying
+        the DECIDING turn (the stopping turn, or the last) as its record."""
+        turns = conversation_turns(case)
+        max_attempts = self.execution["max_attempts"]
+        backoff = self.execution["backoff_s"]
+        attempt, crashed, endings = 0, False, []
+        while True:
+            attempt += 1
+            outcome = self.conversation_attempt(case, repeat, turns, attempt,
+                                                scratches)
+            retry = outcome["retry"]
+            if retry is None:
+                break
+            crashed = crashed or retry["crashed"]
+            endings.append(retry["five"])
+            if attempt >= max_attempts:
+                break
+            wait = retry_wait(backoff[attempt - 1], retry["result"])
+            self.log("retry", case_id=case["id"], repeat=repeat,
+                     attempt=attempt, turn=retry["turn"],
+                     error=retry["error"], wait_s=wait,
+                     restart="conversation")
+            time.sleep(wait)
+
+        sent = outcome["turns"]
+        if retry is not None:
+            # Exhausted: the turn that kept failing is the deciding one, and
+            # every layer it claims is infra_error (score_layers' own rule
+            # for a record carrying an error).
+            same = endings[0] if len(endings) == attempt and endings[0] \
+                and len(set(endings)) == 1 else None
+            record = {"request": retry["request"],
+                      "response": self.turn_response(
+                          case, repeat, retry["turn"], retry["result"],
+                          retry["error"], crashed, attempt),
+                      "error": retry["error"], "crashed": crashed,
+                      "same_5xx": same}
+            sent.append(self.score_turn(case, retry["turn"],
+                                        turns[retry["turn"] - 1][1], record,
+                                        scratches, None))
+            outcome["stop_reason"] = "turn {}: {} on all {} conversation " \
+                "attempt(s)".format(retry["turn"], retry["error"], attempt)
+        for turn in sent:
+            # Every turn's response says how many attempts the conversation
+            # took, so repeated_5xx() and a reader both see it on any file.
+            turn["record"]["response"]["attempts"] = attempt
+            turn["record"]["response"]["retry_count"] = attempt - 1
+        deciding = sent[-1]
+        union = {f"t{turn['turn']}.{name}": layer
+                 for turn in sent for name, layer in turn["layers"].items()}
+        verdict = UNSCORED if outcome["session_missing"] \
+            else roll_up(union, None)
+        latencies = [turn["record"]["response"]["latency_s"] for turn in sent
+                     if turn["record"]["response"]["latency_s"] is not None]
+        return {"n": repeat, "record": deciding["record"],
+                "scratch": deciding["scratch"], "layers": union,
+                "verdict": verdict,
+                "trace_collected": deciding["trace_collected"],
+                "trace_reason": deciding["trace_reason"],
+                "multi_turn": True, "turns": sent, "turns_sent": len(sent),
+                "failed_turn": deciding["turn"]
+                if deciding["verdict"] in STOPPING else None,
+                "stop_reason": outcome["stop_reason"],
+                "latency_s": round(sum(latencies), 3) if latencies else None}
+
     def execute_case(self, case):
         """Run one case (k repeats), score it, and write its directory.
 
@@ -1995,10 +2321,14 @@ class Runner:
                                                 expect_path, skip, scratches)]
             else:
                 self.attempted += 1
-                attempts = [
-                    self.scored_attempt(case, self.invoke_once(case, n),
-                                        expect_path, None, scratches)
-                    for n in range(1, self.k + 1)]
+                if conversation_turns(case) is not None:
+                    attempts = [self.converse(case, n, scratches)
+                                for n in range(1, self.k + 1)]
+                else:
+                    attempts = [
+                        self.scored_attempt(case, self.invoke_once(case, n),
+                                            expect_path, None, scratches)
+                        for n in range(1, self.k + 1)]
                 if any(a["record"]["crashed"] for a in attempts) \
                         and case.get("category") in CRASH_RATE_CATEGORIES:
                     self.crashes += 1
@@ -2017,7 +2347,11 @@ class Runner:
             verdict = self.build_verdict(case, chosen, skip)
             if not skip and self.k > 1:
                 verdict["repeats"] = [
-                    {"n": a["n"], "verdict": a["verdict"], "layers": a["layers"]}
+                    dict({"n": a["n"], "verdict": a["verdict"],
+                          "layers": a["layers"]},
+                         **({"turns_sent": a["turns_sent"],
+                             "failed_turn": a["failed_turn"]}
+                            if a.get("multi_turn") else {}))
                     for a in attempts]
             verdict["repeated_5xx"] = None if skip else repeated_5xx(attempts)
             self.record_routing_row(verdict)
@@ -2040,7 +2374,9 @@ class Runner:
         nothing was sent.
         """
         persona = case.get("persona") or (case.get("identity") or {}).get("role")
-        values = {"<user turn>": case_text(case), "<uuid>": None,
+        turns = conversation_turns(case)
+        text = turns[0][0] if turns else case_text(case)
+        values = {"<user turn>": text, "<uuid>": None,
                   "<persona>": persona, "<case id>": case["id"],
                   SESSION_MARKER: None}
         headers = build_headers(self.adapter, case, self.identity_map,
@@ -2092,8 +2428,13 @@ class Runner:
                           record["request"])
         atomic_write_json(os.path.join(case_dir, "response.json"),
                           record["response"])
-        for name in ("answer.txt", "trace.json", "trajectory.json",
-                     "actual.json"):
+        # A conversation's case-level files are its DECIDING turn's
+        # (docs/multi-turn.md SS7), expect.json included: that turn's expect
+        # is what its answer and actual were scored against.
+        names = ("answer.txt", "trace.json", "trajectory.json", "actual.json")
+        if attempt.get("multi_turn"):
+            names += ("expect.json",)
+        for name in names:
             source = os.path.join(attempt["scratch"], name)
             if os.path.isfile(source):
                 shutil.copyfile(source, os.path.join(case_dir, name))
@@ -2592,8 +2933,16 @@ class Runner:
             # Carried on the verdict, not only in response.json, so a resumed
             # run can rebuild results.json's latency column from the same
             # source as everything else in it (SS8 step 3).
-            "latency_s": record["response"]["latency_s"],
+            "latency_s": attempt["latency_s"] if "latency_s" in attempt
+            else record["response"]["latency_s"],
             "layers": layers,
+            # docs/multi-turn.md SS4: one conversation is one case. These say
+            # how far it got; nothing downstream of `verdict` changes meaning.
+            "multi_turn": bool(attempt.get("multi_turn")),
+            "turns_sent": attempt.get("turns_sent",
+                                      0 if skip else 1),
+            "failed_turn": attempt.get("failed_turn"),
+            "stop_reason": attempt.get("stop_reason"),
             "trace": {"expected": expected_trace,
                       "collected": trace_collected,
                       # SS6: trace.json absent is never ambiguous, because this
