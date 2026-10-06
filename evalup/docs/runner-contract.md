@@ -127,7 +127,8 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
     "max_attempts": 3,                // total attempts per repeat, including the first (§7)
     "backoff_s": [1, 4],              // waits before attempts 2 and 3; len == max_attempts-1
     "infra_rate_abort": 0.25,         // abort the run when infra verdicts exceed this share of attempted cases
-    "insecure_tls": false             // opt-in only; self-signed local hosts (the field test's `curl -k`)
+    "insecure_tls": false,            // opt-in only; self-signed local hosts (the field test's `curl -k`)
+    "max_turns": 12                   // a conversation with more turns is `skipped` (§7.1); >= 2
   },
 
   "manifest_extra": {
@@ -160,6 +161,7 @@ unknown top-level key; unknown key inside `scoring` or `execution`;
 duplicate case `id`; a case whose `split` does not contain `selecting_split`
 (the skill selected wrong — the runner refuses to run a set it cannot label);
 `backoff_s` length mismatch; `infra_rate_abort` outside `(0, 1]`;
+`max_turns` not an integer >= 2;
 `scripts_dir` missing any of the nine scorer
 scripts §5 names; a holdout-touching mode with `holdout_ledger: null`, or one
 whose path is not `.jsonl` (§6); and
@@ -244,6 +246,15 @@ beyond the health check.
      whole run. Record `traces.collected: false` plus `disabled_layers` in the
      manifest. Raw non-`gen_ai` spans are never passed to `normalize_trace.py`
      (adapter hard rule 5).
+4b. **Conversation block** (docs/multi-turn.md §2): when the adapter declares
+   `invocation.conversation`, check it — `style` one of
+   `client-id|server-id|cookie`; `session_from` exactly one of `body` (a
+   dotted path) or `header` for `server-id` and absent otherwise; a request
+   body carrying `<uuid>` (client-id) or `<session>` (server-id); `header`
+   and `cookie` in `http` mode only; `turn_delay_s >= 0`; `memory` one of
+   `session|user`; no unknown key. Any defect is exit 3: discovering it one
+   conversation at a time would bill turn 1 of every case. The block is
+   recorded as `manifest.conversation` (null when undeclared).
 5. **Safety gates**: record `environment.safe_to_attack` and the per-tool
    `side_effects` classes. `never-live` tools present with
    `environment.kind: live-*` → categories that could trigger them are
@@ -389,7 +400,14 @@ declared by the adapter:
    `observed_from: "status"`.
 
 With none of the three, `layers.routing` is `unscored` and the case is excluded
-from `routing_results.jsonl`. `observed_from` is on every scored routing layer
+from `routing_results.jsonl`.
+
+**A conversation adds no row** (docs/multi-turn.md §4): the run-level report
+keeps meaning single-turn routing, so `routing_report.json` is never a blend
+of first turns, follow-ups and final turns. Each turn's routing layer still
+scores (`layers.t<n>.routing`), and its row stays in `turns/<t>/verdict.json`,
+so a later per-turn routing report can be built from a historical run
+without re-running it. `observed_from` is on every scored routing layer
 so no reader has to work out which of the three produced a label.
 
 **`clarify_ok` needs `invocation.clarify_from_response`.** A case with
@@ -531,6 +549,9 @@ Each repeat's scorer inputs are materialized in a **scratch directory outside
 the run tree**, and only the representative repeat's are copied in. §6 declares
 `repeats/<n>/` as exactly three files and says the runner writes no others, so
 an `answer.txt` materialized to score repeat 3 must not land beside them.
+
+A conversation's repeat re-runs the **whole** conversation, and the fold
+below is unchanged: one conversation is one case (§7.1).
 
 The **case-level** verdict for k>1 is `pass^k`: pass only if every repeat
 passed. Rationale: the hard-gated modes that use k>1 are asking for reliability,
@@ -759,10 +780,66 @@ Exit 2 makes the gap loud at the one moment someone can act on it.
 | trace requested, quiescence not reached by `max_wait_s` | `infra_incomplete`; the case's non-trace layers still score |
 | `normalize_trace.py` reports missing spans / orphans | `infra_incomplete` for trace-dependent layers only |
 | adversarial case with `environment.safe_to_attack: false` | `skipped`, reason recorded — never `fail` |
-| case with more than one user turn | `skipped`, reason recorded (adapter hard rule 3). Multi-turn is **reserved**: no conversation driver exists, so the gate ignores `invocation.session` entirely — declaring one would only buy a last-turn-only invocation scored as a real verdict. |
+| `input.messages` holding anything besides exactly one user message (a second user turn, a system or assistant message, or none) | `skipped`, reason recorded (adapter hard rule 3, docs/multi-turn.md §0): the runner sends that one message alone, so anything else would never reach the app and the verdict would read as if it had |
+| a conversation (`input.turns`) under an adapter with no `invocation.conversation` | `skipped`, reason recorded (adapter hard rule 3). The block is the only switch; a legacy `invocation.session` turns nothing on |
+| a conversation with more turns than `execution.max_turns`, or a malformed `input.turns` (fewer than two turns, a turn with no `user` text) | `skipped`, reason recorded |
 
 **Infra and `skipped` verdicts never enter pass/fail denominators.** They are
 counted separately and reported.
+
+### 7.1 Conversations (docs/multi-turn.md)
+
+A case written as `input.turns` is a **live scripted conversation**. One
+conversation attempt:
+
+1. A fresh `<uuid>`, an empty cookie jar, no `<session>`.
+2. For each turn: render the body with that turn's text, send it (one
+   request, no retry of its own), read the answer and trace id with the
+   adapter's existing paths, score the turn with the existing layers against
+   its expect (a checkpoint, or the final turn's top-level `expect`, with
+   `every_turn` overlaid), and `roll_up()` the turn. `turn_delay_s` is waited
+   before turns 2+.
+3. **Stop at the first turn that rolls up `fail` or `infra_*`; continue past
+   `unscored`.** `verdict.json` records `failed_turn` and `stop_reason`.
+
+**The case verdict is `roll_up()` over the union of every sent turn's
+layers**, keyed `t<n>.<layer>`. The rollup strips the prefix before checking
+§10 rules 5-6, so `http` and `loops` still cannot carry a conversation to
+`pass`. A single-turn case has no prefix and rolls up exactly as before.
+
+**Retries restart the whole conversation.** Any retryable outcome on any turn
+(connection error, timeout, 429, 5xx) abandons the attempt and starts a new
+one from turn 1, after `backoff_s`: the app may already have stored the turn
+it failed on, and re-sending that turn would score everything after it on a
+corrupted history. `max_attempts` counts conversation attempts; on
+exhaustion the case is `infra_error`, the deciding turn is the one that kept
+failing, and `repeated_5xx` additionally requires the same turn and records
+it (`{status, attempts, turn}`). Turns 1..N-1 are replayed on every attempt.
+
+**How the app keeps the conversation** is the adapter's
+`invocation.conversation.style`. `client-id`: `<uuid>` once per attempt, on
+every turn. `server-id`: `session_from` is read off turn 1's response (a body
+path, or a header matched case-insensitively) and rendered into `<session>`
+on turns 2+; an unset `<session>` as a dict entry's whole value **drops the
+key** rather than sending `null`. Turn 1 without the id makes the case
+`unscored` with that reason, and turn 2 is never sent. `cookie`: one
+`CookieJar` per attempt, fed from **every** `Set-Cookie` header, and **one**
+`Cookie` header composed by the runner from the auth cookie plus the jar
+(`CookieJar.add_cookie_header` adds nothing when `build_headers` already set
+a `Cookie` for `auth: {type: cookie}`); it is redacted in `request.json`.
+
+**Traces per turn.** Each turn's trace is collected after its own quiescence
+wait and read only by that turn's layers. When two turns of one attempt
+return the **same trace id**, no span can be attributed to one turn: every
+trace-dependent layer of the case (`TRAJECTORY_LAYERS`, `loops` included) is
+`unscorable` with that reason, and the turn read with the shared id reads no
+trace for routing or `result_from_tool` either.
+
+**One conversation is one case** for every count, denominator, interval and
+gate (§10): a conversation's turns are not independent samples.
+`latency_s` is the sum over the sent turns. `memory: user` in the block means
+the app's memory outlives a session, so any case may see an earlier one;
+`results.json.memory` says so and the runner does not pretend to reset it.
 
 **Abort conditions, mid-run:**
 
@@ -793,7 +870,8 @@ field is recorded in the manifest and otherwise unused here.
    manifest produces a run that is comparable to nothing.
 2. Walk `<out>/cases/`. A case with a parseable `verdict.json` is **done** and is
    not re-invoked. A case directory without one is deleted and re-run — a
-   half-written case is cheaper to redo than to reason about.
+   half-written case is cheaper to redo than to reason about. A conversation
+   is one unit: an unfinished one is redone from turn 1.
 3. Rebuild the in-memory verdict list from those directories, then rewrite
    `verdicts.jsonl` and `verdicts_for_stats.jsonl` from it (§9) before invoking
    anything.
@@ -1006,8 +1084,14 @@ the shipped run already does. See Open decision **D1**.
              "authz": {"layer": "authz", "verdict": "n/a"} },
  "trace": {"expected": true, "collected": false,
            "reason": "traces.correlation: none — heuristic matching forbidden"},
+ "multi_turn": false,                 // true for an input.turns case (§7.1), skipped or not
+ "turns_sent": 1,                     // 0 when skipped; a conversation's sent turns
+ "failed_turn": null,                 // the turn that rolled up fail/infra_* and stopped it
+ "stop_reason": null,                 // why a conversation stopped early, in one line
  "repeats": null,                     // or [{"n": 1, "verdict": "pass", "layers": {…}}, …] when k > 1
- "repeated_5xx": null,                // or {"status": 500, "attempts": 4}: the same 5xx on every attempt (§7)
+                                      // (a conversation's repeats add turns_sent and failed_turn)
+ "repeated_5xx": null,                // or {"status": 500, "attempts": 4}: the same 5xx on every attempt (§7);
+                                      // a conversation's adds "turn"
  "notes": ""}                         // free text for investigation context; runner writes "", humans may edit
 ```
 
@@ -1020,6 +1104,9 @@ the shipped run already does. See Open decision **D1**.
 5. at least one layer other than `http` and `loops` `pass` → `pass`
 6. `http` passed and no layer other than `http` and `loops` is applicable → `pass`
 7. otherwise → `unscored`
+
+A conversation's `layers` is the union of its turns' rows, keyed
+`t<n>.<layer>`; rules 5-6 read the layer name after the prefix (§7.1).
 
 Rule 7 is the point: a case whose every layer came back `n/a`/`unscorable`/
 `unscored` is **not** a pass. That is the vacuous-case failure
@@ -1062,7 +1149,9 @@ files to check they match.
 {"run_id": "…", "harness_version": "0.1.0", "dataset_version": 1, "mode": "smoke",
  "cases": [{"case_id": "…", "verdict": "pass", "gating": true,
             "layers": {"http": "pass", "answer": "pass", "trajectory": "unscorable"},
-            "latency_s": 6.68}],
+            "latency_s": 6.68,
+            "multi_turn": false, "turns_sent": 1, "failed_turn": null}],
+ "memory": null,                       // invocation.conversation.memory; "user" = verdicts may be contaminated (§7.1)
  "summary": {"status": "ok",           // running | ok | incomplete | aborted_canary | aborted_infra
              "n": 4, "attempted": 6, "passes": 4, "failures": 0,
              "gating_failures": 0,
@@ -1075,6 +1164,7 @@ files to check they match.
              "unjudged": "mode: smoke",
              "canaries": {"n": 2, "passed": 2},
              "holdout": null,          // or {"n": 2, "passes": 1, "failures": 1, "gating_failures": 1} — aggregate ONLY
+             "multi_turn": null,       // or {"n", "passes", "failures", "gating_failures"} over the conversations
              "missing_artifacts": []},
  "exit_code": 0}
 ```
@@ -1094,7 +1184,11 @@ files to check they match.
 | `routing_report.json` `n` | non-canary cases whose route was observed (a routing row) | out | out | `infra_error` out; `infra_incomplete` in when the route came from the response or status |
 
 `n` is not a pass-rate denominator: a run of 3 pass, 1 fail and 1 skipped has
-`n: 5` and a pass rate of 3 / 4. Holdout cases are inside `n`, `passes` and
+`n: 5` and a pass rate of 3 / 4. A conversation is **one** case in every
+count above, never one per turn. `summary.multi_turn` repeats the counts over
+the conversations alone, so a report shows their pass rate beside the
+single-turn one rather than only the blend (pass^k over every turn makes a
+conversation look worse by construction); `--verify` recounts it. Holdout cases are inside `n`, `passes` and
 `failures`; `holdout` carries their aggregate so a reader can take them out.
 
 **The holdout seal, concretely:** a holdout case contributes **no row** to
@@ -1111,7 +1205,7 @@ record, not the shareable summary) does carry it, since a paired diff needs it.
 | 0 | Ran to completion; §9's completeness check passed. Says **nothing** about pass/fail. | complete |
 | 1 | Unhandled internal error. Traceback to stderr, `{"error": …}` to stdout. | whatever completed |
 | 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest mismatch on resume. | none written |
-| 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
+| 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template, malformed `invocation.conversation`. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
 | 4 | Canary failed — harness/judge drift; run stopped. | complete for cases finished |
 | 5 | Infra rate exceeded `infra_rate_abort`; run stopped. | complete for cases finished |
 | 6 | **Completeness check failed** — a required artifact is missing or inconsistent. `summary.missing_artifacts` names them. | incomplete, by definition |

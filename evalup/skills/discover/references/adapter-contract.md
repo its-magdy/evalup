@@ -245,14 +245,18 @@ data:
    would downgrade a fully instrumented app without saying so.
 2. `never-live` tools present + `environment.kind: live-*` → run refuses
    categories that could trigger them.
-3. **Multi-turn is RESERVED.** Any case with more than one user turn is
-   skipped and reported as skipped, not failed — unconditionally. The check
-   does not look at the adapter, because there is no adapter field that can
-   satisfy it: nothing in the harness drives a conversation. Declaring a
-   session block would not unlock it — the runner sends only the case's last
-   user message, so the result would be a truncated conversation scored as a
-   real verdict. An honest skip beats a number built from two-thirds of a
-   conversation.
+3. **A conversation runs only through `invocation.conversation`.** A case
+   written as `input.turns` (case-format.md) is sent turn by turn in one
+   conversation when the adapter declares that block, and is **skipped**,
+   not failed, when it does not: without it every turn would land in a fresh
+   conversation and score "forgot the context" for a gap in the harness. The
+   block is the only switch — a legacy `session:` block turns nothing on.
+   And a case whose `input.messages` holds anything besides exactly one user
+   message — a second user turn, or a system/assistant message — is skipped
+   whatever the adapter says: the runner would send that one message alone,
+   and the result would be a truncated conversation scored as a real
+   verdict. An honest skip beats a number built from two-thirds of a
+   conversation. (docs/multi-turn.md)
 4. Env-var refs unresolved at runtime → pre-flight failure before any spend.
 5. `traces.convention` other than `gen_ai` with no `traces.mapping_shim` →
    trajectory layers disabled for the run (raw spans must never reach
@@ -273,7 +277,7 @@ and every scorer/skill keeps working unmodified. See
 
 | Capability | Adapter provides to core | adapter.yaml field(s) |
 |---|---|---|
-| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One turn per case; multi-turn is reserved (hard rule 3). | `invocation.*` |
+| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One call per turn; a conversation's turns share one session the app keeps (hard rule 3). | `invocation.*` (`invocation.conversation` for conversations) |
 | **Traces** | a trace-id-addressable span tree in `gen_ai.*` keys (native or shimmed) | `traces.*` (`convention`, `mapping_shim`, `correlation`) |
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
 | **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit. Whether an edit needs a rebuild is not a field: discover records that cost in `findings.md`, and optimize asks the user to rebuild and restart | `prompts[]` |

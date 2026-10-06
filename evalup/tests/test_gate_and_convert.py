@@ -398,6 +398,30 @@ class TestMakePlan(TempDirTest):
                           "--max-turns", "1", converted=converted)
         self.assertEqual(rc, 2)
 
+    def test_single_turn_leaves_conversations_out(self):
+        """docs/multi-turn.md SS8: optimize's inner loop runs single-turn
+        cases unless told otherwise; the holdout gate always runs them."""
+        def converse(cases):
+            for case in cases:
+                if "full" in case["split"]:
+                    case["input"] = {"turns": [{"user": "a"}, {"user": "b"}]}
+                    break
+        converted = self.with_cases(converse)
+        rc, everything = self.plan("--mode", "regression", "--oos-route",
+                                   "none", converted=converted)
+        self.assertEqual(rc, 0)
+        rc, plan = self.plan("--mode", "regression", "--oos-route", "none",
+                             "--single-turn", converted=converted)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(plan["cases"]), len(everything["cases"]) - 1)
+        self.assertFalse(any("turns" in (c.get("input") or {})
+                             for c in plan["cases"]))
+        self.assertNotIn("max_turns", plan.get("execution") or {})
+        rc, refused = self.plan("--mode", "holdout", "--oos-route", "none",
+                                "--single-turn", converted=converted)
+        self.assertEqual(rc, 2)
+        self.assertIn("always runs conversations", refused["error"])
+
     def test_retry_schedule_is_a_flag_not_a_hand_edit(self):
         # F-027 (field test 2026-09-25): a throttled provider behind an app
         # that already retries wanted fewer, longer waits, and the only way

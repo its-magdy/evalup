@@ -301,8 +301,22 @@ versions. Diffs between incomparable runs are refused.
 
 ## Limits
 
-- **Single-turn only.** Multi-turn cases are skipped; a suite made only of them
-  closes the gate. Streaming (SSE), WebSocket and CLI apps are not driven.
+- **Conversations are scripted, Phase 1 only.** A case can be a live
+  conversation (`input.turns`): the user's turns are scripted, the app's real
+  replies are the history, and the run stops at the first failed turn. It runs
+  only when the adapter declares `invocation.conversation`, and is skipped
+  otherwise. Not built: a simulated user, client-sent history, pre-written
+  assistant turns, and whole-conversation end-state checks
+  (`docs/multi-turn.md` §9). A suite made only of skipped cases closes the
+  gate. Streaming (SSE), WebSocket and CLI apps are not driven.
+- **Conversations are slow and look worse.** Every turn waits for trace
+  quiescence (3 s or more when traces are collected) plus any `turn_delay_s`.
+  20 conversations × 5 turns at `k=3` take about an hour, so a headless run
+  needs several `wait_run.py` waits of 540 s each. pass^k over every turn
+  makes a conversation look worse by construction (four turns at 0.9 pass
+  about 0.66 of the time), so `generate` writes conversations
+  `gating: false` until a baseline exists, and `gate.py` prints the
+  multi-turn pass rate beside the single-turn one.
 - **Judged answer quality and business rules have no run-time scorer.** The
   judge agent and its calibration flow (`/evalup:analyze --label`) exist; runs
   report those layers "not measured".
@@ -345,7 +359,7 @@ every push.
 | `docs/runner-contract.md` | The plan and run-directory format `run_cases.py` reads and writes |
 | `docs/rubric-format.md` | The decomposed-binary judge rubric and calibration |
 | `docs/traces-jaeger.md` | Feeding `otlp-file` from a Jaeger/Tempo setup today, and the design note for a Jaeger client and header-based correlation |
-| `docs/multi-turn.md` | Design for multi-turn conversations (not built yet): the scripted-turn driver, how app sessions are handled, and why a conversation counts as one case |
+| `docs/multi-turn.md` | Multi-turn conversations (Phase 1 built): the scripted-turn driver, how app sessions are kept, and why a conversation counts as one case |
 | `skills/analyze/references/annotation-ux.md` | The open → axial error-analysis workflow |
 | `docs/research.md` | The research behind the design decisions |
 | `CHANGELOG.md` | What changed, release by release |

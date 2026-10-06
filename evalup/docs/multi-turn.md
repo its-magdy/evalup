@@ -1,12 +1,20 @@
 # Multi-turn conversations — design
 
-**Status:** design, not built. Written 2026-10-06, revised the same day after
-an independent review whose code claims were re-checked line by line. The
-runner is feature-frozen (CLAUDE.md); the owner lifted the freeze for this one
-feature on 2026-10-06. Nothing here changes what an existing number means: a
-single-turn case scores exactly as it does today, and no scorer is rewritten.
+**Status:** Phase 1 **built** on branch `feat/multi-turn` (2026-10-06): the
+runner drives scripted conversations, and the validator, `make_plan.py`,
+`score_cost.py`, `gate.py` and the skills follow this note. Written
+2026-10-06, revised the same day after an independent review whose code
+claims were re-checked line by line. The runner is feature-frozen
+(CLAUDE.md); the owner lifted the freeze for this one feature on 2026-10-06.
+Nothing here changes what an existing number means: a single-turn case
+scores exactly as it does today, and no scorer is rewritten. Where the code
+had to settle something this note left open, `runner-contract.md` §7.1 and
+`case-format.md` §Conversations say what it does (an `every_turn` key both
+sides set is a validator ERROR; the runner gates on the adapter block, never
+on `capability_matrix.multi_turn`; `make_plan.py --single-turn` is how
+`optimize` keeps conversations out of its inner loop).
 
-Today a case with more than one user turn is `skipped` (adapter-contract hard
+Before Phase 1, a case with more than one user turn was `skipped` (adapter-contract hard
 rule 3, `run_cases.skip_reason`). This note is the shape of the conversation
 driver that replaces that skip, the decisions that keep its numbers honest,
 and what Phase 1 leaves out.
@@ -50,7 +58,7 @@ every_turn:                            # optional: copied into each turn's expec
   tools: { forbidden: [update_licence] }
 expect:                                # the FINAL turn's checks, as today
   route: licences
-  answer: { not_contains: ["which team"] }
+  answer: { must_not_contain: ["which team"] }
 ```
 
 - `input.turns` and `input.messages` are mutually exclusive.
