@@ -481,6 +481,108 @@ class TestServerId(ConversationCase):
         self.assertIsNone(verdict["failed_turn"])
 
 
+class MultiHeaders(dict):
+    """Response headers that may repeat a name (two Set-Cookie lines).
+
+    FakeApp sends `headers.items()`; a plain dict can hold one Set-Cookie,
+    and the bug this exists to pin is the runner keeping only the last."""
+
+    def __init__(self, pairs):
+        super().__init__(pairs)
+        self.pairs = list(pairs)
+
+    def items(self):
+        return iter(self.pairs)
+
+
+class TestCookieStyle(ConversationCase):
+    """SS2: a session cookie, under cookie AUTH, reaches turn 2."""
+
+    def cookie_app(self, fail_turn_two_once=False):
+        licences = LicenceApp()
+        state = {"failed": False}
+
+        def handler(path, body, headers):
+            if path == "/":
+                return 200, {"message": "up"}, {}
+            cookies = dict(part.strip().split("=", 1) for part in
+                           (headers.get("Cookie") or "").split(";")
+                           if "=" in part)
+            if cookies.get("auth") != "secret-auth":
+                return 401, {"message": "no auth cookie"}, {}
+            sid = cookies.get("sid")
+            if sid is None:
+                # Turn 1: a fresh session. The session cookie is the FIRST
+                # of two Set-Cookie headers, so last-one-wins loses it.
+                sid = f"s{len(licences.history) + 1}"
+                _, payload, _ = licences(path, dict(body, sessionId=sid),
+                                         headers)
+                return 200, payload, MultiHeaders([
+                    ("Set-Cookie", f"sid={sid}; Path=/"),
+                    ("Set-Cookie", "theme=dark; Path=/")])
+            if fail_turn_two_once and not state["failed"]:
+                state["failed"] = True
+                return 503, {"error": "busy"}, {}
+            return licences(path, dict(body, sessionId=sid), headers)
+        return self.start(handler)
+
+    def cookie_plan(self, app):
+        plan = self.plan_for(app, [licence_case()], style="cookie")
+        plan["adapter"]["invocation"]["auth"] = {
+            "type": "cookie", "cookie_env": "APP_COOKIE"}
+        return plan
+
+    def invoke_cookie(self, plan):
+        rc, _, proc = self.invoke(plan, env={"APP_COOKIE": "auth=secret-auth"})
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+
+    def test_session_cookie_and_auth_cookie_in_one_header(self):
+        app = self.cookie_app()
+        self.invoke_cookie(self.cookie_plan(app))
+        asks = self.asks(app)
+        self.assertEqual(len(asks), 2)
+        self.assertEqual(asks[0]["headers"]["Cookie"], "auth=secret-auth")
+        turn_two = asks[1]["headers"]["Cookie"]
+        self.assertTrue(turn_two.startswith("auth=secret-auth; "), turn_two)
+        self.assertIn("sid=s1", turn_two)
+        self.assertIn("theme=dark", turn_two)
+        self.assertEqual(self.read("cases", "c-convo-01",
+                                   "verdict.json")["verdict"], "pass")
+        # A session cookie is a credential: never on disk.
+        sent = self.read("cases", "c-convo-01", "request.json")
+        self.assertEqual(sent["headers_sent"]["Cookie"], "<redacted>")
+        tree = "".join(path.read_text(encoding="utf-8", errors="replace")
+                       for path in self.out_dir().rglob("*")
+                       if path.is_file())
+        self.assertNotIn("sid=s1", tree)
+        self.assertNotIn("secret-auth", tree)
+
+    def test_a_restart_gets_a_fresh_jar(self):
+        app = self.cookie_app(fail_turn_two_once=True)
+        self.invoke_cookie(self.cookie_plan(app))
+        cookies = [c["headers"]["Cookie"] for c in self.asks(app)]
+        self.assertEqual(len(cookies), 4)
+        self.assertIn("sid=s1", cookies[1])
+        # Attempt 2's turn 1 carries no cookie from the abandoned attempt.
+        self.assertEqual(cookies[2], "auth=secret-auth")
+        self.assertIn("sid=s2", cookies[3])
+        self.assertEqual(self.read("cases", "c-convo-01",
+                                   "verdict.json")["verdict"], "pass")
+
+    def test_cookie_style_needs_http(self):
+        plan = with_conversation(make_plan(self.state, self.app.base_url),
+                                 style="cookie")
+        (self.tmp / "cookie_entry.py").write_text(
+            "def handle(request):\n    return 'hi'\n", encoding="utf-8")
+        plan["adapter"]["app"] = {"name": "fake", "repo": str(self.tmp)}
+        plan["adapter"]["invocation"].update(
+            mode="function", entrypoint="cookie_entry:handle")
+        rc, payload, _ = self.invoke(plan)
+        self.assertEqual(rc, 3)
+        self.assertIn("style: cookie needs invocation.mode: http",
+                      payload["error"])
+
+
 class TestSharedTraceId(ConversationCase):
     """SS5: two turns returning one trace id cannot be attributed."""
 

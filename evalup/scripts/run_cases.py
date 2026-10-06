@@ -50,8 +50,10 @@ Usage:
 """
 import argparse
 import contextlib
+import email.message
 import hashlib
 import http.client
+import http.cookiejar
 import importlib
 import json
 import os
@@ -827,6 +829,41 @@ def redact(headers, secret_names):
             for name, value in headers.items()}
 
 
+class _CookieResponse:
+    """What CookieJar.extract_cookies reads off a response: its headers."""
+
+    def __init__(self, set_cookies):
+        self.message = email.message.Message()
+        for value in set_cookies:
+            self.message["Set-Cookie"] = value
+
+    def info(self):
+        return self.message
+
+
+def absorb_cookies(jar, url, set_cookies):
+    """Store a response's Set-Cookie headers in the conversation's jar, by
+    the stdlib's own rules (domain, path, expiry, Max-Age=0 deletes)."""
+    if set_cookies:
+        jar.extract_cookies(_CookieResponse(set_cookies),
+                            urllib.request.Request(url))
+
+
+def merged_cookie_header(jar, url, static):
+    """ONE Cookie header: the auth cookie, then the jar's (SS2).
+
+    The runner composes it itself because the stdlib will not:
+    CookieJar.add_cookie_header adds nothing when a Cookie header is already
+    present, and build_headers sets one for auth: {type: cookie}. Used as-is,
+    the app's session cookie would never reach turn 2, and every cookie-style
+    app with cookie auth would score "forgot the context"."""
+    probe = urllib.request.Request(url)
+    jar.add_cookie_header(probe)
+    from_jar = probe.get_header("Cookie")
+    parts = [part for part in (static, from_jar) if part]
+    return "; ".join(parts) if parts else None
+
+
 def ssl_context(insecure):
     if not insecure:
         return None
@@ -887,6 +924,10 @@ def send_http(url, method, headers, body, timeout, insecure):
             status = response.getcode()
             raw = response.read()
             response_headers = dict(response.headers.items())
+            # Every Set-Cookie, not the last: the dict above keeps one value
+            # per name, and an app setting two cookies would lose its
+            # session cookie to the second (docs/multi-turn.md SS2).
+            set_cookies = response.headers.get_all("Set-Cookie") or []
     except urllib.error.HTTPError as exc:
         # A 4xx/5xx is a RESPONSE, not a transport failure -- and often the
         # expected one (the field test asserts a deliberate 400 on OOS). It
@@ -898,6 +939,8 @@ def send_http(url, method, headers, body, timeout, insecure):
             # Raised inside this handler, so the siblings below never see it.
             raise TransportError(*transport_kind(read_exc)) from read_exc
         response_headers = dict(exc.headers.items()) if exc.headers else {}
+        set_cookies = (exc.headers.get_all("Set-Cookie") or []) \
+            if exc.headers else []
     except socket.timeout as exc:
         raise TransportError(
             "timeout", f"timed out after {timeout}s: {exc}") from exc
@@ -935,7 +978,7 @@ def send_http(url, method, headers, body, timeout, insecure):
         # with no body is the shape nobody can debug afterwards.
         parsed = {"raw": text}
     return {"status": status, "body": parsed, "latency_s": latency,
-            "headers": response_headers}
+            "headers": response_headers, "set_cookies": set_cookies}
 
 
 def load_entrypoint(invocation, app_root):
@@ -2141,8 +2184,13 @@ class Runner:
         persona = case.get("persona") or (case.get("identity") or {}).get("role")
         session_id = str(uuid.uuid4())
         session = None
-        headers = build_headers(self.adapter, case, self.identity_map,
-                                self.auth_values)
+        base_headers = build_headers(self.adapter, case, self.identity_map,
+                                     self.auth_values)
+        # SS2: one cookie jar per conversation ATTEMPT -- a restart opens a
+        # new conversation, so it must not carry the abandoned one's cookie.
+        jar = http.cookiejar.CookieJar() \
+            if conversation["style"] == "cookie" else None
+        static_cookie = base_headers.get("Cookie")
         sent, seen, shared = [], {}, None
         out = {"turns": sent, "retry": None, "stop_reason": None,
                "session_missing": False}
@@ -2153,9 +2201,20 @@ class Runner:
                       "<persona>": persona, "<case id>": case["id"],
                       SESSION_MARKER: session}
             body = render_template(self.request_template, values)
+            headers = dict(base_headers)
+            if jar is not None:
+                # Recomposed every turn: a Max-Age=0 deletes from the jar.
+                headers.pop("Cookie", None)
+                cookie = merged_cookie_header(jar, self.url, static_cookie)
+                if cookie:
+                    headers["Cookie"] = cookie
             request = {"case_id": case["id"], "repeat": repeat, "turn": index,
                        "attempt": attempt, "persona": persona,
-                       "headers_sent": redact(headers, self.secret_names),
+                       # Cookie is redacted under the cookie style whatever
+                       # the auth: the app's session cookie is a credential.
+                       "headers_sent": redact(
+                           headers, self.secret_names
+                           | ({"Cookie"} if jar is not None else set())),
                        "url": self.record_url, "method": self.method,
                        "body": render_template(self.record_template, values),
                        "sent_at": utc_now(), "sent": True}
@@ -2167,6 +2226,8 @@ class Runner:
                                 "crashed": exc.kind == "connection",
                                 "five": None}
                 return out
+            if jar is not None:
+                absorb_cookies(jar, self.url, result.get("set_cookies"))
             status = result["status"]
             if status == 429 or 500 <= status < 600:
                 out["retry"] = {"turn": index, "request": request,
