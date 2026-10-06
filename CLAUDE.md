@@ -31,7 +31,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 860 tests, ~3min
+python3 -m unittest discover -s tests                    # 937 tests, ~4min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -56,8 +56,14 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 - **`main`** holds everything, through the 2026-09-30 refactor review, code
   review and canary work (all fast-forwarded that day). It is the only branch,
   first pushed 2026-09-30.
-- **Health** (2026-09-30): 860 tests pass on 3.14;
-  851 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 860 pass with
+- **Branch `feat/multi-turn`** (2026-10-06, NOT merged, not pushed): multi-turn
+  Phase 1 built per `evalup/docs/multi-turn.md` — §0 bugfix, `input.turns`,
+  `invocation.conversation`, the driver, cookie style, per-turn tree, stats/
+  cost/gate split, skills/docs. Live proof on RefApp still owed (the user runs
+  it). Open for the user: the union rollup lets a passing checkpoint carry a
+  case whose FINAL turn is `unscored` to `pass` (reviewer-proved).
+- **Health** (2026-10-06, feat/multi-turn): 937 tests pass on 3.14;
+  928 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 937 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
@@ -136,7 +142,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   (strict JSON in, a shared regex watchdog, token-count handling, a URL-scheme
   allowlist) without touching what a number means. Hold that line.
 - **The runner and scorers are feature-frozen**: bugfix-only, and no new layer
-  without deleting one. New effort goes to the first ten minutes, not the
+  without deleting one. The owner lifted the freeze for multi-turn ONLY
+  (2026-10-06); Phase 1 is built, later phases (§9 of the spec) are not. New effort goes to the first ten minutes, not the
   engine.
 - **Out of plan by decision:** RAG/retrieval scoring, and the five "ideas worth
   stealing" from the 2026-08 review. Those are a greenfield wave, not
