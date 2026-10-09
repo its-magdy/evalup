@@ -443,8 +443,14 @@ class TestConversationDriver(ConversationCase):
         app = self.start(LicenceApp())
         self.run_ok(self.plan_for(app, [licence_case()]))
         verdict = self.read("cases", "c-convo-01", "verdict.json")
+        turns = [self.read("cases", "c-convo-01", "turns", turn,
+                           "response.json")["latency_s"]
+                 for turn in ("1", "2")]
+        # Not `> 0`: each turn is rounded to the millisecond, and a stub on
+        # localhost can answer both in under half of one (a CI flake,
+        # 2026-10-09).
         self.assertIsInstance(verdict["latency_s"], float)
-        self.assertGreater(verdict["latency_s"], 0)
+        self.assertEqual(verdict["latency_s"], round(sum(turns), 3))
 
     def test_max_turns_skips_a_longer_case(self):
         app = self.start(LicenceApp())
