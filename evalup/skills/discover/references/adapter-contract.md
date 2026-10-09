@@ -49,10 +49,14 @@ invocation:
   endpoint: "POST /api/chat/ask"          # <METHOD> /<path>, appended to base_url
   request_body: '{"sessionId": "<uuid>", "message": "<user turn>"}'
   response_body: '{"message": "<answer>"}'
-  # Request placeholders: <user turn> (the case's last user message), <uuid>
-  # (a fresh session id per repeat), <persona>, <case id>. A string that IS a
-  # placeholder becomes the typed value; one that merely CONTAINS one gets
-  # textual substitution.
+  # Request placeholders: <user turn> (the case's one user message, or the
+  # current turn of a conversation), <uuid> (a fresh id per repeat -- per
+  # conversation attempt, reused on every turn), <persona>, <case id>, and
+  # <session> (the id a server-id app returned on turn 1; see `conversation`
+  # below). A string that IS a placeholder becomes the typed value; one that
+  # merely CONTAINS one gets textual substitution. An unset <session> as a
+  # key's whole value DROPS the key (turn 1, every single-turn case) rather
+  # than sending null.
   # Response placeholders: <answer> (REQUIRED -- which field carries the final
   # text) and optionally <trace id>. ONE template, looked up by exact,
   # case-sensitive key: an app whose error envelope spells the field
@@ -132,9 +136,39 @@ invocation:
                                           # NOTE: timeout_s is NOT enforced in this mode
                                           # (an in-process call cannot be interrupted from
                                           # the stdlib) -- the callable owns its timeout.
-  # NO session block. Multi-turn is RESERVED (hard rule 3): the harness has no
-  # conversation driver, so there is nothing for start/send_turn/end to feed.
-  # Declaring one is not forward-compatible, it is harmful -- see hard rule 3.
+  conversation:                           # optional: how the app keeps a conversation
+    style: client-id                      # (docs/multi-turn.md SS2). WITHOUT this block
+                                          # every input.turns case is SKIPPED (hard rule 3).
+                                          # client-id: the app takes an id the client
+                                          #   invents -- the runner renders <uuid> once per
+                                          #   conversation attempt and reuses it every turn;
+                                          #   the request body must carry <uuid>.
+                                          # server-id: the app mints the id and returns it
+                                          #   on turn 1; the runner reads session_from and
+                                          #   renders it into <session> on turns 2+ (the body
+                                          #   must carry <session>). Turn 1 without it =>
+                                          #   the case is `unscored`, never a turn 2 sent
+                                          #   without a session.
+                                          # cookie: the app keeps a session cookie; the runner
+                                          #   keeps one jar per conversation attempt and merges
+                                          #   it with auth: {type: cookie} into ONE Cookie
+                                          #   header (http mode only). The jar keeps the
+                                          #   stdlib's rules: a `Secure` cookie is not sent
+                                          #   over http://, and a redirect's Set-Cookie is
+                                          #   not kept -- point base_url at the final https
+                                          #   URL, or turn 2 opens a new session.
+    # session_from: { body: "conversationId" }   # server-id only, exactly one of:
+    # session_from: { header: "X-Conversation-Id" }  # body (dotted path) | header
+    turn_delay_s: 0                       # optional pause between turns, for an app that
+                                          # writes history/memory AFTER replying
+    memory: session                       # session | user: what discover found. `user` =
+                                          # memory outlives the session (per user), so any
+                                          # case can see an earlier one's turns; the manifest
+                                          # and report say verdicts may be contaminated.
+  # NO `session` block. It is NOT this one: an earlier adapters/dotnet.md
+  # shipped `session: {start, send_turn, end}`, and declaring a block must
+  # never be enough to turn on a driver by accident (hard rule 3). The runner
+  # reads `conversation` only, and checks it at pre-flight (exit 3).
   # NO streaming field: completion is EOF (http) or return (function), and
   # no TTFT is recorded anywhere. If the app answers ONLY over SSE,
   # the runner reads the raw event-stream text as the body, so point the
@@ -215,14 +249,18 @@ data:
    would downgrade a fully instrumented app without saying so.
 2. `never-live` tools present + `environment.kind: live-*` → run refuses
    categories that could trigger them.
-3. **Multi-turn is RESERVED.** Any case with more than one user turn is
-   skipped and reported as skipped, not failed — unconditionally. The check
-   does not look at the adapter, because there is no adapter field that can
-   satisfy it: nothing in the harness drives a conversation. Declaring a
-   session block would not unlock it — the runner sends only the case's last
-   user message, so the result would be a truncated conversation scored as a
-   real verdict. An honest skip beats a number built from two-thirds of a
-   conversation.
+3. **A conversation runs only through `invocation.conversation`.** A case
+   written as `input.turns` (case-format.md) is sent turn by turn in one
+   conversation when the adapter declares that block, and is **skipped**,
+   not failed, when it does not: without it every turn would land in a fresh
+   conversation and score "forgot the context" for a gap in the harness. The
+   block is the only switch — a legacy `session:` block turns nothing on.
+   And a case whose `input.messages` holds anything besides exactly one user
+   message — a second user turn, or a system/assistant message — is skipped
+   whatever the adapter says: the runner would send that one message alone,
+   and the result would be a truncated conversation scored as a real
+   verdict. An honest skip beats a number built from two-thirds of a
+   conversation. (docs/multi-turn.md)
 4. Env-var refs unresolved at runtime → pre-flight failure before any spend.
 5. `traces.convention` other than `gen_ai` with no `traces.mapping_shim` →
    trajectory layers disabled for the run (raw spans must never reach
@@ -243,7 +281,7 @@ and every scorer/skill keeps working unmodified. See
 
 | Capability | Adapter provides to core | adapter.yaml field(s) |
 |---|---|---|
-| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One turn per case; multi-turn is reserved (hard rule 3). | `invocation.*` |
+| **Invoke** | `send(text, persona) → {text, trace_id}` — a plain function/HTTP call, regardless of transport. One call per turn; a conversation's turns share one session the app keeps (hard rule 3). | `invocation.*` (`invocation.conversation` for conversations) |
 | **Traces** | a trace-id-addressable span tree in `gen_ai.*` keys (native or shimmed) | `traces.*` (`convention`, `mapping_shim`, `correlation`) |
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
 | **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit. Whether an edit needs a rebuild is not a field: discover records that cost in `findings.md`, and optimize asks the user to rebuild and restart | `prompts[]` |

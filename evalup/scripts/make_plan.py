@@ -71,6 +71,10 @@ from _common import (
 )
 from validate_cases import asserted_layers
 
+# docs/multi-turn.md SS3/SS10: run_cases.py's own default, written into a
+# plan that selects a conversation.
+MAX_TURNS_DEFAULT = 12
+
 # mode -> (selecting_split, default k, gate)
 MODES = {
     "smoke": ("smoke", 1, "soft"),
@@ -80,6 +84,12 @@ MODES = {
 }
 DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
 DEFAULT_CALIBRATION = "judge/calibration.json"
+
+
+def is_conversation(case):
+    """An `input.turns` case (docs/multi-turn.md SS1)."""
+    inp = case.get("input")
+    return isinstance(inp, dict) and isinstance(inp.get("turns"), list)
 
 
 def select(cases, split, tag):
@@ -245,6 +255,17 @@ def main():
                          "entries, e.g. 5,30 (runner default 1,4); a "
                          "throttled provider or an app that already retries "
                          "wants longer, fewer waits")
+    ap.add_argument("--single-turn", action="store_true",
+                    help="leave conversations (input.turns cases) out of the "
+                         "selection: optimize's inner loop, which measures "
+                         "candidates on single-turn cases unless told "
+                         "--include-multi-turn. Refused under --mode holdout, "
+                         "the final check that always runs them")
+    ap.add_argument("--max-turns", type=int, metavar="N",
+                    help="the runner's hard cap on a conversation's turns "
+                         "(default 12; a longer input.turns case is "
+                         "skipped). Written only when the selection holds a "
+                         "conversation")
     ap.add_argument("--insecure-tls", action="store_true",
                     help="set execution.insecure_tls: skip certificate "
                          "verification for a self-signed LOCAL dev host only "
@@ -302,6 +323,22 @@ def main():
 
     cases = select(all_cases, split, a.tag)
     notes = []
+    if a.single_turn:
+        # docs/multi-turn.md SS8: a conversation is slower and flakier by
+        # construction, so optimize keeps it out of the keep/revert inner
+        # loop by default -- and the holdout gate, which decides, always
+        # runs it. The blind spot (a prompt change that breaks context
+        # handling shows only at that final check) is accepted and stated.
+        if a.mode == "holdout":
+            die("--single-turn does not apply to --mode holdout: the sealed "
+                "final check always runs conversations (docs/multi-turn.md "
+                "SS8)")
+        dropped = [c for c in cases if is_conversation(c)]
+        cases = [c for c in cases if not is_conversation(c)]
+        if dropped:
+            notes.append(f"--single-turn left out {len(dropped)} "
+                         "conversation(s); a candidate selected on this run "
+                         "was measured on single-turn cases only")
     if a.failing_in:
         failed = failing_ids(a.failing_in, dataset_version)
         if failed is None:
@@ -414,6 +451,15 @@ def main():
     execution.update(retries)
     if a.insecure_tls:
         execution["insecure_tls"] = True
+    # docs/multi-turn.md SS3: the cap on a conversation's turns is the
+    # plan's, so the run records the bound it ran under. Only when a
+    # selected case is a conversation: a single-turn plan stays exactly
+    # what it was.
+    if a.max_turns is not None and a.max_turns < 2:
+        die(f"--max-turns must be >= 2 (a conversation has at least two "
+            f"turns), got {a.max_turns}")
+    if any(is_conversation(c) for c in cases):
+        execution["max_turns"] = a.max_turns or MAX_TURNS_DEFAULT
     if execution:
         plan["execution"] = execution
 

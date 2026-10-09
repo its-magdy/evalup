@@ -6,7 +6,7 @@ description: >-
   scorer, the artifacts and the baseline diff; this skill decides what to run
   and what the numbers mean. Five modes — smoke, regression, targeted, holdout,
   full — cover everyday edits through release validation, plus a CI gate.
-argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--baseline]"
+argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn] [--baseline]"
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
@@ -104,8 +104,11 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `--insecure-tls` fill `execution` (the retry pair for a throttled provider
   or an app that already retries — the runner's default is 3 tries with 1 s
   and 4 s waits; the last flag for a self-signed local dev host only —
-  pre-flight otherwise exits 3 with `CERTIFICATE_VERIFY_FAILED`). Never
-  hand-edit the plan to change any of these. It refuses `--mode full`:
+  pre-flight otherwise exits 3 with `CERTIFICATE_VERIFY_FAILED`).
+  `--single-turn` leaves conversations out of the selection (refused under
+  `holdout`); otherwise a selection with a conversation writes
+  `execution.max_turns` (default 12, `--max-turns N`) and a longer case is
+  skipped. Never hand-edit the plan to change any of these. It refuses `--mode full`:
   one plan carries one `selecting_split`, so release validation is a
   `regression` run and a `holdout` run.
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
@@ -131,7 +134,12 @@ on anything unfamiliar. Then estimate cost: probe 2–3 cases, extrapolate
 (n × k × tokens × price + judge calls), ask "≈ $X, ~Y min. Proceed?" — skipping
 the prompt only under a pre-approved budget or the headless gate (§6). Resume
 an interrupted run with `--resume` under the same run id; re-check a finished
-one any time with `--verify reports/<run-id>`.
+one any time with `--verify reports/<run-id>`. Conversations are slow: when
+traces are collected every turn waits for trace quiescence (3 s or more), plus
+any `turn_delay_s`, so 20
+conversations of 5 turns at k=3 is about an hour. `--dry-run` reports
+`app_calls_planned` (counting turns) and `wait_floor_s`; headless, expect
+several `wait_run.py` waits below.
 
 **Wait for the runner; never end the turn on a `running` run.** Launch
 `run_cases.py` in the **foreground** of one Bash call with `timeout` at its
@@ -276,7 +284,9 @@ summary and exits 0 open / 1 closed. Run it after every interactive run too:
 it is the fastest honest summary, and the runner's own exit 0 says nothing
 about pass/fail (§3). Its `--max-infra-rate` (0.05) is stricter than the
 plan's abort (0.25) by design — §3 says what to do on a throttled provider.
-Its canary line reads `canaries 1/2 pass; 1 NOT VERIFIED` when a canary got
+It prints `multi-turn: P/S pass (N conversation(s)); single-turn: P/S pass`
+and a memory warning when the app's memory is `user`-keyed: quote both rates in
+the report, never only the blend. Its canary line reads `canaries 1/2 pass; 1 NOT VERIFIED` when a canary got
 no verdict (infra, or a layer `--layer` disabled): report that as "the
 harness was not verified by that canary", never as a canary failure — a
 failed canary is exit 4. `--require-canaries` closes the gate on it, for a

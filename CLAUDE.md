@@ -31,7 +31,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 860 tests, ~3min
+python3 -m unittest discover -s tests                    # 943 tests, ~4min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -53,11 +53,19 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   scanning's generic patterns and validity checks need a paid plan; a
   personal account's PATCH is accepted and ignored. Community files
   (code of conduct, bug-report form, PR template) are in `.github/`.
-- **`main`** holds everything, through the 2026-09-30 refactor review, code
-  review and canary work (all fast-forwarded that day). It is the only branch,
-  first pushed 2026-09-30.
-- **Health** (2026-09-30): 860 tests pass on 3.14;
-  851 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 860 pass with
+- **`main`** holds everything but multi-turn: through the 2026-09-30 refactor
+  review, code review and canary work, then the 2026-10-09 CI and repo-settings
+  PRs (#1, #3, #5). First pushed 2026-09-30.
+- **Branch `feat/multi-turn`** (2026-10-06; PR #2, open, rebased on main
+  2026-10-09, CI green): multi-turn
+  Phase 1 built per `evalup/docs/multi-turn.md` — §0 bugfix, `input.turns`,
+  `invocation.conversation`, the driver, cookie style, per-turn tree, stats/
+  cost/gate split, skills/docs. Live proof on RefApp still owed (the user runs
+  it). Decided 2026-10-06 (after a second opinion): a checkpoint can veto a
+  conversation but never certify it — a union `pass` needs a graded `pass`
+  on the final turn (`run_cases.final_turn_certifies`).
+- **Health** (2026-10-06, feat/multi-turn): 943 tests pass on 3.14;
+  934 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 943 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
@@ -136,7 +144,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   (strict JSON in, a shared regex watchdog, token-count handling, a URL-scheme
   allowlist) without touching what a number means. Hold that line.
 - **The runner and scorers are feature-frozen**: bugfix-only, and no new layer
-  without deleting one. New effort goes to the first ten minutes, not the
+  without deleting one. The owner lifted the freeze for multi-turn ONLY
+  (2026-10-06); Phase 1 is built, later phases (§9 of the spec) are not. New effort goes to the first ten minutes, not the
   engine.
 - **Out of plan by decision:** RAG/retrieval scoring, and the five "ideas worth
   stealing" from the 2026-08 review. Those are a greenfield wave, not

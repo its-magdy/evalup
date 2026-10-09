@@ -109,10 +109,12 @@ from _common import (
     BadJSON,
     RegexTimeout,
     add_version_flag,
+    conversation_turns,
     die,
     load_text,
     loads_strict,
     nfc,
+    overlay_expect,
     run_bounded,
     unsafe_case_id,
 )
@@ -585,9 +587,11 @@ def check_answer_entries(rep, case_id, expect):
 
 
 def user_text(case):
-    """The case's user turns, NFC, joined -- what an echoing app would repeat."""
+    """The case's user turns, NFC, joined -- what an echoing app would repeat.
+    A conversation's every turn counts: an app may echo any of them."""
     messages = mapping(case.get("input")).get("messages")
-    parts = []
+    parts = [nfc(text) for text, _ in conversation_turns(case) or []
+             if text]
     for m in messages if isinstance(messages, list) else []:
         if isinstance(m, dict) and m.get("role") == "user" \
                 and isinstance(m.get("content"), str):
@@ -656,6 +660,159 @@ def check_review(rep, case_id, case):
                  f"gating is not false (absent means true) while "
                  f"review.status is {status!r}; an "
                  "unreviewed case is deciding whether the suite passes")
+
+
+# docs/multi-turn.md SS1/SS10. Above this many turns a conversation is
+# authoring guidance gone wrong (WARN); the plan's execution.max_turns is the
+# runner's hard cap, and it may sit above this.
+LONG_CONVERSATION_TURNS = 8
+# Keys a later phase puts beside `user` (SS9): seeded assistant history, a
+# simulated user. Refused now, so a case written for them is never run as if
+# Phase 1 understood it.
+RESERVED_TURN_KEYS = ("assistant", "simulate")
+TURN_KEYS = ("user", "expect")
+
+
+class Scoped:
+    """A Report that prefixes every message with where in the case it is.
+
+    The per-expect checks name `expect.<key>`; on a checkpoint or on
+    every_turn that would point the author at the wrong block."""
+
+    def __init__(self, rep, where):
+        self.rep, self.where = rep, where
+
+    def error(self, case_id, code, message):
+        self.rep.error(case_id, code, f"{self.where}: {message}")
+
+    def warn(self, case_id, code, message):
+        self.rep.warn(case_id, code, f"{self.where}: {message}")
+
+
+def check_expect_block(rep, label, case, expect):
+    """The per-expect checks, for an expect that is not the top-level one."""
+    check_expect_shapes(rep, label, expect)
+    for key in sorted(reserved_expectations(expect)):
+        rep.warn(label, "reserved_expectation",
+                 f"expect.{key} is RESERVED: {RESERVED_EXPECT[key]}")
+    check_tools(rep, label, expect)
+    check_args(rep, label, expect)
+    check_result(rep, label, expect)
+    check_authz(rep, label, expect)
+    check_answer_entries(rep, label, expect)
+    check_echo_assertions(rep, label, case, expect)
+
+
+def check_turns(rep, label, case, enabled):
+    """docs/multi-turn.md SS1's authoring rules for `input.turns`.
+
+    Every shape rule is an ERROR: the runner reads these fields to decide
+    what to SEND, and an off-shape turn would go out as an empty message or
+    lose its checkpoint, scoring a conversation nobody wrote."""
+    inp = mapping(case.get("input"))
+    every_turn = case.get("every_turn")
+    if "turns" not in inp:
+        if every_turn is not None:
+            rep.error(label, "every_turn_without_turns",
+                      "every_turn is set but the case has no input.turns; "
+                      "it is copied into each turn of a conversation, and a "
+                      "single-turn case has one expect -- put the keys there")
+        return
+    turns = inp.get("turns")
+    if "messages" in inp:
+        rep.error(label, "turns_and_messages",
+                  "input.turns and input.messages are both set; a case is "
+                  "either a conversation (turns) or one user message "
+                  "(messages), and which one the runner sends would be a "
+                  "guess")
+    if not isinstance(turns, list):
+        rep.error(label, "bad_turns",
+                  f"input.turns must be a list of turns, got "
+                  f"{type(turns).__name__}")
+        return
+    if len(turns) < 2:
+        rep.error(label, "single_turn_conversation",
+                  f"input.turns has {len(turns)} turn(s); a conversation "
+                  "needs at least two -- write a single-turn case with "
+                  "input.messages instead")
+    elif len(turns) > LONG_CONVERSATION_TURNS:
+        rep.warn(label, "long_conversation",
+                 f"input.turns has {len(turns)} turns, above "
+                 f"{LONG_CONVERSATION_TURNS}; every turn replays on a retry "
+                 "and must pass for the case to pass (the field's scripted "
+                 "suites run 4-8), and the plan's execution.max_turns skips "
+                 "a case above it")
+    if "canary" in (case.get("split") or []):
+        rep.error(label, "multi_turn_canary",
+                  "a conversation cannot be a canary: conversations are "
+                  "flaky by construction (pass^k over every turn), and a "
+                  "failing canary aborts the whole run (exit 4) -- keep "
+                  "canaries single-turn")
+    if every_turn is not None and not isinstance(every_turn, dict):
+        rep.error(label, "bad_expect_shape",
+                  f"every_turn must be an object of expect keys, got "
+                  f"{type(every_turn).__name__}")
+        every_turn = None
+    if isinstance(every_turn, dict):
+        check_expect_block(
+            Scoped(rep, "every_turn (copied into every turn's expect)"),
+            label, case, every_turn)
+
+    for i, turn in enumerate(turns):
+        where = f"input.turns[{i}]"
+        if not isinstance(turn, dict):
+            rep.error(label, "bad_turn",
+                      f"{where} is a {type(turn).__name__}; each turn is an "
+                      "object with a `user` key, never a bare string (later "
+                      "phases put keys beside it)")
+            continue
+        if not is_nonempty_str(turn.get("user")):
+            rep.error(label, "bad_turn",
+                      f"{where}.user must be the user's message as a "
+                      f"non-empty string, got {turn.get('user')!r}")
+        for key in sorted(set(turn) - set(TURN_KEYS)):
+            if key in RESERVED_TURN_KEYS:
+                rep.error(label, "turn_key_reserved",
+                          f"{where}.{key} is RESERVED for a later phase "
+                          "(docs/multi-turn.md SS9): Phase 1 sends only the "
+                          "user's turns, and the app's own replies are the "
+                          "history. Nobody writes the assistant's lines")
+            else:
+                rep.error(label, "unknown_turn_key",
+                          f"{where}.{key} is not a turn key (one of "
+                          f"{', '.join(TURN_KEYS)}); a typo here would "
+                          "silently drop what it meant to say")
+        own = turn.get("expect")
+        if own is None:
+            continue
+        if i == len(turns) - 1:
+            rep.error(label, "final_turn_expect",
+                      f"{where}.expect is set on the final turn; the final "
+                      "turn's checks are the case's top-level expect, and "
+                      "two places for one claim is one too many")
+            continue
+        if not isinstance(own, dict):
+            rep.error(label, "bad_expect_shape",
+                      f"{where}.expect must be an object, got "
+                      f"{type(own).__name__}")
+            continue
+        check_expect_block(Scoped(rep, f"{where}.expect (a checkpoint)"),
+                           label, case, own)
+
+    if isinstance(every_turn, dict):
+        for i, turn in enumerate(turns):
+            if not isinstance(turn, dict):
+                continue
+            own = case.get("expect") if i == len(turns) - 1 \
+                else turn.get("expect")
+            for path in overlay_expect(every_turn, own)[1]:
+                rep.error(label, "every_turn_collision",
+                          f"every_turn.{path} is also set on "
+                          + ("the final turn (the top-level expect)"
+                             if i == len(turns) - 1
+                             else f"input.turns[{i}].expect")
+                          + "; the turn's own value would win and the copy "
+                          "would silently not apply there -- say it once")
 
 
 def check_case(rep, case, all_ids, enabled, index=None):
@@ -754,12 +911,25 @@ def check_case(rep, case, all_ids, enabled, index=None):
                   f"{', '.join(TEST_TYPES)}")
 
     expect = mapping(case.get("expect"))
-    layers = asserted_layers(expect)
+    turns = conversation_turns(case)
+    # A conversation's final turn is scored on the top-level expect with
+    # every_turn copied in (docs/multi-turn.md SS1), so that is what must
+    # grade something. A checkpoint does not count: a case can stop there.
+    final = overlay_expect(case.get("every_turn"), expect)[0] \
+        if turns is not None else expect
+    layers = asserted_layers(final)
     graded = layers & enabled
-    reserved = reserved_expectations(expect)
-    http_only = not layers and not reserved and "http" in expect
+    reserved = reserved_expectations(final)
+    http_only = not layers and not reserved and "http" in final
+    checkpoint_graded = any(asserted_layers(mapping(e)) & enabled
+                            for _, e in (turns or [])[:-1])
     if not graded:
-        if http_only:
+        if checkpoint_graded:
+            detail = ("its only graded checks sit on checkpoints (earlier "
+                      "turns), and the final turn grades nothing; put a "
+                      "graded check on the final turn (the top-level "
+                      "expect)")
+        elif http_only:
             detail = ("its only expectation is expect.http, which is a "
                       "liveness check (the app answered) and not a behavioral "
                       "assertion")
@@ -842,6 +1012,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
     check_authz(rep, label, expect)
     check_answer_entries(rep, label, expect)
     check_echo_assertions(rep, label, case, expect)
+    check_turns(rep, label, case, enabled)
 
     if case.get("no_op_expectation") == "pass" \
             and not is_nonempty_str(case.get("no_op_justification")):
@@ -949,6 +1120,24 @@ def count_turns(case):
                if isinstance(m, dict) and m.get("role") == "user")
 
 
+def context_messages(case):
+    """What `input.messages` holds besides exactly one user message, as a
+    phrase, or None. Mirrors run_cases.context_messages_reason, which skips
+    the case on the same condition."""
+    messages = mapping(case.get("input")).get("messages")
+    if not isinstance(messages, list):
+        messages = [] if messages is None else [messages]
+    if count_turns(case) == 0:
+        return "no user message"
+    others = sorted({str(m.get("role")) if isinstance(m, dict)
+                     else type(m).__name__ for m in messages
+                     if not (isinstance(m, dict) and m.get("role") == "user")})
+    if others:
+        return "{} message(s) besides the user message ({})".format(
+            len(messages) - 1, ", ".join(others))
+    return None
+
+
 def tally(values):
     counts = {}
     for value in values:
@@ -972,28 +1161,42 @@ def check_suite(rep, cases, records):
                       "and baseline diffs key on the id, so all but one of "
                       "these cases silently vanish from the results")
 
-    # This used to be the inverse check -- a suite-level `single_turn_suite`
-    # WARN that scolded the user for having NO multi-turn coverage. It was
-    # recommending the one thing the harness refuses to run: multi-turn is
-    # RESERVED and run_cases.py skips any case with a second user turn
-    # (adapter-contract.md hard rule 3). So the finding is per-case and points
-    # the other way. WARN, not ERROR, on Step 4's line: ERROR exists to stop a
+    # A conversation is written as input.turns (docs/multi-turn.md SS1).
+    # Two user messages in input.messages are not one: run_cases.py sends
+    # exactly one user message and SKIPS a case carrying more, rather than
+    # send the last and score a truncated conversation (adapter-contract.md
+    # hard rule 3). WARN, not ERROR, on Step 4's line: ERROR exists to stop a
     # suite inflating its numbers with cases that cannot fail, and a SKIPPED
     # case inflates nothing -- skips stay out of every denominator. The cost
     # here is wasted authoring, not a false pass rate. `--strict` escalates it
     # for anyone who wants the suite to hold no dead cases at all.
     for i, (record, case) in enumerate(zip(records, cases)):
+        if "turns" in mapping(case.get("input")):
+            continue        # check_turns owns it, mutual exclusion included
         turns = count_turns(case)
         if turns > 1:
             # Same label fallback check_case uses: an id-less case still needs
             # a handle, and the list position is the only one that exists.
             rep.warn(record["id"] or f"<no id: cases[{i}]>",
-                     "multi_turn_case_reserved",
-                     f"this case has {turns} user turns; multi-turn is "
-                     "RESERVED, so run_cases.py will SKIP it and it will "
-                     "score nothing. Split it into single-turn cases, or "
-                     "fold the earlier turns into assistant/system context "
-                     "so exactly one user message remains")
+                     "multi_turn_in_messages",
+                     f"input.messages holds {turns} user turns; run_cases.py "
+                     "sends exactly one user message, so it will SKIP this "
+                     "case and it will score nothing. Write the conversation "
+                     "as input.turns (case-format.md), or split it into "
+                     "single-turn cases")
+        elif context_messages(case):
+            # docs/multi-turn.md SS0. run_cases.py sends the one user message
+            # and nothing else, so it SKIPS a case carrying more (the
+            # context would never reach the app, and the case used to score
+            # as if it had). WARN, on the line above: a skip inflates nothing.
+            rep.warn(record["id"] or f"<no id: cases[{i}]>",
+                     "not_one_user_message",
+                     f"input.messages holds {context_messages(case)}; "
+                     "run_cases.py sends exactly one user message and "
+                     "nothing else, so it will SKIP this case rather than "
+                     "score it as if the rest had reached the app. Fold the "
+                     "context into the one user message, or write a "
+                     "conversation as input.turns")
 
     metamorphic = sum(1 for r in records
                       if r["test_type"] in ("INV", "DIR"))
@@ -1090,9 +1293,17 @@ def check_adapter(rep, cases, records, adapter):
     # Truthiness, exactly as run_cases.skip_reason reads it.
     safe_to_attack = bool(mapping(adapter.get("environment")).get(
         "safe_to_attack"))
+    conversation = invocation.get("conversation")
     for i, (record, case) in enumerate(zip(records, cases)):
         label = record["id"] or f"<no id: cases[{i}]>"
         expect = mapping(case.get("expect"))
+        if "turns" in mapping(case.get("input")) and conversation is None:
+            rep.warn(label, "conversation_undeclared",
+                     "this case is a conversation (input.turns) but the "
+                     "adapter declares no invocation.conversation, so every "
+                     "run skips it (docs/multi-turn.md SS2): nothing says "
+                     "how the app keeps the turns in one conversation. "
+                     "discover writes the block")
         if case.get("category") in ATTACK_CATEGORIES and not safe_to_attack:
             rep.warn(label, "attack_category_will_skip",
                      f"category {case.get('category')!r} is skipped by every "

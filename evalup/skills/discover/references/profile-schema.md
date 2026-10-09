@@ -70,7 +70,9 @@ tools:
     args: [invoice_id]
     verified: true
 
-# No `conversation:` block. Multi-turn is RESERVED (capability_matrix below).
+# No `conversation:` block here: how the app keeps a conversation is the
+# ADAPTER's invocation.conversation (adapter-contract.md), and the matrix's
+# multi_turn entry below reports whether it is declared.
 
 record_id_pattern: "INV-[0-9]+"  # regex for the app's own record identifiers.
                                  # Passed by run to `score_authz.py --id-pattern`.
@@ -117,7 +119,13 @@ capability_matrix:               # which eval layers apply and what blocks them
   tool_selection:  { enabled: true }
   trajectory:      { enabled: false, blocked_by: "stage: pre-stability" }
                                        # also forced off outright when kind: single_llm
-  multi_turn:      { enabled: false, blocked_by: "reserved: no conversation driver in the harness. NOT fixable from the adapter -- cases with >1 user turn are skipped" }
+  multi_turn:      { enabled: false, blocked_by: "adapter declares no invocation.conversation -- discover writes it once it finds how the app keeps a conversation; until then input.turns cases are skipped" }
+                                       # enabled: true when the adapter declares
+                                       # invocation.conversation. Informational, like
+                                       # cost_latency: the RUNNER reads the adapter
+                                       # block, never this entry (so make_plan.py
+                                       # --layer, which disables every other key, does
+                                       # not skip conversations).
   state:           { enabled: false, blocked_by: "reserved: no state-diff scorer in the harness. NOT fixable from the adapter -- run_cases.py never invokes environment.seed/.reset/.snapshot_state, so expect.state scores nothing and a state-only case is a validator ERROR" }
   cost_latency:    { enabled: true }
                                        # run-level, NOT a per-case layer: no row in

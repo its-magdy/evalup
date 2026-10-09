@@ -122,6 +122,16 @@ conversation/session handling, OTel setup. Record as you go:
   runner cannot read it — no adapter field declares one — but it is how a
   person checks per-route or per-tool behaviour on a trace-less app, and it
   changes what the capability statement should say is one join away.
+- **How the app keeps a conversation** → `invocation.conversation` (not the
+  legacy `session:` block; adapter-contract.md has the shape). Record the
+  `style` (`client-id`, `server-id` or `cookie`); for `server-id`, where turn 1's
+  response carries the id (`session_from`). Add `turn_delay_s` when history or
+  memory is written asynchronously after the reply, and `memory: user` when you
+  see a user-keyed memory store (else `session`). Never declare it on a guess,
+  but an app whose history is a no-op still gets the block saying how the id is
+  passed: the live run is what proves memory works. Set
+  `capability_matrix.multi_turn` to match (`enabled: true`, or `enabled: false`
+  with `blocked_by`); without the block `generate`'s conversations are skipped.
 
 ### 4. Validate the profile against reality — before generate
 Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime

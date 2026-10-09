@@ -144,6 +144,17 @@ where they exist, and record which cases are synthetic-only — a regression
 scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
 still spend suite slots, so hold them to §1's ratio and floor.
 
+**Conversations** (`input.turns`, case-format.md) are written only when the
+adapter declares `invocation.conversation`; otherwise every one is skipped, so
+write none and say so in the handover. Default 10–20 of them — they are slow.
+Word turns so they do not depend on the reply's exact wording; put a checkpoint
+`expect` on turn 1 so a wrong start is caught where it happens; use `clarify_ok`
+checkpoints only where the clarification is deterministic; at most 8 turns.
+Near-duplicate detection compares whole conversations. Never a conversation
+canary (a validator error). They are `gating: false` until a baseline exists and
+the user promotes them: pass^k makes them look worse (four turns at 0.9 pass is
+about 0.66), so recommend repeats (`--k`) when they are run.
+
 **Before delegating, read the adapter's `environment.safe_to_attack`** (this
 is yours, not the agent's): while it is not true, every run skips
 `adversarial-refusal` cases

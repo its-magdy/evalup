@@ -671,6 +671,72 @@ it safely would mean parsing the unshimmed format that `mapping_shim`
 exists to handle, and it would change what `normalize_trace.py`'s
 `spans_in_file` diagnostic reports.
 
+### Added — multi-turn conversations, Phase 1 (2026-10-06)
+
+The runner freeze was lifted for this one feature. A single-turn case scores
+exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
+
+- **Scripted conversations.** A case can be `input.turns`: the user's turns
+  are scripted, the app's real replies are the history, and each turn is
+  scored with the existing layers (an earlier turn's `expect` is a
+  checkpoint; `every_turn` is copied into every turn). The run stops at the
+  first turn that rolls up `fail` or `infra_*` and continues past `unscored`.
+  The case verdict is the rollup over the union of the turns' rows, keyed
+  `t<n>.<layer>`, and a checkpoint can veto it but never certify it: a `pass`
+  needs a graded `pass` on the final turn (a review proved the plain union
+  passed a case whose final turn was `unscored`). One conversation is one
+  case for every count and gate.
+- **`invocation.conversation`** in the adapter (`client-id`, `server-id`
+  with `session_from`, or `cookie`; `turn_delay_s`; `memory`) is the only
+  switch. Without it a conversation is skipped. Checked at pre-flight.
+- **Retries restart the whole conversation** with a fresh `<uuid>` and
+  cookie jar: re-sending one turn into a session that may already have
+  stored it would score the rest on a corrupted history. `repeated_5xx`
+  records the turn.
+- **Per-turn artifacts** in `cases/<id>/turns/<t>/` (and under
+  `repeats/<n>/`); the case-level files are the deciding turn's. `--verify`
+  checks the turn tree; `REQUIRED_IF` is keyed by path pattern.
+- **Rows and summary.** `verdicts.jsonl` and `results.json` rows gain
+  `multi_turn`, `turns_sent` and `failed_turn`; `summary.multi_turn` and
+  `gate.py` show the conversations' pass rate beside the single-turn one;
+  `results.json.memory` says when memory outlives a session.
+- **Cost.** `score_cost.py` prices a conversation as the sum of its turns,
+  and refuses and names a paired case whose `turns_sent` differ.
+- **`make_plan.py`** writes `execution.max_turns` (default 12, `--max-turns`)
+  for a selection holding a conversation, and `--single-turn` leaves them out
+  (how `optimize` keeps them out of its inner loop; refused under holdout).
+  The dry run counts app calls per turn and states a wait floor.
+- **Validator rules** for conversations: shape, length (WARN above 8), the
+  mutual exclusion with `input.messages`, no conversation canary, the
+  final-turn gradedness message, `every_turn` collisions, and
+  `conversation_undeclared` with `--adapter`.
+
+### Changed — multi-turn conversations (2026-10-06)
+
+- `multi_turn_case_reserved` is now `multi_turn_in_messages`, and its advice
+  is to write the conversation as `input.turns`.
+- `routing_results.jsonl` is required only by a single-turn routing row: a
+  conversation adds no row, so the run-level report keeps meaning
+  single-turn routing.
+- The profile's `capability_matrix.multi_turn` `blocked_by` now names the
+  missing adapter block. The runner never reads the entry.
+
+### Fixed — before multi-turn (2026-10-06)
+
+- **A system or assistant message in `input.messages` was dropped, and the
+  case still scored.** `case_text()` sends the last user message and nothing
+  else. `case-format.md` called prior messages "fine as fixed context", but
+  they never reached the app, and the verdict read as if they had. This is the
+  truncated-conversation verdict that adapter hard rule 3 refuses, reached by
+  another route. A case whose `input.messages` holds anything besides exactly
+  one user message (an extra role, or no user message at all) is now
+  `skipped` with that reason. `validate_cases.py` WARNs `not_one_user_message`
+  at authoring time. **This changes existing suites' numbers.** Such a case
+  scored before and is skipped now, so `n` stays the same but `passes` +
+  `failures` drop, and pass rates are computed over fewer cases. Fold the
+  context into the user message to keep the case scoring.
+  (docs/multi-turn.md §0)
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
@@ -731,8 +797,8 @@ reproduced.
 
 `expect.state`, `seed_state`, `available_tools`, `excluded_tools` and
 `difficulty` are accepted and **warned about**: nothing scores them yet.
-Multi-turn, streaming/TTFT and cached-token pricing are likewise specified but
-not built. Each waits for the scorer that would read it — see
+Streaming/TTFT and cached-token pricing are likewise specified but not built;
+so are multi-turn's later phases (`docs/multi-turn.md` §9). Each waits for the scorer that would read it — see
 `CONTRIBUTING.md`.
 
 ### Known limits

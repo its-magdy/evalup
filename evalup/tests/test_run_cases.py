@@ -61,13 +61,18 @@ def exec_contract_block(after):
 
 
 def contract_tree_conditions():
-    """SS6's tree, as {filename: condition} off the `# only when:` markers."""
+    """SS6's tree, as {path: condition} off the `# only when:` markers.
+
+    A path is a bare filename or, for a conversation's turns, a
+    `turns/<t>/<name>` line, which REQUIRED_IF keys as `turns/*/<name>`
+    (docs/multi-turn.md SS7)."""
     block = contract_block("## 6. The output tree")
     found = {}
     for line in block.splitlines():
-        match = re.match(r"\s*([\w.]+)\s+#\s*only when:\s*(.+?)\s*$", line)
+        match = re.match(r"\s*([\w.<>/]+)\s+#\s*only when:\s*(.+?)\s*$",
+                         line)
         if match:
-            found[match.group(1)] = match.group(2)
+            found[match.group(1).replace("<t>", "*")] = match.group(2)
     return found
 
 
@@ -758,19 +763,40 @@ class TestSkipGates(RunnerCase):
             {"role": "assistant", "content": "hello"},
             {"role": "user", "content": "and then?"}]})
 
+    def test_context_messages_are_skipped_not_dropped(self):
+        """docs/multi-turn.md SS0. case_text() sends the user message and
+        nothing else, so a system or assistant message never reached the app
+        -- and the case scored as if it had. Anything besides exactly one
+        user message is a skip with the reason, never a truncated send."""
+        for messages, fragment in (
+                ([{"role": "system", "content": "you are terse"},
+                  {"role": "user", "content": "how many?"}], "system"),
+                ([{"role": "assistant", "content": "hello"},
+                  {"role": "user", "content": "how many?"}], "assistant"),
+                ([], "no user message"),
+                ([{"role": "system", "content": "s"}], "no user message")):
+            with self.subTest(messages=messages):
+                self.app.calls.clear()
+                shutil.rmtree(self.out_dir(), ignore_errors=True)
+                verdict = self.skip_reason_for(
+                    make_case("c-0001", input={"messages": messages}))
+                self.assertIn(fragment, verdict["layers"]["http"]["reason"])
+                self.assertEqual(
+                    [c for c in self.app.calls if c["path"] != "/"], [])
+
     def test_multi_turn_case_without_a_session_contract(self):
         verdict = self.skip_reason_for(self.multi_turn_case())
         self.assertIn("hard rule 3", verdict["layers"]["http"]["reason"])
 
     def test_multi_turn_case_skips_even_with_a_session_contract(self):
-        """Multi-turn is RESERVED, so the gate ignores invocation.session.
+        """Two user messages are skipped whatever the adapter declares.
 
         The old gate skipped only when no session contract was declared. An
         adapter that declared one (adapters/dotnet.md shipped that block)
         therefore ran the case single-turn -- last user message only, earlier
         turns dropped -- and scored the truncated conversation as a real
-        verdict. Nothing drives start/send_turn/end, so the declaration could
-        never have made the run correct.
+        verdict. A conversation is input.turns now (docs/multi-turn.md), and
+        input.messages still sends exactly one user message.
         """
         plan = make_plan(self.state, self.app.base_url,
                          cases=[self.multi_turn_case()])
@@ -782,7 +808,7 @@ class TestSkipGates(RunnerCase):
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         verdict = self.read("cases", "c-0001", "verdict.json")
         self.assertEqual(verdict["verdict"], "skipped")
-        self.assertIn("RESERVED", verdict["layers"]["http"]["reason"])
+        self.assertIn("input.turns", verdict["layers"]["http"]["reason"])
         # And nothing was sent: a truncated turn is not a cheaper datapoint.
         self.assertEqual([c for c in self.app.calls if c["path"] != "/"], [])
 
