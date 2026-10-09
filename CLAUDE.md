@@ -16,9 +16,12 @@ documents named below, not here.
   five `claude plugin eval` cases in `evals/`.
 - **`EVAL-DESIGN-RECOMMENDATION.md`** + **`research/`** — why the plugin works
   the way it does. Authoritative for *direction*, not for current state.
-- **`.github/workflows/ci.yml`** — first ran on the 2026-09-30 push; its
-  header warned the YAML would need one round of debugging. **Never report CI
-  as green without reading the run** (`gh run list`).
+- **`.github/workflows/ci.yml`** — ~1 min since 2026-10-09 (was ~4): the
+  suite runs as four shards in `parallel:` steps, guarded so a test file in no
+  shard fails the job. Actions SHA-pinned (the repo requires it), Dependabot
+  bumps them monthly, every job on `ubuntu-24.04` (26.04 has no 3.9 build).
+  actionlint cannot parse `parallel:` yet (rhysd/actionlint#693). **Never
+  report CI as green without reading the run** (`gh run list`).
 
 ## Working on the plugin
 
@@ -35,7 +38,15 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 
 ## State
 
-- **Remote:** `git@github.com:its-magdy/evalup.git` (public), `main` only.
+- **Remote:** `https://github.com/its-magdy/evalup.git` (public; HTTPS via
+  `gh`, because the SSH key is another account). Changes land as PRs,
+  fast-forwarded onto `main`.
+- **Repo settings** (2026-10-09): ruleset `main-guard` blocks deleting or
+  force-pushing `main` — **a history rewrite like the two below needs it
+  disabled first**. Also on: private vulnerability reporting
+  (`.github/SECURITY.md`), Dependabot alerts and security updates, CodeQL
+  default setup (Python + Actions), required SHA pinning, immutable releases,
+  delete-branch-on-merge.
 - **`main`** holds everything, through the 2026-09-30 refactor review, code
   review and canary work (all fast-forwarded that day). It is the only branch,
   first pushed 2026-09-30.
