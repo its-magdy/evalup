@@ -217,3 +217,32 @@ jobs:
             echo "expected 21 CLIs, found $n -- update this count and say why" >&2
             exit 1
           }
+
+  # The one check main-guard requires. Requiring each job by name breaks the
+  # day a job or matrix leg is renamed: the old name never reports again and
+  # GitHub waits for it forever, refusing every push to main. This job's name
+  # stays put while the jobs above change; add any new job to `needs`.
+  #
+  # `always()`, not the default: a job skipped because a need failed reports
+  # as skipped, and a required check that is skipped counts as passed.
+  ci-ok:
+    if: always()
+    needs: [tests, lint, floor-3-9, cli-help]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    defaults:
+      run:
+        # No checkout here, so the workflow default (evalup/) does not exist.
+        working-directory: .
+    steps:
+      - name: every needed job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad="$(echo "$RESULTS" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(" ")')"
+          if [ -n "$bad" ]; then
+            echo "not successful: $bad" >&2
+            exit 1
+          fi
