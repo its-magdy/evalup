@@ -43,10 +43,16 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   fast-forwarded onto `main`.
 - **Repo settings** (2026-10-09): ruleset `main-guard` blocks deleting or
   force-pushing `main` — **a history rewrite like the two below needs it
-  disabled first**. Also on: private vulnerability reporting
-  (`.github/SECURITY.md`), Dependabot alerts and security updates, CodeQL
-  default setup (Python + Actions), required SHA pinning, immutable releases,
-  delete-branch-on-merge.
+  disabled first** — and requires the `ci-ok` check, so a commit reaches
+  `main` only after CI passed on it on a branch: push the branch, wait, then
+  fast-forward. `ci-ok` gathers the other jobs; a new job goes in its
+  `needs`, never into the ruleset. Also on: private vulnerability reporting
+  (`.github/SECURITY.md`), secret scanning with push protection, Dependabot
+  alerts and security updates, CodeQL default setup (Python + Actions),
+  required SHA pinning, immutable releases, delete-branch-on-merge. Secret
+  scanning's generic patterns and validity checks need a paid plan; a
+  personal account's PATCH is accepted and ignored. Community files
+  (code of conduct, bug-report form, PR template) are in `.github/`.
 - **`main`** holds everything, through the 2026-09-30 refactor review, code
   review and canary work (all fast-forwarded that day). It is the only branch,
   first pushed 2026-09-30.
