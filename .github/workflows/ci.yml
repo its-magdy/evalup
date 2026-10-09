@@ -6,6 +6,10 @@
 # ran on the 2026-09-30 push to github.com/its-magdy/evalup: every job passed
 # except cli-help, whose CLI count had gone stale (below). A green run is
 # evidence only for the commit it ran on -- read the run, not a badge.
+#
+# Actions are pinned to a full commit SHA, the only immutable reference
+# (docs.github.com "Secure use reference"); the trailing comment is the tag,
+# and .github/dependabot.yml bumps both together.
 
 name: ci
 
@@ -15,11 +19,36 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Nothing here writes to the repo. The repo default is already read-only;
+# saying so here keeps it true if that setting ever changes.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run moot -- except on main,
+# where every commit keeps its own verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 defaults:
   run:
     # Everything lives in the plugin directory; the repo root holds the design
     # recommendation, research notes and the marketplace manifest, not code.
     working-directory: evalup
+
+env:
+  # The suite in four shards, run as parallel steps (2026-06-25 changelog,
+  # "Actions steps can now be run in parallel") on the runner's four vCPUs.
+  # Each is a list of `unittest discover -p` globs, balanced by measured time:
+  # test_run_cases.py alone is a third of the suite. Every test file must
+  # match exactly one glob -- the `shards` step below fails the job if a new
+  # file matches none (it would silently never run) or two (it would run
+  # twice). Safe to run side by side: every test writes under its own temp
+  # dir and every stub server binds port 0.
+  SHARD_1: "test_run_*.py"
+  SHARD_2: "test_s*.py"
+  SHARD_3: "test_[a-m]*.py"
+  SHARD_4: "test_[n-qt-z]*.py test_r[!u]*.py"
 
 jobs:
   # The real interpreter matrix. This is the check that does not exist locally
@@ -32,8 +61,14 @@ jobs:
   # upstream EOL (October 2025) and kept anyway because RHEL 9 ships it with
   # vendor-backported fixes, and long-lived enterprise environments are the
   # target. If a change breaks 3.9, change the change.
+  #
+  # ubuntu-24.04, not ubuntu-latest, for the same reason: ubuntu-latest moves
+  # to 26.04 from 2026-10-19, and actions/python-versions has no 3.9 build
+  # for 26.04 (its newest 3.9, 3.9.25, is built for 22.04 and 24.04 only).
+  # Every job is pinned alike so the legs do not drift apart.
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -41,50 +76,107 @@ jobs:
         # release so the harness is not quietly pinned to old behaviour either.
         python-version: ["3.9", "3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: ${{ matrix.python-version }}
-      # node is NOT a dependency of the harness: eleven review-viewer tests
-      # boot the generated page's JS to prove the prototype-pollution fixes,
-      # and they are skipUnless(node). Without this step they skip silently
-      # and the suite still reports success (2026-09-21 audit).
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+          persist-credentials: false
+      - parallel:
+          - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+            with:
+              python-version: ${{ matrix.python-version }}
+          # node is NOT a dependency of the harness: eleven review-viewer
+          # tests boot the generated page's JS to prove the
+          # prototype-pollution fixes, and they are skipUnless(node). Without
+          # this step they skip silently and the suite still reports success
+          # (2026-09-21 audit).
+          - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+            with:
+              node-version: "24"
+      - name: every test file is in exactly one shard
+        run: |
+          python - <<'EOF'
+          import fnmatch, os, pathlib, sys
+          shards = {k: v.split() for k, v in os.environ.items()
+                    if k.startswith("SHARD_")}
+          bad = []
+          for f in sorted(pathlib.Path("tests").glob("test*.py")):
+              owners = [k for k, globs in sorted(shards.items())
+                        if any(fnmatch.fnmatchcase(f.name, g) for g in globs)]
+              if len(owners) != 1:
+                  bad.append(f"{f.name}: {', '.join(owners) or 'no shard'}")
+          if bad:
+              sys.exit("fix SHARD_* in ci.yml:\n  " + "\n  ".join(bad))
+          print(f"{len(shards)} shards cover every test file once")
+          EOF
       # No install step, and that is the assertion: the harness is stdlib-only
       # at runtime. If this ever needs a `pip install`, something under
       # scripts/ grew a third-party import and the rule is broken.
-      - run: python -m unittest discover -s tests
+      #
+      # set -f: the globs are for unittest, not for the shell.
+      - parallel:
+          - name: tests, shard 1
+            run: set -f; for p in $SHARD_1; do python -m unittest discover -s tests -p "$p"; done
+          - name: tests, shard 2
+            run: set -f; for p in $SHARD_2; do python -m unittest discover -s tests -p "$p"; done
+          - name: tests, shard 3
+            run: set -f; for p in $SHARD_3; do python -m unittest discover -s tests -p "$p"; done
+          - name: tests, shard 4
+            run: set -f; for p in $SHARD_4; do python -m unittest discover -s tests -p "$p"; done
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No cache: there is no lockfile to key it on, and ruff is one wheel.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
       # --config is explicit on purpose. pyproject.toml is a sibling of
       # ruff.toml in this directory and ruff.toml takes precedence; naming the
       # file keeps which-config-won unambiguous, and matches the blessed
       # command in evalup/CONTRIBUTING.md verbatim.
       - run: uv run --group dev ruff check --config ruff.toml .
 
-  # The conclusive floor check, verbatim from evalup/CONTRIBUTING.md / README.md
-  # "Requirements". It overlaps the 3.9 leg of `tests` on purpose: that leg
-  # runs the unittest path, this runs the pytest path with pytest-subtests, so
-  # a subtest that silently collapses to one opaque pass shows up here.
+  # The conclusive floor check from evalup/CONTRIBUTING.md / README.md
+  # "Requirements", sharded like `tests`. It overlaps the 3.9 leg of `tests`
+  # on purpose: that leg runs the unittest path, this runs the pytest path
+  # with pytest-subtests, so a subtest that silently collapses to one opaque
+  # pass shows up here.
+  #
+  # Sharded by parallel steps, not pytest-xdist: under xdist pytest-subtests
+  # has to pickle each subTest's parameters across processes, and one test
+  # passes a pathlib.Path (execnet: "can't serialize PosixPath").
   floor-3-9:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      FLOOR: uv run --python 3.9 --with pytest --with pytest-subtests --with pyyaml python -m pytest -q
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: >
-          uv run --python 3.9 --with pytest --with pytest-subtests --with pyyaml
-          python -m pytest tests -q
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      # Build the environment once, so four shards do not race to.
+      - run: $FLOOR --version
+      # pytest takes paths, not globs: the shell expands tests/<glob> here.
+      - parallel:
+          - name: floor, shard 1
+            run: $FLOOR $(printf 'tests/%s ' $SHARD_1)
+          - name: floor, shard 2
+            run: $FLOOR $(printf 'tests/%s ' $SHARD_2)
+          - name: floor, shard 3
+            run: $FLOOR $(printf 'tests/%s ' $SHARD_3)
+          - name: floor, shard 4
+            run: $FLOOR $(printf 'tests/%s ' $SHARD_4)
 
   # Every CLI answers --help with rc=0.
   #
   # TRAP, and the reason this does not just loop over scripts/*.py: there are
-  # 21 files in scripts/ but only 20 CLIs. scripts/_common.py is a shared
+  # 22 files in scripts/ but only 21 CLIs. scripts/_common.py is a shared
   # module with no argparse and no __main__ block, so `python _common.py
   # --help` exits 0 having printed NOTHING -- a naive loop passes on it for
   # entirely the wrong reason, and would keep passing if a real CLI regressed
@@ -92,13 +184,16 @@ jobs:
   #
   # So two guards, not one: skip underscore-prefixed modules, and require
   # actual output. The count assertion is the third -- if someone adds a
-  # twenty-second file, this fails and forces a decision about which set it joins
-  # rather than silently widening or narrowing the check.
+  # twenty-second CLI, this fails and forces a decision about which set it
+  # joins rather than silently widening or narrowing the check.
   cli-help:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.9"
       - name: every CLI answers --help with rc=0 and non-empty output

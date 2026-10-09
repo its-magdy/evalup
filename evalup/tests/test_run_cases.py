@@ -117,7 +117,10 @@ class FakeApp:
             return responder(path, body, headers)
 
         self.server.responder = wrapped
+        # poll_interval: shutdown() waits for serve_forever's next poll,
+        # 0.5 s by default -- paid by every test that closes a stub.
         self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={"poll_interval": 0.01},
                                        daemon=True)
         self.thread.start()
 

@@ -1,0 +1,19 @@
+# Keeps the SHA pins in .github/workflows/ci.yml current. Dependabot rewrites
+# the SHA and its trailing `# vX.Y.Z` comment together. One grouped PR a
+# month, and only for releases at least a week old, which gives a compromised
+# release time to be noticed before it lands here. Security updates skip the
+# cooldown.
+#
+# Nothing else is listed on purpose: the harness is stdlib-only at runtime,
+# and the dev tools (ruff, pytest) are resolved fresh by uv on every run.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

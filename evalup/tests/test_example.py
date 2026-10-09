@@ -128,7 +128,10 @@ class HelpdeskApp:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
                                                       _Handler)
         self.server.seen = []
+        # poll_interval: shutdown() waits for serve_forever's next poll,
+        # 0.5 s by default -- paid by every test that closes a stub.
         self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={"poll_interval": 0.01},
                                        daemon=True)
         self.thread.start()
 
