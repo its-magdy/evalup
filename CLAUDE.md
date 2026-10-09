@@ -53,10 +53,11 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   scanning's generic patterns and validity checks need a paid plan; a
   personal account's PATCH is accepted and ignored. Community files
   (code of conduct, bug-report form, PR template) are in `.github/`.
-- **`main`** holds everything, through the 2026-09-30 refactor review, code
-  review and canary work (all fast-forwarded that day). It is the only branch,
-  first pushed 2026-09-30.
-- **Branch `feat/multi-turn`** (2026-10-06, NOT merged, not pushed): multi-turn
+- **`main`** holds everything but multi-turn: through the 2026-09-30 refactor
+  review, code review and canary work, then the 2026-10-09 CI and repo-settings
+  PRs (#1, #3, #5). First pushed 2026-09-30.
+- **Branch `feat/multi-turn`** (2026-10-06; PR #2, open, rebased on main
+  2026-10-09, CI green): multi-turn
   Phase 1 built per `evalup/docs/multi-turn.md` — §0 bugfix, `input.turns`,
   `invocation.conversation`, the driver, cookie style, per-turn tree, stats/
   cost/gate split, skills/docs. Live proof on RefApp still owed (the user runs
