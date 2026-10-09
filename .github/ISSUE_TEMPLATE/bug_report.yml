@@ -1,0 +1,73 @@
+name: Bug report
+description: Something evalup did wrong, or a run it could not finish.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security problem goes through the
+        [private form](https://github.com/its-magdy/evalup/security/advisories/new),
+        not here. Anything pasted below is public: strip API keys, tokens and
+        your app's private data from logs and reports first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what evalup did, and what you expected instead.
+      placeholder: |
+        Ran /evalup:run on a FastAPI app. Every case came back infra_error,
+        though the app answers curl on the same URL.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The command or prompt
+      description: The skill (`/evalup:start`, `/evalup:run`, ...) and its arguments, or the script and its flags.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: session
+    attributes:
+      label: Session
+      options:
+        - Interactive
+        - Headless (claude -p)
+        - A script run directly, outside Claude Code
+    validations:
+      required: true
+  - type: input
+    id: evalup-version
+    attributes:
+      label: evalup version
+      description: "`python3 evalup/scripts/stats.py --version`, plus the commit if you run from a clone."
+      placeholder: evalup harness 0.1.0 (990d18f)
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: "`claude --version`. Not needed for a script run directly."
+  - type: input
+    id: environment
+    attributes:
+      label: Python and OS
+      description: "`python3 --version` and your OS."
+      placeholder: Python 3.11.9, macOS 15.4
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The error, the tail of the transcript, or the relevant part of a report under `your-app/.evalup/`.
+      render: text
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed secrets and private app data from everything above.
+          required: true
