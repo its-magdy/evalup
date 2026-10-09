@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/its-magdy/evalup/security/advisories/new
+    about: Privately, not in a public issue.
