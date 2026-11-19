@@ -252,6 +252,8 @@ def evaluate(results, max_infra_rate, require_canaries=False):
         "unjudged": summary.get("unjudged"),
         "canaries": canaries, "require_canaries": require_canaries,
         "holdout": holdout,
+        "multi_turn": summary.get("multi_turn"),
+        "memory": results.get("memory"),
     }
     return reasons, facts
 
@@ -259,6 +261,35 @@ def evaluate(results, max_infra_rate, require_canaries=False):
 def percent(value):
     return f"{value:.1%}" if isinstance(value, (int, float)) \
         and not isinstance(value, bool) else "n/a"
+
+
+def conversation_lines(facts):
+    """docs/multi-turn.md SS4/SS6: conversations' pass rate BESIDE the
+    single-turn one, never only the blend. pass^k over every turn makes a
+    conversation look worse by construction (four turns at 0.9 pass about
+    0.66 of the time), so a blended rate falling is not, by itself, the app
+    getting worse. Rates are over the SCORED cases, like every rate here."""
+    lines = []
+    multi = facts.get("multi_turn")
+    if isinstance(multi, dict) and all(
+            is_count(multi.get(key)) for key in ("n", "passes", "failures")):
+        single_pass = facts["passes"] - multi["passes"] \
+            if isinstance(facts["passes"], int) else None
+        single_fail = facts["failures"] - multi["failures"] \
+            if isinstance(facts["failures"], int) else None
+        lines.append(
+            "  multi-turn: {}/{} pass ({} conversation(s)); single-turn: "
+            "{}/{} pass".format(
+                multi["passes"], multi["passes"] + multi["failures"],
+                multi["n"], single_pass,
+                None if single_pass is None or single_fail is None
+                else single_pass + single_fail))
+    if facts.get("memory") == "user":
+        lines.append(
+            "  conversation memory outlives the session (memory: user): a "
+            "case may see an earlier case's turns, so any verdict may be "
+            "contaminated")
+    return lines
 
 
 def render(facts, reasons):
@@ -295,6 +326,7 @@ def render(facts, reasons):
             f"  {facts['repeated_5xx']} infra case(s) got the same 5xx on "
             "every attempt: possibly the app's own error, not the provider "
             f"-- {where}")
+    lines.extend(conversation_lines(facts))
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):
         passed, total = canaries.get("passed"), canaries.get("n")

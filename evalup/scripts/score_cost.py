@@ -348,7 +348,7 @@ def visible_cases(run_dir):
     return results, summary, cases
 
 
-def case_usage(run_dir, case_id):
+def case_usage(run_dir, case_id, row=None):
     """One case's LLM calls, from cases/<id>/trajectory.json, or None.
 
     Absent is a FACT, not an error: SS6 writes this file only when a trace was
@@ -356,8 +356,33 @@ def case_usage(run_dir, case_id):
     one trace has all but one. Both are reported as counts, never imputed as
     zero cost -- a case priced at zero because its trace went missing is
     indistinguishable in the total from a case that was genuinely free.
+
+    A CONVERSATION (its results.json row says multi_turn) is priced as one
+    case: the sum of turns/<t>/trajectory.json over the turns it sent
+    (docs/multi-turn.md SS5). Its case-level trajectory.json is only the
+    deciding turn's, so reading it alone would price one turn of N. One turn
+    without a trajectory withholds the whole case, by the rule above.
     """
-    path = os.path.join(run_dir, "cases", case_id, TRAJECTORY)
+    row = row if isinstance(row, dict) else {}
+    if row.get("multi_turn"):
+        sent = row.get("turns_sent")
+        if not isinstance(sent, int) or isinstance(sent, bool) or sent < 1:
+            return None
+        calls = []
+        for turn in range(1, sent + 1):
+            usage = trajectory_usage(os.path.join(
+                run_dir, "cases", case_id, "turns", str(turn), TRAJECTORY))
+            if usage is None:
+                return None
+            calls.extend(usage)
+        return calls
+    return trajectory_usage(os.path.join(run_dir, "cases", case_id,
+                                         TRAJECTORY))
+
+
+def trajectory_usage(path):
+    """The LLM calls in one trajectory.json, or None when it is absent or
+    unreadable."""
     if not os.path.isfile(path):
         return None
     try:
@@ -417,7 +442,7 @@ def price_run(run_dir, cases, prices):
     by_model, per_case, with_trace, unpriced = {}, {}, 0, set()
     tokens_in = tokens_out = unusable = 0
     for case_id in cases:
-        calls = case_usage(run_dir, case_id)
+        calls = case_usage(run_dir, case_id, cases[case_id])
         if calls is None:
             continue
         with_trace += 1
@@ -787,6 +812,12 @@ def latency_block(cases):
     return block
 
 
+def turns_sent(row):
+    """How many turns a results.json row sent: a conversation's turns_sent,
+    and 1 for a single-turn case (including a run older than the field)."""
+    return row.get("turns_sent") if row.get("multi_turn") else 1
+
+
 def comparability(base, cand):
     """SS5.6's pair rule, restated. A warning, never a refusal: this script
     makes no decision, so a mismatched pair is a caveat on a number rather than
@@ -862,8 +893,22 @@ def compare(base, cand, base_cost, cand_cost, a):
                        "an error.")
         return out
 
+    # docs/multi-turn.md SS4: a conversation's latency and tokens are sums
+    # over the turns it SENT. A baseline that failed at turn 1 beside a
+    # candidate that got through turn 4 is not 3.6 s slower, it got further
+    # -- so a pair whose turns_sent differ is refused, and named.
+    mismatched = [i for i in shared
+                  if turns_sent(base["cases"][i]) != turns_sent(cand["cases"][i])]
+    if mismatched:
+        out["turns_sent_mismatch"] = {
+            "n": len(mismatched), "case_ids": mismatched[:MAX_REPORTED],
+            "note": ("excluded from the paired latency and cost tests: these "
+                     "conversations sent a different number of turns in the "
+                     "two runs, so their sums measure how far each got, not "
+                     "how fast or costly the app was")}
+    comparable = [i for i in shared if i not in set(mismatched)]
     lat = {}
-    for case_id in shared:
+    for case_id in comparable:
         b, c = (latency_ms(base["cases"][case_id]),
                 latency_ms(cand["cases"][case_id]))
         if b is not None and c is not None:
@@ -871,7 +916,8 @@ def compare(base, cand, base_cost, cand_cost, a):
     out["latency"] = paired_block([lat[i] for i in sorted(lat)], a.alpha,
                                   a.max_exact_states, scale=1000,
                                   unit="seconds")
-    out["latency"]["cases_dropped_for_missing_latency"] = len(shared) - len(lat)
+    out["latency"]["cases_dropped_for_missing_latency"] = \
+        len(comparable) - len(lat)
 
     cost_pico = None
     if base_cost is None or cand_cost is None:
@@ -880,13 +926,14 @@ def compare(base, cand, base_cost, cand_cost, a):
                                   "priced; see each run's cost block for the "
                                   "side that is not.")}
     else:
-        cost_pico = {i: cand_cost[i] - base_cost[i] for i in shared
+        cost_pico = {i: cand_cost[i] - base_cost[i] for i in comparable
                      if i in base_cost and i in cand_cost}
         block = paired_block([cost_pico[i] for i in sorted(cost_pico)],
                              a.alpha, a.max_exact_states,
                              scale=PICO_PER_USD, unit="USD")
         block["status"] = "priced"
-        block["cases_dropped_for_missing_trace"] = len(shared) - len(cost_pico)
+        block["cases_dropped_for_missing_trace"] = \
+            len(comparable) - len(cost_pico)
         base_total = sum(base_cost[i] for i in cost_pico)
         cand_total = sum(cand_cost[i] for i in cost_pico)
         block["baseline_total_usd"] = usd(base_total)

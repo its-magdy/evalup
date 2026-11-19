@@ -144,7 +144,8 @@ maintains. These are omitted, each for a reason:
 | run history (`run_history.py`) | needs two comparable runs, and a trend is not a golden path |
 | cost (`score_cost.py`) | a trace-less run cannot be priced **at all** — no `trajectory.json`, no tokens |
 | `tool_selection`, `trajectory`, `authz` | all three read the trace's tool-call log, and there is no trace |
-| multi-turn, `expect.state`, `seed_state`, `available_tools`, `excluded_tools` | RESERVED: declared in the case format, scored by nothing |
+| conversations (`input.turns`) | the demo app keeps no conversation, so its adapter declares no `invocation.conversation`; `tests/test_multi_turn.py` drives the stub apps that do |
+| `expect.state`, `seed_state`, `available_tools`, `excluded_tools` | RESERVED: declared in the case format, scored by nothing |
 
 ## Why nothing here is a stored run
 

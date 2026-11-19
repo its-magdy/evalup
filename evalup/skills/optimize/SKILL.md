@@ -6,7 +6,7 @@ description: >-
   training split, confirm on the sealed holdout with a statistical gate, keep
   or revert. Use when eval scores have plateaued or a failure cluster
   implicates a specific prompt or tool description.
-argument-hint: "[--surface <prompt-id|tool>] [--budget $N]"
+argument-hint: "[--surface <prompt-id|tool>] [--budget $N] [--include-multi-turn]"
 disable-model-invocation: true
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
@@ -110,7 +110,13 @@ make gains real instead of overfit.
    field contains `full`, which by construction excludes the sealed holdout —
    the two splits are mutually exclusive), or `--targeted --tag <component>`
    when the edit is scoped to one surface and you want the faster loop — under
-   a new manifest. Compare paired per-case vs current champion.
+   a new manifest. Compare paired per-case vs current champion. Conversations
+   stay out of this inner loop (slow, and pass^k-noisy): pass `--single-turn`
+   through `/evalup:run` unless the user said `--include-multi-turn`. The
+   holdout gate in step 5 always runs them, so a change that regresses context
+   handling shows only at that final check — accepted. Say in the report and
+   the kept-edit summary that the candidate was selected on single-turn cases
+   only.
 
    **Rebuild-bound surface (precondition 6)?** Between applying the edit and
    running anything, stop: ask the user to rebuild and restart the instance

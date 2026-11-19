@@ -84,7 +84,7 @@
     },
     "multi_turn": {
       "enabled": false,
-      "blocked_by": "reserved: no conversation driver in the harness"
+      "blocked_by": "adapter declares no invocation.conversation"
     },
     "cost_latency": {
       "enabled": false,

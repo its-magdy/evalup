@@ -247,6 +247,10 @@ invocation:
   # complete response and measures no TTFT, so declaring it here would teach a
   # key nothing reads (adapter-contract.md). Point `invocation` at the
   # non-streaming route the tests already use.
+  conversation: { style: client-id }   # the client invents sessionId (<uuid>,
+  # one per conversation). Declare it from what the controller BINDS, not from
+  # whether history works: a no-op history store still takes the id, and the
+  # live conversation run is what shows the app forgets (docs/multi-turn.md).
   timeout_s: 60
   max_concurrency: 1
 

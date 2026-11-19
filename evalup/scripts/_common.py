@@ -283,6 +283,64 @@ def infra_rate(infra_errors, n, skipped, ndigits=4):
     return round(infra_errors / sent, ndigits) if sent else 0.0
 
 
+def overlay_expect(every_turn, expect):
+    """A turn's expect with `every_turn`'s keys copied in (docs/multi-turn.md
+    SS1). Returns (merged, collisions).
+
+    Objects merge key by key, so `every_turn: {tools: {forbidden: [x]}}`
+    beside a turn's `tools: {subset: [y]}` checks both -- a shallow copy
+    would drop one of them, and "never call x during the conversation" would
+    silently stop meaning that on the one turn that also names a subset.
+    Anything else that both sides set is a COLLISION: the turn's own value
+    is kept (it is the more specific claim) and the dotted path is returned,
+    which validate_cases.py reports as an ERROR. Written once here because
+    the runner scores what the linter checked.
+    """
+    collisions = []
+
+    def merge(base, own, path):
+        out = dict(base)
+        for key, value in own.items():
+            where = f"{path}.{key}" if path else key
+            if key in out and isinstance(out[key], dict) \
+                    and isinstance(value, dict):
+                out[key] = merge(out[key], value, where)
+            else:
+                if key in out:
+                    collisions.append(where)
+                out[key] = value
+        return out
+
+    every_turn = every_turn if isinstance(every_turn, dict) else {}
+    expect = expect if isinstance(expect, dict) else {}
+    return merge(every_turn, expect, ""), collisions
+
+
+def conversation_turns(case):
+    """[(user text, expect)] for an `input.turns` case, else None.
+
+    The last turn's expect is the case's top-level `expect` -- the final
+    turn's claim, so every single-turn authoring rule still reads it -- and
+    an earlier turn's is its own `expect` (a checkpoint), or {} for none.
+    `every_turn` is overlaid on each (overlay_expect). Off-shape entries are
+    the linter's to report; here they read as empty, never as a guess.
+    """
+    turns = ((case.get("input") or {}) if isinstance(case.get("input"), dict)
+             else {}).get("turns")
+    if not isinstance(turns, list):
+        return None
+    every_turn = case.get("every_turn")
+    out = []
+    for index, turn in enumerate(turns):
+        turn = turn if isinstance(turn, dict) else {}
+        text = turn.get("user")
+        own = case.get("expect") if index == len(turns) - 1 \
+            else turn.get("expect")
+        out.append((text if isinstance(text, str) else "",
+                    overlay_expect(every_turn, own)[0]))
+    return out
+
+
 def unsafe_case_id(case_id):
     """Why `case_id` cannot name a directory, or None when it can.
 

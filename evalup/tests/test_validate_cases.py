@@ -428,37 +428,67 @@ class TestWarnFindings(ValidateTest):
             self.assert_finds("source_derived_expectation",
                               [good_case(notes=notes)], severity="WARN")
 
-    def test_multi_turn_case_reserved(self):
+    def test_multi_turn_in_messages(self):
         """The inverse of the retired `single_turn_suite` warning.
 
-        That one fired when a suite had NO multi-turn coverage — recommending
-        the one thing run_cases.py refuses to run. Multi-turn is reserved, so
-        the finding is now per-case and fires ON the multi-turn case.
+        That one fired when a suite had NO multi-turn coverage. The finding
+        is per-case and fires ON a case that packs two user turns into
+        input.messages: the runner sends one user message and skips it. A
+        conversation is written as input.turns (TestConversationCases).
         """
         cases = [good_case(f"c-happy-{i}") for i in range(11)]
         # A single-turn suite is exactly what the harness wants: silent.
-        self.assertNotIn("multi_turn_case_reserved",
+        self.assertNotIn("multi_turn_in_messages",
                          self.codes(self.validate(cases)[1]))
         self.assertNotIn("single_turn_suite", self.codes(self.validate(cases)[1]))
         cases[0]["input"]["messages"] = [{"role": "user", "content": "a"},
                                          {"role": "assistant", "content": "b"},
                                          {"role": "user", "content": "c"}]
-        f = self.assert_finds("multi_turn_case_reserved", cases, severity="WARN")
+        f = self.assert_finds("multi_turn_in_messages", cases, severity="WARN")
         # Per-case: it names the case the author has to fix.
         self.assertEqual(f["case_id"], "c-happy-0")
         self.assertIn("2 user turns", f["message"])
-        # Prior assistant/system turns as fixed context do NOT trip it: one
-        # user message is one user turn regardless of what precedes it.
+        # Prior assistant/system messages do NOT trip it: one user message
+        # is one user turn. They trip not_one_user_message instead (SS0).
         cases[0]["input"]["messages"] = [{"role": "system", "content": "s"},
                                          {"role": "assistant", "content": "b"},
                                          {"role": "user", "content": "c"}]
-        self.assertNotIn("multi_turn_case_reserved",
+        self.assertNotIn("multi_turn_in_messages",
                          self.codes(self.validate(cases)[1]))
+
+    def test_context_messages_are_reported(self):
+        """docs/multi-turn.md SS0: run_cases.py sends exactly one user
+        message and SKIPS a case holding anything else. This used to say
+        prior system/assistant messages were "fine as fixed context" -- they
+        were never sent, and the case scored as if they had been."""
+        self.assertNotIn("not_one_user_message",
+                         self.codes(self.validate([good_case()])[1]))
+        for messages, fragment in (
+                ([{"role": "system", "content": "s"},
+                  {"role": "user", "content": "c"}], "system"),
+                ([{"role": "assistant", "content": "b"},
+                  {"role": "user", "content": "c"}], "assistant"),
+                ([], "no user message")):
+            with self.subTest(messages=messages):
+                case = good_case(input={"messages": messages})
+                f = self.assert_finds("not_one_user_message", [case],
+                                      severity="WARN")
+                self.assertEqual(f["case_id"], case["id"])
+                self.assertIn(fragment, f["message"])
+                self.assertIn("SKIP", f["message"])
+        # Two user turns keep their own finding, not this one as well.
+        case = good_case(input={"messages": [
+            {"role": "user", "content": "a"},
+            {"role": "assistant", "content": "b"},
+            {"role": "user", "content": "c"}]})
+        codes = self.codes(self.validate([case])[1])
+        self.assertIn("multi_turn_in_messages", codes)
+        self.assertNotIn("not_one_user_message", codes)
 
     def test_reserved_expectation_warns_beside_a_real_layer(self):
         """With a graded layer present the case is fine; the state key is dead
         weight, which is a WARN on Step 4's line (wasted authoring, no false
-        number) exactly as multi_turn_case_reserved is."""
+        number) exactly as multi_turn_in_messages is."""
         case = good_case("c-mixed", expect={"answer": {"must_contain": ["x"]},
                                             "state": {"unchanged": True}})
         f = self.assert_finds("reserved_expectation", [case], severity="WARN")
@@ -576,6 +606,127 @@ class TestWarnFindings(ValidateTest):
         # A suite of canaries only has nothing to say here.
         self.assertNotIn("nothing_gates", self.codes(self.validate(
             [canary])[1]))
+
+
+def conversation(case_id="c-convo-0001", turns=None, **overrides):
+    """good_case as a two-turn conversation: input.turns, final checks on
+    the top-level expect."""
+    case = good_case(case_id, **overrides)
+    case["input"] = {"turns": turns if turns is not None else [
+        {"user": "show me the licences for the Cairo team",
+         "expect": {"route": "licences"}},
+        {"user": "only the expired ones"}]}
+    return case
+
+
+class TestConversationCases(ValidateTest):
+    """docs/multi-turn.md SS1 / SS8's validator row."""
+
+    def test_a_well_formed_conversation_is_clean(self):
+        rc, out, err = self.validate(
+            [conversation(every_turn={"tools": {"forbidden": ["delete"]}})])
+        self.assertEqual((rc, out["findings"]), (0, []), err)
+
+    def test_turns_and_messages_are_exclusive(self):
+        case = conversation()
+        case["input"]["messages"] = [{"role": "user", "content": "x"}]
+        self.assert_finds("turns_and_messages", [case])
+
+    def test_one_turn_is_not_a_conversation(self):
+        for turns in ([{"user": "only one"}], []):
+            with self.subTest(turns=turns):
+                f = self.assert_finds("single_turn_conversation",
+                                      [conversation(turns=turns)])
+                self.assertIn("single-turn case", f["message"])
+
+    def test_a_turn_is_an_object_never_a_bare_string(self):
+        f = self.assert_finds("bad_turn", [conversation(
+            turns=["show me the licences", {"user": "only expired"}])])
+        self.assertIn("never a bare string", f["message"])
+        self.assert_finds("bad_turn", [conversation(
+            turns=[{"user": ""}, {"user": "only expired"}])])
+
+    def test_assistant_turns_are_reserved(self):
+        f = self.assert_finds("turn_key_reserved", [conversation(turns=[
+            {"user": "a", "assistant": "seeded reply"}, {"user": "b"}])])
+        self.assertIn("assistant", f["message"])
+        self.assert_finds("unknown_turn_key", [conversation(turns=[
+            {"user": "a", "expcet": {"route": "x"}}, {"user": "b"}])])
+
+    def test_the_final_turn_is_the_top_level_expect(self):
+        self.assert_finds("final_turn_expect", [conversation(turns=[
+            {"user": "a"}, {"user": "b", "expect": {"route": "x"}}])])
+
+    def test_long_conversation_warns(self):
+        turns = [{"user": f"turn {n}"} for n in range(9)]
+        f = self.assert_finds("long_conversation",
+                              [conversation(turns=turns)], severity="WARN")
+        self.assertIn("9 turns", f["message"])
+        self.assertNotIn("long_conversation", self.codes(self.validate(
+            [conversation(turns=turns[:8])])[1]))
+
+    def test_a_conversation_canary_is_an_error(self):
+        self.assert_finds("multi_turn_canary", [conversation(
+            split=["smoke", "full", "canary"], gating=False)])
+
+    def test_only_a_checkpoint_graded_says_so(self):
+        """The top-level expect is the final turn's claim: a checkpoint does
+        not make the case graded, and the message says where to put one."""
+        f = self.assert_finds("no_graded_layer",
+                              [conversation(expect={"http": {"status": 200}})])
+        self.assertIn("put a graded check on the final turn", f["message"])
+
+    def test_every_turn_counts_toward_the_final_turn(self):
+        """every_turn is copied into the final turn too, so its graded check
+        grades the case."""
+        case = conversation(expect={},
+                            every_turn={"answer": {"must_not_contain": ["x"]}})
+        self.assertNotIn("no_graded_layer",
+                         self.codes(self.validate([case])[1]))
+
+    def test_every_turn_collision(self):
+        case = conversation(
+            every_turn={"tools": {"forbidden": ["delete"]}},
+            expect={"answer": {"must_contain": ["invoice"]},
+                    "tools": {"forbidden": ["update"]}})
+        f = self.assert_finds("every_turn_collision", [case])
+        self.assertIn("every_turn.tools.forbidden", f["message"])
+        self.assertIn("final turn", f["message"])
+        # Different keys under one object merge, and that is not a collision.
+        case["expect"]["tools"] = {"subset": ["lookup"]}
+        self.assertNotIn("every_turn_collision",
+                         self.codes(self.validate([case])[1]))
+
+    def test_every_turn_needs_turns(self):
+        self.assert_finds("every_turn_without_turns", [good_case(
+            every_turn={"tools": {"forbidden": ["delete"]}})])
+
+    def test_checkpoints_get_the_per_expect_checks(self):
+        """A malformed checkpoint is as inert as a malformed expect, and the
+        finding names the turn rather than `expect`."""
+        f = self.assert_finds("string_not_list", [conversation(turns=[
+            {"user": "a", "expect": {"answer": {"must_contain": "x"}}},
+            {"user": "b"}])])
+        self.assertTrue(f["message"].startswith("input.turns[0].expect"),
+                        f["message"])
+        f = self.assert_finds("bad_order_mode", [conversation(
+            every_turn={"tools": {"order_mode": "loose"}})])
+        self.assertTrue(f["message"].startswith("every_turn"), f["message"])
+
+    def test_undeclared_conversation_warns_with_an_adapter(self):
+        adapter = self.write_json("adapter.json", {"invocation": {}})
+        f = self.assert_finds("conversation_undeclared", [conversation()],
+                              "--adapter", adapter, severity="WARN")
+        self.assertIn("invocation.conversation", f["message"])
+        adapter = self.write_json("adapter2.json", {"invocation": {
+            "conversation": {"style": "client-id"}}})
+        self.assertNotIn("conversation_undeclared", self.codes(self.validate(
+            [conversation()], "--adapter", adapter)[1]))
+
+    def test_echo_counts_every_user_turn(self):
+        case = conversation(
+            expect={"answer": {"must_contain": ["Cairo"]}})
+        self.assert_finds("echo_assertion", [case], severity="WARN")
 
 
 class TestExitContract(ValidateTest):

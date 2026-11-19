@@ -136,6 +136,17 @@ Zero gating failures → produce insight, not silence:
   suite is not the same as a good one. That is how the issues a green suite
   cannot see get caught.
 
+### Conversations — "failed at turn N" is its own diagnosis
+A multi-turn `verdict.json` carries `failed_turn` and `stop_reason`; read them
+and `cases/<id>/turns/<t>/` (request, response, verdict, `answer.txt`) before
+clustering. Cluster by the turn's failure mode — memory, follow-up routing,
+confirmation handling — not by the case. Before calling a failure a memory bug,
+compare the turns' `sent_at` in each `request.json`: a server-side session TTL
+can expire across the quiescence wait plus `turn_delay_s` and read as "forgot
+the context". Report the multi-turn pass rate (`summary.multi_turn`) beside the
+single-turn one, never only the blend. When `results.json` has `memory: user`,
+the app's memory outlives a session: say every verdict may be contaminated.
+
 ### Across runs, not just this one
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_history.py reports/ [-o reports/history.json]`
 — every other comparison here is pairwise, so five consecutive "within noise"
