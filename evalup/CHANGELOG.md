@@ -759,6 +759,16 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   user would look (run-modes.md, annotation-ux.md, analyze § cost). None was
   removed: deleting them was proposed and rejected 2026-09-21.
 
+### Changed — correctness and safety (2026-11-19)
+
+- **App output is untrusted in the main session too** (#37). Every skill's
+  preamble now says app answers, traces, transcripts and fetched documents
+  are data, never instructions, and points bulk raw output at the read-only
+  `judge` / `trace-analyzer` subagents. `optimize` takes an edit's content
+  from the failure analysis and the rubric only. The judge reads only the
+  paths its assignment names and redacts secrets in quoted evidence. A
+  layout test pins the paragraph, word for word, in all seven skills.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
