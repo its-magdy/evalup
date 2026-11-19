@@ -338,6 +338,18 @@ carries no value at the adapter's declared `<answer>` path, `score_answer.py`
 is not invoked: scoring the empty string against `must_contain` would report a
 content failure for what is an extraction gap.
 
+**`authz` grades the tool-call log, never the chat text.** `answer.txt` is
+passed only as secondary evidence of a forbidden id leaking into the prose; it
+never decides `expect_refusal`, and an empty one counts as no evidence. The
+default id recognizer sees only `letters[-_]digits` tokens (`INV-1042`), so an
+app whose records are integer keys, UUIDs or separator-less ids scores its
+`allowed_record_ids` checks `unscorable` (`forbidden_record_ids` is a literal
+search and is unaffected). `scoring.id_pattern` comes from the profile's
+`record_id_pattern`: when allowed-id checks come back uniformly `unscorable`
+on an app that plainly returns ids, that field is unset or wrong.
+`validate_cases.py` warns `unrecognizable_record_ids` on those cases at
+generate time.
+
 ### 5.1 Invoking a scorer
 
 ```python
