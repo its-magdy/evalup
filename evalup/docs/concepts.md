@@ -48,8 +48,8 @@ whose tools get renamed weekly produces only maintenance pain.
 
 | Stage | What runs |
 |---|---|
-| `pre-stability` | Invariants: crash rate, responds-always, format, loops, refusals |
-| `stable` | + routing, tool selection/args, trajectory (subset default) |
+| `pre-stability` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool selection/args — every layer but trajectory |
+| `stable` | + trajectory (subset default) |
 | `traffic` | + real-trace mining, judge calibration (judged layers are not scored at run time yet) |
 | `production` | + online sampling, monitoring-window release validation |
 

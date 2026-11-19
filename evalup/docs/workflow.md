@@ -42,8 +42,9 @@ ones, and synthetic data cannot tell you how common a failure is.
    code can't say (route-target boundaries for router/multi-agent apps,
    never-rules).
 2. Note the **stage** it assigned. `pre-stability` is normal for an app under
-   active development: you get crash rate, format, loops, refusals — and an
-   explicit list of what unlocks when boundaries stabilize.
+   active development: you get crash rate, format, loops, refusals, answer
+   checks, routing and tool selection — everything but trajectory matching,
+   which unlocks when boundaries stabilize.
 3. `/evalup:generate` → ~30 cases, with a sealed holdout. Review the ~15 it
    flags (15 minutes).
 4. `/evalup:run --baseline` → the pinned baseline. The routing confusion

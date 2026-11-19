@@ -15,7 +15,7 @@ generated: 2026-07-18            # updated by discover; --diff compares against 
 app_git_sha: abc1234             # code state this profile describes
 
 stage: pre-stability | stable | traffic | production
-# pre-stability: invariant checks only. stable: + trajectory layers.
+# pre-stability: every layer but trajectory (see capability_matrix). stable: + trajectory.
 # traffic: + trace mining/real-seeded data. production: + online evals.
 
 architecture:

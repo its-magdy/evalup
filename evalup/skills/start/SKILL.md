@@ -154,10 +154,10 @@ lean path would have skipped and let them choose.
 
    Naming the stage is not enough on its own — "stage: pre-stability" means nothing
    to someone who has not read that table, so always spell out the one or
-   two things it currently gates. Do this on every reply, including the ones
-   that route to a blocked or broken state (check 2 and a dangling
-   baseline pointer in 3). Those are precisely the moments a user is deciding
-   how much more to invest, and the stage tells them what the work will buy.
+   two things it currently gates. Do this in your first reply and in any
+   reply where the stage changes — including one that routes to a blocked or
+   broken state (check 2 and a dangling baseline pointer in 3), since that is
+   when a user decides how much more to invest. Otherwise do not repeat it.
 
 4. **First-session extras** (only when the state location was just created):
    - Tell the user where everything was written and that it should be

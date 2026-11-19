@@ -201,10 +201,13 @@ For every patch declined or not offered:
 ### 6. Assess maturity → set the stage
 Ask the user, and check git history: are the app's route-target and tool
 boundaries stable, or still changing week to week?
-- Churning → `stage: pre-stability`. Only invariant checks apply: crash rate,
-  responds-always, format compliance, loop detection, refusal of the adversarial
-  set. Say plainly that full trajectory eval would rot within a week, then name
-  what you track instead and what unlocks when.
+- Churning → `stage: pre-stability`. Every layer but trajectory applies:
+  invariants (crash rate, responds-always, format, loops, refusal of the
+  adversarial set), answer checks, routing and tool selection — the matrix in
+  [references/profile-schema.md](references/profile-schema.md) sets
+  `trajectory` off with `blocked_by: "stage: pre-stability"`. Say plainly that
+  full trajectory eval would rot within a week, then name what you track
+  instead and what unlocks when.
 - Stable → `stage: stable`; trajectory layers apply.
 - Real traffic exists → also enable analyze's trace-mining paths.
 
