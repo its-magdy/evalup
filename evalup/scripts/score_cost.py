@@ -188,6 +188,7 @@ from _common import (
     die,
     load_json,
     require_range,
+    scoring_comparison,
     write_output,
 )
 from stats import binom_one_sided_p
@@ -784,6 +785,9 @@ def load_run(run_dir):
             "k": manifest.get("k"),
             "dataset_version": results.get("dataset_version"),
             "harness_version": results.get("harness_version"),
+            "scoring_version": (results.get("scoring_version")
+                                if results.get("scoring_version") is not None
+                                else manifest.get("scoring_version")),
             "selecting_split": manifest.get("selecting_split"),
             "app_git_sha": ((manifest.get("app") or {}).get("git_sha")
                             if isinstance(manifest.get("app"), dict) else None),
@@ -823,10 +827,16 @@ def comparability(base, cand):
     makes no decision, so a mismatched pair is a caveat on a number rather than
     an input the runner would reject."""
     notes = []
+    # #38: the scoring version is the key; the plugin version is not. A run
+    # older than the field falls back to harness_version, and says so.
+    _, mismatch, warning = scoring_comparison(base["meta"], cand["meta"])
+    if mismatch:
+        notes.append(f"{mismatch} -- a different scoring version changes "
+                     "what a verdict means")
+    if warning:
+        notes.append(warning)
     for key, why in (("dataset_version", "a different suite is a different "
                                          "denominator"),
-                     ("harness_version", "a different harness changes what a "
-                                         "verdict means"),
                      ("k", "a different k prices a different number of "
                            "repeats per case"),
                      ("selecting_split", "a different split selects a "

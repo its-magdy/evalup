@@ -78,7 +78,7 @@ plan, or any case body, by hand** — three scripts do it, in this order:
 
 ```
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <work-dir>/converted.json --split-dir <work-dir>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json [--manifest <work-dir>/manifest.json]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json --profile <work-dir>/profile.json [--manifest <work-dir>/manifest.json]
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
 ```
 
@@ -193,11 +193,11 @@ app's score.
 
 ## 4. Baseline and the holdout ledger
 
-- **`reports/baseline.json`** (`{"run_id", "dataset_version", "harness_version"}`)
+- **`reports/baseline.json`** (`{"schema_version": 1, "run_id", "dataset_version", "scoring_version"}`, the last two copied from the run's `manifest.yaml`)
   is the one file naming the baseline. Read it; never take the newest
   `reports/` entry by mtime. Pass `reports/<its run_id>/verdicts_for_stats.jsonl`
   to `--baseline-verdicts` and the runner enforces the diff's rules — same
-  dataset and harness version, same `k` — before any spend. **Never prune
+  dataset and scoring version, same `k` — before any spend. **Never prune
   `reports/` by age without reading this pointer**: deleting the pinned run
   costs every future diff.
 - **First run** — no pointer — is a branch, not an error. Run

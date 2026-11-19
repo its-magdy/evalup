@@ -18,19 +18,57 @@ import threading
 import unicodedata
 from collections.abc import Hashable
 
-# The comparability key. run/SKILL.md refuses a baseline diff across differing
-# harness versions (a scorer change alters what a number means), so the value
-# has to come from the harness itself rather than being invented by the
-# orchestrating skill. Bump this in lockstep with .claude-plugin/plugin.json —
-# tests/test_scorers.py asserts the two match.
+# The plugin's version, for display and provenance. Bump this in lockstep with
+# .claude-plugin/plugin.json — tests/test_scorers.py asserts the two match. It
+# is NOT the comparability key any more (#38): a release that only fixes a
+# skill's prose must not make every pinned baseline incomparable.
 HARNESS_VERSION = "0.1.0"
+
+# The comparability key (#38). Two runs are comparable only at the same
+# SCORING_VERSION. BUMP IT (by one) when a change alters what a recorded
+# verdict MEANS: a scorer's meaning, a default threshold a verdict or a keep
+# depends on, or the runner's verdict rules (roll-up, pass^k fold, what counts
+# as infra). Do not bump it for prose, skills, transport, new flags or
+# refactors that leave every verdict identical. CONTRIBUTING.md has the rule.
+SCORING_VERSION = 1
+
+# What every state file the plugin writes declares (`schema_version: 1`):
+# profile.yaml, adapter.yaml, case files, plan.json, the run manifest.
+# validate_cases.py warns on a missing or older value; it never errors.
+SCHEMA_VERSION = 1
+
+
+def scoring_comparison(theirs, ours):
+    """Are two run records (manifest.yaml or results.json dicts) comparable on
+    the scoring axis? Returns (comparable, mismatch_text, warning_text).
+
+    Both carry `scoring_version`: they must be equal. Either one predates the
+    field (a run written before #38): fall back to the OLD key, harness_version
+    equality, and say so in `warning_text` -- never a crash, never a silent
+    pass. `theirs` is the older/baseline side in the messages."""
+    a, b = theirs.get("scoring_version"), ours.get("scoring_version")
+    if a is not None and b is not None:
+        if a == b:
+            return True, None, None
+        return False, f"scoring_version: baseline {a!r}, this run {b!r}", None
+    side = "the baseline" if a is None else "this run"
+    warning = (
+        f"{side} predates scoring_version (written before evalup recorded "
+        "it); compared on harness_version instead, the old rule. Pin a fresh "
+        "baseline to drop this warning.")
+    ha, hb = theirs.get("harness_version"), ours.get("harness_version")
+    if ha == hb:
+        return True, None, warning
+    return False, f"harness_version: baseline {ha!r}, this run {hb!r}", warning
 
 
 def add_version_flag(ap):
     """Every scorer answers --version with the same string, so a run manifest
-    can record the harness version mechanically."""
+    can record the harness version mechanically -- and a skill can read the
+    scoring version it compares a pinned baseline's against (#38)."""
     ap.add_argument("--version", action="version",
-                    version=f"evalup harness {HARNESS_VERSION}")
+                    version=f"evalup harness {HARNESS_VERSION} "
+                            f"(scoring {SCORING_VERSION})")
     return ap
 
 

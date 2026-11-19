@@ -5,10 +5,12 @@ versioning follows [SemVer][semver]. `0.x` means the interfaces may still
 change — the case format, the adapter contract and the runner's CLI most of
 all.
 
-The harness version is recorded in every run's `manifest.yaml`, and a run is
-only comparable to a baseline of the **same** version: a different harness
-version changes what a verdict means. Expect a version bump to invalidate
-baselines.
+Every run's `manifest.yaml` records the harness (plugin) version and the
+**scoring version**, and a run is only comparable to a baseline of the
+**same scoring version**: that number is bumped only when a verdict's meaning
+changes (a scorer, a default threshold, the runner's verdict rules), so a
+release that changes no verdict leaves baselines comparable. A section below
+says when a release bumps it.
 
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
@@ -768,6 +770,21 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   from the failure analysis and the rubric only. The judge reads only the
   paths its assignment names and redacts secrets in quoted evidence. A
   layout test pins the paragraph, word for word, in all seven skills.
+- **A release no longer invalidates every baseline** (#38).
+  `_common.SCORING_VERSION` (1) is the comparability key in the runner's
+  baseline diff, `make_plan.py --failing-in`, `run_history.py`'s series key
+  and `score_cost.py`'s pair check; `harness_version` stays equal to the
+  plugin version, for provenance. A run written before the field is compared
+  on `harness_version` with a warning, never a crash. `--version` prints
+  `(scoring N)`. `reports/baseline.json` is `{"schema_version", "run_id",
+  "dataset_version", "scoring_version"}`.
+- **State files carry `schema_version: 1`** (#38): every case file,
+  `adapter.yaml` and `profile.yaml` (renamed from the never-read
+  `adapter_version` / `profile_version`), `datasets/dataset.yaml`, the run
+  manifest and `reports/baseline.json`. `validate_cases.py` warns on a
+  missing, older or newer value and names the migration — a WARN that
+  `--strict` does not promote. It gains `--profile`, and `convert_suite.py
+  --split-dir` writes the `profile.json` it reads.
 
 ### Fixed — the 2026-09-21 shape audit
 

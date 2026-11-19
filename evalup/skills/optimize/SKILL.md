@@ -168,8 +168,8 @@ make gains real instead of overfit.
    regression diff against a holdout run pairs zero case ids and `stats.py`
    dies. It is step 4's run when that was a plain `/evalup:run --regression`
    of this edit (no `--targeted`, no `--single-turn`); otherwise run one now.
-   Write `reports/baseline.json` as exactly `{"run_id", "dataset_version",
-   "harness_version"}` — copy the last two from that run's `manifest.yaml`,
+   Write `reports/baseline.json` as exactly `{"schema_version": 1, "run_id",
+   "dataset_version", "scoring_version"}` — copy the last two from that run's `manifest.yaml`,
    never from memory (a partial object silently breaks every later diff).
    Fail or no evidence → revert as step 4 says, verify the blob, keep the
    reflection (it prunes the next hypothesis). Always report regressions on

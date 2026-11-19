@@ -81,6 +81,7 @@ class HistoryCase(unittest.TestCase):
             "selecting_split": "smoke",
             "started_at": started_at or "2026-09-01T00:00:00Z",
             "harness_version": "0.1.0",
+            "scoring_version": 1,
             "dataset_version": 1,
             "capability_matrix": DEFAULT_MATRIX,
             "app": {"name": "app", "git_sha": "aaaa", "git_tree": "clean"},
@@ -282,12 +283,31 @@ class TestSeries(HistoryCase):
         # SS5.6/D7 verbatim: pass^k over different k are different quantities.
         self.assertEqual(self.two_runs_differing_by(k=3)["series_count"], 2)
 
-    def test_a_different_dataset_or_harness_version_splits_the_series(self):
-        for key, value in (("dataset_version", 2), ("harness_version", "0.2")):
+    def test_a_different_dataset_or_scoring_version_splits_the_series(self):
+        for key, value in (("dataset_version", 2), ("scoring_version", 2)):
             self.setUp()
             self.assertEqual(
                 self.two_runs_differing_by(**{key: value})["series_count"], 2,
                 key)
+
+    def test_a_plugin_release_alone_keeps_one_series(self):
+        # #38: harness_version is the plugin version, provenance only.
+        self.assertEqual(
+            self.two_runs_differing_by(harness_version="0.2.0")
+            ["series_count"], 1)
+
+    def test_runs_older_than_scoring_version_key_on_harness_version(self):
+        # A run written before the field existed keeps the old key, so two of
+        # them at different plugin versions still split, and neither joins a
+        # series of runs that do record scoring_version.
+        for name, day, harness in (("smoke-20260901T120000Z", "01", "0.1.0"),
+                                   ("smoke-20260902T120000Z", "02", "0.2.0")):
+            self.write_run(name, cases=[("c-1", "pass")],
+                           started_at=f"2026-09-{day}T12:00:00Z",
+                           scoring_version=None, harness_version=harness)
+        self.write_run("smoke-20260903T120000Z", cases=[("c-1", "pass")],
+                       started_at="2026-09-03T12:00:00Z")
+        self.assertEqual(self.history()["series_count"], 3)
 
     def test_a_different_selecting_split_splits_the_series(self):
         # The key SS5.6's PAIR rule does not have. stats.py survives a split

@@ -744,8 +744,11 @@ class TestConvertSuite(TempDirTest):
         self.assertEqual(rc, 0, err)
         rc, out, err = run("validate_cases.py", "--strict",
                            "--cases", str(split / "suite.json"),
-                           "--capabilities", str(split / "capabilities.json"))
+                           "--capabilities", str(split / "capabilities.json"),
+                           "--adapter", str(split / "adapter.json"),
+                           "--profile", str(split / "profile.json"))
         self.assertEqual(rc, 0, out + err)
+        # Zero findings includes #38's schema_version on every state file.
         self.assertEqual(json.loads(out)["findings"], [])
 
     def test_output_parent_is_created_like_split_dir(self):

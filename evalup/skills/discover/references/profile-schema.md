@@ -10,7 +10,7 @@ profile: `app.repo_access: read-write | read-only` and `state_location`
 [adapter-contract.md](adapter-contract.md)'s first block.
 
 ```yaml
-profile_version: 1
+schema_version: 1                # evalup state-file layout; validate_cases.py warns without it
 generated: 2026-07-18            # updated by discover; --diff compares against this
 app_git_sha: abc1234             # code state this profile describes
 

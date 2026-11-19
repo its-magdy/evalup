@@ -226,7 +226,7 @@ tooling.
 ## Full worked adapter.yaml (illustrative — RefApp shape)
 
 ```yaml
-adapter_version: 1
+schema_version: 1
 app:
   name: refapp
   repo: .

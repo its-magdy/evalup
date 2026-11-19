@@ -11,7 +11,7 @@
     "source of truth; tests/test_example.py holds the two apart."
   ],
   "adapter": {
-    "adapter_version": 1,
+    "schema_version": 1,
     "app": {
       "name": "helpdesk-demo",
       "repo": ".",
@@ -93,6 +93,7 @@
   },
   "cases": [
     {
+      "schema_version": 1,
       "id": "c-2d7c6a11",
       "unit": "shifts",
       "split": [
@@ -141,6 +142,7 @@
       "gating": true
     },
     {
+      "schema_version": 1,
       "id": "c-3a5e47d9",
       "unit": "shifts",
       "split": [
@@ -189,6 +191,7 @@
       "gating": true
     },
     {
+      "schema_version": 1,
       "id": "c-4f2a91c7",
       "unit": "invoices",
       "split": [
@@ -240,6 +243,7 @@
       "gating": true
     },
     {
+      "schema_version": 1,
       "id": "c-6c1f82ab",
       "unit": "invoices",
       "split": [
@@ -285,6 +289,7 @@
       "gating": true
     },
     {
+      "schema_version": 1,
       "id": "c-8b13d0e5",
       "unit": "shifts",
       "split": [
@@ -334,6 +339,7 @@
       "gating": true
     },
     {
+      "schema_version": 1,
       "id": "c-9e05b3f4",
       "unit": "app",
       "split": [

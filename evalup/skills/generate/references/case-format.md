@@ -5,6 +5,9 @@ One file per case. Conversation content uses the OpenAI-schema message array
 case; everything a human reviews is readable without tooling.
 
 ```yaml
+schema_version: 1                   # the case file's layout version (#38). Write
+                                    # it; validate_cases.py WARNs when it is
+                                    # missing, older or newer, never errors.
 id: c-3f9a2c1d                      # OPAQUE and stable forever: c-<hash8>.
                                     # Names the cases/<id>/ directory: 1-128 of
                                     # [A-Za-z0-9._-], starting with a letter or

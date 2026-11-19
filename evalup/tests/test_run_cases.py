@@ -2387,12 +2387,16 @@ class TestBaselineComparison(RunnerCase):
 
     responder = staticmethod(health_only(ok_responder))
 
-    def a_baseline(self, run_id="smoke-20260907T120000Z", **manifest_kw):
+    def a_baseline(self, run_id="smoke-20260907T120000Z", drop=(),
+                   **manifest_kw):
         directory = self.state / "reports" / run_id
         directory.mkdir(parents=True)
         manifest = {"run_id": run_id, "k": 1, "dataset_version": 1,
-                    "harness_version": run_cases.HARNESS_VERSION}
+                    "harness_version": run_cases.HARNESS_VERSION,
+                    "scoring_version": run_cases.SCORING_VERSION}
         manifest.update(manifest_kw)
+        for key in drop:
+            manifest.pop(key)
         (directory / "manifest.yaml").write_text(json.dumps(manifest),
                                                  encoding="utf-8")
         (directory / "verdicts_for_stats.jsonl").write_text(
@@ -2445,6 +2449,67 @@ class TestBaselineComparison(RunnerCase):
             plan, extra_argv=["--baseline-verdicts", str(baseline)])
         self.assertEqual(rc, 2)
         self.assertIn("dataset_version", payload["error"])
+
+    def test_a_plugin_release_alone_leaves_the_baseline_comparable(self):
+        """#38 (a): the plugin version is provenance. A baseline pinned under
+        another release, at the same scoring version, still diffs."""
+        baseline = self.a_baseline(harness_version="0.0.1")
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        rc, _, proc = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        comparison = self.read("comparison.json")
+        self.assertEqual(comparison["n"], 2)
+        self.assertNotIn("comparability_warning", comparison)
+        manifest = self.read("manifest.yaml")
+        self.assertEqual(manifest["scoring_version"],
+                         run_cases.SCORING_VERSION)
+        self.assertEqual(manifest["harness_version"],
+                         run_cases.HARNESS_VERSION)
+        self.assertEqual(self.read("results.json")["scoring_version"],
+                         run_cases.SCORING_VERSION)
+
+    def test_a_different_scoring_version_is_refused_before_any_spend(self):
+        """#38 (b): a scoring change alters what a verdict means."""
+        baseline = self.a_baseline(
+            scoring_version=run_cases.SCORING_VERSION + 1)
+        plan = make_plan(self.state, self.app.base_url)
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 2)
+        ours = run_cases.SCORING_VERSION
+        self.assertIn(f"scoring_version: baseline {ours + 1}, this run {ours}",
+                      payload["error"])
+        self.assertFalse(self.out_dir().exists())
+        self.assertEqual([c for c in self.app.calls], [])
+
+    def test_a_baseline_older_than_scoring_version_warns_not_crashes(self):
+        """#38 (c): a manifest written before the field existed is compared
+        on harness_version, the old rule, and says so on stderr and in
+        comparison.json."""
+        baseline = self.a_baseline(drop=("scoring_version",))
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        rc, _, proc = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("predates scoring_version", proc.stderr)
+        self.assertIn("predates scoring_version",
+                      self.read("comparison.json")["comparability_warning"])
+
+    def test_an_old_baseline_at_another_release_is_still_refused(self):
+        """The fallback is the OLD rule, not no rule."""
+        baseline = self.a_baseline(drop=("scoring_version",),
+                                   harness_version="0.0.1")
+        plan = make_plan(self.state, self.app.base_url)
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 2)
+        self.assertIn("harness_version: baseline '0.0.1'", payload["error"])
+        self.assertIn("predates scoring_version",
+                      payload["comparability_warning"])
 
     def test_a_baseline_without_its_manifest_is_refused(self):
         """Version equality and the k-match are the comparison's rules, and

@@ -93,10 +93,20 @@ emitted, 1 when any was, 2 on malformed input ({"error": ...} on stdout, the
 shared contract in _common.die). Warnings alone never fail; --strict promotes
 every WARN to ERROR for a gating CI job.
 
+STATE-FILE SCHEMA VERSIONS (#38). Every state file evalup writes declares
+`schema_version` (_common.SCHEMA_VERSION): each case, adapter.yaml,
+profile.yaml (--profile), datasets/dataset.yaml (--manifest). A missing,
+older or newer value is a WARN that names the migration -- and the one WARN
+--strict does NOT promote: a file written by an older evalup is a migration
+to do, not a claim the suite fails to back, and failing a gating CI job on it
+would be the release-breaks-everything problem #38 removes, in another form.
+The pre-#38 keys `profile_version` / `adapter_version` are read as the old
+name of the same field.
+
 Usage: validate_cases.py --cases <file.json|->
                          (--capabilities <file.json> | --no-capabilities)
                          [--strict] [--manifest <file.json>]
-                         [--adapter <file.json>]
+                         [--adapter <file.json>] [--profile <file.json>]
 """
 import argparse
 import json
@@ -106,6 +116,7 @@ import sys
 from _common import (
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
+    SCHEMA_VERSION,
     BadJSON,
     RegexTimeout,
     add_version_flag,
@@ -228,8 +239,58 @@ class Report:
             "severity": "ERROR" if self.strict else "WARN",
             "code": code, "message": message})
 
+    def advise(self, case_id, code, message):
+        """A WARN that --strict leaves a WARN. Only the schema_version
+        findings use it; see the module docstring for why."""
+        self.findings.append({"case_id": case_id, "severity": "WARN",
+                              "code": code, "message": message})
+
     def has_errors(self):
         return any(f["severity"] == "ERROR" for f in self.findings)
+
+
+# What each state file is called in a finding, the skill that rewrites it,
+# and the pre-#38 key that meant the same thing.
+SCHEMA_FILES = {
+    "case": ("the case file", "/evalup:generate", None),
+    "adapter": ("adapter.yaml", "/evalup:discover", "adapter_version"),
+    "profile": ("profile.yaml", "/evalup:discover", "profile_version"),
+    "manifest": ("datasets/dataset.yaml", "/evalup:generate", None),
+}
+
+
+def check_schema_version(rep, doc, kind, case_id=None):
+    """WARN on a missing, older or newer `schema_version` (#38). Never an
+    error, and never promoted by --strict."""
+    name, skill, legacy = SCHEMA_FILES[kind]
+    value = doc.get("schema_version")
+    migrate = (f"add `schema_version: {SCHEMA_VERSION}` at the top of "
+               f"{name} (unversioned files differ from version "
+               f"{SCHEMA_VERSION} in nothing else), or let {skill} rewrite it")
+    if value is None:
+        if legacy and doc.get(legacy) is not None:
+            rep.advise(case_id, "schema_version_missing",
+                       f"{name} has `{legacy}: {doc.get(legacy)!r}`, the "
+                       f"pre-#38 name of `schema_version` -- rename the key "
+                       f"to `schema_version: {SCHEMA_VERSION}`, or let "
+                       f"{skill} rewrite it")
+        else:
+            rep.advise(case_id, "schema_version_missing",
+                       f"{name} has no schema_version: it was written by an "
+                       f"evalup older than the field -- {migrate}")
+    elif type(value) is not int:
+        rep.advise(case_id, "schema_version_invalid",
+                   f"{name}: schema_version {value!r} is not an integer -- "
+                   f"set it to {SCHEMA_VERSION}")
+    elif value < SCHEMA_VERSION:
+        rep.advise(case_id, "schema_version_old",
+                   f"{name} is at schema_version {value}, this evalup writes "
+                   f"{SCHEMA_VERSION} -- {migrate}")
+    elif value > SCHEMA_VERSION:
+        rep.advise(case_id, "schema_version_newer",
+                   f"{name} is at schema_version {value}, newer than this "
+                   f"evalup understands ({SCHEMA_VERSION}) -- update the "
+                   "plugin before trusting this lint")
 
 
 def load_json_object(path, what):
@@ -1366,6 +1427,9 @@ def main():
                          "(clarify_ok, route under route_from_status) and "
                          "warns on attack cases environment.safe_to_attack "
                          "would skip")
+    ap.add_argument("--profile",
+                    help="JSON profile (convert_suite.py --split-dir writes "
+                         "profile.json); checked for its schema_version only")
     ap.add_argument("--manifest",
                     help="JSON with dataset.yaml's cases/splits/coverage_grid "
                          "fields (caller extracts them with its own YAML "
@@ -1408,8 +1472,15 @@ def main():
     records = [check_case(rep, case, all_ids, enabled, index=i)
                for i, case in enumerate(cases)]
     categories = check_suite(rep, cases, records)
+    for case in cases:
+        if isinstance(case, dict):
+            check_schema_version(rep, case, "case", case.get("id"))
+    if a.profile:
+        check_schema_version(rep, load_json_object(a.profile, "the profile"),
+                             "profile")
     if a.adapter:
         adapter = load_json_object(a.adapter, "the adapter")
+        check_schema_version(rep, adapter, "adapter")
         check_adapter(rep, cases, records, adapter)
     if a.manifest:
         text = sys.stdin.read() if a.manifest == "-" else load_text(a.manifest)
@@ -1420,6 +1491,7 @@ def main():
         if not isinstance(manifest, dict):
             die(f"{a.manifest}: expected a JSON object (dataset.yaml's "
                 f"fields), got {type(manifest).__name__}")
+        check_schema_version(rep, manifest, "manifest")
         check_manifest(rep, cases, records, manifest)
 
     layer_counts = {layer: sum(1 for r in records if layer in r["graded"])

@@ -1,6 +1,7 @@
 # INV: the same question, phrased as a fragment. The expectation MUST NOT move
 # -- that is the whole assertion, and it is why this case is the cheapest
 # coverage in the grid: it inherits its parent's labels and gold answer.
+schema_version: 1
 id: c-2d7c6a11
 unit: shifts
 split: [full, smoke]

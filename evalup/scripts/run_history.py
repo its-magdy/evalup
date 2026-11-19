@@ -3,7 +3,7 @@
 
 Every comparison this harness makes is PAIRWISE: `stats.py` pairs one candidate
 against one baseline, and `run_cases.py` SS5.6 refuses that pair unless the two
-runs agree on `dataset_version`, `harness_version` and `k`. Nothing ever looked
+runs agree on `dataset_version`, `scoring_version` and `k`. Nothing ever looked
 at more than two runs at once, so five consecutive "within noise" diffs could
 hide a ten-point erosion and no artifact would say so. This script is that
 missing view: it groups a `reports/` directory into COMPARABLE SERIES, emits a
@@ -26,9 +26,11 @@ has to encode which direction is good for which metric (down is bad for
 WHAT COUNTS AS ONE SERIES. SS5.6 enforces three keys on a PAIR; a series of N
 needs those and two more, because a pair is joined by case-id INTERSECTION and
 a series of aggregates has no intersection step to absorb a mismatch:
-  dataset_version, harness_version, k  -- SS5.6/D7 verbatim. A different
-      dataset or harness changes what a verdict MEANS; a different k pairs
-      pass^k verdicts computed over different numbers of trials.
+  dataset_version, scoring_version, k  -- SS5.6/D7 verbatim. A different
+      dataset or scoring version changes what a verdict MEANS; a different k
+      pairs pass^k verdicts computed over different numbers of trials. (A run
+      written before scoring_version existed is keyed on harness_version,
+      the old key, so old and new runs never share a series.)
   mode + selecting_split -- NOT in SS5.6's pair rule, and it has to be here.
       `selecting_split` decides which cases are selected at all (the runner
       refuses a case whose `split` does not contain it), so a 4-case smoke run
@@ -64,7 +66,8 @@ it. `results.json` carries no timestamp, no `k`, no `selecting_split` and no
 the numbers from `results.json` -- both are REQUIRED_ALWAYS (SS9(b)), so this
 needs no new artifact and no contract change:
   manifest.yaml  -> run_id, started_at, mode, k, selecting_split,
-                    dataset_version, harness_version, capability_matrix,
+                    dataset_version, scoring_version, harness_version,
+                    capability_matrix,
                     app.git_sha/.git_tree, cases[].sha256, traces
   results.json   -> summary.{n,passes,failures,gating_failures,unscored,
                     skipped,infra_rate,crash_rate,scorer_errors,canaries,
@@ -354,7 +357,14 @@ def series_key(manifest):
         "selecting_split": manifest.get("selecting_split"),
         "k": manifest.get("k"),
         "dataset_version": manifest.get("dataset_version"),
-        "harness_version": manifest.get("harness_version"),
+        # #38: the key is scoring_version; a plugin release that changes no
+        # verdict stays on one line. A run written before the field existed
+        # is keyed on its harness_version (the old key) instead, so it never
+        # joins a series it cannot be shown to belong to.
+        "scoring_version": manifest.get("scoring_version"),
+        "harness_version": (manifest.get("harness_version")
+                            if manifest.get("scoring_version") is None
+                            else None),
         "capabilities": capability_fingerprint(
             manifest.get("capability_matrix")),
     }
@@ -846,7 +856,7 @@ def main():
         "alpha": a.alpha,
         "comparability": (
             "runner-contract.md SS5.6 requires dataset_version, "
-            "harness_version and k to match for a PAIR; a series of N adds "
+            "scoring_version and k to match for a PAIR; a series of N adds "
             "mode + selecting_split (which decides the case set, and a mean "
             "has no intersection step to absorb a mismatch) and the "
             "enabled-layer set (which decides what `pass` means). The app's "

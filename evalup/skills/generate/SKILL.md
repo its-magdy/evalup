@@ -275,6 +275,7 @@ optional too; the ones the scripts read are exactly these, and each count is
 checked against the case files:
 
 ```yaml
+schema_version: 1           # every state file declares it; validate_cases.py warns without it
 dataset_version: 1          # int; make_plan.py pins it into the run manifest
 cases: 12                   # total case files
 splits: { full: 12, smoke: 5 }

@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-956 tests, ~2.5 min (136–168 s measured 2026-11-19), the blessed command.
+980 tests, ~2.5 min (136–168 s measured 2026-11-19), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,9 +43,9 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 946 passed, 10 skipped, 349 subtests.
+whatever `python3` happens to be. Expect 970 passed, 10 skipped, 363 subtests.
 All ten skips need PyYAML (nine are `convert_suite.py`'s, one is the
-example's fidelity check); add `--with pyyaml` and they run (956 passed, none
+example's fidelity check); add `--with pyyaml` and they run (980 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -173,6 +173,22 @@ it is Linux-only.
   `--oos-route` maps a profile's route onto it.
 - **The scorers' error contract puts errors on STDOUT** as JSON with exit 2
   (`_common.die()`), not stderr.
+- **`SCORING_VERSION` is the comparability key; `HARNESS_VERSION` is not.**
+  `HARNESS_VERSION` follows `plugin.json` on every release (a test pins it)
+  and is provenance only. Bump `_common.SCORING_VERSION` by one, in the same
+  commit, whenever a change alters what a recorded verdict MEANS: a scorer's
+  meaning, a default threshold a verdict or a keep depends on (`stats.py`'s
+  `--bayes-threshold`, a mode's default `k`), or the runner's verdict rules
+  (roll-up, the pass^k fold, what counts as infra). Never bump it for prose,
+  skills, transport, new flags or a refactor that leaves every verdict
+  byte-identical — that would invalidate every user's baseline for nothing.
+  Say the bump in CHANGELOG.
+- **Every state file declares `schema_version`** (`_common.SCHEMA_VERSION`):
+  case files, `adapter.yaml`, `profile.yaml`, `datasets/dataset.yaml`, the run
+  manifest, `reports/baseline.json`. Bump it when a file's layout changes,
+  and teach `validate_cases.check_schema_version` the migration it names.
+  Its findings are the one WARN `--strict` does not promote. `plan.json` keeps
+  its own `plan_version` and is rebuilt every run, so it carries none.
 
 ## Path convention
 

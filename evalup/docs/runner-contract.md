@@ -67,7 +67,7 @@ run_cases.py --verify <reports/<run-id>>
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
 | `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
-| `--version` | `evalup harness <HARNESS_VERSION>`, via `_common.add_version_flag`, same string as every scorer. |
+| `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
 
 There are no other flags. Mode, k, filters, and selection are **already
 resolved** in the plan — the runner does not know what `--smoke` means, and does
@@ -599,13 +599,22 @@ manifest is absent would be precisely the silent pass D3 folded this diff into
 the runner to prevent.
 
 It is folded in rather than left to the skill because the diff has **rules** —
-same `dataset_version` *and* same `harness_version`, attrition warnings, the
+same `dataset_version` *and* same `scoring_version`, attrition warnings, the
 "within noise" phrasing — and rules that decide whether a change ships are the
 category of thing this whole step exists to take out of LLM hands. The runner
 refuses the comparison (exit 2) when either version differs, or when the two
 runs used a different `k` (decision **D7**): a baseline at k=1 and a candidate
 at k=3 pair `pass^k` verdicts computed over different numbers of trials, so
-they are not comparable even at the same dataset and harness version. The
+they are not comparable even at the same dataset and scoring version.
+
+The version key is `scoring_version` (`_common.SCORING_VERSION`, #38), bumped
+only when a verdict's meaning changes; `harness_version` is the plugin's
+release and is provenance, so a release that changes no verdict leaves every
+baseline comparable. A baseline manifest written before `scoring_version`
+existed is compared on `harness_version` equality instead — the old rule —
+with a `comparability_warning` on stderr and in `comparison.json` (or in the
+exit-2 payload when it is refused); never a crash
+(`_common.scoring_comparison`). The
 k-mismatch check lives here, in the runner, for the same reason the rest of the
 diff does — the manifest recording `k` is only useful if something checks it.
 
@@ -1036,10 +1045,12 @@ the shipped run already does. See Open decision **D1**.
 
 ```jsonc
 {
+  "schema_version": 1,                    // _common.SCHEMA_VERSION: this file's own layout (#38)
   "run_id": "smoke-20260818T183920Z",     // top-level key, not just the directory name (§5 CI gate reads it here)
   "mode": "smoke", "k": 1, "gate": "soft", "selecting_split": "smoke",
   "started_at": "2026-08-18T18:39:20Z",
-  "harness_version": "0.1.0",             // from _common.HARNESS_VERSION, never invented by the caller
+  "harness_version": "0.1.0",             // from _common.HARNESS_VERSION, never invented by the caller; provenance
+  "scoring_version": 1,                   // from _common.SCORING_VERSION: the comparability key (§5.6)
   "plan_sha256": "…",                     // canonical JSON of the plan; resume compares this
   "runner_version": 1,
   "baseline_verdicts": null,              // or the --baseline-verdicts path. Recorded so §9's
@@ -1160,12 +1171,12 @@ close the gate. `summary.gating_failures` counts cases with `gating: true` and
 
 ### `results.json`
 
-The machine-readable summary §5's CI gate reads. `run_id`, `harness_version` and
-`dataset_version` are echoed from the manifest so a gate script never opens two
-files to check they match.
+The machine-readable summary §5's CI gate reads. `run_id`, `harness_version`,
+`scoring_version` and `dataset_version` are echoed from the manifest so a gate
+script never opens two files to check they match.
 
 ```jsonc
-{"run_id": "…", "harness_version": "0.1.0", "dataset_version": 1, "mode": "smoke",
+{"run_id": "…", "harness_version": "0.1.0", "scoring_version": 1, "dataset_version": 1, "mode": "smoke",
  "cases": [{"case_id": "…", "verdict": "pass", "gating": true,
             "layers": {"http": "pass", "answer": "pass", "trajectory": "unscorable"},
             "latency_s": 6.68,

@@ -78,7 +78,7 @@ No mode flag behaves as `regression` (full suite, hard gate).
 - **`--filter-failing`**: add this to further restrict the (already
   tag-filtered) set to cases that scored `fail` on the most recent
   *comparable* prior run for that tag (same `dataset_version` AND same
-  harness version — identical comparability rule as the baseline diff in
+  scoring version — identical comparability rule as the baseline diff in
   SKILL.md §4 and runner-contract §5.6; a scorer/dataset change invalidates
   "prior failures" the same way it invalidates a baseline diff). No comparable
   prior run exists → this is a variant of the first-run branch: fall back to

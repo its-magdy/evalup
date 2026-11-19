@@ -8,7 +8,7 @@
 # store. That is the most common starting position for a real app, and it is
 # what makes this example honest about which layers can be scored at all --
 # see profile.yaml's capability_matrix.
-adapter_version: 1
+schema_version: 1
 
 app:
   name: helpdesk-demo

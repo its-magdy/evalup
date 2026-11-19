@@ -2,6 +2,7 @@
 # nothing while the assistant confidently answers "0" -- expect.result grades
 # the DATA, so a zero the app invented and a zero the data holds are not the
 # same verdict here.
+schema_version: 1
 id: c-3a5e47d9
 unit: shifts
 split: [full, smoke]

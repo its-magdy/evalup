@@ -1,4 +1,5 @@
 # happy path, shifts. The metamorphic PARENT of c-2d7c6a11 below.
+schema_version: 1
 id: c-8b13d0e5
 unit: shifts
 split: [full, smoke]
