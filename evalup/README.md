@@ -44,8 +44,9 @@ it without Claude.
   Without traces, routing and answer checks still score; the tool-use,
   trajectory and cost layers need them.
 
-No existing tests and no judge API key are needed — Claude Code subagents do
-the judging.
+No existing tests and no judge API key are needed. Judging and judge
+calibration use Claude Code subagents; runs report judged layers as not
+measured.
 
 Python 3.9 is past upstream end-of-life and is the floor on purpose: RHEL 9
 ships it with backported fixes, and long-lived enterprise environments are

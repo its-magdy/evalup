@@ -11,7 +11,7 @@ selections + gate policies the skill resolves into that runner's `plan.json`
 | regression | `--regression` (or no mode flag) | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
 | targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | 1 by default (`--k N`) | soft | right after optimizing one surface |
 | holdout | `--holdout` | sealed `holdout` split | 1 by default (`--k N`) | decision | optimizer's keep/revert step |
-| full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`), judged layers forced on | 3 by default (`--k N`), pass^k | hard | release validation |
+| full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`) | 3 by default (`--k N`), pass^k | hard | release validation |
 
 No mode flag behaves as `regression` (full suite, hard gate).
 
@@ -35,12 +35,11 @@ No mode flag behaves as `regression` (full suite, hard gate).
   `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example`) proceeds regardless of the
   verdict; the run is advisory, meant to be looked at, not to block anything by
   itself.
-- **Judged layers**: skipped outright, even if `judge.status: calibrated` —
-  report `unjudged (mode: smoke)`. This is deliberately a different string
-  from the uncalibrated-judge banner: "no judged score this run" has two
-  distinct causes (mode chose to skip it for cost/speed vs. the judge isn't
-  trustworthy yet) and conflating them would hide a calibration gap behind a
-  cadence choice.
+- **Judged layers**: never scored at run time, in any mode — the runner has
+  no judge (runner-contract §5.4). Only the reason string varies: here it is
+  `unjudged (mode: smoke)`, even if `judge.status: calibrated`. That is
+  deliberately a different string from the uncalibrated-judge banner, so a
+  calibration gap does not hide behind a cadence choice.
 - **Cost**: sub-dollar, minutes — see `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md`
   "Steady state."
 
@@ -58,10 +57,10 @@ No mode flag behaves as `regression` (full suite, hard gate).
 - **Gate**: hard. The CI step exits nonzero on gating failures — this is the
   mode CI runs pre-merge/nightly (SKILL.md §6; the runner itself always exits 0
   on a red suite).
-- **Judged layers**: included if `judge.status: calibrated`, `unjudged` with
-  the calibration banner otherwise (the ordinary rule — regression does not
-  force judged layers the way `full` does; that keeps the everyday merge gate
-  fast even before calibration exists).
+- **Judged layers**: `unjudged`, like every mode. The reason is
+  `judge not calibrated` (or the sidecar gap that blocks it), and
+  `deferred to skill` once a calibrated judge is backed by its sidecar — no
+  skill fills that row in yet, so it is still not measured.
 
 ## `targeted`
 
@@ -137,12 +136,9 @@ No mode flag behaves as `regression` (full suite, hard gate).
   not weaken the seal.
 - **k**: ≥3 default, same reasoning as `regression`.
 - **Gate**: hard.
-- **Judged layers**: forced on regardless of mode-for-speed skipping —
-  `unjudged` with the calibration banner if `judge.status` isn't
-  `calibrated`, but never silently skipped the way `smoke`/`targeted` skip
-  them. `full` is the release-validation sweep; if judged dimensions matter
-  to the release decision, an `unjudged` banner on page one is the signal to
-  go calibrate before shipping, not to ship blind.
+- **Judged layers**: `unjudged`, as in `regression` — not measured. If judged
+  dimensions matter to the release decision, that row on page one means a
+  human has to check them before shipping.
 - **Adversarial/authz cases**: run if the adapter's `environment.safe_to_attack`
   is true (same gate as any other red-team probe; the runner applies it at
   pre-flight, runner-contract §4 item 5 and §7); still skipped (not failed) otherwise.

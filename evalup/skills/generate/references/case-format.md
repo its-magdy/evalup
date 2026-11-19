@@ -326,7 +326,8 @@ expect:
                                      # the runner reports the layer `unscored`. Write a
                                      # rule you can state as must_contain /
                                      # must_not_contain / json_schema there instead.
-    rubric: billing-answer-v2        # judged dimensions — only if calibrated. Format is
+    rubric: billing-answer-v2        # judged dimensions — reported `unjudged` at run time
+                                     # today (no run-time judge); calibrate first. Format is
                                      # <rubric_id>-v<version>, resolved against the rubric
                                      # file's `rubric_id`/`version` fields (a version PIN, so
                                      # a run records which rubric revision graded it). The
@@ -469,8 +470,9 @@ Scoring semantics:
   is SKIPPED: only that message would reach the app. A conversation is
   `input.turns` (Conversations, above).
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
-- Judged dimensions are skipped (reported as `unjudged`) while the judge is
-  uncalibrated — never silently included.
+- Judged dimensions are always reported as `unjudged`: the runner has no
+  judge yet. The reason says why (mode, uncalibrated judge, or deferred) —
+  never silently included.
 - `expect.authz` is scored deterministically by `score_authz.py` against the trace's
   tool-call log and returned record IDs — the refusal verdict never derives from the
   chat text (the answer is only secondary string-match evidence for a leaked id), so a

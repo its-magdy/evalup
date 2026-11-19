@@ -116,16 +116,18 @@ Encode this explicitly:
   node.
 - Canary cases (known-good decline + known-bad fabrication) should run in
   every calibration batch — a miss here means judge or harness drift and
-  should void trust in the run's judged numbers until re-checked.
+  should void trust in that batch's judge verdicts until re-checked.
 
 ## Business-rule vs judged split
 
 Before adding a node to a rubric DAG, ask: **can a deterministic script check
 this instead?** A large majority of real business policies are ("never quote a
 price not present in a tool result," "never promise a refund exceeding order
-total") — those belong in `profile.yaml`'s business-rule oracles and are
-scored by `score_answer.py`'s `answer.rules` (see case-format.md), evaluated
-per-case with no judge call and no per-case label at all. A rubric DAG node
+total") — those belong in `profile.yaml`'s business-rule oracles and
+`answer.rules` (see case-format.md), checked with no judge call and no
+per-case label at all. **No scorer reads `answer.rules` yet** — a run reports
+it `unscored` — so today state a checkable rule as `answer.must_contain` /
+`must_not_contain`. A rubric DAG node
 is for facets that genuinely need interpretation and can't be reduced to a
 rule: does this explanation actually clarify the confusion the user had, is
 the hedging proportionate to the evidence, does the window described in

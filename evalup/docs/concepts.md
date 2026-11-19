@@ -50,7 +50,7 @@ whose tools get renamed weekly produces only maintenance pain.
 |---|---|
 | `pre-stability` | Invariants: crash rate, responds-always, format, loops, refusals |
 | `stable` | + routing, tool selection/args, trajectory (subset default) |
-| `traffic` | + real-trace mining, judged layers (after calibration) |
+| `traffic` | + real-trace mining, judge calibration (judged layers are not scored at run time yet) |
 | `production` | + online sampling, monitoring-window release validation |
 
 ## Ground truth — how correctness is actually graded
@@ -69,8 +69,10 @@ You cannot judge your way to factual correctness; ground truth is
 2. **Mocked/recorded tools**: scripted returns make answers computable and
    runs deterministic.
 3. **Business rules** (cheapest — most real policies are deterministically
-   checkable): "never quote a price not in a tool result" fails any violating
-   answer with no per-case label.
+   checkable): "never quote a price not in a tool result" would fail any
+   violating answer with no per-case label. **Not scored at run time yet**:
+   the runner reports `expect.answer.rules` as `unscored` (see "The judge",
+   below); state such a rule as `must_contain` / `must_not_contain` today.
 4. **Golden labels** for the rest.
 
 The boundary: whether the *backend* returns correct data is backend-test

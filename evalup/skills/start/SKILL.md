@@ -95,7 +95,7 @@ between them:
 6. **Close with the menu, not a lecture**: what unlocks next and what each
    costs — tracing (tool/trajectory/cost layers), the interview (business
    rules, rubric), a full suite with a sealed holdout (regression gating),
-   judge calibration (judged layers, then `optimize`). One line each. Be
+   judge calibration (groundwork: judged layers are not scored at run time yet; then `optimize`). One line each. Be
    straight about the distance to `optimize`: it needs ~100 cases, a sealed
    holdout and a stable app — several sessions away from a 12-case first run.
 
