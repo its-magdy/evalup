@@ -227,8 +227,10 @@ Skip synthetic cases and review what your app actually did:
 ```
 
 It reads failing traces, names the cause, proposes one change at a time, and
-keeps it only if the sealed holdout confirms the improvement statistically.
-You approve every kept edit; nothing is committed or merged for you. It runs
+keeps it only if, on the sealed holdout, the posterior probability that it is
+better is at least 0.95 and it changed more cases than re-running the
+unchanged app does (a keep is not "statistically significant" unless the sign
+test `stats.py` reports beside it also passes). You approve every kept edit; nothing is committed or merged for you. It runs
 only when you type it, and stays locked until its preconditions hold: a
 calibrated judge (when any objective is judged), about 100 usable cases (50
 for deterministic-only objectives), `stage: stable` or later, white-box prompt
@@ -352,13 +354,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 956 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 993 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-946 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
+983 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.

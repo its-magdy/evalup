@@ -3,7 +3,7 @@
 
 Every comparison this harness makes is PAIRWISE: `stats.py` pairs one candidate
 against one baseline, and `run_cases.py` SS5.6 refuses that pair unless the two
-runs agree on `dataset_version`, `harness_version` and `k`. Nothing ever looked
+runs agree on `dataset_version`, `scoring_version` and `k`. Nothing ever looked
 at more than two runs at once, so five consecutive "within noise" diffs could
 hide a ten-point erosion and no artifact would say so. This script is that
 missing view: it groups a `reports/` directory into COMPARABLE SERIES, emits a
@@ -26,9 +26,13 @@ has to encode which direction is good for which metric (down is bad for
 WHAT COUNTS AS ONE SERIES. SS5.6 enforces three keys on a PAIR; a series of N
 needs those and two more, because a pair is joined by case-id INTERSECTION and
 a series of aggregates has no intersection step to absorb a mismatch:
-  dataset_version, harness_version, k  -- SS5.6/D7 verbatim. A different
-      dataset or harness changes what a verdict MEANS; a different k pairs
-      pass^k verdicts computed over different numbers of trials.
+  dataset_version, scoring_version, k  -- SS5.6/D7 verbatim. A different
+      dataset or scoring version changes what a verdict MEANS; a different k
+      pairs pass^k verdicts computed over different numbers of trials. The
+      scoring key is _common.scoring_key, the one rule every pairwise check
+      uses: a run written before scoring_version existed takes the version
+      its release implies (0.1.0 = 1), so it shares a series with the newer
+      runs the runner would diff it against.
   mode + selecting_split -- NOT in SS5.6's pair rule, and it has to be here.
       `selecting_split` decides which cases are selected at all (the runner
       refuses a case whose `split` does not contain it), so a 4-case smoke run
@@ -64,7 +68,8 @@ it. `results.json` carries no timestamp, no `k`, no `selecting_split` and no
 the numbers from `results.json` -- both are REQUIRED_ALWAYS (SS9(b)), so this
 needs no new artifact and no contract change:
   manifest.yaml  -> run_id, started_at, mode, k, selecting_split,
-                    dataset_version, harness_version, capability_matrix,
+                    dataset_version, scoring_version, harness_version,
+                    capability_matrix,
                     app.git_sha/.git_tree, cases[].sha256, traces
   results.json   -> summary.{n,passes,failures,gating_failures,unscored,
                     skipped,infra_rate,crash_rate,scorer_errors,canaries,
@@ -185,6 +190,7 @@ from _common import (
     infra_rate,
     load_json,
     require_range,
+    scoring_key,
     write_output,
 )
 
@@ -320,6 +326,9 @@ def load_point(run_dir):
         "app_git_tree": app.get("git_tree"),
         "disabled_layers": traces.get("disabled_layers"),
         "key": series_key(manifest),
+        # #38: a run older than scoring_version is keyed on its release; the
+        # series it joins says so (build_series) instead of hiding it.
+        "legacy_scoring": scoring_key(manifest)[1],
         "case_sha256": {c.get("id"): c.get("sha256")
                         for c in (manifest.get("cases") or [])
                         if isinstance(c, dict)},
@@ -349,12 +358,25 @@ def capability_fingerprint(matrix):
 def series_key(manifest):
     """SS5.6's three keys, plus the two a series of N needs and a pair does
     not. See the module docstring for the argument."""
+    scoring, _ = scoring_key(manifest)
+    if scoring[0] == "malformed":
+        # Never comparable, so it can join no series -- and a crash here used
+        # to abort the whole report over one bad manifest.
+        _raise(f"manifest.yaml has a malformed version field: {scoring[1]}")
     return {
         "mode": manifest.get("mode"),
         "selecting_split": manifest.get("selecting_split"),
         "k": manifest.get("k"),
         "dataset_version": manifest.get("dataset_version"),
-        "harness_version": manifest.get("harness_version"),
+        # #38: the key is scoring_version, through _common.scoring_key -- the
+        # SAME rule the pairwise checks use, so a pair the runner would diff
+        # is never split across two series here. A plugin release that
+        # changes no verdict stays on one line. A run written before the
+        # field existed takes the scoring version its release implies
+        # (0.1.0 = 1, so it joins the scoring-1 series); a pre-field run at a
+        # release with no known scoring version is keyed on harness_version.
+        "scoring_version": scoring[1] if scoring[0] == "scoring" else None,
+        "harness_version": scoring[1] if scoring[0] == "harness" else None,
         "capabilities": capability_fingerprint(
             manifest.get("capability_matrix")),
     }
@@ -769,6 +791,14 @@ def build_series(points, args):
             "{} run(s) were taken against a DIRTY app tree ({}), so their "
             "git_sha does not identify what was measured.".format(
                 len(dirty), ", ".join(dirty[:MAX_REPORTED_CASES])))
+    legacy = [p["run_id"] for p in points if p["legacy_scoring"]]
+    if legacy:
+        warnings.append(
+            "{} run(s) predate scoring_version ({}): each is keyed on its "
+            "harness_version, the old rule (release 0.1.0 = scoring_version "
+            "1), so it joins this series on an inferred, not a recorded, "
+            "scoring version.".format(
+                len(legacy), ", ".join(legacy[:MAX_REPORTED_CASES])))
     return {
         "key": points[0]["key"],
         "n_runs": len(points),
@@ -846,7 +876,7 @@ def main():
         "alpha": a.alpha,
         "comparability": (
             "runner-contract.md SS5.6 requires dataset_version, "
-            "harness_version and k to match for a PAIR; a series of N adds "
+            "scoring_version and k to match for a PAIR; a series of N adds "
             "mode + selecting_split (which decides the case set, and a mean "
             "has no intersection step to absorb a mismatch) and the "
             "enabled-layer set (which decides what `pass` means). The app's "

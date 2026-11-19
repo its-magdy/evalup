@@ -67,7 +67,7 @@ run_cases.py --verify <reports/<run-id>>
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
 | `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
-| `--version` | `evalup harness <HARNESS_VERSION>`, via `_common.add_version_flag`, same string as every scorer. |
+| `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
 
 There are no other flags. Mode, k, filters, and selection are **already
 resolved** in the plan — the runner does not know what `--smoke` means, and does
@@ -586,7 +586,9 @@ therefore does not count as `passed`.
 `--baseline-verdicts PATH` shells out to `stats.py` after scoring, pairing this
 run's `verdicts_for_stats.jsonl` against the given one, and writes
 `<out>/comparison.json`. Without the flag the runner emits
-`verdicts_for_stats.jsonl` and stops.
+`verdicts_for_stats.jsonl` and stops. Its `keep` is `stats.py`'s posterior
+bar alone (`noise_floor_applied: false`): the optimizer's holdout keep/revert
+call is a separate `stats.py --noise-floor` run, never this file.
 
 **The version and `k` checks run at plan validation, before any spend.** Every
 input to them is knowable up front, §11's exit-2 row promises "none written",
@@ -599,13 +601,32 @@ manifest is absent would be precisely the silent pass D3 folded this diff into
 the runner to prevent.
 
 It is folded in rather than left to the skill because the diff has **rules** —
-same `dataset_version` *and* same `harness_version`, attrition warnings, the
+same `dataset_version` *and* same `scoring_version`, attrition warnings, the
 "within noise" phrasing — and rules that decide whether a change ships are the
 category of thing this whole step exists to take out of LLM hands. The runner
 refuses the comparison (exit 2) when either version differs, or when the two
 runs used a different `k` (decision **D7**): a baseline at k=1 and a candidate
 at k=3 pair `pass^k` verdicts computed over different numbers of trials, so
-they are not comparable even at the same dataset and harness version. The
+they are not comparable even at the same dataset and scoring version. It also
+refuses a pair where exactly one side selected the `holdout` split (a baseline
+manifest without `selecting_split` is not judged): `holdout` shares no case
+with any other selection, so the pair has zero common case ids, and on a
+holdout run that would surface only after its look was spent.
+
+The version key is `scoring_version` (`_common.SCORING_VERSION`, #38), bumped
+only when a verdict's meaning changes; `harness_version` is the plugin's
+release and is provenance, so a release that changes no verdict leaves every
+baseline comparable. A baseline manifest written before `scoring_version`
+existed takes the scoring version its release implies (0.1.0, the only
+release that wrote such runs, = `scoring_version` 1; an unlisted release is
+compared on `harness_version` equality, the old rule) — with a
+`comparability_warning` on stderr and in `comparison.json` (or in the
+exit-2 payload when it is refused); never a crash
+(`_common.scoring_key`, the one rule `scoring_comparison` and
+`run_history.py`'s series key share). A malformed field (`scoring_version`
+not an integer, or a bool; no `scoring_version` and a `harness_version`
+that is not a string) is never comparable, not even to itself: exit 2 here,
+and `run_history.py` lists the run under `excluded_runs`. The
 k-mismatch check lives here, in the runner, for the same reason the rest of the
 diff does — the manifest recording `k` is only useful if something checks it.
 
@@ -760,6 +781,9 @@ JSON line to a YAML mapping corrupts the document it is meant to append to. A
 JSONL sidecar is also what makes the second writer (`analyze --unseal`) safe
 without a lock file, since a single short `O_APPEND` line write is atomic on
 POSIX, and it is what lets a reader take the running total by counting lines.
+Nothing here resets it: a reseal (`analyze --unseal`) archives the file's
+lines to `holdout-looks-v<old dataset_version>.jsonl` and empties it, so the
+new seal's count starts at zero.
 `run/SKILL.md` §4 and `analyze/SKILL.md` §`--unseal` — the two writers of the
 N=5 count — were pointed at the sidecar in Step 5c; the plan's
 `paths.holdout_ledger` is what names it (`datasets/holdout-looks.jsonl` by
@@ -885,7 +909,12 @@ field is recorded in the manifest and otherwise unused here.
 1. Read `<out>/manifest.yaml`. If its `plan_sha256` differs from the SHA-256 of
    the current plan's canonical JSON, exit 2: `plan changed since <run-id>
    started; start a new run id`. Resuming a different suite under an old
-   manifest produces a run that is comparable to nothing.
+   manifest produces a run that is comparable to nothing. The plan hash does
+   not cover the runner's own verdict rules, so the manifest's scoring key
+   (`_common.scoring_key`, §5.6's rule) must also equal this runner's, else
+   exit 2: adopted verdicts graded under one `scoring_version` and the rest
+   under another is a mixed run. A pre-field manifest whose release maps to
+   the current version resumes, with a stderr line saying so.
 2. Walk `<out>/cases/`. A case with a parseable `verdict.json` is **done** and is
    not re-invoked. A case directory without one is deleted and re-run — a
    half-written case is cheaper to redo than to reason about. A conversation
@@ -1036,10 +1065,12 @@ the shipped run already does. See Open decision **D1**.
 
 ```jsonc
 {
+  "schema_version": 1,                    // _common.SCHEMA_VERSION: this file's own layout (#38)
   "run_id": "smoke-20260818T183920Z",     // top-level key, not just the directory name (§5 CI gate reads it here)
   "mode": "smoke", "k": 1, "gate": "soft", "selecting_split": "smoke",
   "started_at": "2026-08-18T18:39:20Z",
-  "harness_version": "0.1.0",             // from _common.HARNESS_VERSION, never invented by the caller
+  "harness_version": "0.1.0",             // from _common.HARNESS_VERSION, never invented by the caller; provenance
+  "scoring_version": 1,                   // from _common.SCORING_VERSION: the comparability key (§5.6)
   "plan_sha256": "…",                     // canonical JSON of the plan; resume compares this
   "runner_version": 1,
   "baseline_verdicts": null,              // or the --baseline-verdicts path. Recorded so §9's
@@ -1160,12 +1191,12 @@ close the gate. `summary.gating_failures` counts cases with `gating: true` and
 
 ### `results.json`
 
-The machine-readable summary §5's CI gate reads. `run_id`, `harness_version` and
-`dataset_version` are echoed from the manifest so a gate script never opens two
-files to check they match.
+The machine-readable summary §5's CI gate reads. `run_id`, `harness_version`,
+`scoring_version` and `dataset_version` are echoed from the manifest so a gate
+script never opens two files to check they match.
 
 ```jsonc
-{"run_id": "…", "harness_version": "0.1.0", "dataset_version": 1, "mode": "smoke",
+{"run_id": "…", "harness_version": "0.1.0", "scoring_version": 1, "dataset_version": 1, "mode": "smoke",
  "cases": [{"case_id": "…", "verdict": "pass", "gating": true,
             "layers": {"http": "pass", "answer": "pass", "trajectory": "unscorable"},
             "latency_s": 6.68,
@@ -1223,7 +1254,7 @@ record, not the shareable summary) does carry it, since a paired diff needs it.
 |---|---|---|
 | 0 | Ran to completion; §9's completeness check passed. Says **nothing** about pass/fail. | complete |
 | 1 | Unhandled internal error. Traceback to stderr, `{"error": …}` to stdout. | whatever completed |
-| 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest mismatch on resume. | none written |
+| 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest or scoring-version mismatch on resume. | none written |
 | 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template, malformed `invocation.conversation`. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
 | 4 | Canary failed — harness/judge drift; run stopped. | complete for cases finished |
 | 5 | Infra rate exceeded `infra_rate_abort`; run stopped. | complete for cases finished |

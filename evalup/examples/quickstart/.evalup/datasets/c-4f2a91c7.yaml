@@ -1,6 +1,7 @@
 # happy path, invoices. Four layers score on this one case: http (declared
 # status), routing (route_from_response), execution (result_from_response) and
 # answer (string assertions). No trace is needed for any of them.
+schema_version: 1
 id: c-4f2a91c7
 unit: invoices
 split: [full, smoke]

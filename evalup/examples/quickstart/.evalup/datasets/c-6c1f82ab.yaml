@@ -5,6 +5,7 @@
 # log, not against the prose -- with no trace there is nothing to grade, and a
 # politely-worded refusal over an open endpoint would pass a prose check while
 # the endpoint stayed open. A string assertion is the honest instrument here.
+schema_version: 1
 id: c-6c1f82ab
 unit: invoices
 split: [full, smoke]

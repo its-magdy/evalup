@@ -45,8 +45,10 @@ Writes one JSON document (stdout, or -o <file>):
    "sources"}
 `sources` maps each case id to the file it came from, so a finding about
 c-3f9a2c1d names a file to open. With --split-dir <dir> it ALSO writes the
-four files the other CLIs take as separate flags: suite.json (--cases),
-capabilities.json (--capabilities), manifest.json (--manifest), adapter.json.
+files the other CLIs take as separate flags: suite.json (--cases),
+capabilities.json (--capabilities), manifest.json (--manifest), adapter.json
+(--adapter) and profile.json (--profile, validate_cases.py's schema_version
+check, #38).
 
 `${VAR}` references are left exactly as written: resolving them is the
 runner's job (runner-contract.md SS3), and a secret must not reach this file.
@@ -173,8 +175,8 @@ def main():
     ap.add_argument("-o", "--output", help="write the combined document here "
                                            "(default: stdout)")
     ap.add_argument("--split-dir", help="also write suite.json, "
-                    "capabilities.json, adapter.json and manifest.json here, "
-                    "one per flag the other CLIs take")
+                    "capabilities.json, adapter.json, profile.json and "
+                    "manifest.json here, one per flag the other CLIs take")
     a = ap.parse_args()
 
     if a.self_check:
@@ -246,7 +248,7 @@ def main():
     if a.split_dir:
         os.makedirs(a.split_dir, exist_ok=True)
         parts = {"suite.json": cases, "capabilities.json": matrix,
-                 "adapter.json": adapter}
+                 "adapter.json": adapter, "profile.json": profile}
         if manifest is not None:
             parts["manifest.json"] = manifest
         for name, part in parts.items():

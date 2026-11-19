@@ -92,7 +92,7 @@ class CostCase(unittest.TestCase):
         (out / "cases").mkdir(parents=True)
         manifest = {"run_id": run_id, "mode": "smoke", "k": 1,
                     "selecting_split": "smoke", "harness_version": "0.1.0",
-                    "dataset_version": 1,
+                    "scoring_version": 1, "dataset_version": 1,
                     "app": {"name": "app", "git_sha": "aaaa"}}
         manifest.update(manifest_extra)
         self.write_json(out / "manifest.yaml", manifest)
@@ -116,6 +116,7 @@ class CostCase(unittest.TestCase):
                      "checks": {}})
         self.write_json(out / "results.json", {
             "run_id": run_id, "harness_version": "0.1.0",
+            "scoring_version": 1,
             "dataset_version": 1, "mode": "smoke", "cases": rows,
             "summary": {"status": status, "n": len(rows),
                         "passes": sum(1 for r in rows
@@ -532,6 +533,37 @@ class TestPaired(CostCase):
         self.assertIn("dataset_version",
                       " ".join(payload["paired"]["comparability_warnings"]))
         self.assertEqual(payload["paired"]["n_paired"], 8)
+
+    def test_the_scoring_version_is_the_key_not_the_plugin_version(self):
+        # #38: a plugin release alone is no caveat; a scoring change is, and
+        # a run older than the field says it fell back to harness_version.
+        def edit(run, **fields):
+            for name in ("results.json", "manifest.yaml"):
+                doc = json.loads((run / name).read_text())
+                doc.update(fields)
+                (run / name).write_text(json.dumps(doc))
+
+        def warnings(base, cand):
+            rc, payload, err = run_script(cand, "--baseline", base)
+            self.assertEqual(rc, 0, err)
+            return " ".join(payload["paired"]["comparability_warnings"])
+        base, cand = self.pair()
+        edit(cand, harness_version="0.2.0")
+        self.assertNotIn("version", warnings(base, cand))
+        edit(cand, scoring_version=2)
+        self.assertIn("scoring_version: baseline 1, this run 2",
+                      warnings(base, cand))
+        edit(cand, scoring_version=None, harness_version="0.1.0")
+        self.assertIn("this run predates scoring_version",
+                      warnings(base, cand))
+        # Two pre-field runs at different releases differ on harness_version,
+        # and the note says so rather than blaming a scoring version.
+        edit(base, scoring_version=None, harness_version="0.0.9")
+        text = warnings(base, cand)
+        self.assertIn("both runs predate scoring_version", text)
+        self.assertIn("harness_version: baseline '0.0.9', this run '0.1.0'",
+                      text)
+        self.assertNotIn("a different scoring version", text)
 
     def test_two_runs_sharing_no_case_is_a_fact_not_an_error(self):
         base = self.write_run("smoke-20260901T120000Z",

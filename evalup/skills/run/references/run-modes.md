@@ -10,7 +10,7 @@ selections + gate policies the skill resolves into that runner's `plan.json`
 | smoke | `--smoke` | cases with `smoke` in `split` | 1 (fixed) | soft | every prompt/code edit |
 | regression | `--regression` (or no mode flag) | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
 | targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | 1 by default (`--k N`) | soft | right after optimizing one surface |
-| holdout | `--holdout` | sealed `holdout` split | 1 by default (`--k N`) | decision | optimizer's keep/revert step |
+| holdout | `--holdout` | sealed `holdout` split | 3 by default (`--k N`), pass^k | decision | optimizer's keep/revert step |
 | full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`) | 3 by default (`--k N`), pass^k | hard | release validation |
 
 No mode flag behaves as `regression` (full suite, hard gate).
@@ -78,7 +78,7 @@ No mode flag behaves as `regression` (full suite, hard gate).
 - **`--filter-failing`**: add this to further restrict the (already
   tag-filtered) set to cases that scored `fail` on the most recent
   *comparable* prior run for that tag (same `dataset_version` AND same
-  harness version — identical comparability rule as the baseline diff in
+  scoring version — identical comparability rule as the baseline diff in
   SKILL.md §4 and runner-contract §5.6; a scorer/dataset change invalidates
   "prior failures" the same way it invalidates a baseline diff). No comparable
   prior run exists → this is a variant of the first-run branch: fall back to
@@ -103,12 +103,18 @@ No mode flag behaves as `regression` (full suite, hard gate).
   for human inspection is `analyze --unseal`, a deliberately inconvenient,
   logged, counted action — see `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md`
   §"`--unseal`").
-- **k**: 1 by default; `--k N` overrides.
-- **Gate**: **decision**, not pass/fail against a fixed floor. `stats.py`'s
-  output on the aggregate paired verdicts (exact Bayesian P(improvement) +
-  exact one-sided sign test) **is** the keep/revert call that
+- **k**: 3 by default (`--k N` overrides), pass^k per case — the keep/revert
+  call reads these folded verdicts, and at k=1 one flaky retry could decide
+  a keep.
+- **Gate**: **decision**, not pass/fail against a fixed floor. The
+  keep/revert call is the `stats.py --noise-floor` run that
   `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` step 5 ("Gate on holdout")
-  consumes — there is no separate hard threshold beyond that statistical test.
+  makes itself (exact Bayesian P(improvement) ≥ 0.95 + the champion noise
+  floor, exact one-sided sign test reported) — **not** the runner's
+  `comparison.json`, whose `keep` is the posterior bar alone
+  (`noise_floor_applied: false`). There is no hard threshold beyond those.
+  A holdout run never diffs against, or becomes, `reports/baseline.json`
+  (SKILL.md §4).
 - **Reporting**: aggregate only, always — no per-case trace excerpts, no
   page-one failure clusters (SKILL.md §5's holdout rule). This is the one
   place in the harness where "less detail in the report" is the correct,

@@ -81,6 +81,7 @@ class HistoryCase(unittest.TestCase):
             "selecting_split": "smoke",
             "started_at": started_at or "2026-09-01T00:00:00Z",
             "harness_version": "0.1.0",
+            "scoring_version": 1,
             "dataset_version": 1,
             "capability_matrix": DEFAULT_MATRIX,
             "app": {"name": "app", "git_sha": "aaaa", "git_tree": "clean"},
@@ -282,12 +283,108 @@ class TestSeries(HistoryCase):
         # SS5.6/D7 verbatim: pass^k over different k are different quantities.
         self.assertEqual(self.two_runs_differing_by(k=3)["series_count"], 2)
 
-    def test_a_different_dataset_or_harness_version_splits_the_series(self):
-        for key, value in (("dataset_version", 2), ("harness_version", "0.2")):
+    def test_a_different_dataset_or_scoring_version_splits_the_series(self):
+        for key, value in (("dataset_version", 2), ("scoring_version", 2)):
             self.setUp()
             self.assertEqual(
                 self.two_runs_differing_by(**{key: value})["series_count"], 2,
                 key)
+
+    def test_a_plugin_release_alone_keeps_one_series(self):
+        # #38: harness_version is the plugin version, provenance only.
+        self.assertEqual(
+            self.two_runs_differing_by(harness_version="0.2.0")
+            ["series_count"], 1)
+
+    def test_runs_older_than_scoring_version_key_on_harness_version(self):
+        # One rule with the pairwise checks (_common.scoring_key): a run
+        # written before the field existed takes the scoring version its
+        # release implies. 0.1.0 = scoring 1, so it joins the scoring-1
+        # series the runner would diff it against; a pre-field run at a
+        # release with no known scoring version stays on its own line.
+        for name, day, harness in (("smoke-20260901T120000Z", "01", "0.1.0"),
+                                   ("smoke-20260902T120000Z", "02", "0.0.9")):
+            self.write_run(name, cases=[("c-1", "pass")],
+                           started_at=f"2026-09-{day}T12:00:00Z",
+                           scoring_version=None, harness_version=harness)
+        self.write_run("smoke-20260903T120000Z", cases=[("c-1", "pass")],
+                       started_at="2026-09-03T12:00:00Z")
+        out = self.history()
+        self.assertEqual(out["series_count"], 2)
+        sizes = sorted(s["n_runs"] for s in out["series"])
+        self.assertEqual(sizes, [1, 2])
+
+    def test_a_series_holding_a_pre_field_run_says_so(self):
+        # #38: a legacy run joins the scoring-1 series on an INFERRED version;
+        # the series names it rather than joining it silently.
+        self.write_run("smoke-20260901T120000Z", cases=[("c-1", "pass")],
+                       started_at="2026-09-01T12:00:00Z",
+                       scoring_version=None, harness_version="0.1.0")
+        self.write_run("smoke-20260902T120000Z", cases=[("c-1", "pass")],
+                       started_at="2026-09-02T12:00:00Z")
+        out = self.history()
+        self.assertEqual(out["series_count"], 1)
+        warnings = " ".join(out["series"][0]["warnings"])
+        self.assertIn("predate scoring_version", warnings)
+        self.assertIn("smoke-20260901T120000Z", warnings)
+        self.assertNotIn("smoke-20260902T120000Z", warnings)
+
+    def test_a_malformed_version_field_excludes_that_run_only(self):
+        # #38: `harness_version: []` used to raise TypeError and abort the
+        # whole report; `scoring_version: true` compared equal to 1.
+        for i, extra in enumerate((
+                {"scoring_version": None, "harness_version": []},
+                {"scoring_version": None, "harness_version": {}},
+                {"scoring_version": True},
+                {"scoring_version": "1"}), start=1):
+            self.write_run(f"smoke-2026090{i}T120000Z",
+                           cases=[("c-1", "pass")],
+                           started_at=f"2026-09-0{i}T12:00:00Z", **extra)
+        self.write_run("smoke-20260908T120000Z", cases=[("c-1", "pass")],
+                       started_at="2026-09-08T12:00:00Z")
+        out = self.history()
+        self.assertEqual(out["runs_used"], 1)
+        self.assertEqual(out["series_count"], 1)
+        self.assertEqual(len(out["excluded_runs"]), 4)
+        for row in out["excluded_runs"]:
+            self.assertIn("malformed version field", row["reason"])
+        # The shared rule: never comparable, not even to itself; never a
+        # crash, whatever the shape.
+        import _common
+        good = {"scoring_version": 1, "harness_version": "0.1.0"}
+        for bad in ({"harness_version": []}, {"harness_version": None},
+                    {"scoring_version": True}, {"scoring_version": 1.0},
+                    {"scoring_version": [1]}, [], "x"):
+            with self.subTest(bad=bad):
+                for a, b in ((bad, bad), (bad, good), (good, bad)):
+                    comparable, mismatch, warning = \
+                        _common.scoring_comparison(a, b)
+                    self.assertFalse(comparable)
+                    self.assertIn("malformed version field", mismatch)
+                    self.assertTrue(warning)
+
+    def test_the_series_rule_is_the_pairwise_rule(self):
+        # One rule (_common.scoring_key): two records share a series key on
+        # the scoring axis exactly when scoring_comparison calls them
+        # comparable -- including the pre-field fallbacks.
+        import _common
+        records = [
+            {"scoring_version": 1, "harness_version": "0.1.0"},
+            {"scoring_version": 1, "harness_version": "0.2.0"},
+            {"scoring_version": 2, "harness_version": "0.1.0"},
+            {"harness_version": "0.1.0"},
+            {"harness_version": "0.0.9"},
+            {"harness_version": "0.0.8"},
+        ]
+        for a in records:
+            for b in records:
+                with self.subTest(a=a, b=b):
+                    ka = run_history.series_key(a)
+                    kb = run_history.series_key(b)
+                    self.assertEqual(
+                        _common.scoring_comparison(a, b)[0],
+                        (ka["scoring_version"], ka["harness_version"]) ==
+                        (kb["scoring_version"], kb["harness_version"]))
 
     def test_a_different_selecting_split_splits_the_series(self):
         # The key SS5.6's PAIR rule does not have. stats.py survives a split

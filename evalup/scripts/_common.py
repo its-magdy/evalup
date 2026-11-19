@@ -18,19 +18,146 @@ import threading
 import unicodedata
 from collections.abc import Hashable
 
-# The comparability key. run/SKILL.md refuses a baseline diff across differing
-# harness versions (a scorer change alters what a number means), so the value
-# has to come from the harness itself rather than being invented by the
-# orchestrating skill. Bump this in lockstep with .claude-plugin/plugin.json —
-# tests/test_scorers.py asserts the two match.
+# The plugin's version, for display and provenance. Bump this in lockstep with
+# .claude-plugin/plugin.json — tests/test_scorers.py asserts the two match. It
+# is NOT the comparability key any more (#38): a release that only fixes a
+# skill's prose must not make every pinned baseline incomparable.
 HARNESS_VERSION = "0.1.0"
+
+# The comparability key (#38). Two runs are comparable only at the same
+# SCORING_VERSION. BUMP IT (by one) when a change alters what a recorded
+# verdict MEANS: a scorer's meaning, a default threshold a verdict or a keep
+# depends on, or the runner's verdict rules (roll-up, pass^k fold, what counts
+# as infra). Do not bump it for prose, skills, transport, new flags or
+# refactors that leave every verdict identical. CONTRIBUTING.md has the rule.
+SCORING_VERSION = 1
+
+# What every state file the plugin writes declares (`schema_version: 1`):
+# profile.yaml, adapter.yaml, case files, plan.json, the run manifest.
+# validate_cases.py warns on a missing or older value; it never errors.
+SCHEMA_VERSION = 1
+
+
+# The scoring version a run written BEFORE the field existed carries, by its
+# harness_version. 0.1.0 is the only release that ever wrote runs without the
+# field (git history of HARNESS_VERSION), and SCORING_VERSION 1 was defined as
+# its verdict rules. A legacy run at a release not listed here has no known
+# scoring version and compares only to legacy runs of that same release.
+LEGACY_SCORING_VERSION = {"0.1.0": 1}
+
+
+def malformed_version(record):
+    """Why a run record's version fields cannot be keyed, or None.
+
+    scoring_version must be an int (a bool is not: `true == 1` would silently
+    join scoring-1 runs); a record without it is keyed on harness_version,
+    which must then be a string (`[]` is unhashable and used to crash every
+    caller). Anything else is MALFORMED: never comparable, never a crash."""
+    if not isinstance(record, dict):
+        return f"the run record is a {type(record).__name__}, not an object"
+    version = record.get("scoring_version")
+    if version is not None:
+        if isinstance(version, bool) or not isinstance(version, int):
+            return f"scoring_version is {version!r}, not an integer"
+        return None
+    harness = record.get("harness_version")
+    if not isinstance(harness, str):
+        return (f"no scoring_version, and harness_version is {harness!r}, "
+                "not a release string")
+    return None
+
+
+def scoring_key(record):
+    """The ONE comparability key on the scoring axis, for a run record
+    (manifest.yaml or results.json dict). Returns (key, legacy): two runs are
+    comparable on this axis exactly when their keys are equal, so a pairwise
+    check (scoring_comparison) and a series grouping (run_history.py) cannot
+    disagree. `legacy` is True for a record that predates scoring_version.
+
+    A malformed record (malformed_version) gets ("malformed", <reason>) and
+    `legacy` False: callers that group must exclude it (run_history.py does),
+    and scoring_comparison never calls it comparable, not even to itself."""
+    bad = malformed_version(record)
+    if bad:
+        return ("malformed", bad), False
+    version = record.get("scoring_version")
+    if version is not None:
+        return ("scoring", version), False
+    harness = record.get("harness_version")
+    if harness in LEGACY_SCORING_VERSION:
+        return ("scoring", LEGACY_SCORING_VERSION[harness]), True
+    return ("harness", harness), True
+
+
+def scoring_comparison(theirs, ours):
+    """Are two run records (manifest.yaml or results.json dicts) comparable on
+    the scoring axis? Returns (comparable, mismatch_text, warning_text).
+
+    Comparable exactly when scoring_key() agrees. A record that predates the
+    field (written before #38) is keyed by LEGACY_SCORING_VERSION on its
+    harness_version, and `warning_text` says which side(s) did -- never a
+    crash, never a silent pass. `mismatch_text` starts with the field that
+    actually differed. `theirs` is the older/baseline side in the messages."""
+    (ka, la), (kb, lb) = scoring_key(theirs), scoring_key(ours)
+    if "malformed" in (ka[0], kb[0]):
+        parts = [f"{side} {key[1]}" for side, key in
+                 (("baseline:", ka), ("this run:", kb))
+                 if key[0] == "malformed"]
+        # Starts with the field, like every other mismatch text.
+        field = ("scoring_version" if any("scoring_version is" in p
+                                          for p in parts)
+                 else "harness_version")
+        return False, "{}: malformed version field -- {}".format(
+            field, "; ".join(parts)), (
+            "a run record with a malformed version field is never "
+            "comparable; fix or re-run it rather than diffing against it")
+    warning = None
+    if la or lb:
+        side = ("both runs predate" if la and lb else
+                "the baseline predates" if la else "this run predates")
+        warning = (
+            f"{side} scoring_version (written before evalup recorded it); "
+            "a pre-field run is keyed on its harness_version, the old rule "
+            "(release 0.1.0 = scoring_version 1). Pin a fresh baseline to "
+            "drop this warning.")
+    if ka == kb:
+        return True, None, warning
+    if ka[0] == kb[0] == "scoring" and not (la or lb):
+        return False, f"scoring_version: baseline {ka[1]!r}, this run " \
+                      f"{kb[1]!r}", warning
+    if la and lb:
+        return False, (
+            "harness_version: baseline {!r}, this run {!r} (both predate "
+            "scoring_version, so the release is the key)".format(
+                theirs.get("harness_version"), ours.get("harness_version"))
+        ), warning
+
+    # Exactly one side is legacy here. An unknown legacy release differs on
+    # harness_version (it has no scoring version); a known one, on the
+    # scoring version its release implies.
+    field = ("harness_version" if "harness" in (ka[0], kb[0])
+             else "scoring_version")
+
+    def describe(record, key, legacy):
+        if key[0] == "harness":
+            return (f"{key[1]!r} (predates scoring_version; no scoring "
+                    "version is known for that release)")
+        if not legacy:
+            return (repr(key[1]) if field == "scoring_version"
+                    else f"at scoring_version {key[1]!r}")
+        return "{!r} (inferred from harness_version {!r})".format(
+            key[1], record.get("harness_version"))
+    return False, (f"{field}: baseline {describe(theirs, ka, la)}, "
+                   f"this run {describe(ours, kb, lb)}"), warning
 
 
 def add_version_flag(ap):
     """Every scorer answers --version with the same string, so a run manifest
-    can record the harness version mechanically."""
+    can record the harness version mechanically -- and a skill can read the
+    scoring version it compares a pinned baseline's against (#38)."""
     ap.add_argument("--version", action="version",
-                    version=f"evalup harness {HARNESS_VERSION}")
+                    version=f"evalup harness {HARNESS_VERSION} "
+                            f"(scoring {SCORING_VERSION})")
     return ap
 
 

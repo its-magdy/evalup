@@ -20,7 +20,7 @@ Mode -> selection, k, gate (run/SKILL.md SS0, references/run-modes.md):
   regression  cases with `full` in split       k=3           hard
   targeted    --tag-filtered `full` (or        k=1           soft
               --split smoke) cases
-  holdout     cases with `holdout` in split    k=1           decision
+  holdout     cases with `holdout` in split    k=3           decision
 `--k` overrides the default except under smoke, where k is 1 by definition.
 
 `full` (the `full` AND `holdout` splits in one run) is refused: the runner
@@ -63,10 +63,12 @@ from _common import (
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
     RUN_ID_RE,
+    SCORING_VERSION,
     add_version_flag,
     die,
     load_jsonl,
     load_object,
+    scoring_comparison,
     write_output,
 )
 from validate_cases import asserted_layers
@@ -80,7 +82,9 @@ MODES = {
     "smoke": ("smoke", 1, "soft"),
     "regression": ("full", 3, "hard"),
     "targeted": ("full", 1, "soft"),
-    "holdout": ("holdout", 1, "decision"),
+    # k=3 since #36: the keep/revert call reads this run's per-case pass^k
+    # verdicts, and a k=1 holdout let one flaky retry decide a keep.
+    "holdout": ("holdout", 3, "decision"),
 }
 DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
 DEFAULT_CALIBRATION = "judge/calibration.json"
@@ -102,17 +106,23 @@ def select(cases, split, tag):
     return chosen
 
 
-def failing_ids(run_dir, dataset_version):
+def failing_ids(run_dir, dataset_version, notes=None):
     """Ids that run scored `fail`, or None when it is not comparable.
 
     Same rule as the baseline diff (runner-contract.md SS5.6): a different
-    dataset or harness version changes what a verdict means, so "the cases
-    that failed last time" is not a set this run can inherit.
+    dataset or scoring version changes what a verdict means, so "the cases
+    that failed last time" is not a set this run can inherit. A run written
+    before scoring_version existed is keyed on its release, with a note
+    (_common.scoring_key).
     """
     # manifest.yaml is written as JSON (a YAML subset) by the stdlib-only runner.
     manifest = load_object(os.path.join(run_dir, "manifest.yaml"))
-    if manifest.get("dataset_version") != dataset_version \
-            or manifest.get("harness_version") != HARNESS_VERSION:
+    comparable, _, warning = scoring_comparison(
+        manifest, {"scoring_version": SCORING_VERSION,
+                   "harness_version": HARNESS_VERSION})
+    if warning and notes is not None:
+        notes.append(f"{run_dir}: {warning}")
+    if manifest.get("dataset_version") != dataset_version or not comparable:
         return None
     rows = load_jsonl(os.path.join(run_dir, "verdicts.jsonl"))
     return {row.get("case_id") for row in rows if row.get("verdict") == "fail"}
@@ -340,10 +350,10 @@ def main():
                          "conversation(s); a candidate selected on this run "
                          "was measured on single-turn cases only")
     if a.failing_in:
-        failed = failing_ids(a.failing_in, dataset_version)
+        failed = failing_ids(a.failing_in, dataset_version, notes)
         if failed is None:
             notes.append(f"{a.failing_in} is not comparable (dataset or "
-                         "harness version differs): running every tagged case")
+                         "scoring version differs): running every tagged case")
         else:
             narrowed = [c for c in cases if c.get("id") in failed]
             if narrowed:

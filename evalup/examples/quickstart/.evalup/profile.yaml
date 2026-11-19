@@ -6,7 +6,7 @@
 # thing that is missing -- not a hedge. A layer disabled with a reason is an
 # honest gap; a layer left enabled with nothing behind it prints a number that
 # reads as a measurement.
-profile_version: 1
+schema_version: 1
 
 app:
   name: helpdesk-demo

@@ -76,6 +76,8 @@ from _common import (
     MATRIX_KEY_OF_LAYER,
     REGEX_TIMEOUT_S,
     RUN_ID_RE,
+    SCHEMA_VERSION,
+    SCORING_VERSION,
     BadJSON,
     RegexTimeout,
     add_version_flag,
@@ -84,6 +86,7 @@ from _common import (
     loads_strict,
     nfc,
     run_bounded,
+    scoring_comparison,
     unsafe_case_id,
 )
 
@@ -1458,6 +1461,9 @@ class Runner:
         self.status = "running"
         self.routing_rows = []      # SS5.2's run-level input, accumulated
         self.baseline_verdicts = baseline_verdicts
+        # Set by run() from validate_baseline(): a pre-#38 baseline is keyed
+        # on its release (_common.scoring_key), and comparison.json says so.
+        self.baseline_warning = None
 
     # -- logging (SS12) ---------------------------------------------------
     def log(self, event, **fields):
@@ -1833,16 +1839,19 @@ class Runner:
         environment = self.adapter.get("environment") or {}
         traces = dict(self.trace_state)
         return {
+            "schema_version": SCHEMA_VERSION,
             "run_id": self.plan["run_id"],
             "mode": self.plan["mode"],
             "k": self.k,
             "gate": self.plan["gate"],
             "selecting_split": self.plan["selecting_split"],
             "started_at": self.started_at,
-            # From the harness itself, never invented by the caller: run/SKILL
-            # refuses a baseline diff across differing harness versions, so the
-            # value has to come from the thing whose change invalidates it.
+            # From the harness itself, never invented by the caller: a
+            # baseline diff is refused across differing SCORING versions (#38;
+            # harness_version is provenance), so both values come from the
+            # thing whose change invalidates the diff.
             "harness_version": HARNESS_VERSION,
+            "scoring_version": SCORING_VERSION,
             "plan_sha256": self.plan_sha256,
             "runner_version": RUNNER_VERSION,
             # Recorded so SS9's comparison.json condition is readable off the
@@ -3346,6 +3355,7 @@ class Runner:
         atomic_write_json(os.path.join(self.out, "results.json"), {
             "run_id": self.plan["run_id"],
             "harness_version": HARNESS_VERSION,
+            "scoring_version": SCORING_VERSION,
             "dataset_version": (self.plan.get("manifest_extra")
                                 or {}).get("dataset_version"),
             "mode": self.plan["mode"],
@@ -3374,12 +3384,36 @@ class Runner:
             manifest = read_json(manifest_path)
         except (OSError, ValueError) as exc:
             bad_input(f"--resume: cannot read {manifest_path}: {exc}")
+        if not isinstance(manifest, dict):
+            bad_input(f"--resume: {manifest_path} is not a JSON object; "
+                      "start a new run id")
         if manifest.get("plan_sha256") != self.plan_sha256:
             # Resuming a DIFFERENT suite under an old manifest produces a run
             # that is comparable to nothing -- and it would still be labelled
             # with the old run id.
             bad_input("plan changed since {} started; start a new run "
                       "id".format(self.plan["run_id"]))
+        # #38: the plan hash does not cover the runner's own verdict rules.
+        # Adopting verdicts graded at another SCORING_VERSION and grading the
+        # rest at this one, then rewriting the manifest at this version, is a
+        # mixed run that would diff as all-new. Same rule as the baseline
+        # diff (_common.scoring_comparison); a pre-field manifest whose
+        # release maps to this version may resume, and says so.
+        comparable, mismatch, warning = scoring_comparison(
+            manifest, {"scoring_version": SCORING_VERSION,
+                       "harness_version": HARNESS_VERSION})
+        if not comparable:
+            bad_input("--resume: {} was started under different verdict "
+                      "rules ({}); resuming would mix verdicts graded under "
+                      "two scoring versions in one run. Start a new run "
+                      "id".format(self.plan["run_id"], mismatch.replace(
+                          "baseline", "started at", 1)))
+        if warning:
+            sys.stderr.write(
+                "--resume: {} predates scoring_version; its release maps to "
+                "scoring_version {}, so it resumes, and the manifest is "
+                "rewritten with the field\n".format(
+                    self.plan["run_id"], SCORING_VERSION))
 
         done = {}
         listing = sorted(os.listdir(self.cases_dir)) \
@@ -3586,9 +3620,19 @@ class Runner:
             [self.baseline_verdicts,
              os.path.join(self.out, "verdicts_for_stats.jsonl")],
             "comparison")
+        # The runner has one baseline and no champion noise pair, so its
+        # `keep` is the posterior bar alone -- never optimize's holdout
+        # decision (optimize/SKILL.md step 5 calls stats.py --noise-floor
+        # itself). Said in the file, so nothing reads this `keep` as that.
+        extra = {"noise_floor_applied": False,
+                 "decision_scope": (
+                     "posterior bar only, no champion noise floor: not the "
+                     "optimizer's keep/revert decision")}
+        if self.baseline_warning:
+            extra["comparability_warning"] = self.baseline_warning
         atomic_write_json(os.path.join(self.out, "comparison.json"), dict(
             report, baseline_verdicts=self.baseline_verdicts,
-            candidate_run_id=self.plan["run_id"]))
+            candidate_run_id=self.plan["run_id"], **extra))
 
     def finalize(self, aborted):
         status, code = ("ok", EXIT_OK) if not aborted else aborted[:2]
@@ -4061,6 +4105,12 @@ def validate_baseline(plan, path):
     the matching k are the comparison's rules, there is nowhere else to read
     them from, and skipping the check when the manifest is absent is exactly
     the silent-pass failure D3 folded this diff into the runner to prevent.
+
+    The version key is SCORING_VERSION (#38), not the plugin version: a
+    release that changes no verdict leaves a baseline comparable. A baseline
+    written before the field existed takes the scoring version its release
+    implies (_common.scoring_key), and the returned warning says so (stderr,
+    and comparison.json).
     """
     if not os.path.isfile(path):
         bad_input(f"--baseline-verdicts {path} is not a readable file")
@@ -4081,23 +4131,48 @@ def validate_baseline(plan, path):
             f"({manifest_path}): {exc}; the comparison's rules are version "
             "equality and a matching k, and there is nowhere else to read "
             "them from")
+    if not isinstance(manifest, dict):
+        bad_input(f"{manifest_path} is not a JSON object", baseline=manifest_path)
     mismatches = []
+    _, scoring_mismatch, warning = scoring_comparison(
+        manifest, {"scoring_version": SCORING_VERSION,
+                   "harness_version": HARNESS_VERSION})
     for key, ours in (
             ("dataset_version",
              (plan.get("manifest_extra") or {}).get("dataset_version")),
-            ("harness_version", HARNESS_VERSION),
             ("k", plan["k"])):
         if manifest.get(key) != ours:
             mismatches.append(
                 f"{key}: baseline {manifest.get(key)!r}, this run {ours!r}")
+    if scoring_mismatch:
+        mismatches.insert(1, scoring_mismatch)
+    # The `holdout` split is mutually exclusive with every other selection
+    # (case-format.md), so a holdout run against a non-holdout baseline, or
+    # the reverse, pairs zero case ids: stats.py would die AFTER the run, and
+    # on a holdout run after its look was spent. Refused here, before the
+    # ledger append. A baseline manifest without the field is not judged.
+    theirs_split = manifest.get("selecting_split")
+    if theirs_split is not None and (
+            (theirs_split == HOLDOUT_SPLIT)
+            != (plan["selecting_split"] == HOLDOUT_SPLIT)):
+        mismatches.append(
+            "selecting_split: baseline {!r}, this run {!r} (the holdout "
+            "split shares no case with any other selection, so the pair "
+            "would have zero common case ids)".format(
+                theirs_split, plan["selecting_split"]))
     if mismatches:
         bad_input(
             "baseline run {!r} is not comparable to this one -- {}. A "
-            "different dataset or harness version changes what a verdict "
+            "different dataset or scoring version changes what a verdict "
             "MEANS, and a different k pairs pass^k verdicts computed over "
             "different numbers of trials.".format(
                 manifest.get("run_id"), "; ".join(mismatches)),
-            baseline=manifest_path)
+            baseline=manifest_path,
+            **({"comparability_warning": warning} if warning else {}))
+    if warning:
+        # stderr, like the holdout-look line: stdout is the JSON channel.
+        sys.stderr.write(f"baseline comparability warning: {warning}\n")
+    return warning
 
 
 def verify_command(out_dir):
@@ -4124,10 +4199,11 @@ def verify_command(out_dir):
 
 def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
     validate_plan(plan, out_dir)
-    if baseline_verdicts:
-        validate_baseline(plan, baseline_verdicts)
+    baseline_warning = (validate_baseline(plan, baseline_verdicts)
+                        if baseline_verdicts else None)
     runner = Runner(plan, out_dir, resume=resume, dry_run=dry_run,
                     baseline_verdicts=baseline_verdicts)
+    runner.baseline_warning = baseline_warning
 
     if dry_run:
         runner.preflight()
@@ -4179,7 +4255,8 @@ def main():
                          "against this run's with stats.py and writes "
                          "comparison.json. Must sit beside its own "
                          "manifest.yaml, and refused up front when the "
-                         "dataset version, harness version or k differ")
+                         "dataset version, scoring version or k differ, or "
+                         "when exactly one side is a holdout run")
     ap.add_argument("--verify", metavar="DIR",
                     help="run ONLY the completeness check (SS9) over an "
                          "existing run directory and exit; no app calls, no "

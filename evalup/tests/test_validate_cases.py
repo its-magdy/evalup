@@ -44,6 +44,7 @@ def good_case(case_id="billing-happy-0000abcd", **overrides):
     required field would make every one of those tests assert two findings and
     hide the one it is about."""
     case = {
+        "schema_version": 1,
         "id": case_id,
         "category": "happy",
         "split": ["full"],
@@ -1161,6 +1162,65 @@ class TestFilterProvenance(ValidateTest):
     def test_no_block_is_clean(self):
         rc, out, _ = self.validate([good_case()])
         self.assertNotIn("filter_unattested", self.codes(out))
+
+
+class TestSchemaVersion(ValidateTest):
+    """#38: every state file declares schema_version. A missing, older or
+    newer value WARNs and names the migration -- never an error, and the one
+    WARN --strict leaves alone, so an old state dir is a migration to do, not
+    a broken CI job."""
+
+    def test_a_case_without_it_warns_and_names_the_migration(self):
+        case = good_case()
+        del case["schema_version"]
+        finding = self.assert_finds("schema_version_missing", [case],
+                                    severity="WARN")
+        self.assertIn("schema_version: 1", finding["message"])
+        self.assertIn("/evalup:generate", finding["message"])
+
+    def test_strict_does_not_promote_it(self):
+        case = good_case()
+        del case["schema_version"]
+        rc, out, err = self.validate([case], "--strict")
+        self.assertEqual(rc, 0, out)
+        finding = next(f for f in out["findings"]
+                       if f["code"] == "schema_version_missing")
+        self.assertEqual(finding["severity"], "WARN")
+
+    def test_older_and_newer_values_warn(self):
+        for value, code in ((0, "schema_version_old"),
+                            (99, "schema_version_newer"),
+                            ("1", "schema_version_invalid")):
+            with self.subTest(value=value):
+                self.assert_finds(code, [good_case(schema_version=value)],
+                                  severity="WARN")
+
+    def test_the_current_version_is_silent(self):
+        rc, out, err = self.validate([good_case()])
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("schema_version_missing", self.codes(out))
+
+    def test_adapter_profile_and_manifest_are_checked(self):
+        adapter = self.write_json("adapter.json", {"adapter_version": 1,
+                                                   "invocation": {}})
+        profile = self.write_json("profile.json", {"profile_version": 1})
+        manifest = self.write_json("manifest.json", {})
+        rc, out, err = self.validate([good_case()], "--adapter", adapter,
+                                     "--profile", profile,
+                                     "--manifest", manifest)
+        self.assertNotIn("Traceback", err)
+        messages = [f["message"] for f in out["findings"]
+                    if f["code"] == "schema_version_missing"]
+        self.assertEqual(len(messages), 3, out["findings"])
+        joined = " ".join(messages)
+        # The pre-#38 keys are named as the old spelling of the field.
+        self.assertIn("`adapter_version: 1`", joined)
+        self.assertIn("`profile_version: 1`", joined)
+        self.assertIn("/evalup:discover", joined)
+        self.assertIn("datasets/dataset.yaml", joined)
+        profile = self.write_json("profile.json", {"schema_version": 1})
+        rc, out, err = self.validate([good_case()], "--profile", profile)
+        self.assertNotIn("schema_version_missing", self.codes(out))
 
 
 if __name__ == "__main__":

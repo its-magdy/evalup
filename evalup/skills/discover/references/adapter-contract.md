@@ -11,7 +11,7 @@ never resolve against the plugin's own `${CLAUDE_PLUGIN_ROOT}/scripts/` —
 those are the harness's files, not the app's.
 
 ```yaml
-adapter_version: 1
+schema_version: 1              # evalup state-file layout; validate_cases.py warns without it
 app:
   name: my-chat-app
   repo: .                      # relative to this file, or absolute; omit for endpoint-only

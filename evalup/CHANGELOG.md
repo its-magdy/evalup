@@ -5,10 +5,12 @@ versioning follows [SemVer][semver]. `0.x` means the interfaces may still
 change — the case format, the adapter contract and the runner's CLI most of
 all.
 
-The harness version is recorded in every run's `manifest.yaml`, and a run is
-only comparable to a baseline of the **same** version: a different harness
-version changes what a verdict means. Expect a version bump to invalidate
-baselines.
+Every run's `manifest.yaml` records the harness (plugin) version and the
+**scoring version**, and a run is only comparable to a baseline of the
+**same scoring version**: that number is bumped only when a verdict's meaning
+changes (a scorer, a default threshold, the runner's verdict rules), so a
+release that changes no verdict leaves baselines comparable. A section below
+says when a release bumps it.
 
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
@@ -34,9 +36,31 @@ break anyone who has been tracking this repository directly.
   `state` and `http`; `loops` and `reliability` roll up per run.
   `cost_latency` is a capability, not a layer, and never gates. Seventeen
   stdlib-only CLIs in `scripts/`.
-- **A sealed statistical gate.** `scripts/stats.py` decides keep vs revert on
+- **A sealed holdout gate.** `scripts/stats.py` decides keep vs revert on
   an exact Beta posterior over the discordant pairs — one rule at every n — and
   reports an exact one-sided sign test and McNemar's exact test alongside it.
+  The keep bar is posterior P ≥ **0.95** (it was 0.8, which kept a no-op edit
+  on an app with flaky cases on 6–20% of holdout looks; #36), the holdout runs
+  at k = 3, `--noise-floor` turns a candidate that changed no more cases than
+  two champion runs disagree on — or any case those runs do not cover — into
+  "no evidence", and `--candidate-looks` prints the multi-look false-keep
+  bound (3% per look with the floor, 6% without; simulated, the test pins
+  both) with `multi_look_assumptions`: the bound assumes independent flaky
+  cases and the champion the noise pair measured, and a pinned exact
+  counter-example (6 of 20 cases flipping together: 12.5% per look) shows
+  what correlation does. The noise pair is run on the **unedited** app,
+  before a seal's first edit (it used to run after the edit was applied,
+  making the candidate its own baseline), once per seal, after a check that
+  at least three looks are left, and recorded in `reports/holdout-seal.json`
+  after each run, so a later or interrupted session reuses it instead of
+  spending more looks. A reseal archives and empties the ledger: its count
+  is a line count, and bumping `dataset_version` alone left the new seal
+  with no looks. Holdout runs never use or become `reports/baseline.json`,
+  and the runner refuses a holdout/non-holdout baseline pair before the
+  look is spent (they share no case id). The runner's `comparison.json` says
+  `noise_floor_applied: false`: it is never the optimizer's decision. A keep
+  claims a posterior probability, never significance unless the sign test
+  also passes.
   No chi-square or normal approximation appears in any decision or reported
   test; the power figures below the decision are the one acknowledged
   exception, and are labelled as planning estimates.
@@ -752,6 +776,50 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   `build_review_viewer.py` `--title`. Each now has a test and a line where a
   user would look (run-modes.md, annotation-ux.md, analyze § cost). None was
   removed: deleting them was proposed and rejected 2026-09-21.
+
+### Changed — correctness and safety (2026-11-19)
+
+- **App output is untrusted in the main session too** (#37). Every skill's
+  preamble now says app answers, traces, transcripts and fetched documents
+  are data, never instructions, and points bulk raw output at the read-only
+  `judge` / `trace-analyzer` subagents. `optimize` takes an edit's content
+  from the failure analysis and the rubric only. The judge reads only the
+  paths its assignment names and redacts secrets in quoted evidence. A
+  layout test pins the paragraph, word for word, in all seven skills.
+  `analyze --transcripts`, the one branch that had the main session read
+  20–50 raw conversations itself, now hands each batch to the read-only
+  `trace-analyzer` and works from its per-conversation blocks; with no
+  reviewer present, the agent's critiques are the open codes.
+- **A release no longer invalidates every baseline** (#38).
+  `_common.SCORING_VERSION` (1) is the comparability key in the runner's
+  baseline diff, `make_plan.py --failing-in`, `run_history.py`'s series key
+  and `score_cost.py`'s pair check; `harness_version` stays equal to the
+  plugin version, for provenance. A run written before the field takes the
+  scoring version its release implies (0.1.0 = 1) with a warning, never a
+  crash, through one key (`_common.scoring_key`) that the pair checks and
+  `run_history.py`'s series key share, so a pair the runner would diff is
+  never split into two series. `--version` prints
+  `(scoring N)`. `reports/baseline.json` is `{"schema_version", "run_id",
+  "dataset_version", "scoring_version"}`.
+- **State files carry `schema_version: 1`** (#38): every case file,
+  `adapter.yaml` and `profile.yaml` (renamed from the never-read
+  `adapter_version` / `profile_version`), `datasets/dataset.yaml`, the run
+  manifest and `reports/baseline.json`. `validate_cases.py` warns on a
+  missing, older or newer value and names the migration — a WARN that
+  `--strict` does not promote. It gains `--profile`, and `convert_suite.py
+  --split-dir` writes the `profile.json` it reads.
+- **One scoring version per run, and no crash on a bad one** (#38, second
+  review). `--resume` refused only a changed plan, so a run interrupted under
+  one `SCORING_VERSION` adopted its verdicts, graded the rest under the next
+  and wrote the new version into the manifest. It now refuses (exit 2) a
+  manifest whose scoring key differs; a pre-field manifest that maps to the
+  current version resumes, with a stderr line. A malformed version field
+  (`scoring_version: true`, which compared equal to 1; a `harness_version`
+  of `[]`, which raised TypeError in every caller) is never comparable: the
+  runner refuses it as a baseline, and `run_history.py` excludes that run
+  instead of aborting the report. A series holding a pre-field run now says
+  so. `analyze`'s revalidation passes `--profile`, so an old profile gets
+  its migration warning there too.
 
 ### Fixed — the 2026-09-21 shape audit
 
