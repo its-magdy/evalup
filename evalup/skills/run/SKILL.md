@@ -130,9 +130,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan <work-dir>/plan.json -
 ```
 
 `--dry-run` validates the plan and pre-flight without calling the app; use it
-on anything unfamiliar. Then estimate cost: probe 2–3 cases, extrapolate
-(n × k × tokens × price + judge calls), ask "≈ $X, ~Y min. Proceed?" — skipping
-the prompt only under a pre-approved budget or the headless gate (§6). Resume
+on anything unfamiliar. Then estimate, without calling the app by hand:
+time is its `app_calls_planned` × the per-request latency discover §4
+recorded in findings.md, plus its `wait_floor_s`; dollars are those calls ×
+tokens × price (+ judge calls) when a price is known. Ask "≈ $X, ~Y min.
+Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
+go: a first session must not stop here), under a pre-approved budget, or
+under the headless gate (§6). Resume
 an interrupted run with `--resume` under the same run id; re-check a finished
 one any time with `--verify reports/<run-id>`. Conversations are slow: when
 traces are collected every turn waits for trace quiescence (3 s or more), plus
@@ -250,6 +254,9 @@ open Claude Code. Never hand-write HTML.
   contract's §10 counts table defines each. "6 test cases and 2 canaries
   ran; 1 failed, 1 skipped" — never "8 ran" beside an `n` of 6. A failure on a `gating: false` case is reported
   as a failure that did not close the gate.
+- **Unreviewed labels** — when no selected case is `review.status:
+  accepted` (a first session), say so above the clusters: a failure may be
+  the label's error, not the app's, and no case can close a gate yet.
 - **Page one = the top-3 failure clusters**, each with 1–2 expected-vs-actual
   excerpts, the implicated surface (router prompt, tool description X, missing
   OOS route) and an effort tag. That narrative is what the LLM here is for.

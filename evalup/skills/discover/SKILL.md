@@ -42,7 +42,8 @@ scope.
 **Lean mode** — when `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first
 session sent you here: do steps 1–4 and 8 (plus step 5's one sentence on the
 state location before the first write), set `stage: pre-stability`, and list
-steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
+steps 5 and 7, step 6's maturity question and step 3's side-effect
+confirmation under `deferred:` in findings.md
 with what each unlocks — step 7 includes `environment.safe_to_attack`, which
 stays false until asked, so attack cases are skipped until then. Do not
 offer a patch to the user's source and do not interview them before they
@@ -109,7 +110,9 @@ conversation/session handling, OTel setup. Record as you go:
   (compiled-in, embedded, or loaded at startup). Record that in findings.md
   beside the surface; optimize's precondition 6 reads it.
 - Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
-  adapter-contract.md defines them. Confirm each with the human.
+  adapter-contract.md defines them. Confirm each with the human — except in
+  lean mode: there, mark the `tools:` list `# side_effects inferred from code,
+  unconfirmed` in adapter.yaml, and list the confirmation under `deferred:`.
 - `record_id_pattern` — the regex matching the app's own record identifiers
   (order ids, invoice ids, primary keys).
 - The **data-access layer** → `oracle.db`: DB and ORM, where schema/migrations
@@ -138,7 +141,8 @@ Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
 tool registration, feature flags). Send 1–3 harmless requests through the adapter
 and compare observed agent names, tool names and `invoke_agent` span shape
 against the inferred profile — this is also step 2's span-shape evidence. Mark
-every profile entry `verified: true|false`. The **core entries** are exactly
+every profile entry `verified: true|false`, and note each request's latency in
+findings.md — run §2's time estimate uses it. The **core entries** are exactly
 three: `architecture.kind`, the invocation shape (endpoint, request and
 response templates — one request proves them), and at least one route target
 or tool observed live. Generation must not proceed while any of those three is

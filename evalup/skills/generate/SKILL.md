@@ -184,6 +184,12 @@ marked uncertain, and cases a cheap probe run shows the app disagreeing with.
 Present each as the message, the expected label, and a one-line why — accept /
 fix / delete — and write the review status per case.
 
+**First session** (start's step 4): do not stop for this pass before the
+run — a stop ends the turn and its pre-approvals. List the batch (id,
+label, one-line why) in the handover and leave every case `pending`; start
+offers the review after the first result, when the smoke run has become the
+probe that finds the third kind.
+
 **Only a human may set `review.status: accepted`, and `review.by` must be that
 human's name** — not "generate-review", not the agent, not the skill.
 Everything the generator produces starts `pending`. **Never derive an

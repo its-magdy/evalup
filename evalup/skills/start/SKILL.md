@@ -63,23 +63,21 @@ quoting the script's `error` (it names the interpreter and the fix), and that
 the session can still discover and write cases but cannot run them until
 `python3` imports `yaml`. Then carry on.
 
-0. **Ask one question first: "Do you have real conversations with this app —
-   exported chats, support logs, saved traces, bug reports?"** Real failures
-   beat imagined ones, and it is the one thing you cannot find in the code.
-   **If the user's message already answers it, or says not to ask, do not
-   ask** — take the answer and go: stopping ends the turn, this skill's
-   pre-approvals end with it, and a headless session then cannot continue.
-   **Yes →** run `analyze --transcripts <path>` FIRST (it needs no profile, no
-   cases and no run): the failure taxonomy it produces is a result in its own
-   right, and its conversations seed step 4 in place of synthetic cases. Then
-   continue from step 1. **No →** carry on; say that synthetic cases test the
-   failures you can imagine, and that real ones can be added any time.
+0. **Ask nothing before the first result.** Every stop ends the turn, this
+   skill's pre-approvals end with it, and a headless session then cannot
+   continue. So do not ask about real conversations up front: **if the user's
+   message already names some** (exported chats, support logs, saved traces,
+   bug reports), run `analyze --transcripts <path>` FIRST (it needs no
+   profile, no cases and no run) — its failure taxonomy is a result in its
+   own right, and its conversations seed step 4 in place of synthetic cases.
+   Otherwise go straight to step 1; step 2 says what real ones would add.
 1. **`discover`, lean.** Steps 1–4 and 8 of that skill only: access level,
    topology, code archaeology, the 1–3 live validation requests, findings.
    Before its first write, one sentence on where state goes — Procedure step
    1 below; a dirty or read-only tree makes the out-of-tree location the
    thing to name, and headless you take the default and say so.
-   **Skip step 5 (patches), step 6's maturity question (default
+   **Skip step 3's side-effect confirmation (the classes are recorded as
+   inferred), step 5 (patches), step 6's maturity question (default
    `stage: pre-stability`) and step 7 (the interview)** — record each under
    `deferred:` in findings.md so the next session offers them. The one thing
    you may need from the user is how to reach the app (URL, or a command that
@@ -88,21 +86,31 @@ the session can still discover and write cases but cannot run them until
    time.** One short paragraph from the capability matrix: "No traces, so I can
    score routing and answers today; tool use and cost need tracing, which I can
    add later if you want it." A user who came to evaluate tool calls must hear
-   that in minute two, not after the run.
+   that in minute two, not after the run. Add one sentence: these cases are
+   synthetic and test the failures we can imagine; real conversations
+   (exported chats, logs, traces) find the ones we cannot, and can be added
+   after the first result.
 3. **Show the top 3 design findings now.** They are often worth more than the
    eval, they cost the user nothing, and they are the reason to keep going.
 4. **`generate`, small: ~12 cases** (that skill's stated minimum), no holdout
    (it says to skip one below 25), smoke + canary only. If the user has real
    messages or transcripts to hand, take them first — 10 real ones beat 30
-   synthetic. Review stays targeted: only the hard-negative/OOS labels and the
-   cases the generator marked uncertain, in one batch, accept/fix/delete.
-5. **`run --smoke`** — wait for the runner as run/SKILL.md §2 says
-   (foreground, then `wait_run.py` while it exits 3; never end the turn while
-   `results.json` says `running`) — then report per run/SKILL.md §5: what
-   failed, where, and what the suite could not see.
+   synthetic. **No review before the run**: every case stays `pending` and
+   `gating: false`, and generate lists the targeted review batch (hard-negative
+   and OOS labels, cases marked uncertain) for step 6 to offer.
+5. **`run --smoke`** on those unreviewed cases — wait for the runner as
+   run/SKILL.md §2 says (foreground, then `wait_run.py` while it exits 3;
+   never end the turn while `results.json` says `running`) — then report per
+   run/SKILL.md §5: what failed, where, and what the suite could not see. Say
+   the labels are unreviewed: a failure may be a wrong label, not a wrong
+   answer, and none of them can close a gate yet.
 6. **Close with the menu, not a lecture**: what unlocks next and what each
-   costs — tracing (tool/trajectory/cost layers), the interview (business
-   rules, rubric), a full suite with a sealed holdout (regression gating),
+   costs — first the stops this session skipped: the targeted label review
+   (accept/fix/delete, ~15 min, then those cases gate), real conversations
+   (`analyze --transcripts`), and `/evalup:discover` for findings.md's
+   `deferred:` list (side-effect classes to confirm, patches, the
+   interview). Then tracing (tool/trajectory/cost layers), the interview's
+   business rules and rubric, a full suite with a sealed holdout (regression gating),
    judge calibration (groundwork: judged layers are not scored at run time yet; then `optimize`). One line each. Be
    straight about the distance to `optimize`: it needs ~100 cases, a sealed
    holdout and a stable app — several sessions away from a 12-case first run.
