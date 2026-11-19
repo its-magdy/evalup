@@ -189,7 +189,9 @@ fix / delete — and write the review status per case.
 
 **First session** (start's step 4): do not stop for this pass before the
 run — a stop ends the turn and its pre-approvals. List the batch (id,
-label, one-line why) in the handover and leave every case `pending`; start
+label, one-line why) in the handover and leave every case `pending`. Canary
+candidates join it untagged until accepted: a canary `fail` aborts the run,
+reviewed or not. Start
 offers the review after the first result, when the smoke run has become the
 probe that finds the third kind.
 
@@ -224,7 +226,8 @@ The four legal values of `split` are exactly `full`, `smoke`, `holdout`,
 `holdout` is exclusive of all three (`holdout_not_sealed`) — the seal rests
 on that.
 
-- `full`: everything reviewed.
+- `full`: every case outside the holdout — reviewed, or on a first session
+  still `pending` (`smoke` too) until the review.
 - `smoke` (~1/3 of full, floor 5): diversity-selected to maximize spread across
   grid cells and phrasings, never random. Used by everyday runs and hooks.
 - `holdout` (20% at ≥25 cases; below that skip it and say so): SEALED. Written
@@ -239,10 +242,9 @@ on that.
   which also says when the floor applies). **Every canary also carries
   `smoke`**: a run selects on its mode's split alone, so a canary tagged only
   `[full, canary]` never runs under `--smoke` (the validator warns,
-  `canary_not_in_smoke`). Canaries sit outside every denominator; what the
-  tag adds to a smoke run is the call, and the abort (exit 4) when the canary
-  scores wrong — which is the point: a drifted harness stops the run before
-  it spends the suite producing numbers nobody should read.
+  `canary_not_in_smoke`). Canaries sit outside every denominator; on a smoke
+  run the tag adds the abort (exit 4) when one scores wrong, so a drifted
+  harness stops before it spends the suite on numbers nobody should read.
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither

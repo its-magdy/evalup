@@ -104,7 +104,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
   "capability_matrix": {     // profile.yaml's block, verbatim
     "routing":        {"enabled": true},
     "trajectory":     {"enabled": false, "blocked_by": "no trace-id correlation"},
-    "tool_selection": {"enabled": false, "blocked_by": "stage: pre-stability"},
+    "tool_selection": {"enabled": false, "blocked_by": "no tool-call log"},
     "cost_latency":   {"enabled": false, "blocked_by": "..."},
     "multi_turn":     {"enabled": false, "blocked_by": "adapter declares no invocation.conversation"},
     "answer_quality": {"enabled": true, "judged": "provisional"}

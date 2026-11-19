@@ -97,9 +97,9 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `k` and `gate`, fills every required key, and prints the `run_id`, the
   `--out` directory and the exact runner command. Its other flags are the
   mode's — `--tag`/`--failing-in` (`--filter-failing`), `--k N`, `--layer X`,
-  `--oos-route`, the retry pair, `--single-turn`/`--max-turns` — and
-  run-modes.md's flags section says what each does. Two you may need on a
-  first run: `--oos-route <name>` — `scoring.oos_route` comes from the
+  `--oos-route`, the retry pair, `--single-turn`/`--max-turns` —
+  run-modes.md's flags section says what each does, for any mode but smoke.
+  A smoke or first run does not open it; the two it may need are here: `--oos-route <name>` — `scoring.oos_route` comes from the
   profile's `oos_handling: route:<name>`, so pass it when the route is
   declared any other way, or OOS metrics go unreported — and `--insecure-tls` for a self-signed local dev host
   (pre-flight otherwise exits 3, `CERTIFICATE_VERIFY_FAILED`). Never
@@ -133,12 +133,10 @@ Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
 go: a first session must not stop here), under a pre-approved budget, or
 under the headless gate (§6). Resume
 an interrupted run with `--resume` under the same run id; re-check a finished
-one any time with `--verify reports/<run-id>`. Conversations are slow: when
-traces are collected every turn waits for trace quiescence (3 s or more), plus
-any `turn_delay_s`, so 20
-conversations of 5 turns at k=3 is about an hour. `--dry-run` reports
-`app_calls_planned` (counting turns) and `wait_floor_s`; headless, expect
-several `wait_run.py` waits below.
+one any time with `--verify reports/<run-id>`. Conversations are slow: with
+traces, each turn waits 3 s or more for quiescence, plus any `turn_delay_s`
+(20 five-turn conversations at k=3 ≈ an hour; `app_calls_planned` counts
+turns); headless, expect several `wait_run.py` waits below.
 
 **Wait for the runner; never end the turn on a `running` run.** Launch
 `run_cases.py` in the **foreground** of one Bash call with `timeout` at its
@@ -199,7 +197,10 @@ app's score.
 - **First run** — no pointer — is a branch, not an error. Run
   without `--baseline-verdicts`, write `baseline.json` at this run, print
   "baseline established (run <id>); future runs diff against this."
-  `--baseline` does that deliberately. **Pinning is yours; the runner never
+  `--baseline` does that deliberately. **Never pin a run with no selected
+  case `accepted`** (a first session's smoke run): unreviewed labels, and
+  k=1 that the default k=3 diff refuses. Say "not pinned: labels
+  unreviewed; a `regression` run after the review pins the baseline." **Pinning is yours; the runner never
   writes that file.**
 - **The holdout look**: `--holdout` and `--full` spend one of the N=5 —
   surface the running total the runner prints; run-modes.md's `holdout`
@@ -245,7 +246,8 @@ open Claude Code. Never hand-write HTML.
   as a failure that did not close the gate.
 - **Unreviewed labels** — when no selected case is `review.status:
   accepted` (a first session), say so above the clusters: a failure may be
-  the label's error, not the app's, and no case can close a gate yet.
+  the label's error, not the app's, no case can close a gate yet, and the run
+  is not pinned (§4).
 - **Page one = the top-3 failure clusters**, each with 1–2 expected-vs-actual
   excerpts, the implicated surface (router prompt, tool description X, missing
   OOS route) and an effort tag. That narrative is what the LLM here is for.

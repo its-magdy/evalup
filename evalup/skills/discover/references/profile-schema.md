@@ -151,7 +151,7 @@ capability_matrix:               # which eval layers apply and what blocks them
 confirmed_by_human:              # from the discover interview — the app's SHOULD
   domain_boundaries:
     - "cancel subscription → billing (not support)"
-  business_rules:                # become deterministic oracles in scoring
+  business_rules:                # no run scores these yet (run SKILL.md §5)
     - id: no-uncatalogued-prices
       rule: "never state a price not present in a tool result"
     - id: refund-cap
@@ -182,6 +182,6 @@ judge:
                                  # opens nothing.
   model: ""                      # must differ from app's model family, or
   same_family_accepted: false    # ...user consciously accepted the bias risk
-                                 # model is applied as the override whenever the
-                                 # judge agent is launched (run + analyze --label)
+                                 # model overrides the judge agent's, which only
+                                 # analyze --label launches (no run judges)
 ```

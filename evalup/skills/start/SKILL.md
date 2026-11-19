@@ -89,20 +89,23 @@ the session can still discover and write cases but cannot run them until
 3. **Show the top 3 design findings now.** They are often worth more than the
    eval, they cost the user nothing, and they are the reason to keep going.
 4. **`generate`, small: ~12 cases** (that skill's stated minimum), no holdout
-   (it says to skip one below 25), smoke + canary only. If the user has real
+   (it says to skip one below 25), smoke only: no case is tagged `canary` until
+   a human accepts it, since a canary `fail` aborts the run. If the user has real
    messages or transcripts to hand, take them first — 10 real ones beat 30
    synthetic. **No review before the run**: every case stays `pending` and
    `gating: false`, and generate lists the targeted review batch (hard-negative
-   and OOS labels, cases marked uncertain) for step 6 to offer.
+   and OOS labels, cases marked uncertain, canary candidates) for step 6 to offer.
 5. **`run --smoke`** on those unreviewed cases — wait for the runner as
    run/SKILL.md §2 says (foreground, then `wait_run.py` while it exits 3;
    never end the turn while `results.json` says `running`) — then report per
    run/SKILL.md §5: what failed, where, and what the suite could not see. Say
    the labels are unreviewed: a failure may be a wrong label, not a wrong
-   answer, and none of them can close a gate yet.
+   answer, none of them can close a gate yet, and this run is not pinned as the
+   baseline.
 6. **Close with the menu, not a lecture**: what unlocks next and what each
    costs — first the stops this session skipped: the targeted label review
-   (accept/fix/delete, ~15 min, then those cases gate), real conversations
+   (accept/fix/delete, ~15 min; then accepted cases gate, canary candidates get
+   their tag, and a `regression` run pins the baseline), real conversations
    (`analyze --transcripts`), and `/evalup:discover` for findings.md's
    `deferred:` list (side-effect classes to confirm, patches, the
    interview). Then tracing (tool/trajectory/cost layers), the interview's
@@ -146,9 +149,9 @@ lean path would have skipped and let them choose.
    |---|---|---|
    | 0 | A `reports/<run-id>/` directory with a `manifest.yaml` but no `results.json`, or whose `results.json` has `summary.status: "running"` | **An interrupted run.** A killed session leaves exactly this. Say so, and offer `run --resume` under the SAME run id (run/SKILL.md §2) before anything else — routing on to a fresh run abandons the cases already paid for. If the user declines, leave the directory alone and continue down the table. |
    | 1 | No state location at all | Step 1: the first session, above — `discover` (load it and follow it), lean. |
-   | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Don't promise the user it will be preserved — offer to back it up first if they care about it. |
+   | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Offer to back it up first; don't promise it survives. |
    | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores (from that run's `reports/<run-id>/results.json` — the pointer holds no verdicts), dataset size, judge calibration status and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). That directory missing → say the pinned run was deleted and offer a fresh pin; never read some other run instead. The pointer's `dataset_version`/`harness_version` differ from today's → say its scores are not comparable and a fresh pin is needed (`run` §4 would refuse the diff anyway, so this saves a wasted run). |
-   | 4 | Datasets exist, no baseline | Step 3: run `run` to establish the baseline. |
+   | 4 | Datasets exist, no baseline | Step 3: `run --regression` pins the baseline — after the targeted review if no case is accepted yet (run §4 never pins an unreviewed run). |
    | 5 | `profile.yaml` exists, no datasets | Step 2: run `generate`. |
 
    Independent of the above, if `profile.yaml` looks older than the app's recent
@@ -164,8 +167,7 @@ lean path would have skipped and let them choose.
    blocker; `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Staged rigor is the long
    form, for a user who asks). Frame locks as "unlocks when X," never as missing features.
 
-   Naming the stage is not enough on its own — "stage: pre-stability" means nothing
-   to someone who has not read that comment, so always spell out the one or
+   Naming the stage is not enough on its own: always spell out the one or
    two things it currently gates. Do this in your first reply and in any
    reply where the stage changes — including one that routes to a blocked or
    broken state (check 2 and a dangling baseline pointer in 3), since that is

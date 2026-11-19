@@ -31,13 +31,16 @@ scoring, so every number is reproducible and CI can gate on it without Claude.
 ## Prerequisites
 
 - **Claude Code**
-- **Python 3.9+**, stdlib only. `scripts/convert_suite.py` alone needs PyYAML.
+- **Python 3.9+ with PyYAML**: `scripts/convert_suite.py` converts the YAML
+  suite before every run and needs it (`python3 -m pip install --user pyyaml`);
+  everything else imports only the stdlib.
 - **An app you can call**: an HTTP endpoint that returns one JSON body, or a
   Python `module:callable`.
 - **Optional:** OpenTelemetry GenAI traces exported to a file. Without them,
   routing and answer checks still score; tool use, trajectory and cost need them.
 
-No judge API key is needed: Claude Code subagents do the judging.
+No judge API key is needed. Judging and judge calibration use Claude Code
+subagents; runs report judged layers as not measured.
 
 ---
 
