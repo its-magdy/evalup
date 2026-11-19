@@ -31,9 +31,13 @@ it without Claude.
 ## Prerequisites
 
 - **Claude Code**
-- **Python 3.9+**. No packages: the harness imports only the stdlib. The one
-  exception, `scripts/convert_suite.py`, needs PyYAML to turn your YAML suite
-  into JSON.
+- **Python 3.9+ with PyYAML.** `scripts/convert_suite.py` turns your YAML
+  test suite into JSON before every run, and it needs PyYAML importable by the
+  `python3` Claude Code calls. A stock macOS `python3` does not have it:
+  `python3 -m pip install --user pyyaml`, or a venv with PyYAML first on your
+  `PATH` if pip refuses (Homebrew Python). Running the scripts by hand,
+  `uv run --with pyyaml python …` needs no install. Everything else imports
+  only the stdlib.
 - **An app you can call**: an HTTP endpoint that returns one JSON body, or a
   Python `module:callable`.
 - **Optional:** OpenTelemetry GenAI traces, exported to a file
@@ -76,7 +80,12 @@ Check the install without starting a session:
 
 ```bash
 python3 evalup-repo/evalup/scripts/stats.py --version
+python3 evalup-repo/evalup/scripts/convert_suite.py --self-check
 ```
+
+The second line fails with exit 2 and an install hint when that `python3`
+cannot import PyYAML; `/evalup:start` runs the same check before it reads your
+app.
 
 ---
 

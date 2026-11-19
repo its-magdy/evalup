@@ -737,6 +737,15 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   context into the user message to keep the case scoring.
   (docs/multi-turn.md §0)
 
+### Fixed — the first session (2026-11-19 review)
+
+- **A missing PyYAML surfaced about fifteen minutes in** (#11), at
+  generate's conversion, after the README's install check had passed: a
+  stock macOS `python3` has no `yaml`. `convert_suite.py --self-check` only
+  imports PyYAML and exits 0 or 2 with the install hint; the README's install
+  check runs it, and `/evalup:start` runs it before reading the app. The
+  hint now names the interpreter and the PEP 668 (Homebrew) way round pip.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

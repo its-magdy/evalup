@@ -55,6 +55,14 @@ is what the second session is for, and the user asks for it by name. When check
 1 below matches, run the steps in this shape, in ONE session, without stopping
 between them:
 
+**Before step 0 — before reading the app — check PyYAML:** run
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py" --self-check`. Generate
+and run convert the YAML suite with it about fifteen minutes in, and a stock
+macOS `python3` lacks it. Exit 0: say nothing. Exit 2: tell the user now,
+quoting the script's `error` (it names the interpreter and the fix), and that
+the session can still discover and write cases but cannot run them until
+`python3` imports `yaml`. Then carry on.
+
 0. **Ask one question first: "Do you have real conversations with this app —
    exported chats, support logs, saved traces, bug reports?"** Real failures
    beat imagined ones, and it is the one thing you cannot find in the code.

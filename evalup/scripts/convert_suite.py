@@ -54,13 +54,21 @@ runner's job (runner-contract.md SS3), and a secret must not reach this file.
 Exit 0 converted; 2 bad input ({"error": ...} on stdout, like every script
 here). It does NOT lint: run validate_cases.py on the output.
 
+--self-check reads nothing and converts nothing: it only imports PyYAML, then
+prints {"ok": true, "pyyaml": <version>, "python": <interpreter>} and exits 0,
+or exits 2 with the same install hint a conversion would hit. It exists so
+/evalup:start and the README's install check find a missing PyYAML in minute
+one instead of at generate's conversion, about fifteen minutes in.
+
 Usage:
   convert_suite.py <state-dir> [-o converted.json] [--split-dir <dir>]
+  convert_suite.py --self-check
 """
 import argparse
 import datetime
 import json
 import os
+import sys
 
 from _common import add_version_flag, die, load_text, write_output
 
@@ -72,11 +80,15 @@ def yaml_module():
     try:
         import yaml
     except ImportError:
-        die("convert_suite.py needs PyYAML and it is not installed: "
-            "`python3 -m pip install pyyaml`, or with no install at all "
-            "`uv run --with pyyaml python <this script> ...`. Nothing else in "
-            "evalup needs it -- the runner and scorers read the JSON this "
-            "script writes.")
+        die(f"convert_suite.py needs PyYAML and {sys.executable} cannot "
+            "import it. Install it for that interpreter: `python3 -m pip "
+            "install --user pyyaml`; if pip refuses with "
+            "externally-managed-environment (Homebrew Python), make a venv "
+            "(`python3 -m venv ~/.venvs/evalup && ~/.venvs/evalup/bin/pip "
+            "install pyyaml`) and start Claude Code with its bin/ first on "
+            "PATH. By hand, with no install, `uv run --with pyyaml python "
+            "<this script> ...` also works. Nothing else in evalup needs it "
+            "-- the runner and scorers read the JSON this script writes.")
     return yaml
 
 
@@ -153,7 +165,11 @@ def main():
                     "datasets/**/*.yaml into the JSON validate_cases.py and "
                     "run_cases.py read. Needs PyYAML; nothing else here does.")
     add_version_flag(ap)
-    ap.add_argument("state_dir", help="the state location, e.g. <app>/.evalup")
+    ap.add_argument("state_dir", nargs="?",
+                    help="the state location, e.g. <app>/.evalup")
+    ap.add_argument("--self-check", action="store_true",
+                    help="only check that PyYAML imports, and exit: 0 with "
+                         "its version, 2 with the install hint")
     ap.add_argument("-o", "--output", help="write the combined document here "
                                            "(default: stdout)")
     ap.add_argument("--split-dir", help="also write suite.json, "
@@ -161,6 +177,14 @@ def main():
                     "one per flag the other CLIs take")
     a = ap.parse_args()
 
+    if a.self_check:
+        yaml = yaml_module()
+        print(json.dumps({"ok": True,
+                          "pyyaml": getattr(yaml, "__version__", "unknown"),
+                          "python": sys.executable}))
+        return
+    if a.state_dir is None:
+        ap.error("the state_dir argument is required (or pass --self-check)")
     if not os.path.isdir(a.state_dir):
         die(f"bad input: {a.state_dir}: not a directory")
     yaml = yaml_module()

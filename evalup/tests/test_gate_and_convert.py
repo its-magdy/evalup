@@ -630,6 +630,49 @@ def have_yaml():
     return True
 
 
+class TestConvertSuiteSelfCheck(TempDirTest):
+    """#11: /evalup:start and the README's install check run --self-check so
+    a missing PyYAML shows in minute one, not at generate's conversion."""
+
+    def self_check(self, hide_yaml):
+        env = dict(os.environ)
+        if hide_yaml:
+            # A `yaml` package ahead of site-packages whose import fails is
+            # what a Python without PyYAML looks like to the script.
+            shadow = self.tmp / "shadow" / "yaml"
+            shadow.mkdir(parents=True)
+            (shadow / "__init__.py").write_text(
+                "raise ImportError('PyYAML hidden by the test')\n",
+                encoding="utf-8")
+            env["PYTHONPATH"] = str(shadow.parent)
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "convert_suite.py"), "--self-check"],
+            capture_output=True, text=True, timeout=60, env=env)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_without_pyyaml_it_fails_with_the_install_hint(self):
+        rc, out, err = self.self_check(hide_yaml=True)
+        self.assertEqual(rc, 2, out + err)
+        message = json.loads(out)["error"]
+        self.assertIn("needs PyYAML", message)
+        self.assertIn("pip install --user pyyaml", message)
+        self.assertNotIn("Traceback", err)
+
+    @unittest.skipUnless(have_yaml(), "PyYAML not installed")
+    def test_with_pyyaml_it_reports_the_version_and_reads_nothing(self):
+        rc, out, err = self.self_check(hide_yaml=False)
+        self.assertEqual(rc, 0, out + err)
+        doc = json.loads(out)
+        self.assertIs(doc["ok"], True)
+        self.assertTrue(doc["pyyaml"])
+        self.assertEqual(doc["python"], sys.executable)
+
+    def test_no_state_dir_and_no_self_check_is_a_usage_error(self):
+        rc, _, err = run("convert_suite.py")
+        self.assertEqual(rc, 2)
+        self.assertIn("--self-check", err)
+
+
 @unittest.skipUnless(have_yaml(), "PyYAML not installed; convert_suite.py is "
                                   "the one script that needs it")
 class TestConvertSuite(TempDirTest):
