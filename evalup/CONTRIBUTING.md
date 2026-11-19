@@ -17,8 +17,20 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-943 tests, ~4 min, the blessed command. `test_run_cases.py` is most of that: a
-real HTTP server per test, and one test kills a runner mid-run.
+943 tests, ~2.5 min (136–168 s measured 2026-11-19), the blessed command.
+`test_run_cases.py` is most of that: a real HTTP server per test, and one test
+kills a runner mid-run.
+
+For a faster loop while you work, run CI's four shards side by side (~50 s):
+
+```sh
+python3 tests/run_shards.py
+```
+It reads the shard globs from `.github/workflows/ci.yml`'s `SHARD_*` env, so
+it cannot drift from CI, and refuses to run when a test file is in no shard or
+two. It is **not** a fourth check: before you call a change done, run the
+serial command above, which is the conclusive one. pytest-xdist stays out
+(`ci.yml` says why: it cannot pickle a subTest's `PosixPath`).
 
 ```sh
 ruff check --config ruff.toml .

@@ -4,3 +4,10 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Local working files: agent handoff notes, research scratch, run output.
+# /reports/ is anchored so a fixture directory named reports/ deeper in the
+# tree is never ignored by accident.
+.handoff/
+research_notes/
+/reports/

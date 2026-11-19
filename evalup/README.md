@@ -334,6 +334,12 @@ versions. Diffs between incomparable runs are refused.
 - **Tool expectations are whole-app.** In a multi-agent app, a call made by the
   wrong sub-agent still satisfies `expect.tools`.
 - **No retrieval/RAG scoring.**
+- **No red-teaming.** The adversarial cases `generate` writes check that the
+  app refuses what its own scope and permissions forbid, read from the
+  tool-call log; evalup does not generate attacks. For jailbreaks, prompt
+  injection and wider red-teaming, use promptfoo's red-team tools
+  (`promptfoo redteam`, <https://www.promptfoo.dev/docs/red-team/>), which
+  are built for it.
 - **Runs are serial.** 100 cases × 3 repeats at 8 s a call is about 40 minutes.
 - **Trace conventions move.** The OpenTelemetry `gen_ai.*` conventions are
   still Development status upstream, so `scripts/normalize_trace.py` tracks a
@@ -346,13 +352,16 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 943 tests, ~4 min
+python3 -m unittest discover -s tests       # 943 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
 934 passed and 9 skipped; add `--with pyyaml` to run the skipped nine.
+
+`python3 tests/run_shards.py` runs the first one as CI's four shards side by
+side (~50 s) for a faster loop; the serial command stays the conclusive one.
 
 `.github/workflows/ci.yml` runs the same checks on Linux (3.9/3.11/3.13) on
 every push.
