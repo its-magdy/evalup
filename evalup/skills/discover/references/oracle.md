@@ -7,11 +7,13 @@ case asserts `expect.result`.
 
 ## Oracle capability — read-only ground truth, never the write path
 
-The oracle is how the runner computes `expected` for the execution layer
-(`score_execution.py`, `expect.result` — see `case-format.md`) **offline**,
-before the run, from a reference query against a seeded fixture or a
-read-only data connection — never by asking the app under test what it
-thinks the answer is (that would grade the app against itself).
+The oracle is how the case author computes `expected` for the execution
+layer (`score_execution.py`, `expect.result` — see `case-format.md`)
+**offline**, before the run, from a reference query against a seeded fixture
+or a read-only data connection — never by asking the app under test what it
+thinks the answer is (that would grade the app against itself). The runner
+never runs that query: it scores the stored `expected` against the `actual`
+it extracts at run time (below).
 
 ```yaml
 oracle:                          # ground-truth data access. NEVER the app's

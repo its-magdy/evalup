@@ -50,8 +50,12 @@ whose tools get renamed weekly produces only maintenance pain.
 |---|---|
 | `pre-stability` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool selection/args — every layer but trajectory |
 | `stable` | + trajectory (subset default) |
-| `traffic` | + real-trace mining, judge calibration (judged layers are not scored at run time yet) |
+| `traffic` | + real-trace mining |
 | `production` | + online sampling, monitoring-window release validation |
+
+Judge calibration (`analyze --label`) is not a stage: it has no stage
+prerequisite and can start whenever a rubric exists. Judged layers are not
+scored at run time yet.
 
 ## Ground truth — how correctness is actually graded
 
@@ -108,8 +112,10 @@ would unlock is not built.
   target it.
 - Different model family than the app where possible (self-preference bias is
   measured and real); same-family is a consciously accepted degraded mode.
-- Canary cases (known-good + known-bad) run in every scored run — a canary
-  miss means judge or harness drift, and voids the run.
+- Canary cases (known-good + known-bad) run in every scored run once the
+  suite has any — a first session's smoke run has none, since no case is
+  tagged `canary` until a human accepts it. A canary miss means judge or
+  harness drift, and voids the run.
 - Rubrics are versioned living documents: editing-while-grading is the
   expected workflow (criteria emerge from grading — "criteria drift").
 

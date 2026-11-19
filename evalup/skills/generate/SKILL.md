@@ -170,7 +170,8 @@ is yours, not the agent's): while it is not true, every run skips
 Author them when findings name an attack surface and the owner has not been
 asked — they document the defect — but tell the user, where the suite is
 handed over, that they will not run until the owner sets the flag, and ask
-the owner if one is present. When the owner has said no, leave them out and
+the owner if one is present — never on a first session: there the question
+goes on findings.md's `deferred:` list for start's closing menu. When the owner has said no, leave them out and
 record the decision in findings.md: `--strict` promotes the warning to an
 error, so a CI job validating with `--strict --adapter` would fail on them
 for good.

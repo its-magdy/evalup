@@ -82,22 +82,18 @@ invocation:
                                           # check needs a real call to join on.
 
   # --- what the runner may OBSERVE, all optional, all declared ---
-  # The runner reads a route, a clarification and a result only from paths
-  # named here. It never hunts a response for "the field that looks like a
-  # route": that heuristic works on four cases and picks the wrong field on
-  # the fifth. Undeclared means the layer is `unscored` with a reason, which
-  # is an honest gap; a wrong field is a number that reads as a measurement.
+  # A route, a clarification and a result are read only from paths named
+  # here, never hunted for (same reason as above). Undeclared = the layer is
+  # `unscored` with a reason: an honest gap, not a wrong number.
   route_from_response: "route"            # dotted path to the route the app took.
                                           # Highest priority. Next is a collected
                                           # trace's FIRST invoke_agent span name
                                           # (gen_ai.agent.name), then the map below.
-                                          # "First" is by span start time, so on a
-                                          # multi_agent app whose orchestrator is itself
-                                          # an invoke_agent span the trace fallback names
-                                          # the ORCHESTRATOR, not the sub-agent that
-                                          # handled the turn -- and no attribution exists
-                                          # to tell them apart. Declare this field on any
-                                          # app with a dispatching parent agent.
+                                          # "First" is by start time, so when an
+                                          # orchestrator is itself an invoke_agent span
+                                          # the fallback names IT, not the sub-agent.
+                                          # Declare this field on any app with a
+                                          # dispatching parent agent.
   route_from_status:                      # optional, trace-less apps only. Makes
     200: "<answered>"                     # status-derived routing DECLARED and per-app
     400: "__oos__"                        # instead of a runner-wide heuristic. Without
@@ -111,11 +107,9 @@ invocation:
                                           # exhausted 5xx is infra_error before routing is
                                           # read (runner-contract §7).
   clarify_from_response: "needs_clarification"   # dotted path to a boolean-ish field.
-                                          # REQUIRED for cases with expect.clarify_ok:
-                                          # without it the runner cannot tell whether the
-                                          # app clarified, and writing `clarified: false`
-                                          # would be a claim, not an observation -- one
-                                          # that decides the verdict on exactly those cases.
+                                          # REQUIRED for expect.clarify_ok cases: without
+                                          # it `clarified: false` would be a claim, not
+                                          # an observation, deciding those verdicts.
 
   # Result extraction for expect.result (oracle.md's result-extraction
   # contract), in priority order. All three optional; declare the strongest one
@@ -165,20 +159,17 @@ invocation:
                                           # memory outlives the session (per user), so any
                                           # case can see an earlier one's turns; the manifest
                                           # and report say verdicts may be contaminated.
-  # NO `session` block. It is NOT this one: an earlier adapters/dotnet.md
-  # shipped `session: {start, send_turn, end}`, and declaring a block must
-  # never be enough to turn on a driver by accident (hard rule 3). The runner
-  # reads `conversation` only, and checks it at pre-flight (exit 3).
+  # NO `session` block (an old adapters/dotnet.md shape): a block must never
+  # turn on a driver by accident (hard rule 3). The runner reads
+  # `conversation` only, checked at pre-flight (exit 3).
   # NO streaming field: completion is EOF (http) or return (function), and
   # no TTFT is recorded anywhere. If the app answers ONLY over SSE,
   # the runner reads the raw event-stream text as the body, so point the
   # adapter at a non-streaming route or expect answer extraction to fail
   # `unscored`. Wall-clock `latency_s` IS recorded per case; TTFT is not.
   timeout_s: 60
-  max_concurrency: 1           # serial by default. > 1 is REFUSED (exit 2) by
-                               # run_cases.py rather than silently serialized:
-                               # a field that looks supported and is not is
-                               # worse than one that says no.
+  max_concurrency: 1           # serial. > 1 is REFUSED (exit 2), never
+                               # silently serialized.
 
 traces:
   source: otlp-file | view-only | none   # jaeger | tempo | clickhouse are reserved:

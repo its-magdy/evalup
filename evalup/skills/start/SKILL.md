@@ -52,23 +52,16 @@ A user with no state location has seen nothing yet, so nothing has earned an
 interview, a patch to their source, or a vocabulary lesson. **The first
 session's only goal is a first scored run and the top findings, fast.** Rigor
 is what the second session is for, and the user asks for it by name. When check
-1 below matches, run the steps in this shape, in ONE session, without stopping
-between them:
-
-**Before step 0 — before reading the app — check PyYAML:** run
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py" --self-check`. Generate
-and run convert the YAML suite with it about fifteen minutes in, and a stock
-macOS `python3` lacks it. Exit 0: say nothing. Exit 2: tell the user now,
-quoting the script's `error` (it names the interpreter and the fix), and that
-the session can still discover and write cases but cannot run them until
-`python3` imports `yaml`. Then carry on.
+1 below matches (or 4/5 resume it), run the steps in this shape, in ONE
+session, without stopping between them:
 
 0. **Ask nothing before the first result.** Every stop ends the turn, this
    skill's pre-approvals end with it, and a headless session then cannot
    continue. So do not ask about real conversations up front: **if the user's
    message already names some** (exported chats, support logs, saved traces,
    bug reports), run `analyze --transcripts <path>` FIRST (it needs no
-   profile, no cases and no run) — its failure taxonomy is a result in its
+   profile, no cases and no run; you code them, provisional, asking nothing:
+   its no-reviewer path) — its failure taxonomy is a result in its
    own right, and its conversations seed step 4 in place of synthetic cases.
    Otherwise go straight to step 1; step 2 says what real ones would add.
 1. **`discover`, lean** — its Lean mode paragraph says which steps run and
@@ -126,6 +119,13 @@ lean path would have skipped and let them choose.
 
 ## Procedure
 
+**First, on every route — before locating or reading the app — check
+PyYAML:** run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py" --self-check`.
+Generate and run convert the YAML suite with it, and a stock macOS `python3`
+lacks it. Exit 0: say nothing. Exit 2: tell the user now, quoting the
+script's `error` (it names the interpreter and the fix): cases can be written
+but not run until `python3` imports `yaml`. Then carry on.
+
 1. **Locate the target app.** Use `$ARGUMENTS` if given; otherwise ask for the
    app's repo path or endpoint URL. **Read and list only under the app path,
    its state location and the plugin** — discover's opening paragraph has the
@@ -151,8 +151,8 @@ lean path would have skipped and let them choose.
    | 1 | No state location at all | Step 1: the first session, above — `discover` (load it and follow it), lean. |
    | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Offer to back it up first; don't promise it survives. |
    | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores (from that run's `reports/<run-id>/results.json` — the pointer holds no verdicts), dataset size, judge calibration status and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). That directory missing → say the pinned run was deleted and offer a fresh pin; never read some other run instead. The pointer's `dataset_version`/`harness_version` differ from today's → say its scores are not comparable and a fresh pin is needed (`run` §4 would refuse the diff anyway, so this saves a wasted run). |
-   | 4 | Datasets exist, no baseline | Step 3: `run --regression` pins the baseline — after the targeted review if no case is accepted yet (run §4 never pins an unreviewed run). |
-   | 5 | `profile.yaml` exists, no datasets | Step 2: run `generate`. |
+   | 4 | Datasets exist, no baseline | No `reports/<run-id>/results.json` yet → resume the first session at step 5 (the smoke run on the pending cases), no stop. Otherwise step 3: `run --regression` pins the baseline — after the targeted review if no case is accepted yet (run §4 never pins an unreviewed run). |
+   | 5 | `profile.yaml` exists, no datasets | Step 2: `generate`. With no scored run yet, that is the first session resumed at step 4 — small, then step 5, no interview, no stop. |
 
    Independent of the above, if `profile.yaml` looks older than the app's recent
    git history suggests, offer `discover --diff` to detect staleness before

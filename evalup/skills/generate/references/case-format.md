@@ -6,28 +6,20 @@ case; everything a human reviews is readable without tooling.
 
 ```yaml
 id: c-3f9a2c1d                      # OPAQUE and stable forever: c-<hash8>.
-                                    # It names the cases/<id>/ directory, so it
-                                    # must be 1-128 of [A-Za-z0-9._-], start
-                                    # with a letter or digit, and hold no `..`:
-                                    # validate_cases.py errors (unsafe_id) and
-                                    # run_cases.py refuses the plan (exit 2).
-                                    # Do NOT encode unit or category in the id:
-                                    # both are mutable, and a reclassified case
-                                    # would keep an id that lies. They are the
-                                    # fields below.
+                                    # Names the cases/<id>/ directory: 1-128 of
+                                    # [A-Za-z0-9._-], starting with a letter or
+                                    # digit, no `..` (else validate_cases.py
+                                    # unsafe_id; run_cases.py exit 2). Never
+                                    # encode unit or category in it: both are
+                                    # mutable fields below, and the id would lie.
 unit: billing                       # route target (domain/node/sub-agent), or the
                                     # primary tool for a tool_agent, or "app".
-                                    # A field, never part of the id — see the id note above.
 split: [full, smoke]                # which splits this case belongs to. A FIELD,
                                     # never a directory copy (two files with one
-                                    # id drift apart). `holdout` stays exclusive
-                                    # of every other split, so a sealed case is
-                                    # never also in full.
-                                    # REQUIRED: validate_cases.py errors
-                                    # (missing_split) on a case with no split, or
-                                    # an empty one. Such a case is selected by no
-                                    # run mode, and if it was meant to be held out
-                                    # it is sealed by nothing.
+                                    # id drift apart). `holdout` excludes every
+                                    # other split. REQUIRED (missing_split errors
+                                    # on none or empty): such a case is selected
+                                    # by no mode and sealed by nothing.
 dataset_version_added: 3
 category: happy | multistep | edge | ambiguous | oos | adversarial-refusal | noise
                                     # Input flavor. Sub-divides MFT; these all share
@@ -36,11 +28,9 @@ category: happy | multistep | edge | ambiguous | oos | adversarial-refusal | noi
 test_type: MFT                      # MFT | INV | DIR — the ORACLE type, and the
                                     # grid's real column axis (CheckList,
                                     # arXiv:2005.04118: capabilities x test types).
-                                    # REQUIRED: validate_cases.py errors
-                                    # (missing_test_type) when it is absent — a
-                                    # case that does not name its oracle type is
-                                    # counted by no coverage number the suite
-                                    # reports, including the INV/DIR floor.
+                                    # REQUIRED (missing_test_type): without it
+                                    # the case counts in no coverage number,
+                                    # the INV/DIR floor included.
                                     # MFT = a direct case with its own expectation.
                                     # INV = perturbed input, expectation must NOT
                                     #       change (pair with metamorphic_parent);
@@ -50,75 +40,56 @@ test_type: MFT                      # MFT | INV | DIR — the ORACLE type, and t
                                     #       KNOWN direction (narrower filter must not
                                     #       increase row count; a permission removed
                                     #       must not add rows).
-difficulty: medium                  # easy | medium | hard. HIDDEN from the agent — never
-                                     # copy this into input.messages or any prompt text.
-                                     # RESERVED for per-band reporting: no script reads it, so
-                                     # every rate the harness prints is blended across bands.
-                                     # Record it now, or the banding is unrecoverable later.
+difficulty: medium                  # easy | medium | hard. HIDDEN from the agent: never in
+                                     # input.messages or any prompt. RESERVED: no script reads
+                                     # it (every rate is blended across bands); record it now
+                                     # or per-band reporting is unrecoverable later.
 template_id: shift_count_by_role    # REQUIRED unless this is a declared one-off.
                                     # id shared by every instantiation of one
                                      # authored case template (e.g. "shift_count_by_role").
-                                     # Groups variants for consistency scoring — does the app
-                                     # behave the same across instances of the same template.
-                                     # ALSO what makes the suite's clustering computable:
-                                     # cases sharing a template are not independent samples,
-                                     # so a pass rate over them needs CLUSTERED standard
-                                     # errors ("Adding Error Bars to Evals", Miller 2024).
-                                     # Set to null ONLY for a declared one-off case
-                                     # — and WRITE THE KEY. validate_cases.py checks
-                                     # the key's PRESENCE, not its truthiness
-                                     # (missing_template_id): absent means nobody
-                                     # decided, `null` means the author declared a
-                                     # one-off. A suite of nothing but one-offs
-                                     # warns (all_one_off).
+                                     # Groups variants for consistency scoring, and makes
+                                     # clustering computable: cases sharing a template are not
+                                     # independent, so their pass rate needs CLUSTERED standard
+                                     # errors (Miller 2024). `null` ONLY for a declared one-off
+                                     # — and WRITE THE KEY: missing_template_id checks its
+                                     # PRESENCE (absent = nobody decided). A suite of only
+                                     # one-offs warns (all_one_off).
 instantiation_params: {role: nurse} # REQUIRED whenever template_id is set: the tuple this
                                      # case was realized from — the PUBLIC params that vary
                                      # per instance (e.g. {role: nurse, week: "2026-W05"}),
                                      # safe to reflect in the instruction text.
-                                     # Never put the gold answer here; that stays under `expect`
-                                     # so the oracle can never leak into the prompt.
-                                     # template_id without params, or params without
-                                     # template_id, is a hard error — it means the two-phase
-                                     # generation flow (generate/SKILL.md §2a) was short-
-                                     # circuited and the case was written straight to prose.
+                                     # Never the gold answer: that stays under `expect`, so it
+                                     # cannot leak into the prompt. One without the other is a
+                                     # hard error — generate/SKILL.md §2a's two-phase flow was
+                                     # skipped and the case written straight to prose.
 origin: synthetic | real-trace:<trace_id> | exploratory | mutation-gap
 review: { status: pending, by: null, at: null }
                                      # status: accepted | pending | quarantined.
-                                     # `accepted` MAY ONLY BE SET BY A HUMAN, and `by` must
-                                     # be that person's name. A generator writing
-                                     # "accepted, by: generate-review" records that nobody
-                                     # looked — strictly worse than `pending`, which is at
-                                     # least visibly unreviewed. validate_cases.py warns
-                                     # (machine_accepted) on an automated-looking `by`.
+                                     # `accepted` ONLY BY A HUMAN, `by` = their name. A
+                                     # generator's "accepted, by: generate-review" records that
+                                     # nobody looked — worse than a visible `pending`.
+                                     # Warns machine_accepted on an automated-looking `by`.
 # filter:                            # RESERVED for a script that computes it. The §2b
 #   self_contained: 0.91             # pass (self-containedness, answerability, ROUGE-L
 #   answerable: true                 # near-duplicate gate) is done by the generating
 #   nearest_neighbour: { id: c-2b8d4401, rouge_l: 0.34 }   # session, and what it
-                                     # dropped goes in the template's `rejected:` list.
-                                     # NO script writes this block, so a generator or a
-                                     # hand must not either -- a number that was never
-                                     # computed reads as a measurement. validate_cases.py
-                                     # WARNs (filter_unattested) when the block is present.
+                                     # dropped goes in the template's `rejected:` list. NO
+                                     # script writes this block, so nobody may: an uncomputed
+                                     # number reads as a measurement (WARN filter_unattested).
 metamorphic_parent: null             # or a case id — the parent this INV/DIR case perturbs.
-                                     # Required when test_type is INV or DIR, and
-                                     # enforced (missing_metamorphic_parent):
-                                     # otherwise `test_type: INV` on an ordinary case
-                                     # buys the suite's metamorphic coverage credit
+                                     # Required for INV/DIR (missing_metamorphic_parent):
+                                     # else an ordinary case buys metamorphic coverage credit
                                      # while perturbing nothing.
 
 input:
   messages:                          # OpenAI-schema. EXACTLY ONE user message and
     - { role: user, content: "why was my last invoice higher than usual?" }
-                                     # nothing else. run_cases.py sends that message
-                                     # alone, so a case holding a second user turn
-                                     # (adapter-contract.md hard rule 3) or a
-                                     # system/assistant message is SKIPPED -- it never
-                                     # scores. Context in a system/assistant message
-                                     # would never reach the app; fold it into the
-                                     # user message (validate_cases.py WARNs:
-                                     # not_one_user_message). A conversation is
-                                     # `input.turns` instead -- see Conversations
-                                     # below; the two are mutually exclusive.
+                                     # nothing else: run_cases.py sends it alone, so a
+                                     # second user turn (adapter-contract.md hard rule 3) or
+                                     # a system/assistant message SKIPS the case — fold such
+                                     # context into the user message (WARN
+                                     # not_one_user_message). A conversation is `input.turns`
+                                     # (Conversations below); the two are mutually exclusive.
   session: fresh                     # `fresh` only. A named seeded conversation
                                      # state is reserved (docs/multi-turn.md SS9).
 
@@ -202,16 +173,11 @@ expect:
                                      # first — only the tool's first call is checked.
                                      # An unrecognized scope is a hard error, never a
                                      # silent fallback (same discipline as order_mode).
-                                     # NOTE ON RESERVED WORDS: "present" and
-                                     # "from_tool_result" are reserved VALUES (you
-                                     # cannot assert them as literal expected values);
-                                     # "calls" is a reserved KEY (a tool argument
-                                     # actually named `calls` cannot be asserted on).
-                                     # An entry that asserts nothing once `calls` is
-                                     # removed (`search: {calls: all}`, `search: {}`,
-                                     # `search:`) is a HARD ERROR — it would score every
-                                     # trajectory and leave no row saying so. To assert
-                                     # only that a tool was called, use expect.tools.
+                                     # RESERVED: the VALUES "present"/"from_tool_result" and
+                                     # the KEY "calls" cannot be asserted literally. An entry
+                                     # asserting nothing once `calls` is removed (`{calls:
+                                     # all}`, `{}`, empty) is a HARD ERROR: it would pass
+                                     # silently. "Was called" is expect.tools.
   state:                             # end-state assertion. RESERVED: no scorer compares
     null                             # environment snapshots, so this key is graded by NOTHING.
                                      # It counts toward no layer: a case whose ONLY expectation
@@ -253,13 +219,12 @@ expect:
                                      # not "compare nothing" (zero columns would make every
                                      # row equal, a vacuous pass).
     # float_tolerance: 0.0           # absolute tolerance for numeric cells (default exact)
-    # reference_query: "SELECT ..."  # provenance only (not read by the scorer): how the
-                                     # runner computed `expected` offline from the seeded
-                                     # fixture / read-only oracle. Regenerate expected from
-                                     # this if the fixture changes — never hand-edit counts.
-                                     # The runner extracts `actual` from the trace/tool
-                                     # result; if it can't, the check is "unscorable" (the
-                                     # layer reports unscored), never a fail.
+    # reference_query: "SELECT ..."  # provenance only: how the case author computed
+                                     # `expected` offline via the oracle (oracle.md). The
+                                     # runner never runs it; regenerate expected from it if
+                                     # the fixture changes — never hand-edit counts. The
+                                     # runner extracts `actual` at run time; if it can't, the
+                                     # check is "unscorable", never a fail.
   answer:
     must_contain: []                 # scored by score_answer.py — plain string =
     must_not_contain: ["$"]          # substring, "/.../" = regex (re.search).
@@ -295,22 +260,13 @@ expect:
                                      # score_answer.py (minimal stdlib validator:
                                      # type/required/properties/items/enum)
 
-no_op_expectation: fail              # pass | fail. Sanity check: if an agent calls no tools
-                                     # and gives no real answer, does
-                                     # this case correctly FAIL? Almost always `fail` — a case
-                                     # that resolves to `pass` for a do-nothing agent is usually
-                                     # vacuous (reconsider it rather than accepting `pass` as the
-                                     # default). Not scored by a runner flag; it's a
-                                     # generation-time and review-time sanity label — but
-                                     # validate_cases.py checks it (warning: no_op_pass when
-                                     # `pass` has no justification).
-no_op_justification: null            # Expected when no_op_expectation is `pass` (validate_cases.py
-                                     # warns `no_op_pass` without it): one line on
-                                     # why this case is the exception. Without it the `pass`
-                                     # is just an assertion that the case need not work, and
-                                     # a suite quietly accumulates them.
-                                     # Writing the reason down is the whole gate — it forces
-                                     # the author to notice they are exempting a case.
+no_op_expectation: fail              # pass | fail: would a do-nothing agent (no tools, no
+                                     # real answer) FAIL this case? Almost always `fail`; a
+                                     # `pass` usually means a vacuous case — reconsider it.
+                                     # A generation/review label, not scored by the runner.
+no_op_justification: null            # Expected with `pass` (else WARN no_op_pass): one line
+                                     # on why this case is the exception. Writing it down is
+                                     # the whole gate — the author notices the exemption.
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
 gating: true                         # false = tracked-not-gating (e.g. noise cases pre-launch)
 notes: ""                            # reviewer's one-liner: why this case exists

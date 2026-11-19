@@ -223,13 +223,12 @@ open Claude Code. Never hand-write HTML.
   **judged** layer (`expect.answer.rubric`) or for **business rules**
   (`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`
   (or `unscorable`, like `answer`, when the matrix disables `answer_quality`),
-  and nothing else scores them either. The judge agent runs only inside
-  `analyze --label`, where a human labels beside it; its verdicts live in the
-  calibration record, never in a run's pass/fail. So
-  **report both as "not measured in this run"**, even when the rubric is
-  calibrated and the runner's reason reads `deferred to skill` — there is no
-  step that picks that deferral up, and scoring them yourself is the
-  eyeball-scoring this file forbids.
+  and nothing else does: the judge agent runs only inside `analyze --label`,
+  and its verdicts live in the calibration record, never in a run's
+  pass/fail. **Report both as "not measured in this run"**, even when the
+  rubric is calibrated and the reason reads `deferred to skill` — no step
+  picks that up, and scoring them yourself is the eyeball-scoring this file
+  forbids.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
   redacted: reports are written to be shared and committed. When nothing
@@ -266,9 +265,11 @@ open Claude Code. Never hand-write HTML.
   never a bare percentage. Read `comparison.json`'s attrition warning **before**
   the verdict: crashed cases are exactly the ones a paired diff drops, so
   "improved" can mean "improved on the cases that survived".
-- **Zero gating failures is a result, not a broken step.** State "0 gating
-  failures (n=<N>)", skip the clusters with that one-line reason, and still
-  print the `unscored`/`skipped`/`unscorable` counts.
+- **Zero failures is a result, not a broken step.** Skip the clusters only
+  when no case failed, gating or not: state "0 failures (n=<N>)" and still
+  print the `unscored`/`skipped`/`unscorable` counts. Report the gating count
+  apart ("0 gating failures" when every failure is `gating: false`, as on a
+  first session) — never as a reason to skip clusters.
 - **Holdout cases stay aggregate-only** in `report.md`/`.html`, whichever mode
   selected them (`results.json` already enforces it).
 

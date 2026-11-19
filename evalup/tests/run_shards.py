@@ -5,7 +5,7 @@ A faster local loop, NOT one of the three checks: the blessed command stays
 `python3 -m unittest discover -s tests` (CONTRIBUTING.md), and that serial run
 is the conclusive one. This mirrors CI's `tests` job: the shard globs are read
 from `.github/workflows/ci.yml`'s SHARD_* env, so the two cannot drift, and
-like CI it refuses to run when a test file is in no shard or in two.
+like CI it refuses to run unless every test file matches exactly one glob.
 
 Not pytest-xdist: its workers pickle subTest parameters, and one test passes a
 pathlib.Path (ci.yml says so above the floor-3-9 job).
@@ -39,8 +39,10 @@ def shards():
 def check_cover(groups):
     bad = []
     for path in sorted(TESTS.glob("test*.py")):
+        # One entry per matching glob, not per shard: a file two globs of
+        # one shard match would run twice in it.
         owners = [name for name, globs in groups.items()
-                  if any(fnmatch.fnmatchcase(path.name, g) for g in globs)]
+                  for g in globs if fnmatch.fnmatchcase(path.name, g)]
         if len(owners) != 1:
             bad.append(f"{path.name}: {', '.join(owners) or 'no shard'}")
     if bad:

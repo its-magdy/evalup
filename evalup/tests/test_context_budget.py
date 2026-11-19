@@ -5,6 +5,12 @@ session, and every file those skills send Claude to lands in the main
 context. On 2026-11-19 that was ~34k tokens before a single tool result,
 so the budget is now a test rather than a hope.
 
+The cap covers the single-turn first session, the path #12 keeps stop-free:
+lean start -> discover -> generate -> a smoke run. It does not cover every
+session. `conversations.md` is CONDITIONAL by design (#13 item 1): an app
+that keeps conversations pays for it on top, and so does any path that meets
+a CONDITIONAL file's condition.
+
 What is counted (FIRST_SESSION): the four SKILL.md files, whole, plus the
 references they send Claude to unconditionally on that path. What is not
 (CONDITIONAL): every other plugin file they or those references point at,

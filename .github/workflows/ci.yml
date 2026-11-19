@@ -99,8 +99,10 @@ jobs:
                     if k.startswith("SHARD_")}
           bad = []
           for f in sorted(pathlib.Path("tests").glob("test*.py")):
+              # One entry per matching glob: two globs of one shard would
+              # run the file twice.
               owners = [k for k, globs in sorted(shards.items())
-                        if any(fnmatch.fnmatchcase(f.name, g) for g in globs)]
+                        for g in globs if fnmatch.fnmatchcase(f.name, g)]
               if len(owners) != 1:
                   bad.append(f"{f.name}: {', '.join(owners) or 'no shard'}")
           if bad:

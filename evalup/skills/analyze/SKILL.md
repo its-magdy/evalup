@@ -57,7 +57,8 @@ plus the user message; the record shape is loose by design
 when the data may hold PII, and show the redacted form. Build the viewer on
 that file and run annotation-ux.md's open→axial pass with the user: ~20–50
 conversations, free-text critique first, categories only once they repeat.
-No reviewer in the session: code them yourself, record the reviewer as
+No reviewer in the session, or called from start's first session (which
+must not stop before its first result): code them yourself without asking, record the reviewer as
 yourself (not a human) in the annotation log, and call the taxonomy
 provisional. Exported chats rarely carry tool calls; when the app has traces,
 they can be joined by conversation id or time to supply them — say which you
