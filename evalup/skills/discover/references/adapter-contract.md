@@ -117,8 +117,8 @@ invocation:
                                           # would be a claim, not an observation -- one
                                           # that decides the verdict on exactly those cases.
 
-  # Result extraction for expect.result (see the result-extraction contract
-  # below), in priority order. All three optional; declare the strongest one
+  # Result extraction for expect.result (oracle.md's result-extraction
+  # contract), in priority order. All three optional; declare the strongest one
   # the app supports.
   result_from_tool: {tool: run_sql, field: rows}   # 1. the last matching execute_tool
                                           # span's result (JSON-parsed if the exporter
@@ -213,13 +213,9 @@ tools:                          # side-effect classification — from discover, 
 
 environment:
   kind: seeded-staging | mocked | live-readonly   # READ by run_cases.py (hard rule 2)
-  # The three below are RESERVED and DOCUMENTATION ONLY: run_cases.py invokes
-  # none of them, so nothing seeds, resets or snapshots anything between cases.
-  # Record them if they exist -- discover's finding is real and state-diff needs
-  # them the day a scorer lands -- but drive them YOURSELF, out of band, before
-  # the run. A case whose `seed_state` names a fixture nobody loaded runs
-  # against ambient state (validate_cases.py WARNs seed_state_not_loaded), and
-  # `expect.state` is scored by nothing at all.
+  # The three below are RESERVED: run_cases.py invokes none of them. Record
+  # them if they exist, but drive them yourself, out of band, before the run
+  # (validate_cases.py WARNs seed_state_not_loaded).
   seed: "tools/seed_test_db.py"            # RESERVED: per-case seeding, not called
   reset: "tools/reset_test_db.py"          # RESERVED: between cases, not called
   snapshot_state: "tools/dump_state.py"    # RESERVED: end-state assertions, not compared
@@ -252,15 +248,11 @@ data:
 3. **A conversation runs only through `invocation.conversation`.** A case
    written as `input.turns` (case-format.md) is sent turn by turn in one
    conversation when the adapter declares that block, and is **skipped**,
-   not failed, when it does not: without it every turn would land in a fresh
-   conversation and score "forgot the context" for a gap in the harness. The
-   block is the only switch — a legacy `session:` block turns nothing on.
-   And a case whose `input.messages` holds anything besides exactly one user
-   message — a second user turn, or a system/assistant message — is skipped
-   whatever the adapter says: the runner would send that one message alone,
-   and the result would be a truncated conversation scored as a real
-   verdict. An honest skip beats a number built from two-thirds of a
-   conversation. (docs/multi-turn.md)
+   not failed, when it does not (every turn would land in a fresh
+   conversation). The block is the only switch — a legacy `session:` block
+   turns nothing on. And a case whose `input.messages` holds anything besides
+   exactly one user message is skipped whatever the adapter says: the runner
+   would send that one message alone. (docs/multi-turn.md)
 4. Env-var refs unresolved at runtime → pre-flight failure before any spend.
 5. `traces.convention` other than `gen_ai` with no `traces.mapping_shim` →
    trajectory layers disabled for the run (raw spans must never reach
@@ -286,7 +278,7 @@ and every scorer/skill keeps working unmodified. See
 | **Content capture** | on/off flag; when off, prose/arg fields are absent, not guessed | `traces` implies it; adapter's own toggle is out-of-band (see per-adapter doc) |
 | **Optimizable surfaces** | a list of `{id, path, kind}` the optimizer may edit. Whether an edit needs a rebuild is not a field: discover records that cost in `findings.md`, and optimize asks the user to rebuild and restart | `prompts[]` |
 | **Seed / reset / snapshot** | *(RESERVED — declared, never called; no state-diff scorer exists, so filling this row changes no verdict. Drive them out of band.)* | `environment.seed` / `.reset` / `.snapshot_state` |
-| **Oracle** | a read-only connection/handle the harness can query for ground truth | see `oracle:` block below |
+| **Oracle** | a read-only connection/handle the harness can query for ground truth | `oracle:` — [oracle.md](oracle.md) |
 | **Tool catalog + side-effect class** | `[{name, schema, side_effects: safe-live\|needs-mock\|never-live}]` | `tools[]` |
 | **Access level + safe-to-attack** | `white\|gray\|black` + a boolean gate | `access_level`, `environment.safe_to_attack` |
 
@@ -295,88 +287,6 @@ If an adapter cannot fill a row, it says so explicitly (`traces.source: none`,
 `profile.yaml` (written by discover) turns the dependent layers off with a
 `blocked_by` reason — core code never infers absence from a missing key, it
 checks the declared value.
-
----
-
-## Oracle capability — read-only ground truth, never the write path
-
-The oracle is how the runner computes `expected` for the execution layer
-(`score_execution.py`, `expect.result` — see `case-format.md`) **offline**,
-before the run, from a reference query against a seeded fixture or a
-read-only data connection — never by asking the app under test what it
-thinks the answer is (that would grade the app against itself).
-
-```yaml
-oracle:                          # ground-truth data access. NEVER the app's
-                                  # write connection — a harness bug must not
-                                  # be able to corrupt the app's data.
-  kind: sql | http | none        # connection PROTOCOL. Distinct from
-                                  # profile.yaml's oracle.provenance (seeded-fixture/
-                                  # live-db-dual/api-endpoint), which records HOW ground
-                                  # truth is constructed — deliberately different axes.
-  connection_env: ORACLE_DSN     # env-var ref only (same rule as everywhere
-                                  # else in this file: no inline secrets)
-  read_only_enforced: true       # the connection's role/grant is structurally
-                                  # SELECT-only (Postgres `GRANT SELECT`,
-                                  # SQL Server `db_datareader`, a read replica,
-                                  # or an HTTP oracle whose endpoints are all
-                                  # GET). Pre-flight: attempt one write-shaped
-                                  # probe and require it to be rejected before
-                                  # trusting the oracle for a run.
-  persona_scoping: set-role | http-headers | none
-                                  # for authz cases (§ expect.authz): the oracle
-                                  # must be queried UNDER the same access scope
-                                  # the persona has (Postgres `SET ROLE`/
-                                  # `SET app.current_user_id`, or persona
-                                  # headers on an HTTP oracle) — never computed
-                                  # by hand-filtering the full-access answer,
-                                  # or the oracle stops exercising the same
-                                  # enforcement layer the app does.
-```
-
-Dual-oracle option (recommended when there's no seeded fixture, only a live
-DB): compute `expected` two independent ways (e.g. raw SQL vs. an ORM/pandas
-query) and keep the case only if both agree — disagreement means the question
-is ambiguous and belongs back in generate, not in the dataset.
-
----
-
-## Result-extraction contract — how `actual` reaches the scorer
-
-`score_execution.py` is pure comparison; it never talks to the app or the
-oracle. Producing its two inputs is the runner's job, and this is the exact
-handoff:
-
-- **`expected`** — computed **offline**, before the run, from the oracle (see
-  above) or a frozen fixture, and stored on the case as `expect.result.scalar`
-  or `expect.result.rows` (+ optional `reference_query` as provenance-only
-  documentation — never re-executed at score time). Regenerate it from the
-  reference query whenever the fixture changes; never hand-edit a stored
-  count.
-- **`actual`** — extracted by the runner **after** the app responds, from
-  whichever of these the adapter's capabilities support, in priority order:
-  1. A tool-result span (`execute_tool` span's output attribute) matched to
-     the case via the trace's `correlation` — the strongest source, since it's
-     the same data the agent reasoned over.
-  2. A structured field in the app's response (adapter `invoke` mode returns
-     more than free text — e.g. a JSON payload alongside the chat reply).
-  3. A parsed value from the prose answer, only if 1–2 are unavailable and the
-     adapter declares a stable extraction pattern — the weakest source, use
-     sparingly.
-  The runner reaches each of the three through the `invocation` declaration
-  that names it — `result_from_tool`, `result_from_response`, `result_pattern`
-  (see above) — and tries them in that order. The result is written as the tiny
-  JSON file `score_execution.py` expects: a list becomes `{"rows": [...]}`,
-  anything else `{"scalar": <v>}`. No further coercion: the scorer owns the
-  type-aware comparison, and a second normalization in the runner would be a
-  second answer to what equality means.
-- **Unscorable, not fail** — when none of the above yields a value (no content
-  capture, no structured field, unparseable prose), the runner writes
-  `{"missing": true, "reason": "<why>"}`. The scorer turns this into
-  `verdict: unscored` with `unscorable: 1` — an unread result must never be
-  scored as a mismatch (that manufactures a failure). This is the same
-  `unscorable` discipline used everywhere else in the taxonomy
-  (`pass | fail | unscored | infra_error | infra_incomplete`).
 
 ---
 

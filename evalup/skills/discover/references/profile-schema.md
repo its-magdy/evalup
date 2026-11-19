@@ -103,7 +103,7 @@ oracle:                           # ground-truth capability for the execution la
                                  # postgres/"EF Core", or postgres/"SQLAlchemy").
   # Connection/seed/reset/snapshot mechanics (SELECT-only role, read replica,
   # ephemeral-container, transaction-rollback) are the adapter's contract, not
-  # repeated here — see adapter-contract.md's `oracle:` block for the actual
+  # repeated here — see oracle.md's `oracle:` block for the actual
   # wiring. This block only records WHETHER discover set one up, of what
   # provenance, and is what capability_matrix.execution checks as its precondition.
   verified: true | false

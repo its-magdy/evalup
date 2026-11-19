@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-953 tests, ~2.5 min (136–168 s measured 2026-11-19), the blessed command.
+956 tests, ~2.5 min (136–168 s measured 2026-11-19), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,9 +43,9 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 943 passed, 10 skipped, 314 subtests.
+whatever `python3` happens to be. Expect 946 passed, 10 skipped, 349 subtests.
 All ten skips need PyYAML (nine are `convert_suite.py`'s, one is the
-example's fidelity check); add `--with pyyaml` and they run (953 passed, none
+example's fidelity check); add `--with pyyaml` and they run (956 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -143,6 +143,13 @@ it is Linux-only.
   leniently, because its job is to show whatever a run holds.
 - **`md_to_html.py` allowlists URL schemes.** Never go back to a denylist: the
   one it replaced was bypassed by a leading control byte.
+- **The first session's plugin text has a budget: 25,000 tokens**, counted
+  as words × 1.33 by `tests/test_context_budget.py` over the four SKILL.md
+  files on the start → discover → generate → run path and the references
+  they read unconditionally. A new pointer from that path to a plugin file
+  fails the test until the file is counted or given the condition under
+  which it is read; prose that is not needed on a first session goes into
+  a reference read on that condition, not into the skills.
 - **`docs/runner-contract.md` is the runner's spec and it WINS** over any skill
   prose. Its nine decisions were confirmed 2026-09-08 with their trade-offs
   recorded; don't reopen one without reading it. **Four tests read that file at

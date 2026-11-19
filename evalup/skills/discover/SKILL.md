@@ -180,8 +180,8 @@ A "no" is fine — see Read-only mode below.
   behavior change. Pitch it as what unlocks the optimizer later.
 - **No ground-truth / oracle path** → offer a seeded fixture plus a read-only
   oracle connection, never the app's write connection. Connection, seed and reset
-  mechanics are the adapter's job (adapter-contract.md's `environment:` and
-  `oracle:` blocks); this step decides only **whether** one exists, and records
+  mechanics are the adapter's job (adapter-contract.md's `environment:` block, and the `oracle:` block in
+  [references/oracle.md](references/oracle.md)); this step decides only **whether** one exists, and records
   `oracle:` in profile.yaml.
 
 After each patch, re-verify with one live request.
@@ -216,20 +216,11 @@ boundaries stable, or still changing week to week?
 - Real traffic exists → also enable analyze's trace-mining paths.
 
 ### 7. Interview the human
-Code says what the app does; only humans know what it should do. Ask, and record
-the answers under `confirmed_by_human:` in profile.yaml:
-- Route-target boundaries for ambiguous query types, with 3 concrete examples you
-  found. Skip for `single_llm`/`tool_agent`, which have no dispatch step.
-- What must the bot never do or say → business-rule oracles. Draft rules from any
-  policy docs or READMEs found, and ask for confirmation.
-- What a good answer looks like, per route target (or overall) → seeds the rubric.
-- Who is the domain arbiter, the final word on answer quality → `roles:`. That
-  role name is fixed regardless of architecture.
-- May the eval send attack prompts to this environment →
-  `environment.safe_to_attack` in adapter.yaml. It is a governance decision,
-  never a default you pick: while it is false every `adversarial-refusal` case
-  is skipped (runner-contract §7). Name the environment's `kind` and the tools'
-  side effects when you ask.
+Not in lean mode. Code says what the app does; only humans know what it
+should do. Ask the five questions in
+[references/interview.md](references/interview.md) — boundaries, business
+rules, good answers, the domain arbiter, `safe_to_attack` — and record the
+answers where it says.
 
 ### 8. Report findings
 `findings.md`: design gaps (no OOS route, overlapping route targets, vague tool

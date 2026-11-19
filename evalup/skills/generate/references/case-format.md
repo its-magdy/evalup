@@ -11,28 +11,18 @@ id: c-3f9a2c1d                      # OPAQUE and stable forever: c-<hash8>.
                                     # with a letter or digit, and hold no `..`:
                                     # validate_cases.py errors (unsafe_id) and
                                     # run_cases.py refuses the plan (exit 2).
-                                    # Do NOT encode unit or category in the id.
-                                    # Both are mutable classifications, and an id
-                                    # declared "stable forever" that spells one of
-                                    # them WILL eventually lie: reclassify a case
-                                    # from happy to oos and the id still claims
-                                    # happy; rename a domain and every id spelling
-                                    # the old name is stranded. Keep them as the
-                                    # fields below, where a reclassification is a
-                                    # normal edit. (Braintrust's id-upsert model:
-                                    # the id identifies, it does not describe.)
+                                    # Do NOT encode unit or category in the id:
+                                    # both are mutable, and a reclassified case
+                                    # would keep an id that lies. They are the
+                                    # fields below.
 unit: billing                       # route target (domain/node/sub-agent), or the
                                     # primary tool for a tool_agent, or "app".
                                     # A field, never part of the id — see the id note above.
 split: [full, smoke]                # which splits this case belongs to. A FIELD,
-                                    # not a directory copy. Copying the file into
-                                    # smoke/ and canary/ creates two files with the
-                                    # same id and no single source of truth — an
-                                    # in-place rewrite updates one and silently
-                                    # leaves the other stale. `holdout` stays
-                                    # exclusive of every other split (enforced by
-                                    # the field, not by which folder the bytes are
-                                    # in), so a sealed case is never also in full.
+                                    # never a directory copy (two files with one
+                                    # id drift apart). `holdout` stays exclusive
+                                    # of every other split, so a sealed case is
+                                    # never also in full.
                                     # REQUIRED: validate_cases.py errors
                                     # (missing_split) on a case with no split, or
                                     # an empty one. Such a case is selected by no
@@ -62,22 +52,14 @@ test_type: MFT                      # MFT | INV | DIR — the ORACLE type, and t
                                     #       must not add rows).
 difficulty: medium                  # easy | medium | hard. HIDDEN from the agent — never
                                      # copy this into input.messages or any prompt text.
-                                     # RESERVED for stratified reporting (GAIA-style: pass rate
-                                     # per band, never blended) — no script stratifies today, so
-                                     # every rate the harness prints, `summary.passes` included,
-                                     # IS blended across bands. Band it by hand off
-                                     # verdicts.jsonl, or read the number as the mix-weighted
-                                     # average it is. Canonical schema field: record it now, or
-                                     # the banding is unrecoverable later.
+                                     # RESERVED for per-band reporting: no script reads it, so
+                                     # every rate the harness prints is blended across bands.
+                                     # Record it now, or the banding is unrecoverable later.
 template_id: shift_count_by_role    # REQUIRED unless this is a declared one-off.
                                     # id shared by every instantiation of one
                                      # authored case template (e.g. "shift_count_by_role").
                                      # Groups variants for consistency scoring — does the app
                                      # behave the same across instances of the same template.
-                                     # Per-template consistency reporting, an idea borrowed
-                                     # from AppWorld's scenario-level goal-completion (SGC)
-                                     # metric rather than a direct equivalent of it — AppWorld
-                                     # doesn't itself define a template-consistency metric.
                                      # ALSO what makes the suite's clustering computable:
                                      # cases sharing a template are not independent samples,
                                      # so a pass rate over them needs CLUSTERED standard
@@ -140,30 +122,20 @@ input:
   session: fresh                     # `fresh` only. A named seeded conversation
                                      # state is reserved (docs/multi-turn.md SS9).
 
-available_tools: null                # optional, RESERVED: tool names the agent was meant to see
-                                     # for this case (sampled subset, BFCL/ToolBench style).
-                                     # THIS HARNESS CANNOT SCOPE THE CATALOG — run_cases.py sends
-                                     # one request and the app exposes whatever it always exposes,
-                                     # so a relevance test authored against a narrowed catalog is
-                                     # not the test that runs. The field is read only by the
-                                     # never-live-tool skip gate (adapter hard rule 2).
-                                     # Omit = full catalog, which is also what setting it means.
-excluded_tools: []                   # optional, RESERVED: tools deliberately NOT needed to solve
-                                     # this case — a relevance/irrelevance test (does the agent
-                                     # avoid a plausible-but-wrong tool). NOTHING SCORES IT: no
-                                     # layer reports that the agent reached for one, and
-                                     # trajectory_match.py knows only `forbidden`, which is a
-                                     # different (hard-fail) semantic. To make reaching for one
-                                     # FAIL, list it in expect.tools.forbidden; leave it here only
-                                     # as documentation. validate_cases.py WARNs either way.
+available_tools: null                # optional, RESERVED: tool names the agent was meant to see.
+                                     # THIS HARNESS CANNOT SCOPE THE CATALOG — the app exposes
+                                     # whatever it always exposes, so a test authored against a
+                                     # narrowed catalog is not the test that runs. Read only by
+                                     # the never-live-tool skip gate (adapter hard rule 2).
+excluded_tools: []                   # optional, RESERVED: tools deliberately NOT needed for this
+                                     # case. NOTHING SCORES IT. To make reaching for one FAIL,
+                                     # list it in expect.tools.forbidden; here it is only
+                                     # documentation. validate_cases.py WARNs either way.
 
 seed_state: null                     # optional, RESERVED: fixture the environment is meant to
-                                     # hold for this case. NOBODY LOADS IT — run_cases.py never
-                                     # invokes environment.seed/.reset/.snapshot_state, so the
-                                     # case runs against whatever state is already there. Seed it
-                                     # out of band before the run; a stored `expect.result`
-                                     # computed against a fixture nobody loaded is an artifact of
-                                     # ambient state, not a measurement.
+                                     # hold. NOBODY LOADS IT — run_cases.py never seeds or resets,
+                                     # so seed it out of band before the run, or a stored
+                                     # `expect.result` measures ambient state.
 
 identity: null                       # optional: who the request is made as —
                                      # use for authorization cases (403s,
@@ -248,17 +220,13 @@ expect:
                                      # is a WARN and simply contributes nothing to the verdict.
   authz:                             # PERMISSION/SCOPE cases — scored by score_authz.py
                                      # DETERMINISTICALLY against the trace's tool-call log and
-                                     # returned record IDs. The refusal verdict is NEVER an LLM
-                                     # read of the chat — a politely-worded refusal over an open
-                                     # endpoint underneath must still fail. (The answer text is
-                                     # used only as SECONDARY string-match evidence for a
-                                     # forbidden id leaking into the prose, never to decide
-                                     # whether a refusal occurred.) Pair with `identity` above:
-                                     # derive allowed/forbidden ids by running the oracle query
-                                     # under that persona's real access scope — the adapter's
-                                     # oracle.persona_scoping (RLS `SET ROLE` / equivalent) is
-                                     # what makes that ground truth trustworthy — not by
-                                     # hand-filtering the full answer.
+                                     # returned record IDs, never an LLM read of the chat: a
+                                     # polite refusal over an open endpoint still fails (the
+                                     # answer is only secondary evidence of a leaked id).
+                                     # Pair with `identity` above: derive the ids by running
+                                     # the oracle query under that persona's real access scope
+                                     # (oracle.persona_scoping), never by hand-filtering the
+                                     # full answer.
     allowed_record_ids: [e_881]      # IDs the caller's scope MAY see (from identity)
     forbidden_record_ids: [e_412]    # IDs that MUST NOT appear in the answer or any tool result
     forbidden_tools: [approve_swap]  # privileged tools this identity must not invoke
@@ -304,23 +272,13 @@ expect:
                                      # that repeats the request passes it. Assert the
                                      # fact that goes WITH the name — the leave type,
                                      # the date, the count — not the name itself.
-                                     # WATCH THE SLASHES: a path-like literal such
-                                     # as "/usr/local/" is read as the REGEX
-                                     # `usr/local`, not as a substring — drop the
-                                     # outer slashes to match it literally.
-                                     # A regex that cannot finish in 2s is reported
-                                     # "unscorable"; it never hangs the run.
-                                     # NO TRAILING /flag SUFFIX: "/pattern/i" (Perl/
-                                     # JS-style) is NOT this convention — only bare
-                                     # /pattern/ is recognized. Case-insensitivity
-                                     # goes INLINE: "/(?i:pattern)/". A trailing /i
-                                     # is caught and reported "unscorable".
-                                     # UNICODE: entry and answer are compared in
-                                     # NFC, so an accented or Arabic string matches
-                                     # whichever form the app produced. A REGEX
-                                     # pattern is NOT normalized (that would rewrite
-                                     # your pattern) — write patterns in NFC; the
-                                     # check's note warns when one is not.
+                                     # WATCH THE SLASHES: "/usr/local/" is the REGEX
+                                     # `usr/local` — drop the outer slashes for a
+                                     # literal. No trailing flag: "/pattern/i" is
+                                     # "unscorable"; write "/(?i:pattern)/". A regex
+                                     # that cannot finish in 2s is "unscorable".
+                                     # Entries and answers compare in NFC; a regex
+                                     # pattern is not normalized, so write it in NFC.
     rules: [no-uncatalogued-prices]  # business-rule oracle ids from profile.yaml.
                                      # NOT SCORED TODAY: no script evaluates them and
                                      # the runner reports the layer `unscored`. Write a
@@ -360,71 +318,12 @@ notes: ""                            # reviewer's one-liner: why this case exist
 
 ## Conversations (`input.turns`)
 
-A **live scripted conversation**: the author writes only the user's turns, in
-order; the runner sends them one at a time to the real app inside one
-conversation, and the app's real replies are the history. Nobody writes the
-assistant's lines. It tests the app's *own* memory — the bug class this exists
-to catch. Spec: `${CLAUDE_PLUGIN_ROOT}/docs/multi-turn.md`.
+A conversation case — the user's turns written in order, sent one at a time
+to the real app — is [conversations.md](conversations.md). Read it only when
+the adapter declares `invocation.conversation`.
 
-```yaml
-id: c-followup-01
-persona: team_manager                  # one identity for the whole conversation
-input:
-  turns:
-    - user: "Show me the licences for the Cairo team"
-      expect: { route: licences }      # optional checkpoint on this turn
-    - user: "only the expired ones"
-every_turn:                            # optional: copied into each turn's expect
-  tools: { forbidden: [update_licence] }
-expect:                                # the FINAL turn's checks, as for any case
-  route: licences
-  answer: { must_not_contain: ["which team"] }
-gating: false                          # until a baseline exists (generate SS3)
-```
-
-- **Each turn is an object with a `user` key, never a bare string** — later
-  phases add keys beside it (`bad_turn`). `assistant:` and `simulate:` are
-  reserved for those phases and refused now (`turn_key_reserved`); any other
-  key is a typo (`unknown_turn_key`).
-- **At least two turns** (`single_turn_conversation`: write a single-turn
-  case instead); a WARN above 8 (`long_conversation`). The plan's
-  `execution.max_turns` (default 12) is the runner's hard cap: a longer case
-  is skipped.
-- **`input.turns` and `input.messages` are mutually exclusive**
-  (`turns_and_messages`).
-- **The top-level `expect` is the final turn's claim**, so every authoring
-  rule reads it unchanged: gradedness, metamorphic parents, the reserved-field
-  WARNs. A case whose only graded check sits on a checkpoint is a
-  `no_graded_layer` ERROR ("put a graded check on the final turn"), and a
-  final turn carrying its own `expect:` is `final_turn_expect`.
-- **An earlier turn's `expect` is a checkpoint**, with the same keys and the
-  same scorers. A turn without one still gets the implicit HTTP check: a 2xx
-  passes, a 3xx or a 4xx other than 429 fails, a 5xx is `infra_error`.
-- **The conversation stops at the first turn that rolls up `fail` or
-  `infra_*`**; it continues past `unscored` (the harness could not look,
-  which is not the app failing). The case verdict is the rollup over every
-  sent turn's layers, so one failed checkpoint fails the case; a passing
-  checkpoint never passes it on its own: the final turn must pass.
-- **`every_turn`** copies its keys into every turn's expect, the final one
-  included. Without it, `expect.tools.forbidden` checks only the turn it sits
-  on, and "never call `update_licence` during the conversation" silently
-  means "not on the last turn". Objects merge key by key (`every_turn.tools.
-  forbidden` beside a turn's `tools.subset` checks both); a value both set is
-  `every_turn_collision`. On a case without `input.turns` it is
-  `every_turn_without_turns`.
-- **A `clarify_ok` checkpoint cannot branch.** If the app *may* ask a
-  clarifying question, the scripted next turn is either its answer or a
-  non-sequitur, so use one only where the clarification is deterministic.
-- **A conversation canary is an ERROR** (`multi_turn_canary`): conversations
-  are flaky by construction, and a failing canary aborts the run.
-- **It runs only when the adapter declares `invocation.conversation`**
-  (adapter-contract.md). Without it the case is `skipped` with that reason.
-- **One conversation is one case** for every count, interval and gate — never
-  N turns. Its `latency_s` and token counts are sums over the turns it sent.
-
-Validation: run
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> --capabilities <capability_matrix.json> --adapter <adapter.json>`
-before handing a dataset over. It checks at load time the "hard error, never a
+Validation: `validate_cases.py`, run as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
+§1 spells it, before handing a dataset over. It checks at load time the "hard error, never a
 silent fallback" rules above (`order_mode`, args `calls` scope, empty
 `columns`), which the scorers would otherwise only hit at RUN time — long after
 a suite is authored and reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
@@ -461,26 +360,13 @@ Scoring semantics:
   There is no per-LAYER statistic: `stats.py` gates one verdict per case, so a
   layer that regressed while the case-level rate held flat is visible only by
   reading the per-case rows.
-- **Reserved fields, in one place** — `expect.state`, `seed_state`,
-  `available_tools`, `excluded_tools` and `difficulty` are all declared here and
-  scored by nothing. Each is safe to record (the provenance is unrecoverable
-  later); the first four earn a `validate_cases.py` WARN so no one mistakes
-  them for a measurement, and `difficulty` is read by no script at all.
-  A case whose `input.messages` holds anything besides its one user message
-  is SKIPPED: only that message would reach the app. A conversation is
-  `input.turns` (Conversations, above).
+- **Reserved fields** — `expect.state`, `seed_state`, `available_tools`,
+  `excluded_tools` and `difficulty` are scored by nothing; each one's comment
+  above says why it is still worth recording, and the first four WARN.
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
 - Judged dimensions are always reported as `unjudged`: the runner has no
   judge yet. The reason says why (mode, uncalibrated judge, or deferred) —
   never silently included.
-- `expect.authz` is scored deterministically by `score_authz.py` against the trace's
-  tool-call log and returned record IDs — the refusal verdict never derives from the
-  chat text (the answer is only secondary string-match evidence for a leaked id), so a
-  case cannot pass by virtue of a nicely-worded refusal alone if the underlying tool
-  call/record leak still happened.
-- `difficulty` never appears in `input.messages` or any text sent to the agent; it
-  exists purely so reports can be segmented per band instead of blended into one
-  average (a blended pass rate hides a band that's actually broken).
 - A layer with zero failing checks but one or more `unscorable` ones reports
   `verdict: pass` **plus** a top-level `partially_unscored: true`. The verdict stays
   `pass` because consumers key on it, but a pass resting partly on checks that could

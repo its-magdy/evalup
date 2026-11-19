@@ -272,21 +272,11 @@ All three branches edit case files. `--cluster` ends in label corrections,
 reseals and the ones it flips in. Those are exactly the edits `generate` §4
 validates before handing a dataset over — done here later, by hand, with no
 validation step in sight. So run the same check, after the edit and before the
-next run:
-
-```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
-  --capabilities <profile.capability_matrix.json> --adapter <adapter.json> \
-  [--manifest <dataset-fields.json>]
-```
-
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <work-dir>`
-(run/SKILL.md §1 defines `<work-dir>`) writes the JSON inputs from the YAML — never transcribe them yourself
-(run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
-and case-format.md owns the rules it enforces. `--manifest` matters most here
-(pass it whenever `datasets/dataset.yaml` exists — convert_suite writes
-`manifest.json` only then): it catches the `dataset.yaml` counts that a
-reclassification, a deleted case or a reseal leaves stale. A reseal must
+next run: convert, then validate, exactly as
+`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1 spells the two commands —
+never transcribe the YAML into JSON yourself. `--manifest` matters most
+here: it catches the `dataset.yaml` counts that a reclassification, a
+deleted case or a reseal leaves stale. A reseal must
 also come back clean on `holdout_not_sealed` and `missing_split`, the only
 mechanical evidence the seal still holds.
 

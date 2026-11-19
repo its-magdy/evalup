@@ -184,7 +184,7 @@ closest neighbour: Claude Code skills for eval methodology.
 From `evalup/`:
 
 ```bash
-python3 -m unittest discover -s tests                    # 953 tests, ~2.5 min
+python3 -m unittest discover -s tests                    # 956 tests, ~2.5 min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```

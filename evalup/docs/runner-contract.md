@@ -461,7 +461,7 @@ only interesting layer dark, since status *is* its sole routing observable.
 
 ### 5.3 `actual.json` for the execution layer
 
-Per `adapter-contract.md`'s result-extraction contract, in priority order:
+Per the result-extraction contract (`skills/discover/references/oracle.md`), in priority order:
 tool-result span → structured response field → declared prose pattern. The
 runner writes exactly what the scorer expects:
 `{"scalar": v}` | `{"rows": [...]}` | `{"missing": true, "reason": "..."}`.

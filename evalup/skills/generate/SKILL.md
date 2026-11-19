@@ -55,7 +55,9 @@ Four documents own what they name, and this file never restates their rules:
 error/warning line), [suite-sizing.md](references/suite-sizing.md) (quotas, and
 what a suite this size may claim),
 [generation-method.md](references/generation-method.md) (the evidence behind
-§0–§3), `${CLAUDE_PLUGIN_ROOT}/agents/test-generator.md` (per-case authoring).
+§0–§3 — rationale, not instructions: read it only when a rule here is
+challenged or a case falls outside it),
+`${CLAUDE_PLUGIN_ROOT}/agents/test-generator.md` (per-case authoring).
 
 ## 0. Prefer a different model family than the app under test
 Generate cases — and drive user-simulator personas — with a different model
@@ -149,9 +151,10 @@ where they exist, and record which cases are synthetic-only — a regression
 scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
 still spend suite slots, so hold them to §1's ratio and floor.
 
-**Conversations** (`input.turns`, case-format.md) are written only when the
-adapter declares `invocation.conversation`; otherwise every one is skipped, so
-write none and say so in the handover. Default 10–20 of them — they are slow.
+**Conversations** (`input.turns`,
+[references/conversations.md](references/conversations.md) — read it only
+then) are written only when the adapter declares `invocation.conversation`;
+otherwise every one is skipped, so write none and say so in the handover. Default 10–20 of them — they are slow.
 Word turns so they do not depend on the reply's exact wording; put a checkpoint
 `expect` on turn 1 so a wrong start is caught where it happens; use `clarify_ok`
 checkpoints only where the clarification is deterministic; at most 8 turns.
@@ -217,10 +220,9 @@ by case, what changed and why.
 
 ## 4. Splits
 The four legal values of `split` are exactly `full`, `smoke`, `holdout`,
-`canary`. `smoke` and `canary` are SUBSETS of `full`, so a case carries both.
-`holdout` is mutually exclusive with `full` (and so with `smoke` and
-`canary`, its subsets; the validator's `holdout_not_sealed` checks all three) — a case is sealed or it is in the
-training pool, never both, and that exclusivity is what the seal rests on.
+`canary`. `smoke` and `canary` are SUBSETS of `full`, so a case carries both;
+`holdout` is exclusive of all three (`holdout_not_sealed`) — the seal rests
+on that.
 
 - `full`: everything reviewed.
 - `smoke` (~1/3 of full, floor 5): diversity-selected to maximize spread across
@@ -248,26 +250,15 @@ unit nor category. Content hash per case; `dataset_version` bumps on any change
 because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
-First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
-<work-dir>` (run/SKILL.md §1 defines `<work-dir>`) — it writes the JSON inputs from the YAML (`suite.json`,
-`capabilities.json`, `adapter.json`, and `manifest.json` only when
-`datasets/dataset.yaml` exists), and refuses a duplicate YAML key or one id in
-two files; never transcribe a suite by hand. Then run
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json
---capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json
-[--manifest <work-dir>/manifest.json]` — pass `--manifest` only when that file was
-written, since a missing path is exit 2. It fails the generate step on
-structural errors and warns on the vacuity patterns; case-format.md has the
-field rules and the error/warning line. `--adapter` is what catches a label
-the runner could never observe: `clarify_ok` with no `clarify_from_response`
-(`clarify_unobservable`), or a domain `expect.route` on a trace-less app whose
-adapter maps the HTTP status (`route_not_observable`) — there the observed
-route is the map's value, `<answered>` or `__oos__`, so expect that label and
-keep the domain in `unit`. It also warns `attack_category_will_skip` on an
-`adversarial-refusal` case while `environment.safe_to_attack` is not true. `--capabilities` is required — pass `--no-capabilities`
-only with genuinely no profile, and expect `capabilities_unchecked`.
-`--manifest` catches a stale `dataset.yaml`, so re-run it after ANY later
-hand-edit to a case file.
+Convert, then validate, exactly as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
+§1 spells the two commands — never transcribe a suite by hand. Validation
+fails this step on structural errors and warns on the vacuity patterns
+(case-format.md has the field rules and the error/warning line). One warning
+needs a decision here: `route_not_observable` — on a trace-less app whose
+adapter maps the HTTP status, the observed route is the map's value,
+`<answered>` or `__oos__`, so expect that label and keep the domain in
+`unit`. Re-run both after ANY later hand-edit to a case file: `--manifest`
+catches a stale `dataset.yaml`.
 
 `datasets/dataset.yaml` is the suite's hand-written summary, and it is
 optional (absent → `dataset_version` 1, nothing cross-checked). Every key is

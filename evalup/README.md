@@ -253,7 +253,7 @@ python3 scripts/gate.py your-app/.evalup/reports --latest --mode regression
 summary naming what failed. For a release pipeline add `--require-canaries`:
 the gate then also closes when a canary did not pass or the run has none. The full headless recipe, including a
 Claude-driven run with a tokenless gate step, is in
-`skills/run/references/run-modes.md` ("Headless/CI gate").
+`skills/run/references/ci-gate.md`.
 
 ---
 
@@ -352,13 +352,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 953 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 956 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-943 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
+946 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.
@@ -375,7 +375,7 @@ every push.
 | `examples/quickstart/README.md` | The worked example: what `discover`, `generate` and `run` write, and what a trace-less app can score |
 | `docs/workflow.md` | Day 1 → steady state → production, and who does what |
 | `docs/concepts.md` | Eval layers, staged rigor, ground truth, the judge |
-| `skills/discover/references/adapter-contract.md` | The language-agnostic adapter spec; `skills/discover/references/adapters/dotnet.md` is the first reference adapter (.NET) |
+| `skills/discover/references/adapter-contract.md` | The language-agnostic adapter spec (its `oracle:` block and result extraction are `oracle.md` beside it); `skills/discover/references/adapters/dotnet.md` is the first reference adapter (.NET) |
 | `docs/runner-contract.md` | The plan and run-directory format `run_cases.py` reads and writes |
 | `docs/rubric-format.md` | The decomposed-binary judge rubric and calibration |
 | `docs/traces-jaeger.md` | Feeding `otlp-file` from a Jaeger/Tempo setup today, and the design note for a Jaeger client and header-based correlation |

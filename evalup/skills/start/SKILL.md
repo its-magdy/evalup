@@ -71,15 +71,11 @@ the session can still discover and write cases but cannot run them until
    profile, no cases and no run) — its failure taxonomy is a result in its
    own right, and its conversations seed step 4 in place of synthetic cases.
    Otherwise go straight to step 1; step 2 says what real ones would add.
-1. **`discover`, lean.** Steps 1–4 and 8 of that skill only: access level,
-   topology, code archaeology, the 1–3 live validation requests, findings.
-   Before its first write, one sentence on where state goes — Procedure step
+1. **`discover`, lean** — its Lean mode paragraph says which steps run and
+   which wait under `deferred:` in findings.md. Before its first write, one sentence on where state goes — Procedure step
    1 below; a dirty or read-only tree makes the out-of-tree location the
    thing to name, and headless you take the default and say so.
-   **Skip step 3's side-effect confirmation (the classes are recorded as
-   inferred), step 5 (patches), step 6's maturity question (default
-   `stage: pre-stability`) and step 7 (the interview)** — record each under
-   `deferred:` in findings.md so the next session offers them. The one thing
+   No patch, no interview, no confirmation question. The one thing
    you may need from the user is how to reach the app (URL, or a command that
    starts it); ask only that, and only if the code does not say.
 2. **Say what this app can and cannot have measured — before spending their
@@ -118,7 +114,8 @@ the session can still discover and write cases but cannot run them until
 Vocabulary rule for this session: say "test cases", "a quick run", "checks that
 could not run", not `split`, `selecting_split`, `capability matrix`,
 `unscorable`. Introduce a term when the user first needs it, with its one-line
-meaning. `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` has them all; do not recite it.
+meaning. `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` has them all — read it
+only when the user asks what one means, and do not recite it.
 
 A user who asks for the full setup up front ("do it properly", a team with a
 QA owner) gets the full `discover` and a ~30-case suite instead — say what the
@@ -128,10 +125,8 @@ lean path would have skipped and let them choose.
 
 1. **Locate the target app.** Use `$ARGUMENTS` if given; otherwise ask for the
    app's repo path or endpoint URL. **Read and list only under the app path,
-   its state location and the plugin.** Files the user did not name — the
-   parent directory, sibling folders, notes and logs beside the app — are out
-   of scope even when they look relevant; a file the user names in the
-   request is in scope. Check for an existing state location
+   its state location and the plugin** — discover's opening paragraph has the
+   whole scope rule, and it holds from this step on. Check for an existing state location
    (default `<app>/.evalup/`, or the adapter's `state_location`).
    Before anything is written, say where state will go (the default is
    `<app>/.evalup/`) and, in the same sentence, that a read-only repo, a
@@ -142,10 +137,8 @@ lean path would have skipped and let them choose.
    offer when the tree is dirty or read-only.
 
 2. **Route by state.** Run these checks **in order** and act on the first one
-   that matches. The order is what makes the diagnosis correct: a state dir can
-   satisfy several rows at once, and the cheap "nothing here yet" readings are
-   the ones most likely to be wrong, so the checks that can *disprove* them run
-   first. This is the same precedence
+   that matches: a state dir can satisfy several rows, and the checks that can
+   *disprove* a cheap "nothing here yet" reading run first. This is the same precedence
    `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4 uses when it decides whether
    a run is a first run.
 
@@ -154,7 +147,7 @@ lean path would have skipped and let them choose.
    | 0 | A `reports/<run-id>/` directory with a `manifest.yaml` but no `results.json`, or whose `results.json` has `summary.status: "running"` | **An interrupted run.** A killed session leaves exactly this. Say so, and offer `run --resume` under the SAME run id (run/SKILL.md §2) before anything else — routing on to a fresh run abandons the cases already paid for. If the user declines, leave the directory alone and continue down the table. |
    | 1 | No state location at all | Step 1: the first session, above — `discover` (load it and follow it), lean. |
    | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Don't promise the user it will be preserved — offer to back it up first if they care about it. |
-   | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores, dataset size, judge calibration status, and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). Read the scores from that run's `reports/<run-id>/results.json` — the pointer file itself holds no verdict data. If that directory is missing, say the pinned baseline's run was deleted and offer to pin a fresh one, rather than silently reading some other run. Also compare the pointer's `dataset_version`/`harness_version` against the current dataset and harness: if they differ, say the baseline's scores are not comparable to a run today and a fresh pin is needed — `run` §4 will refuse the diff anyway, so surfacing it here saves the user a wasted run. |
+   | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores (from that run's `reports/<run-id>/results.json` — the pointer holds no verdicts), dataset size, judge calibration status and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). That directory missing → say the pinned run was deleted and offer a fresh pin; never read some other run instead. The pointer's `dataset_version`/`harness_version` differ from today's → say its scores are not comparable and a fresh pin is needed (`run` §4 would refuse the diff anyway, so this saves a wasted run). |
    | 4 | Datasets exist, no baseline | Step 3: run `run` to establish the baseline. |
    | 5 | `profile.yaml` exists, no datasets | Step 2: run `generate`. |
 
@@ -165,11 +158,14 @@ lean path would have skipped and let them choose.
 
 3. **State the stage.** Read the `stage` field from `profile.yaml` (or the one
    discover just wrote) and tell the user plainly what is unlocked and what is
-   locked and why (`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Staged rigor has
-   the stage table). Frame locks as "unlocks when X," never as missing features.
+   locked and why (the `stage:` comment in
+   `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/profile-schema.md` says
+   what each stage runs, and the profile's capability matrix names each
+   blocker; `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Staged rigor is the long
+   form, for a user who asks). Frame locks as "unlocks when X," never as missing features.
 
    Naming the stage is not enough on its own — "stage: pre-stability" means nothing
-   to someone who has not read that table, so always spell out the one or
+   to someone who has not read that comment, so always spell out the one or
    two things it currently gates. Do this in your first reply and in any
    reply where the stage changes — including one that routes to a blocked or
    broken state (check 2 and a dangling baseline pointer in 3), since that is
@@ -187,9 +183,7 @@ lean path would have skipped and let them choose.
 
 ## Rules
 
-- One step per session unless the user pushes to continue — **except the
-  first session**, which runs discover → generate → run through to a result.
+- One step per session unless the user pushes to continue — the first
+  session, above, is the exception.
 - Every reply ends with: current step, next command, and rough time/cost of
   that next step.
-- If discover found design findings (e.g., "no out-of-scope route"), surface
-  the top 3 immediately — they are often worth more than the eval itself.

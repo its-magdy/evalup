@@ -43,8 +43,11 @@ Arguments, when the user typed any: `$ARGUMENTS` — the mode flag is in there.
 
 ## 0. Run modes
 
-Five selections + gate policies over one engine. Mechanics and worked examples:
-[references/run-modes.md](references/run-modes.md).
+Five selections + gate policies over one engine. Each mode's mechanics, and
+what every `make_plan.py` flag does:
+[references/run-modes.md](references/run-modes.md) — read the mode's section
+before running any mode but `smoke`; for a smoke run the row below is all
+there is.
 
 | Mode | Selection | k | Gate | When |
 |---|---|---|---|---|
@@ -86,30 +89,22 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   pyyaml python …` needs no install.
 - **`validate_cases.py`** owns what a valid case is; the runner does not
   re-lint. Fix errors in the YAML and re-convert — never in the JSON.
+  `--capabilities` is required (`--no-capabilities` only with genuinely no
+  profile); `--adapter` catches a label the runner could never observe; pass
+  `--manifest` only when convert wrote it (`datasets/dataset.yaml` exists) —
+  a missing path is exit 2.
 - **`make_plan.py`** resolves the mode via §0 into `cases`, `selecting_split`,
   `k` and `gate`, fills every required key, and prints the `run_id`, the
-  `--out` directory and the exact runner command. Its flags are the mode's:
-  `--tag <unit-or-route>` and `--failing-in <run-dir>` for `targeted`, `--k N`
-  (not under smoke), `--layer X` (every other capability-matrix layer becomes
-  `unscorable` with `blocked_by: "--layer X"`, never `pass`; X is a matrix key
-  or a report row's name — `answer`, `rules` and `judged` all mean
-  `answer_quality` — and `http` and `loops` have no matrix key, so they still
-  run; a canary that asserts only a disabled layer reads `unscored` —
-  `make_plan.py` names each in `notes`, and the gate line counts it NOT
-  VERIFIED, which is not a failure). `scoring.oos_route` comes from the
-  profile's `oos_handling: route:<name>`; pass `--oos-route <name>` when the
-  app's out-of-scope route is declared any other way, or OOS metrics go
-  unreported. `--filter-failing` is `--failing-in reports/<last comparable
-  run>`. `--timeout-s N`, `--max-attempts N`, `--backoff-s 5,30` and
-  `--insecure-tls` fill `execution` (the retry pair for a throttled provider
-  or an app that already retries — the runner's default is 3 tries with 1 s
-  and 4 s waits; the last flag for a self-signed local dev host only —
-  pre-flight otherwise exits 3 with `CERTIFICATE_VERIFY_FAILED`).
-  `--single-turn` leaves conversations out of the selection (refused under
-  `holdout`); otherwise a selection with a conversation writes
-  `execution.max_turns` (default 12, `--max-turns N`) and a longer case is
-  skipped. Never hand-edit the plan to change any of these. It refuses `--mode full`:
-  one plan carries one `selecting_split`, so release validation is a
+  `--out` directory and the exact runner command. Its other flags are the
+  mode's — `--tag`/`--failing-in` (`--filter-failing`), `--k N`, `--layer X`,
+  `--oos-route`, the retry pair, `--single-turn`/`--max-turns` — and
+  run-modes.md's flags section says what each does. Two you may need on a
+  first run: `--oos-route <name>` — `scoring.oos_route` comes from the
+  profile's `oos_handling: route:<name>`, so pass it when the route is
+  declared any other way, or OOS metrics go unreported — and `--insecure-tls` for a self-signed local dev host
+  (pre-flight otherwise exits 3, `CERTIFICATE_VERIFY_FAILED`). Never
+  hand-edit the plan to change any of these. It refuses `--mode full`: one
+  plan carries one `selecting_split`, so release validation is a
   `regression` run and a `holdout` run.
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
   `datasets/holdout-looks.jsonl`); **`paths.judge_calibration`** is set when
@@ -176,24 +171,21 @@ code, not to "non-zero".
 
 A red suite exits **0** — gating is §6's job, not the runner's.
 
-Two infra thresholds, on purpose, over two denominators. The plan aborts a
-run at `infra_rate_abort` (0.25) of every case attempted so far, canaries
-included, so a degraded service does not burn the whole budget; `gate.py`
-refuses a *finished* run whose `summary.infra_rate` — the non-canary cases
-sent — is above `--max-infra-rate` (0.05). A
-run can therefore finish and still close the gate on infra alone — finishing
-preserves the verdicts already paid for, and the gate stays strict. On a
-throttled provider (429/503 walls; each 5xx is retried and counts as
-`infra_error` on exhaustion, whatever the case expects) fix or wait out the
-provider, or raise `--max-infra-rate` for that one job and say so in the
-report. **First read `gate.py`'s "same 5xx on every attempt" line**
-(`summary.repeated_5xx`; the case's `verdict.json` names the status): a case
-that got one 5xx on every attempt of every repeat may be the app's own error
-— a guard that throws looks exactly like this — and re-running or raising
-the threshold would hide it. Open its `response.json` (never on a holdout
-run — those case directories are sealed), and report it as a
-possible app defect, still counted as infra. Never lower the abort, and never
-read a partial pass rate as the app's score.
+Two infra thresholds, over two denominators: the plan aborts at
+`infra_rate_abort` (0.25) of every case attempted so far, canaries included,
+so a degraded service does not burn the budget; `gate.py` closes on a
+*finished* run whose `summary.infra_rate` (the non-canary cases sent) is
+above `--max-infra-rate` (0.05) — finishing keeps the verdicts paid for, and
+the gate stays strict. On a throttled provider (429/503 walls; an exhausted
+5xx is `infra_error` whatever the case expects) fix or wait it out, or raise
+`--max-infra-rate` for that one job and say so in the report. **First read
+`gate.py`'s "same 5xx on every attempt" line** (`summary.repeated_5xx`; the
+case's `verdict.json` names the status): it may be the app's own error — a
+guard that throws looks exactly like this — which a re-run or a raised
+threshold would hide. Open its `response.json` (never on a holdout run: those
+directories are sealed) and report a possible app defect, still counted as
+infra. Never lower the abort, and never read a partial pass rate as the
+app's score.
 
 ## 4. Baseline and the holdout ledger
 
@@ -209,12 +201,9 @@ read a partial pass rate as the app's score.
   "baseline established (run <id>); future runs diff against this."
   `--baseline` does that deliberately. **Pinning is yours; the runner never
   writes that file.**
-- **The holdout look**: `--holdout` and `--full` spend one of the N=5. The
-  runner appends `{run_id, date, mode, reason}` to the `.jsonl` sidecar and
-  prints the running total on stderr — surface that count. That sidecar, not
-  the dataset YAML, is the ledger `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md`
-  §`--unseal` and `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` ("Candidate
-  pool") read. Count its lines: it has two writers.
+- **The holdout look**: `--holdout` and `--full` spend one of the N=5 —
+  surface the running total the runner prints; run-modes.md's `holdout`
+  section says where the ledger is and who else writes it.
 
 ## 5. Report
 
@@ -301,5 +290,5 @@ release pipeline. That step, the
 `claude -p ... --bare --plugin-dir` invocation, and the two checks that must
 precede trusting either — the session's exit code with `result.is_error`,
 then `system/init`'s plugin load:
-[references/run-modes.md](references/run-modes.md) "Headless/CI gate". Under
+[references/ci-gate.md](references/ci-gate.md). Under
 that mode §2's cost prompt is skipped — nobody is there to answer it.
