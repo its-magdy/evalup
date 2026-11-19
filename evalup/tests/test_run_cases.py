@@ -2462,6 +2462,9 @@ class TestBaselineComparison(RunnerCase):
         comparison = self.read("comparison.json")
         self.assertEqual(comparison["n"], 2)
         self.assertNotIn("comparability_warning", comparison)
+        # Never optimize's holdout decision: the runner has no noise pair.
+        self.assertIs(comparison["noise_floor_applied"], False)
+        self.assertIn("not the optimizer", comparison["decision_scope"])
         manifest = self.read("manifest.yaml")
         self.assertEqual(manifest["scoring_version"],
                          run_cases.SCORING_VERSION)

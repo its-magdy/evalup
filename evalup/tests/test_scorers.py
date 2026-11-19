@@ -367,13 +367,37 @@ class TestStatsNoiseFloor(ScorerTest):
         self.assertFalse(out["keep"])
         self.assertNotIn("no_evidence", out)
 
-    def test_partial_coverage_is_reported(self):
+    def test_partial_coverage_holding_every_change_is_reported(self):
+        # The noise runs cover c00-c09, which hold all five changed cases:
+        # both counts are taken on that set, and the floor applies.
         a = self.write("a.jsonl", ["pass"] * 10)
         rc, out, err = run_script("stats.py", self.base, self.cand,
                                   "--noise-floor", a, a)
         self.assertEqual(rc, 0, err)
+        self.assertTrue(out["keep"])
         self.assertEqual(out["noise_floor"]["cases_counted"], 10)
-        self.assertIn("coverage_warning", out["noise_floor"])
+        self.assertTrue(out["noise_floor"]["applied"])
+        self.assertIn("every case the candidate changed",
+                      out["noise_floor"]["coverage_warning"])
+
+    def test_a_changed_case_the_noise_runs_miss_is_no_evidence(self):
+        # The noise runs miss c00-c02, three of the five cases the candidate
+        # fixed. Their disagreement count (0) would let the keep through; the
+        # floor was not measured where the candidate moved, so it must not.
+        a = self.write_jsonl("a.jsonl", [
+            {"case_id": f"c{i:02d}", "verdict": "pass"} for i in range(3, 20)])
+        rc, out, err = run_script("stats.py", self.base, self.cand,
+                                  "--noise-floor", a, a,
+                                  "--candidate-looks", 1)
+        self.assertEqual(rc, 0, err)
+        self.assertFalse(out["keep"])
+        self.assertIn("do not cover 3 of the 5", out["no_evidence"])
+        self.assertFalse(out["noise_floor"]["applied"])
+        self.assertEqual(
+            out["noise_floor"]["changed_cases_not_in_champion_runs"], 3)
+        # No bound is printed as if the floor applied.
+        self.assertEqual(out["multi_look_false_keep_bound"], 0.06)
+        self.assertIn("without the noise floor", out["multi_look_explained"])
 
     def test_disjoint_noise_runs_are_a_clean_error(self):
         other = self.write_jsonl("o.jsonl", [{"case_id": "zz",
@@ -406,26 +430,35 @@ class TestNoOpKeepRate(unittest.TestCase):
     (posterior_prob_improvement, noise_floor, keep_decision -- imported, not
     re-derived) and the runner's own pass^k fold (run_cases.fold_repeats).
 
-    Model: a 100-case suite holds out ~20% (suite-sizing.md), so 20 holdout
-    cases. Each is stable (passes or fails every time; 60% pass) or flaky;
-    10-20% are flaky. A flaky case passes each attempt with probability p,
-    tried at p = 0.5 and at p = 0.5 ** (1/3) -- the WORST case for k = 3,
-    where pass^3 makes the folded case verdict a coin flip. Champion and
-    candidate are the same app, so every run is an independent draw.
+    Model: n holdout cases (a 100-case suite holds out ~20, suite-sizing.md;
+    the grid runs n = 20, 50 and 200). Each case is stable (passes or fails
+    every time; 60% pass) or flaky; 10% or 30% are flaky. A flaky case passes
+    each attempt with p = 0.5 ** (1/3), the WORST case for k = 3: pass^3
+    makes the folded case verdict a coin flip (any other p folds to a less
+    noisy verdict). Champion and candidate are the same app, so every run is
+    an independent draw. The noise pair is the champion run plus one more.
 
-    Measured with these seeds (per look; the multi-look figure is three
-    candidate looks, the most a seal allows after the two champion runs):
-      old  -- k=1, bar 0.8, no floor:     13.5% per look at 20% flaky
-              (5.7% at 10%); across the 5 looks the ledger allows, 35%
-              (16% at 10%).
-      new  -- k=3, bar 0.95, noise floor: at most 0.39% per look and 1.1%
-              across three looks (worst cell: 20% flaky, p = 0.794).
-    The new-default assertion is the issue's <= 5%, and the tighter
-    PER_LOOK_FALSE_KEEP constant stats.py prints its bound from; the
-    old-default assertion proves the test can tell the two apart."""
+    What this grid measures at TRIALS = 3000, seed 36 (per look; "3 looks"
+    is three candidate looks, the most a seal allows after the two champion
+    runs):
+      new, floor    -- k=3, bar 0.95: 0.07-2.9% per look (max at n=200, 30%
+                       flaky), 0.2-7.2% across three looks.
+      new, no floor -- k=3, bar 0.95: 0.2-5.3% per look (max at n=200, 30%):
+                       a 0.95 posterior bar alone is about a one-sided 5%
+                       test, and sampling noise puts a cell above 5%.
+      old           -- k=1, bar 0.8, no floor, n=20, 20% flaky, p=0.5: 13.5%
+                       per look, 35% across the five looks the ledger allows.
+    The same grid at 20000 trials (n = 20/50/100/200 x 10/20/30% flaky)
+    gives maxima of 2.4% with the floor and 4.9% without; stats.py's
+    PER_LOOK_FALSE_KEEP (3% and 6%) sits above both, and these tests pin it
+    above every cell they run. The issue's own bar, <= 5% per look at the new
+    defaults, is asserted too; the old-default test proves the simulation can
+    tell the two rules apart."""
 
     TRIALS = 3000
-    N = 20
+    GRID_N = (20, 50, 200)
+    GRID_FLAKY = (0.10, 0.30)
+    WORST_P = 0.5 ** (1 / 3)
 
     @classmethod
     def setUpClass(cls):
@@ -437,14 +470,15 @@ class TestNoOpKeepRate(unittest.TestCase):
             sys.path.remove(str(SCRIPTS))
         cls.stats, cls.fold = stats, staticmethod(run_cases.fold_repeats)
 
-    def keep_rate(self, *, flaky, p, k, threshold, floor, looks=1, seed=36):
+    def keep_rate(self, *, n, flaky, p, k, threshold, floor, looks=1,
+                  seed=36):
         import random
         rng = random.Random(seed)
         st = self.stats
         per_look = any_look = 0
         for _ in range(self.TRIALS):
             cases = [("flaky" if rng.random() < flaky else
-                      rng.random() < 0.6) for _ in range(self.N)]
+                      rng.random() < 0.6) for _ in range(n)]
 
             def draw(cases=cases):
                 out = {}
@@ -464,7 +498,7 @@ class TestNoOpKeepRate(unittest.TestCase):
                 cand = draw()
                 b01 = sum(1 for i in champ if not champ[i] and cand[i])
                 b10 = sum(1 for i in champ if champ[i] and not cand[i])
-                delta = (b01 - b10) / self.N
+                delta = (b01 - b10) / n
                 keep, _ = st.keep_decision(
                     st.posterior_prob_improvement(b01, b10), delta,
                     threshold, b01 + b10 if floor else None, noise)
@@ -473,29 +507,37 @@ class TestNoOpKeepRate(unittest.TestCase):
             any_look += kept
         return per_look / (self.TRIALS * looks), any_look / self.TRIALS
 
+    def grid(self):
+        for n in self.GRID_N:
+            for flaky in self.GRID_FLAKY:
+                yield n, flaky
+
     def test_new_defaults_keep_a_no_op_at_most_5_percent_per_look(self):
         bar = self.stats.DEFAULT_BAYES_THRESHOLD
         self.assertEqual(bar, 0.95)
         bound = self.stats.PER_LOOK_FALSE_KEEP[True]
-        for flaky in (0.10, 0.20):
-            for p in (0.5, 0.5 ** (1 / 3)):
-                with self.subTest(flaky=flaky, p=round(p, 3)):
-                    rate, multi = self.keep_rate(
-                        flaky=flaky, p=p, k=3, threshold=bar, floor=True,
-                        looks=3)
-                    self.assertLessEqual(rate, 0.05)
-                    self.assertLessEqual(rate, bound)
-                    self.assertLessEqual(multi, 3 * bound)
+        for n, flaky in self.grid():
+            with self.subTest(n=n, flaky=flaky):
+                rate, multi = self.keep_rate(
+                    n=n, flaky=flaky, p=self.WORST_P, k=3, threshold=bar,
+                    floor=True, looks=3)
+                self.assertLessEqual(rate, 0.05)
+                self.assertLessEqual(rate, bound)
+                self.assertLessEqual(multi, 3 * bound)
 
     def test_the_bar_alone_stays_under_its_stated_bound(self):
-        rate, _ = self.keep_rate(flaky=0.20, p=0.5 ** (1 / 3), k=3,
-                                 threshold=0.95, floor=False)
-        self.assertLessEqual(rate, self.stats.PER_LOOK_FALSE_KEEP[False])
+        bound = self.stats.PER_LOOK_FALSE_KEEP[False]
+        for n, flaky in self.grid():
+            with self.subTest(n=n, flaky=flaky):
+                rate, _ = self.keep_rate(
+                    n=n, flaky=flaky, p=self.WORST_P, k=3, threshold=0.95,
+                    floor=False)
+                self.assertLessEqual(rate, bound)
 
     def test_old_defaults_keep_a_no_op_often_enough_to_tell_apart(self):
         # The pre-#36 rule: k=1 holdout, bar 0.8, no floor.
-        rate, multi = self.keep_rate(flaky=0.20, p=0.5, k=1, threshold=0.8,
-                                     floor=False, looks=5)
+        rate, multi = self.keep_rate(n=20, flaky=0.20, p=0.5, k=1,
+                                     threshold=0.8, floor=False, looks=5)
         self.assertGreaterEqual(rate, 0.10)
         self.assertGreaterEqual(multi, 0.25)
 

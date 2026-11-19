@@ -176,6 +176,25 @@ class TestPluginLayout(unittest.TestCase):
         self.assertIn("only the paths your\n   assignment names", judge)
         self.assertIn("**redact secrets**", judge)
 
+    def test_optimize_never_compares_against_a_noise_run_it_renamed(self):
+        # Issue #36 review: the noise pair keeps its own names for the whole
+        # seal and is persisted, so a keep cannot turn the comparison
+        # baseline into the first noise file, and a later session reuses the
+        # pair instead of spending two more holdout looks on it.
+        import re
+        optimize = (ROOT / "skills" / "optimize" / "SKILL.md").read_text(
+            encoding="utf-8")
+        calls = re.findall(r"scripts/stats\.py\" (\S+) (\S+) --noise-floor "
+                           r"(\S+) (\S+)", optimize)
+        self.assertEqual(len(calls), 1, "one decision call")
+        champion, candidate, noise_a, noise_b = calls[0]
+        self.assertIn("<champion>", champion)
+        self.assertIn("<candidate>", candidate)
+        self.assertEqual(("<noise-a>" in noise_a, "<noise-b>" in noise_b),
+                         (True, True))
+        self.assertIn("reports/holdout-seal.json", optimize)
+        self.assertIn("run no noise pair", optimize)
+
 
 if __name__ == "__main__":
     unittest.main()

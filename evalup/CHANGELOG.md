@@ -42,9 +42,15 @@ break anyone who has been tracking this repository directly.
   The keep bar is posterior P ≥ **0.95** (it was 0.8, which kept a no-op edit
   on an app with flaky cases on 6–20% of holdout looks; #36), the holdout runs
   at k = 3, `--noise-floor` turns a candidate that changed no more cases than
-  two champion runs disagree on into "no evidence", and `--candidate-looks`
-  prints the multi-look false-keep bound. A keep claims a posterior
-  probability, never significance unless the sign test also passes.
+  two champion runs disagree on — or any case those runs do not cover — into
+  "no evidence", and `--candidate-looks` prints the multi-look false-keep
+  bound (3% per look with the floor, 6% without; simulated, the test pins
+  both). The noise pair is run once per seal and recorded in
+  `reports/holdout-seal.json`, so a later session reuses it instead of
+  spending two more looks. The runner's `comparison.json` says
+  `noise_floor_applied: false`: it is never the optimizer's decision. A keep
+  claims a posterior probability, never significance unless the sign test
+  also passes.
   No chi-square or normal approximation appears in any decision or reported
   test; the power figures below the decision are the one acknowledged
   exception, and are labelled as planning estimates.

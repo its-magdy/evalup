@@ -106,12 +106,13 @@ No mode flag behaves as `regression` (full suite, hard gate).
 - **k**: 3 by default (`--k N` overrides), pass^k per case — the keep/revert
   call reads these folded verdicts, and at k=1 one flaky retry could decide
   a keep.
-- **Gate**: **decision**, not pass/fail against a fixed floor. `stats.py`'s
-  output on the aggregate paired verdicts (exact Bayesian P(improvement) +
-  exact one-sided sign test) **is** the keep/revert call that
+- **Gate**: **decision**, not pass/fail against a fixed floor. The
+  keep/revert call is the `stats.py --noise-floor` run that
   `${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md` step 5 ("Gate on holdout")
-  consumes — there is no separate hard threshold beyond that posterior bar
-  (≥ 0.95 by default) and optimize's noise floor.
+  makes itself (exact Bayesian P(improvement) ≥ 0.95 + the champion noise
+  floor, exact one-sided sign test reported) — **not** the runner's
+  `comparison.json`, whose `keep` is the posterior bar alone
+  (`noise_floor_applied: false`). There is no hard threshold beyond those.
 - **Reporting**: aggregate only, always — no per-case trace excerpts, no
   page-one failure clusters (SKILL.md §5's holdout rule). This is the one
   place in the harness where "less detail in the report" is the correct,

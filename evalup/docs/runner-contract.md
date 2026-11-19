@@ -586,7 +586,9 @@ therefore does not count as `passed`.
 `--baseline-verdicts PATH` shells out to `stats.py` after scoring, pairing this
 run's `verdicts_for_stats.jsonl` against the given one, and writes
 `<out>/comparison.json`. Without the flag the runner emits
-`verdicts_for_stats.jsonl` and stops.
+`verdicts_for_stats.jsonl` and stops. Its `keep` is `stats.py`'s posterior
+bar alone (`noise_floor_applied: false`): the optimizer's holdout keep/revert
+call is a separate `stats.py --noise-floor` run, never this file.
 
 **The version and `k` checks run at plan validation, before any spend.** Every
 input to them is knowable up front, §11's exit-2 row promises "none written",

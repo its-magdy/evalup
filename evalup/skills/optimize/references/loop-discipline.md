@@ -30,21 +30,23 @@ claims "posterior probability ≥ 0.95"; call it significant only when
 `sign_test_significant_at_alpha` is also true.
 
 **Why 0.95, k = 3 and a noise floor.** At the old bar (0.8, holdout at k = 1)
-an *unchanged* app with 10–20% flaky cases was kept on 6–20% of holdout looks
+an *unchanged* app with 10–30% flaky cases was kept on 6–20% of holdout looks
 — a no-op edit, "confirmed". The bar is now 0.95 (0.8 only as an explicit
 flag for an exploratory loop that is not spending the holdout), the holdout
 runs at k = 3, and the champion is run on the holdout twice before the first
 candidate: a candidate that changed no more cases than those two runs
 disagree on is "no evidence" (`stats.py --noise-floor`, a count, not a
-judgment). Simulated with `stats.py`'s own functions, that keeps a no-op on
-under 1% of looks; `stats.py` states 3% per look as its bound.
+judgment). Simulated with `stats.py`'s own functions (holdouts of 20–200
+cases, 10–30% of them flaky at the worst case), that keeps a no-op on at most
+2.4% of looks (20 000 trials; 2.9% in the test's own 3 000-trial cells);
+`stats.py` states 3% per look as its bound, 6% for the bar alone.
 
 **Multiple-comparisons honesty.** Every holdout look spends validity (garden
 of forking paths). Count looks; force reseal after 5. Re-rolling candidates
 until one passes the gate is the failure mode this prevents. The two champion
 runs spend two of the five, leaving three candidate looks per seal; every
 report states `multi_look_false_keep_bound` (`--candidate-looks`), at most 9%
-across those three.
+across those three (18% when the floor did not apply).
 
 **Tool descriptions first.** Independent evidence: the full Trace-Free+
 curriculum-learning framework — of which better tool descriptions are a

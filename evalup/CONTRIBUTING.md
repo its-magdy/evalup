@@ -185,7 +185,8 @@ it is Linux-only.
   Say the bump in CHANGELOG.
 - **Every state file declares `schema_version`** (`_common.SCHEMA_VERSION`):
   case files, `adapter.yaml`, `profile.yaml`, `datasets/dataset.yaml`, the run
-  manifest, `reports/baseline.json`. Bump it when a file's layout changes,
+  manifest, `reports/baseline.json`, `reports/holdout-seal.json` (optimize's
+  per-seal noise pair). Bump it when a file's layout changes,
   and teach `validate_cases.check_schema_version` the migration it names.
   Its findings are the one WARN `--strict` does not promote. `plan.json` keeps
   its own `plan_version` and is rebuilt every run, so it carries none.

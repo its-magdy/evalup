@@ -129,7 +129,8 @@ crossing a method boundary. A keep means "posterior probability ≥ 0.95", not
 "statistically significant" — only the sign test, when it also passes, earns
 that word. On the holdout the bar is 0.95 (0.8 is an explicit flag for
 exploratory loops: an unchanged app with flaky cases cleared it on 6–20% of
-looks), cases run at k = 3, and the champion is run twice first: a candidate
+looks), cases run at k = 3, and the champion is run twice once per seal
+(recorded in `reports/holdout-seal.json` and reused): a candidate
 that changes no more cases than those two runs disagree on is "no evidence",
 never a keep; every diff states what effect size was detectable
 at its n (that detectable-effect figure is a normal-approximation planning

@@ -3596,7 +3596,14 @@ class Runner:
             [self.baseline_verdicts,
              os.path.join(self.out, "verdicts_for_stats.jsonl")],
             "comparison")
-        extra = {}
+        # The runner has one baseline and no champion noise pair, so its
+        # `keep` is the posterior bar alone -- never optimize's holdout
+        # decision (optimize/SKILL.md step 5 calls stats.py --noise-floor
+        # itself). Said in the file, so nothing reads this `keep` as that.
+        extra = {"noise_floor_applied": False,
+                 "decision_scope": (
+                     "posterior bar only, no champion noise floor: not the "
+                     "optimizer's keep/revert decision")}
         if self.baseline_warning:
             extra["comparability_warning"] = self.baseline_warning
         atomic_write_json(os.path.join(self.out, "comparison.json"), dict(

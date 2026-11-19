@@ -53,9 +53,10 @@ error: infra verdicts must be excluded upstream, never counted as failures.
 
 THE DEFAULT BAR IS 0.95 (issue #36). It was 0.8, and at 0.8 with a k=1
 holdout an UNCHANGED app with 10-30% flaky cases was kept 6-20% of the time
-per look (simulated, holdouts of 20-200 cases) and 16-44% across the five
-looks the ledger allows. tests/test_scorers.py TestNoOpKeepRate re-runs that
-simulation with the functions below on a 20-case holdout. 0.8 stays available
+per look (simulated, holdouts of 20-200 cases) and 16-49% across the five
+looks the ledger allows. tests/test_scorers.py TestNoOpKeepRate is that
+simulation, over the functions below; it pins the old rule's n=20 cell (13.5%
+per look, 35% across five) and the new rule's bounds. 0.8 stays available
 as an explicit `--bayes-threshold 0.8` for an exploratory loop that is not
 spending the sealed holdout; never as the holdout's keep bar. What a keep
 claims is "posterior probability >= the threshold", nothing stronger: only
@@ -66,10 +67,19 @@ SAME unchanged champion. The number of cases on which they disagree is what
 re-running alone moves; a candidate that changed no more cases than that
 (fixed + broken <= disagreements, counted over the paired cases both noise
 runs cover) has shown nothing a re-run would not, so keep is forced false
-and `no_evidence` says why. The posterior is computed and reported exactly as
-without the flag; the floor only ever turns a keep into a no-keep, never the
-reverse. It is a deterministic count, so the rule needs no judgment from
-whoever reads the output.
+and `no_evidence` says why. COVERAGE RULE: the noise runs must cover EVERY
+case the candidate changed. Then both counts are taken on one case set (the
+covered paired cases, which hold every change), and a paired case the noise
+runs miss is one the candidate did not change, so it is in neither count.
+A changed case the noise runs miss (an infra drop in
+a champion run, say) means the floor was not measured where the candidate
+moved: keep is forced false, `no_evidence` names how many, and the
+multi-look bound is the no-floor one. Not "every paired case": an infra drop
+on a case nobody changed would then block every candidate of the seal. The
+posterior is computed and reported exactly as without the flag; the floor
+only ever turns a keep into a no-keep, never the reverse. It is a
+deterministic count, so the rule needs no judgment from whoever reads the
+output.
 
 LOOKS (`--candidate-looks N`, N = candidate comparisons made against this
 holdout seal, this one included). Prints `multi_look_false_keep_bound`: a
@@ -120,11 +130,14 @@ DEFAULT_BAYES_THRESHOLD = 0.95
 # Per-look false-keep rate for an UNCHANGED app at DEFAULT_BAYES_THRESHOLD or
 # stricter, keyed by whether the noise floor was applied. Simulated with this
 # file's own functions (tests/test_scorers.py TestNoOpKeepRate, which asserts
-# these are upper bounds on its grid): holdouts of 20-200 cases, 10-30% of
-# them flaky at the worst case (a 50/50 case verdict), runs independent.
-# Measured maxima were 2.5% with the floor and 5.0% without, the latter the
-# large-n limit of a 0.95 posterior bar (about a one-sided alpha of 0.05).
-PER_LOOK_FALSE_KEEP = {True: 0.03, False: 0.05}
+# these are upper bounds on every cell it runs: n = 20/50/200 holdout cases,
+# 10%/30% of them flaky at the worst case, a 50/50 folded verdict, runs
+# independent, 3000 trials). At 20000 trials over n = 20/50/100/200 x
+# 10/20/30% flaky the maxima were 2.4% with the floor and 4.9% without; the
+# test's own 3000-trial cells reach 2.9% and 5.3%. A 0.95 posterior bar alone
+# is about a one-sided 5% test, so sampling noise lands cells just above 5%:
+# hence 6%, not 5%, for the no-floor rate.
+PER_LOOK_FALSE_KEEP = {True: 0.03, False: 0.06}
 
 
 def load(path):
@@ -218,16 +231,26 @@ def noise_floor(run_a, run_b, paired):
     return sum(1 for c in covered if run_a[c] != run_b[c]), len(covered)
 
 
-def keep_decision(prob, delta, threshold, changed=None, noise=None):
+def keep_decision(prob, delta, threshold, changed=None, noise=None,
+                  uncovered_changed=0):
     """The keep rule, in one place so the simulation test calls the same code
     the CLI does. Returns (keep, no_evidence_reason_or_None).
 
     keep = P(candidate better) >= threshold and delta > 0 -- the exact
-    posterior rule, unchanged -- and, when a noise floor is given, the
-    candidate must have changed MORE cases (fixed + broken) than two runs of
-    the unchanged champion disagree on. `changed`/`noise` are both None or
-    both ints."""
+    posterior rule, unchanged -- and, when a noise floor is given, the noise
+    runs must cover every case the candidate changed (`uncovered_changed` is
+    how many they miss) and the candidate must have changed MORE cases
+    (fixed + broken) than two runs of the unchanged champion disagree on.
+    `changed`/`noise` are both None or both ints."""
     keep = bool(prob >= threshold and delta > 0)
+    if keep and noise is not None and uncovered_changed:
+        return False, (
+            f"no evidence: the two champion runs do not cover "
+            f"{uncovered_changed} of the {changed} case(s) the candidate "
+            "changed, so the noise floor was not measured where the "
+            "candidate moved; this is not kept, whatever the posterior says. "
+            "Re-run the champion noise pair only at a new seal; here, treat "
+            "it as no evidence")
     if keep and noise is not None and changed <= noise:
         return False, (
             f"no evidence: the candidate changed {changed} case(s) "
@@ -346,6 +369,7 @@ def main():
     sign_p = binom_one_sided_p(b01, b01 + b10)
     mcnemar_p = mcnemar_exact_p_two_sided(b01, b10)
     changed = noise = None
+    uncovered = []
     if a.noise_floor:
         run_a, run_b = load(a.noise_floor[0]), load(a.noise_floor[1])
         noise, covered = noise_floor(run_a, run_b, common)
@@ -354,12 +378,16 @@ def main():
                 "the paired baseline/candidate cases - they are not runs of "
                 "this holdout")
         changed = b01 + b10
+        uncovered = [c for c in common if base[c] != cand[c]
+                     and not (c in run_a and c in run_b)]
     keep, no_evidence = keep_decision(prob, delta, a.bayes_threshold,
-                                      changed, noise)
+                                      changed, noise, len(uncovered))
+    floor_applied = bool(a.noise_floor) and not uncovered
     rule = f"P(candidate better) >= {a.bayes_threshold} and delta > 0"
     if a.noise_floor:
-        rule += (" and cases changed (fixed + broken) > the champion's "
-                 "run-to-run disagreements")
+        rule += (" and every changed case is in both champion runs and "
+                 "cases changed (fixed + broken) > the champion's run-to-run "
+                 "disagreements")
     out.update({
         "method": "bayes-beta exact posterior (all n)",
         "decision_rule": rule,
@@ -383,24 +411,30 @@ def main():
             "champion_disagreements": noise,
             "cases_counted": covered,
             "candidate_changed": changed,
-            "applied": True,
+            "changed_cases_not_in_champion_runs": len(uncovered),
+            "applied": floor_applied,
         }
-        if covered < n:
+        if uncovered:
+            out["noise_floor"]["coverage_warning"] = (
+                f"the champion runs miss {len(uncovered)} of the {changed} "
+                "case(s) the candidate changed: the floor does not apply, so "
+                "no keep")
+        elif covered < n:
             out["noise_floor"]["coverage_warning"] = (
                 f"the champion runs cover {covered} of the {n} paired "
-                "case(s); disagreements on the rest were not measured, so "
-                "the floor is lower than it should be")
+                "case(s), including every case the candidate changed; both "
+                "counts are taken on those")
     if no_evidence:
         out["no_evidence"] = no_evidence
     if a.candidate_looks is not None:
         if a.bayes_threshold >= DEFAULT_BAYES_THRESHOLD:
-            per_look = PER_LOOK_FALSE_KEEP[bool(a.noise_floor)]
+            per_look = PER_LOOK_FALSE_KEEP[floor_applied]
             bound = min(1.0, a.candidate_looks * per_look)
             out["multi_look_false_keep_bound"] = round(bound, 4)
             out["multi_look_explained"] = (
                 f"{a.candidate_looks} candidate look(s) at this seal x a "
                 f"simulated per-look false-keep rate of at most {per_look:.0%} "
-                f"({'with' if a.noise_floor else 'without'} the noise floor): "
+                f"({'with' if floor_applied else 'without'} the noise floor): "
                 f"an unchanged app is kept by at least one of these looks at "
                 f"most {bound:.0%} of the time (union bound).")
         else:

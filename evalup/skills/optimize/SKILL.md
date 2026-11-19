@@ -133,40 +133,53 @@ make gains real instead of overfit.
    — and again after any revert. Never measure, and never spend a holdout
    look, on an edit nobody has confirmed is live: an unchanged binary
    measures as "no gain", and noise can spend a look on it.
-5. **Gate on holdout**: only if training looks positive. Three runs, named so
-   none is mistaken for another:
-   - **Champion holdout runs — once per seal, before the first candidate.**
-     Run the unedited champion twice with `/evalup:run --holdout` (k = 3 by
-     default; never lower it here): `<champion-a>` and `<champion-b>`. Each
-     spends one of the N=5 looks and records itself in the holdout-look
-     ledger (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4), which leaves
-     three looks for candidates — and is why step 4's training measurement is
-     a precondition, not a formality. `<champion-a>` is what `stats.py`
-     compares against; the pair is the noise floor. After a keep, the kept
-     candidate's holdout run becomes `<champion-a>`; the noise-floor pair
-     stays the same two runs.
+5. **Gate on holdout**: only if training looks positive. Three names, never
+   mixed up: `<noise-a>`/`<noise-b>` (the noise pair — fixed for the whole
+   seal), `<champion>` (the current champion's holdout run — what a
+   candidate is compared against), `<candidate>`.
+   - **The seal record, `reports/holdout-seal.json`**: `{"schema_version": 1,
+     "dataset_version", "scoring_version", "k", "noise_runs": [<noise-a>,
+     <noise-b>], "champion_run": <champion>, "candidate_runs": [...]}`.
+     Read it first. It is **this seal's** when its `dataset_version`,
+     `scoring_version` and `k` equal what the next holdout run's manifest
+     will carry (a reseal bumps `dataset_version`) and both noise runs'
+     `reports/` directories exist: then reuse it and run no noise pair. It
+     is not the ledger — the looks are still the ledger's line count.
+   - **Noise pair — only when there is no record for this seal.** Run the
+     unedited champion twice with `/evalup:run --holdout` (k = 3 by default;
+     never lower it here). Each spends one of the N=5 looks and records
+     itself in the holdout-look ledger
+     (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4), which leaves three
+     looks for candidates — and is why step 4's training measurement is a
+     precondition, not a formality. Write the record at once, before any
+     candidate run: both run ids as `noise_runs`, the first also as
+     `champion_run`, `candidate_runs: []`, and the three versions copied
+     from `reports/<noise-a>/manifest.yaml`, never from memory.
    - **Candidate holdout run.** `/evalup:run --holdout --baseline-verdicts
-     reports/<champion-a>/verdicts_for_stats.jsonl` — one more look; the
-     runner refuses a non-comparable pair before spending it.
+     reports/<champion>/verdicts_for_stats.jsonl` — one more look (append
+     its run id to `candidate_runs`); the runner refuses a non-comparable
+     pair before spending it.
    - **The decision** is one call, saved to `candidates/<id>/holdout-gate.json`
      — not the runner's `comparison.json`, which has no noise floor:
-     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/stats.py" reports/<champion-a>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<champion-a>/verdicts_for_stats.jsonl reports/<champion-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
-     N = candidate holdout runs against this seal, this one included.
+     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/stats.py" reports/<champion>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<noise-a>/verdicts_for_stats.jsonl reports/<noise-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
+     N = the length of `candidate_runs`, this one included.
      It keeps on exact posterior P(improvement) ≥ 0.95 (the default; never
      pass a lower `--bayes-threshold` on the holdout) and delta > 0, and only
-     when the candidate changed more cases than the two champion runs
-     disagree on; otherwise `no_evidence` says why — report "no evidence",
-     not a near-miss. Say "posterior probability ≥ 0.95"; say "statistically
-     significant" only when `sign_test_significant_at_alpha` is true. Surface
-     every caveat key rather than a bare "kept": `gate_note` (the sign test
+     when the noise pair covers every case the candidate changed and the
+     candidate changed more cases than the pair disagrees on; otherwise
+     `no_evidence` says why — report "no evidence", not a near-miss. Say
+     "posterior probability ≥ 0.95"; say "statistically significant" only
+     when `sign_test_significant_at_alpha` is true. Surface every caveat key
+     rather than a bare "kept": `gate_note` (the sign test
      is not significant), `sub_mde_keep` (the delta is below the run's own
      minimum detectable effect — direction evidenced, SIZE not; never quote
      the delta as a measured improvement), `no_evidence`, and always the
      looks used (ledger lines of 5) with `multi_look_false_keep_bound`.
    Pass → keep: leave the edit in the working tree, log the candidate as
-   champion, then pin the **regression run** — never a holdout run: a later
-   regression diff against a holdout run pairs zero case ids and `stats.py`
-   dies. It is step 4's run when that was a plain `/evalup:run --regression`
+   champion, set the record's `champion_run` to `<candidate>` (the noise
+   pair never changes within a seal), then pin the **regression run** —
+   never a holdout run: a later regression diff against a holdout run pairs
+   zero case ids and `stats.py` dies. It is step 4's run when that was a plain `/evalup:run --regression`
    of this edit (no `--targeted`, no `--single-turn`); otherwise run one now.
    Write `reports/baseline.json` as exactly `{"schema_version": 1, "run_id",
    "dataset_version", "scoring_version"}` — copy the last two from that run's `manifest.yaml`,
