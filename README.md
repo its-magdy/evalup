@@ -158,8 +158,9 @@ Flags, run modes, the scored layers and known limits are in
 
 ## Compared with evals-skills
 
-[`hamelsmu/evals-skills`](https://github.com/hamelsmu/evals-skills) is the
-closest neighbour: Claude Code skills for eval methodology.
+[`ai-evals-course/evals-skills`](https://github.com/ai-evals-course/evals-skills)
+(which replaced the deprecated `hamelsmu/evals-skills`) is a close
+neighbour: Claude Code skills for eval methodology.
 
 | | evals-skills | evalup |
 |---|---|---|
