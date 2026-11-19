@@ -828,11 +828,17 @@ def comparability(base, cand):
     an input the runner would reject."""
     notes = []
     # #38: the scoring version is the key; the plugin version is not. A run
-    # older than the field falls back to harness_version, and says so.
+    # older than the field is keyed on its release (_common.scoring_key),
+    # and says so.
     _, mismatch, warning = scoring_comparison(base["meta"], cand["meta"])
     if mismatch:
-        notes.append(f"{mismatch} -- a different scoring version changes "
-                     "what a verdict means")
+        # Worded by the field that actually differed: two pre-field runs
+        # differ on their release, not on a recorded scoring version.
+        why = ("a different harness version, on a run that predates "
+               "scoring_version, may score verdicts differently"
+               if mismatch.startswith("harness_version") else
+               "a different scoring version changes what a verdict means")
+        notes.append(f"{mismatch} -- {why}")
     if warning:
         notes.append(warning)
     for key, why in (("dataset_version", "a different suite is a different "

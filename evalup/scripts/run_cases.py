@@ -1461,8 +1461,8 @@ class Runner:
         self.status = "running"
         self.routing_rows = []      # SS5.2's run-level input, accumulated
         self.baseline_verdicts = baseline_verdicts
-        # Set by run() from validate_baseline(): a pre-#38 baseline is compared
-        # on harness_version, and comparison.json says so.
+        # Set by run() from validate_baseline(): a pre-#38 baseline is keyed
+        # on its release (_common.scoring_key), and comparison.json says so.
         self.baseline_warning = None
 
     # -- logging (SS12) ---------------------------------------------------
@@ -4077,8 +4077,9 @@ def validate_baseline(plan, path):
 
     The version key is SCORING_VERSION (#38), not the plugin version: a
     release that changes no verdict leaves a baseline comparable. A baseline
-    written before the field existed is compared on harness_version, the old
-    rule, and the returned warning says so (stderr, and comparison.json).
+    written before the field existed takes the scoring version its release
+    implies (_common.scoring_key), and the returned warning says so (stderr,
+    and comparison.json).
     """
     if not os.path.isfile(path):
         bad_input(f"--baseline-verdicts {path} is not a readable file")

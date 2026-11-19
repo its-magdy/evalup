@@ -554,7 +554,16 @@ class TestPaired(CostCase):
         self.assertIn("scoring_version: baseline 1, this run 2",
                       warnings(base, cand))
         edit(cand, scoring_version=None, harness_version="0.1.0")
-        self.assertIn("predates scoring_version", warnings(base, cand))
+        self.assertIn("this run predates scoring_version",
+                      warnings(base, cand))
+        # Two pre-field runs at different releases differ on harness_version,
+        # and the note says so rather than blaming a scoring version.
+        edit(base, scoring_version=None, harness_version="0.0.9")
+        text = warnings(base, cand)
+        self.assertIn("both runs predate scoring_version", text)
+        self.assertIn("harness_version: baseline '0.0.9', this run '0.1.0'",
+                      text)
+        self.assertNotIn("a different scoring version", text)
 
     def test_two_runs_sharing_no_case_is_a_fact_not_an_error(self):
         base = self.write_run("smoke-20260901T120000Z",

@@ -774,8 +774,11 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   `_common.SCORING_VERSION` (1) is the comparability key in the runner's
   baseline diff, `make_plan.py --failing-in`, `run_history.py`'s series key
   and `score_cost.py`'s pair check; `harness_version` stays equal to the
-  plugin version, for provenance. A run written before the field is compared
-  on `harness_version` with a warning, never a crash. `--version` prints
+  plugin version, for provenance. A run written before the field takes the
+  scoring version its release implies (0.1.0 = 1) with a warning, never a
+  crash, through one key (`_common.scoring_key`) that the pair checks and
+  `run_history.py`'s series key share, so a pair the runner would diff is
+  never split into two series. `--version` prints
   `(scoring N)`. `reports/baseline.json` is `{"schema_version", "run_id",
   "dataset_version", "scoring_version"}`.
 - **State files carry `schema_version: 1`** (#38): every case file,

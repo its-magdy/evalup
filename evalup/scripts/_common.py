@@ -38,28 +38,77 @@ SCORING_VERSION = 1
 SCHEMA_VERSION = 1
 
 
+# The scoring version a run written BEFORE the field existed carries, by its
+# harness_version. 0.1.0 is the only release that ever wrote runs without the
+# field (git history of HARNESS_VERSION), and SCORING_VERSION 1 was defined as
+# its verdict rules. A legacy run at a release not listed here has no known
+# scoring version and compares only to legacy runs of that same release.
+LEGACY_SCORING_VERSION = {"0.1.0": 1}
+
+
+def scoring_key(record):
+    """The ONE comparability key on the scoring axis, for a run record
+    (manifest.yaml or results.json dict). Returns (key, legacy): two runs are
+    comparable on this axis exactly when their keys are equal, so a pairwise
+    check (scoring_comparison) and a series grouping (run_history.py) cannot
+    disagree. `legacy` is True for a record that predates scoring_version."""
+    version = record.get("scoring_version")
+    if version is not None:
+        return ("scoring", version), False
+    harness = record.get("harness_version")
+    if harness in LEGACY_SCORING_VERSION:
+        return ("scoring", LEGACY_SCORING_VERSION[harness]), True
+    return ("harness", harness), True
+
+
 def scoring_comparison(theirs, ours):
     """Are two run records (manifest.yaml or results.json dicts) comparable on
     the scoring axis? Returns (comparable, mismatch_text, warning_text).
 
-    Both carry `scoring_version`: they must be equal. Either one predates the
-    field (a run written before #38): fall back to the OLD key, harness_version
-    equality, and say so in `warning_text` -- never a crash, never a silent
-    pass. `theirs` is the older/baseline side in the messages."""
-    a, b = theirs.get("scoring_version"), ours.get("scoring_version")
-    if a is not None and b is not None:
-        if a == b:
-            return True, None, None
-        return False, f"scoring_version: baseline {a!r}, this run {b!r}", None
-    side = "the baseline" if a is None else "this run"
-    warning = (
-        f"{side} predates scoring_version (written before evalup recorded "
-        "it); compared on harness_version instead, the old rule. Pin a fresh "
-        "baseline to drop this warning.")
-    ha, hb = theirs.get("harness_version"), ours.get("harness_version")
-    if ha == hb:
+    Comparable exactly when scoring_key() agrees. A record that predates the
+    field (written before #38) is keyed by LEGACY_SCORING_VERSION on its
+    harness_version, and `warning_text` says which side(s) did -- never a
+    crash, never a silent pass. `mismatch_text` starts with the field that
+    actually differed. `theirs` is the older/baseline side in the messages."""
+    (ka, la), (kb, lb) = scoring_key(theirs), scoring_key(ours)
+    warning = None
+    if la or lb:
+        side = ("both runs predate" if la and lb else
+                "the baseline predates" if la else "this run predates")
+        warning = (
+            f"{side} scoring_version (written before evalup recorded it); "
+            "a pre-field run is keyed on its harness_version, the old rule "
+            "(release 0.1.0 = scoring_version 1). Pin a fresh baseline to "
+            "drop this warning.")
+    if ka == kb:
         return True, None, warning
-    return False, f"harness_version: baseline {ha!r}, this run {hb!r}", warning
+    if ka[0] == kb[0] == "scoring" and not (la or lb):
+        return False, f"scoring_version: baseline {ka[1]!r}, this run " \
+                      f"{kb[1]!r}", warning
+    if la and lb:
+        return False, (
+            "harness_version: baseline {!r}, this run {!r} (both predate "
+            "scoring_version, so the release is the key)".format(
+                theirs.get("harness_version"), ours.get("harness_version"))
+        ), warning
+
+    # Exactly one side is legacy here. An unknown legacy release differs on
+    # harness_version (it has no scoring version); a known one, on the
+    # scoring version its release implies.
+    field = ("harness_version" if "harness" in (ka[0], kb[0])
+             else "scoring_version")
+
+    def describe(record, key, legacy):
+        if key[0] == "harness":
+            return (f"{key[1]!r} (predates scoring_version; no scoring "
+                    "version is known for that release)")
+        if not legacy:
+            return (repr(key[1]) if field == "scoring_version"
+                    else f"at scoring_version {key[1]!r}")
+        return "{!r} (inferred from harness_version {!r})".format(
+            key[1], record.get("harness_version"))
+    return False, (f"{field}: baseline {describe(theirs, ka, la)}, "
+                   f"this run {describe(ours, kb, lb)}"), warning
 
 
 def add_version_flag(ap):

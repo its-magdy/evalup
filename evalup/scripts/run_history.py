@@ -28,9 +28,11 @@ needs those and two more, because a pair is joined by case-id INTERSECTION and
 a series of aggregates has no intersection step to absorb a mismatch:
   dataset_version, scoring_version, k  -- SS5.6/D7 verbatim. A different
       dataset or scoring version changes what a verdict MEANS; a different k
-      pairs pass^k verdicts computed over different numbers of trials. (A run
-      written before scoring_version existed is keyed on harness_version,
-      the old key, so old and new runs never share a series.)
+      pairs pass^k verdicts computed over different numbers of trials. The
+      scoring key is _common.scoring_key, the one rule every pairwise check
+      uses: a run written before scoring_version existed takes the version
+      its release implies (0.1.0 = 1), so it shares a series with the newer
+      runs the runner would diff it against.
   mode + selecting_split -- NOT in SS5.6's pair rule, and it has to be here.
       `selecting_split` decides which cases are selected at all (the runner
       refuses a case whose `split` does not contain it), so a 4-case smoke run
@@ -188,6 +190,7 @@ from _common import (
     infra_rate,
     load_json,
     require_range,
+    scoring_key,
     write_output,
 )
 
@@ -352,19 +355,21 @@ def capability_fingerprint(matrix):
 def series_key(manifest):
     """SS5.6's three keys, plus the two a series of N needs and a pair does
     not. See the module docstring for the argument."""
+    scoring, _ = scoring_key(manifest)
     return {
         "mode": manifest.get("mode"),
         "selecting_split": manifest.get("selecting_split"),
         "k": manifest.get("k"),
         "dataset_version": manifest.get("dataset_version"),
-        # #38: the key is scoring_version; a plugin release that changes no
-        # verdict stays on one line. A run written before the field existed
-        # is keyed on its harness_version (the old key) instead, so it never
-        # joins a series it cannot be shown to belong to.
-        "scoring_version": manifest.get("scoring_version"),
-        "harness_version": (manifest.get("harness_version")
-                            if manifest.get("scoring_version") is None
-                            else None),
+        # #38: the key is scoring_version, through _common.scoring_key -- the
+        # SAME rule the pairwise checks use, so a pair the runner would diff
+        # is never split across two series here. A plugin release that
+        # changes no verdict stays on one line. A run written before the
+        # field existed takes the scoring version its release implies
+        # (0.1.0 = 1, so it joins the scoring-1 series); a pre-field run at a
+        # release with no known scoring version is keyed on harness_version.
+        "scoring_version": scoring[1] if scoring[0] == "scoring" else None,
+        "harness_version": scoring[1] if scoring[0] == "harness" else None,
         "capabilities": capability_fingerprint(
             manifest.get("capability_matrix")),
     }

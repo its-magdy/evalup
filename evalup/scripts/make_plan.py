@@ -112,8 +112,8 @@ def failing_ids(run_dir, dataset_version, notes=None):
     Same rule as the baseline diff (runner-contract.md SS5.6): a different
     dataset or scoring version changes what a verdict means, so "the cases
     that failed last time" is not a set this run can inherit. A run written
-    before scoring_version existed falls back to harness_version equality,
-    with a note (_common.scoring_comparison).
+    before scoring_version existed is keyed on its release, with a note
+    (_common.scoring_key).
     """
     # manifest.yaml is written as JSON (a YAML subset) by the stdlib-only runner.
     manifest = load_object(os.path.join(run_dir, "manifest.yaml"))

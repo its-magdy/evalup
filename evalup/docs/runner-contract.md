@@ -611,10 +611,13 @@ The version key is `scoring_version` (`_common.SCORING_VERSION`, #38), bumped
 only when a verdict's meaning changes; `harness_version` is the plugin's
 release and is provenance, so a release that changes no verdict leaves every
 baseline comparable. A baseline manifest written before `scoring_version`
-existed is compared on `harness_version` equality instead — the old rule —
-with a `comparability_warning` on stderr and in `comparison.json` (or in the
+existed takes the scoring version its release implies (0.1.0, the only
+release that wrote such runs, = `scoring_version` 1; an unlisted release is
+compared on `harness_version` equality, the old rule) — with a
+`comparability_warning` on stderr and in `comparison.json` (or in the
 exit-2 payload when it is refused); never a crash
-(`_common.scoring_comparison`). The
+(`_common.scoring_key`, the one rule `scoring_comparison` and
+`run_history.py`'s series key share). The
 k-mismatch check lives here, in the runner, for the same reason the rest of the
 diff does — the manifest recording `k` is only useful if something checks it.
 
