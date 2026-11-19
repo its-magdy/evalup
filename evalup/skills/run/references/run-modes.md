@@ -217,7 +217,12 @@ pipeline that wants "no verified canary, no pass" adds `--require-canaries`
 `--json` prints the same facts for a dashboard. Deterministic-only CI needs no
 `claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
 `gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
-pipeline, runnable).
+pipeline, runnable). A pipeline may want `make_plan.py`'s overrides:
+`--run-id <mode>-<YYYYMMDDTHHMMSSZ>` names the run directory (default: the mode
+and UTC now; any other shape is refused), `--dataset-version N` labels the run
+(default: `dataset.yaml`'s), and `--holdout-ledger` / `--judge-calibration`,
+relative to `--state-dir`, move the two sidecars from
+`datasets/holdout-looks.jsonl` and `judge/calibration.json`.
 
 - `--bare` skips auto-discovery of hooks, skills, custom commands,
   subagents, installed plugins, MCP servers, auto memory and CLAUDE.md, so the

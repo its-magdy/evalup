@@ -745,6 +745,13 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   imports PyYAML and exits 0 or 2 with the install hint; the README's install
   check runs it, and `/evalup:start` runs it before reading the app. The
   hint now names the interpreter and the PEP 668 (Homebrew) way round pip.
+- **Ten CLI flags had no test and no doc line** (#20): `make_plan.py`
+  `--run-id`, `--holdout-ledger`, `--judge-calibration`, `--dataset-version`;
+  `score_agreement.py` `--tnr-floor`, `--kappa-floor`, `--min-per-class`,
+  `--confidence`; `score_cost.py` `--max-exact-states`;
+  `build_review_viewer.py` `--title`. Each now has a test and a line where a
+  user would look (run-modes.md, annotation-ux.md, analyze § cost). None was
+  removed: deleting them was proposed and rejected 2026-09-21.
 
 ### Fixed — the 2026-09-21 shape audit
 

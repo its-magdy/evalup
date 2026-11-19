@@ -31,7 +31,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 943 tests, ~2.5 min
+python3 -m unittest discover -s tests                    # 953 tests, ~2.5 min
 python3 tests/run_shards.py      # CI's 4 shards in parallel, ~50 s; not conclusive
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
@@ -65,10 +65,9 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   different app instead. Decided 2026-10-06 (after a second opinion): a
   checkpoint can veto a conversation but never certify it — a union `pass`
   needs a graded `pass` on the final turn (`run_cases.final_turn_certifies`).
-- **Health** (2026-10-06, measured on the multi-turn branch; CI green on
-  `main` 2026-11-19): 943 tests pass on 3.14;
-  934 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 943 pass with
-  `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
+- **Health** (2026-11-19, measured on `fix/first-session`): 953 tests pass
+  on 3.14; 943 + 10 skips on the 3.9 floor (all 10 skips need PyYAML: 953
+  pass with `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
   run on an unseen toy app (4.5 min, 3/3 planted flaws) and on a real ASP.NET

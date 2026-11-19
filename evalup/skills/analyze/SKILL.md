@@ -167,7 +167,9 @@ like a free win. This prices the tokens the trace already recorded and
 summarizes latency as order statistics; with `--baseline` it adds the paired
 diff (an exact sign test, an exact distribution-free interval for the median
 difference, and an exact permutation test on the total — no bootstrap, per
-`stats.py`'s no-approximation rule).
+`stats.py`'s no-approximation rule). `--max-exact-states N` (default
+1,000,000) caps that test's state space: past it the test is declined, never
+approximated, and the other two still stand.
 
 **It is not a second gate.** There is one definition of "better" in this
 package and it is `stats.py`'s keep rule; cost is not in it and there is no

@@ -140,6 +140,19 @@ class TestBodyContextEscaping(ViewerTest):
             {"stage": XSS, "latency_ms": IMG, "cost_usd": IMG}]}]), XSS, IMG)
 
 
+class TestTitle(ViewerTest):
+    """#20: --title names the page; without it the run's name does."""
+
+    def test_title_flag_sets_the_page_title_escaped(self):
+        page = self.page([{"case_id": "c1"}], "--title", f"Billing {XSS}")
+        self.assertIn("<title>Billing &lt;script&gt;", page)
+        self.assertNotIn(XSS, page.split("<body", 1)[0])
+
+    def test_without_it_the_title_is_derived_from_the_run_path(self):
+        self.assertIn("<title>Review — run.json</title>",
+                      self.page([{"case_id": "c1"}]))
+
+
 class TestAttributeContextEscaping(ViewerTest):
     """Context 2: a quoted attribute value. This is the bug that shipped —
     the verdict string was concatenated straight into class="badge {verdict}",

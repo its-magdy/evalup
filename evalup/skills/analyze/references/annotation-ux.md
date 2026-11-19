@@ -12,7 +12,8 @@ doc is the workflow it exists to serve.
 ## The tool
 
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py <run-path> [-a
-annotations.jsonl] [-o out.html] [--glob 'cases/*/verdict.json']` renders a
+annotations.jsonl] [-o out.html] [--glob 'cases/*/verdict.json'] [--title T]`
+(the page title; default `Review — <run-path name>`) renders a
 run's case records (a directory of per-case JSON files, or a single JSON file)
 plus an optional
 existing annotations JSONL into one self-contained static HTML file: a trace
@@ -194,7 +195,12 @@ disagreement. Score the pass with
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
 <state>/judge/calibration.json` — it computes each rubric's TPR/TNR/κ from
 these lines and writes the sidecar the runner reads, which is what makes
-`judge.status` a derived fact instead of a flag someone typed. Track **TPR and
+`judge.status` a derived fact instead of a flag someone typed. Its bars are
+flags (its docstring says where each default comes from): `--tpr-floor` /
+`--tnr-floor` 0.90, `--kappa-floor` 0.60, `--min-labeled` 100,
+`--min-per-class` 10 (human PASS and human FAIL each); `--confidence` 0.95
+sets the reported exact intervals and gates nothing. Change a bar only with
+the reason in the calibration notes. Track **TPR and
 TNR live, never raw accuracy** — a 90%-pass app
 makes an always-pass judge look 90% "accurate" while catching 0% of real
 failures, exactly the trap `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md`'s

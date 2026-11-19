@@ -533,6 +533,48 @@ class TestMakePlan(TempDirTest):
         rc, plan = self.plan("--mode", "regression", converted=converted)
         self.assertEqual(len(plan["cases"]), 5)       # the sealed one is out
         self.assertIsNone(plan["paths"]["holdout_ledger"])
+        # --holdout-ledger overrides the default path (#20).
+        rc, plan = self.plan("--mode", "holdout", "--holdout-ledger",
+                             "elsewhere/looks.jsonl", converted=converted)
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["paths"]["holdout_ledger"],
+                         "elsewhere/looks.jsonl")
+
+    def test_run_id_is_taken_as_given_and_its_shape_is_checked(self):
+        """#20: --run-id names the run directory; a malformed one would
+        break run_history.py's timestamp ordering, so it is refused."""
+        rc, plan = self.plan("--mode", "smoke", "--run-id",
+                             "smoke-20261119T120000Z")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["run_id"], "smoke-20261119T120000Z")
+        rc, payload = self.plan("--mode", "smoke", "--run-id", "my-run")
+        self.assertEqual(rc, 2)
+        self.assertIn("--run-id must match", payload["error"])
+
+    def test_judge_calibration_defaults_to_the_sidecar_when_it_exists(self):
+        """#20: the judged gate's sidecar path (runner-contract SS5.4)."""
+        rc, plan = self.plan("--mode", "regression")
+        self.assertIsNone(plan["paths"]["judge_calibration"])
+        (self.state / "judge").mkdir()
+        (self.state / "judge" / "calibration.json").write_text(
+            "{}", encoding="utf-8")
+        rc, plan = self.plan("--mode", "regression")
+        self.assertEqual(plan["paths"]["judge_calibration"],
+                         "judge/calibration.json")
+        rc, plan = self.plan("--mode", "regression", "--judge-calibration",
+                             "judge/other.json")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["paths"]["judge_calibration"],
+                         "judge/other.json")
+
+    def test_dataset_version_overrides_the_manifest(self):
+        """#20: the version the run is labelled with, which baselines and
+        --failing-in compare against."""
+        rc, plan = self.plan("--mode", "smoke")
+        self.assertEqual(plan["manifest_extra"]["dataset_version"], 1)
+        rc, plan = self.plan("--mode", "smoke", "--dataset-version", "7")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["manifest_extra"]["dataset_version"], 7)
 
     def test_layer_disables_the_others_with_a_reason(self):
         rc, plan = self.plan("--mode", "smoke", "--layer", "routing")

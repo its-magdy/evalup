@@ -479,6 +479,27 @@ class TestPaired(CostCase):
         self.assertAlmostEqual(cost["sign_test"]["p_two_sided"],
                                2 * 0.5 ** 8, places=12)
 
+    def test_max_exact_states_declines_the_permutation_test_from_the_cli(self):
+        """#20: the flag reaches the DP. The same pair is tested exactly at
+        the default cap and declined, with the cap named, under a tiny one;
+        the sign test stands either way."""
+        base, cand = self.pair()
+        rc, payload, err = run_script(cand, "--baseline", base,
+                                      "--prices", self.prices(),
+                                      "--max-exact-states", "5")
+        self.assertEqual(rc, 0, err)
+        for metric in ("cost", "latency"):
+            with self.subTest(metric):
+                block = payload["paired"][metric]
+                self.assertFalse(block["permutation_test"]["tested"])
+                self.assertIn("more than 5 distinct subset sums",
+                              block["permutation_test"]["reason"])
+                self.assertTrue(block["sign_test"]["exact"])
+        rc, payload, _ = run_script(cand, "--baseline", base,
+                                    "--max-exact-states", "0")
+        self.assertEqual(rc, 2)
+        self.assertIn("--max-exact-states", payload["error"])
+
     def test_the_partition_by_verdict_change_is_not_a_rate(self):
         """The closest this script comes to SS4.3's "2% better but 3x more
         expensive", and deliberately a partition: dollars-per-net-fixed-case
