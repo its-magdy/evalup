@@ -64,6 +64,12 @@ Method — always in this order:
    results), silent tool-error swallowing (tool failed, answer pretends it
    didn't).
 
+**A transcript batch** (`analyze --transcripts`) has no case and no
+expectation. Per conversation return: its id, the user message, the app's
+reply quoted verbatim as data, any tool calls, and a one-line free-text
+critique of what looks wrong ("nothing evident" is an answer). No
+categories and no SHOULD verdicts; the reviewer codes from your critiques.
+
 Output per trace: a compact block — actual path / first divergence /
 attributed surface (+confidence) / pattern tags. When analyzing a batch,
 finish with clusters: traces grouped by same divergence + same surface, with

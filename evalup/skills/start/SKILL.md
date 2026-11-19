@@ -66,7 +66,7 @@ session, without stopping between them:
    continue. So do not ask about real conversations up front: **if the user's
    message already names some** (exported chats, support logs, saved traces,
    bug reports), run `analyze --transcripts <path>` FIRST (it needs no
-   profile, no cases and no run; you code them, provisional, asking nothing:
+   profile, no cases and no run; you code trace-analyzer's critiques, provisional, asking nothing:
    its no-reviewer path) — its failure taxonomy is a result in its
    own right, and its conversations seed step 4 in place of synthetic cases.
    Otherwise go straight to step 1; step 2 says what real ones would add.

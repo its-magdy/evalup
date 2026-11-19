@@ -776,6 +776,10 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   from the failure analysis and the rubric only. The judge reads only the
   paths its assignment names and redacts secrets in quoted evidence. A
   layout test pins the paragraph, word for word, in all seven skills.
+  `analyze --transcripts`, the one branch that had the main session read
+  20–50 raw conversations itself, now hands each batch to the read-only
+  `trace-analyzer` and works from its per-conversation blocks; with no
+  reviewer present, the agent's critiques are the open codes.
 - **A release no longer invalidates every baseline** (#38).
   `_common.SCORING_VERSION` (1) is the comparability key in the runner's
   baseline diff, `make_plan.py --failing-in`, `run_history.py`'s series key

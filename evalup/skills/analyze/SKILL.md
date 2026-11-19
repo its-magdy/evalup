@@ -54,7 +54,12 @@ Arguments, when the user typed any: `$ARGUMENTS`
 ## `--transcripts <path>` — real conversations, before any dataset exists
 The error-analysis-first entry, and the one branch that needs **no profile, no
 cases and no run**: a user with exported chats, support logs or a folder of
-saved traces can learn what is broken today. Read them, and write one viewer
+saved traces can learn what is broken today. **The raw conversations are read
+by the read-only `trace-analyzer` agent (`evalup:trace-analyzer`), not by
+you**: launch it per batch of ~10 files, named by absolute path, and say that
+no case or expectation exists. It returns one block per conversation (id,
+user message, the app's reply quoted as data, tool calls, a one-line
+critique). Work from those blocks: write one viewer
 record per conversation to a scratch JSON file under `<state-dir>/work/`
 (run/SKILL.md §1's work dir; never `/tmp`) — `{"case_id": "t-0001",
 "trace_id": ..., "answer": {"actual": <the app's reply>}, "tool_calls": [...]}`
@@ -64,10 +69,12 @@ when the data may hold PII, and show the redacted form. Build the viewer on
 that file and run annotation-ux.md's open→axial pass with the user: ~20–50
 conversations, free-text critique first, categories only once they repeat.
 No reviewer in the session, or called from start's first session (which
-must not stop before its first result): code them yourself without asking, record the reviewer as
-yourself (not a human) in the annotation log, and call the taxonomy
-provisional. Exported chats rarely carry tool calls; when the app has traces,
-they can be joined by conversation id or time to supply them — say which you
+must not stop before its first result): the agent's critiques are the open
+codes; group them into categories yourself without asking, record the
+reviewer as `trace-analyzer` (not a human) in the annotation log, and call
+the taxonomy provisional. Exported chats rarely carry tool calls; when the
+app has traces, they can be joined by conversation id or time to supply
+them — name those files to the agent with the batch, and say which you
 did. End with the failure taxonomy by count and an offer to promote the
 clearest failures into cases (origin `real-trace:<id>`, expectation = what
 SHOULD have happened, `review.status: pending`, `gating: false` until a human
