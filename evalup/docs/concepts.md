@@ -123,9 +123,15 @@ would unlock is not built.
 
 Agents are nondeterministic and eval sets are small; a +3% on 40 cases is
 usually noise. Paired comparisons on identical cases; the keep decision is an
-exact Bayesian P(improvement) at every n (an exact one-sided sign test is
+exact Bayesian P(improvement) ≥ 0.95 at every n (an exact one-sided sign test is
 reported alongside), so growing the dataset never flips a decision by
-crossing a method boundary; every diff states what effect size was detectable
+crossing a method boundary. A keep means "posterior probability ≥ 0.95", not
+"statistically significant" — only the sign test, when it also passes, earns
+that word. On the holdout the bar is 0.95 (0.8 is an explicit flag for
+exploratory loops: an unchanged app with flaky cases cleared it on 6–20% of
+looks), cases run at k = 3, and the champion is run twice first: a candidate
+that changes no more cases than those two runs disagree on is "no evidence",
+never a keep; every diff states what effect size was detectable
 at its n (that detectable-effect figure is a normal-approximation planning
 estimate — the decision statistics themselves are exact). A comparison also
 reports how many cases it *couldn't* pair: cases present in only one of the
@@ -136,7 +142,8 @@ the same harness version — a scorer change alters what a number means just
 like a dataset change does, so a harness upgrade means pinning a fresh
 baseline. pass^k (all k repeats succeed) is the reliability
 number — single-run pass rates hide flakiness. Repeated holdout looks are
-counted and force a reseal (multiple-comparisons discipline).
+counted and force a reseal (multiple-comparisons discipline), and each
+optimize report states the multi-look false-keep bound those looks cost.
 
 ## What this can never do
 

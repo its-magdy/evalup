@@ -34,9 +34,15 @@ break anyone who has been tracking this repository directly.
   `state` and `http`; `loops` and `reliability` roll up per run.
   `cost_latency` is a capability, not a layer, and never gates. Seventeen
   stdlib-only CLIs in `scripts/`.
-- **A sealed statistical gate.** `scripts/stats.py` decides keep vs revert on
+- **A sealed holdout gate.** `scripts/stats.py` decides keep vs revert on
   an exact Beta posterior over the discordant pairs — one rule at every n — and
   reports an exact one-sided sign test and McNemar's exact test alongside it.
+  The keep bar is posterior P ≥ **0.95** (it was 0.8, which kept a no-op edit
+  on an app with flaky cases on 6–20% of holdout looks; #36), the holdout runs
+  at k = 3, `--noise-floor` turns a candidate that changed no more cases than
+  two champion runs disagree on into "no evidence", and `--candidate-looks`
+  prints the multi-look false-keep bound. A keep claims a posterior
+  probability, never significance unless the sign test also passes.
   No chi-square or normal approximation appears in any decision or reported
   test; the power figures below the decision are the one acknowledged
   exception, and are labelled as planning estimates.

@@ -3,8 +3,8 @@ name: optimize
 description: >-
   Improve the app's prompts and tool descriptions through a failure-driven
   loop: reflect on failure clusters, propose one targeted edit, measure on the
-  training split, confirm on the sealed holdout with a statistical gate, keep
-  or revert. Use when eval scores have plateaued or a failure cluster
+  training split, gate on the sealed holdout (posterior probability ≥ 0.95
+  over a measured noise floor), keep or revert. Use when eval scores have plateaued or a failure cluster
   implicates a specific prompt or tool description.
 argument-hint: "[--surface <prompt-id|tool>] [--budget $N] [--include-multi-turn]"
 disable-model-invocation: true
@@ -125,26 +125,47 @@ make gains real instead of overfit.
    — and again after any revert. Never measure, and never spend a holdout
    look, on an edit nobody has confirmed is live: an unchanged binary
    measures as "no gain", and noise can spend a look on it.
-5. **Gate on holdout**: only if training looks positive, run the sealed
-   holdout (aggregate) via `/evalup:run --holdout`. That run spends one of
-   the N=5 looks and records itself in the holdout-look ledger (see
-   `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4) — which is why step 4's
-   training measurement is a precondition, not a formality. `stats.py` decides
-   on one rule at every n: exact Bayesian P(improvement) ≥ 0.8
-   (`--bayes-threshold`) and delta > 0, with an exact one-sided sign test
-   reported alongside. Two caveat keys ride beside that decision and both must
-   be surfaced rather than reported as a bare "kept": `gate_note` (kept on the
-   posterior bar while the sign test is not significant) and `sub_mde_keep`
-   (the observed delta is smaller than the run's own minimum detectable
-   effect — the direction is evidenced, the SIZE is not, so do not quote the
-   delta as a measured improvement). Pass → keep: leave the edit in the working
-   tree, log the candidate as champion, and pin the keeper run by writing
-   `reports/baseline.json` as exactly `{"run_id", "dataset_version",
+5. **Gate on holdout**: only if training looks positive. Three runs, named so
+   none is mistaken for another:
+   - **Champion holdout runs — once per seal, before the first candidate.**
+     Run the unedited champion twice with `/evalup:run --holdout` (k = 3 by
+     default; never lower it here): `<champion-a>` and `<champion-b>`. Each
+     spends one of the N=5 looks and records itself in the holdout-look
+     ledger (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4), which leaves
+     three looks for candidates — and is why step 4's training measurement is
+     a precondition, not a formality. `<champion-a>` is what `stats.py`
+     compares against; the pair is the noise floor. After a keep, the kept
+     candidate's holdout run becomes `<champion-a>`; the noise-floor pair
+     stays the same two runs.
+   - **Candidate holdout run.** `/evalup:run --holdout --baseline-verdicts
+     reports/<champion-a>/verdicts_for_stats.jsonl` — one more look; the
+     runner refuses a non-comparable pair before spending it.
+   - **The decision** is one call, saved to `candidates/<id>/holdout-gate.json`
+     — not the runner's `comparison.json`, which has no noise floor:
+     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/stats.py" reports/<champion-a>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<champion-a>/verdicts_for_stats.jsonl reports/<champion-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
+     N = candidate holdout runs against this seal, this one included.
+     It keeps on exact posterior P(improvement) ≥ 0.95 (the default; never
+     pass a lower `--bayes-threshold` on the holdout) and delta > 0, and only
+     when the candidate changed more cases than the two champion runs
+     disagree on; otherwise `no_evidence` says why — report "no evidence",
+     not a near-miss. Say "posterior probability ≥ 0.95"; say "statistically
+     significant" only when `sign_test_significant_at_alpha` is true. Surface
+     every caveat key rather than a bare "kept": `gate_note` (the sign test
+     is not significant), `sub_mde_keep` (the delta is below the run's own
+     minimum detectable effect — direction evidenced, SIZE not; never quote
+     the delta as a measured improvement), `no_evidence`, and always the
+     looks used (ledger lines of 5) with `multi_look_false_keep_bound`.
+   Pass → keep: leave the edit in the working tree, log the candidate as
+   champion, then pin the **regression run** — never a holdout run: a later
+   regression diff against a holdout run pairs zero case ids and `stats.py`
+   dies. It is step 4's run when that was a plain `/evalup:run --regression`
+   of this edit (no `--targeted`, no `--single-turn`); otherwise run one now.
+   Write `reports/baseline.json` as exactly `{"run_id", "dataset_version",
    "harness_version"}` — copy the last two from that run's `manifest.yaml`,
    never from memory (a partial object silently breaks every later diff).
-   Fail → revert as step 4 says, verify the blob, keep the reflection (it
-   prunes the next hypothesis). Always report regressions on any layer, not just the
-   target metric.
+   Fail or no evidence → revert as step 4 says, verify the blob, keep the
+   reflection (it prunes the next hypothesis). Always report regressions on
+   any layer, not just the target metric.
 6. **Stop conditions**: budget spent; two consecutive candidates rejected on
    the same cluster (→ the lever is probably wrong — escalate to a code/
    architecture proposal); or the honest message "these route targets are

@@ -170,6 +170,6 @@ adds is **which of those conditions actually fired**.
 ## Then what?
 
 This is `run --smoke` and stops there. The rest of the loop —
-`analyze` over the verdicts, `optimize` with a statistical keep/revert gate,
+`analyze` over the verdicts, `optimize` with a posterior-probability keep/revert gate,
 `stats.py`'s one and only keep rule — needs a real app with real failures.
 `docs/workflow.md` is the map.

@@ -125,8 +125,9 @@ optimizer are later steps you ask for. `/evalup:start` says what each one costs.
 > /evalup:optimize --surface <prompt-id|tool> --budget $5
 ```
 
-It proposes one change at a time and keeps it only if the sealed holdout
-confirms the improvement statistically. You approve every kept edit.
+It proposes one change at a time and keeps it only if, on the sealed holdout,
+the posterior probability that it is better is at least 0.95 and it changed
+more cases than re-running the unchanged app does. You approve every kept edit.
 
 ### In CI, without Claude
 

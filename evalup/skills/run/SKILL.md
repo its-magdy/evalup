@@ -54,7 +54,7 @@ there is.
 | `smoke` | cases with `smoke` in `split` | 1 | soft | every prompt/code edit (hook) |
 | `regression` | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
 | `targeted` | component-tag filter (+ `--filter-failing`) | 1 by default (`--k N`) | soft | after optimizing one surface |
-| `holdout` | sealed `holdout` split | 1 by default (`--k N`) | decision | optimizer's keep/revert step |
+| `holdout` | sealed `holdout` split | 3 by default (`--k N`), pass^k | decision | optimizer's keep/revert step |
 | `full` | `full` + `holdout`, as **two runs**: `regression`, then `holdout` | 3 by default (`--k N`), pass^k | hard | release validation |
 
 No mode flag → `regression`. `k` is a plan-level value: `make_plan.py` sets

@@ -20,7 +20,7 @@ Mode -> selection, k, gate (run/SKILL.md SS0, references/run-modes.md):
   regression  cases with `full` in split       k=3           hard
   targeted    --tag-filtered `full` (or        k=1           soft
               --split smoke) cases
-  holdout     cases with `holdout` in split    k=1           decision
+  holdout     cases with `holdout` in split    k=3           decision
 `--k` overrides the default except under smoke, where k is 1 by definition.
 
 `full` (the `full` AND `holdout` splits in one run) is refused: the runner
@@ -80,7 +80,9 @@ MODES = {
     "smoke": ("smoke", 1, "soft"),
     "regression": ("full", 3, "hard"),
     "targeted": ("full", 1, "soft"),
-    "holdout": ("holdout", 1, "decision"),
+    # k=3 since #36: the keep/revert call reads this run's per-case pass^k
+    # verdicts, and a k=1 holdout let one flaky retry decide a keep.
+    "holdout": ("holdout", 3, "decision"),
 }
 DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
 DEFAULT_CALIBRATION = "judge/calibration.json"

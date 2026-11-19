@@ -17,19 +17,34 @@ diagnosing WHY failures happen in the trajectory beats blind candidate
 search. Read traces before writing edits — and with code access, check
 whether the cause is even in the prompt (often it's a tool schema).
 
-**Statistical gate, n-aware.** At n=50, only ~15pp effects are detectable with
-paired tests; "no significance → no keep" without saying that reads as "the
+**Posterior gate, n-aware.** At n=50, only ~15pp effects are detectable with
+paired tests; "no keep" without saying that reads as "the
 tool doesn't work." Always translate: what effect size is detectable at this
 n, and what n the user needs for the effect they care about (with the generate
 command to get there). `stats.py` applies one rule at every n — exact
 Bayesian P(improvement) against the stated threshold, with an exact one-sided
 sign test alongside — rather than switching methods at some n. That is
 deliberate: CLT-based intervals are unreliable at small n, and a gate that
-changes shape mid-suite invites picking whichever framing passes.
+changes shape mid-suite invites picking whichever framing passes. A keep
+claims "posterior probability ≥ 0.95"; call it significant only when
+`sign_test_significant_at_alpha` is also true.
+
+**Why 0.95, k = 3 and a noise floor.** At the old bar (0.8, holdout at k = 1)
+an *unchanged* app with 10–20% flaky cases was kept on 6–20% of holdout looks
+— a no-op edit, "confirmed". The bar is now 0.95 (0.8 only as an explicit
+flag for an exploratory loop that is not spending the holdout), the holdout
+runs at k = 3, and the champion is run on the holdout twice before the first
+candidate: a candidate that changed no more cases than those two runs
+disagree on is "no evidence" (`stats.py --noise-floor`, a count, not a
+judgment). Simulated with `stats.py`'s own functions, that keeps a no-op on
+under 1% of looks; `stats.py` states 3% per look as its bound.
 
 **Multiple-comparisons honesty.** Every holdout look spends validity (garden
 of forking paths). Count looks; force reseal after 5. Re-rolling candidates
-until one passes the gate is the failure mode this prevents.
+until one passes the gate is the failure mode this prevents. The two champion
+runs spend two of the five, leaving three candidate looks per seal; every
+report states `multi_look_false_keep_bound` (`--candidate-looks`), at most 9%
+across those three.
 
 **Tool descriptions first.** Independent evidence: the full Trace-Free+
 curriculum-learning framework — of which better tool descriptions are a

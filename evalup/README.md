@@ -227,8 +227,10 @@ Skip synthetic cases and review what your app actually did:
 ```
 
 It reads failing traces, names the cause, proposes one change at a time, and
-keeps it only if the sealed holdout confirms the improvement statistically.
-You approve every kept edit; nothing is committed or merged for you. It runs
+keeps it only if, on the sealed holdout, the posterior probability that it is
+better is at least 0.95 and it changed more cases than re-running the
+unchanged app does (a keep is not "statistically significant" unless the sign
+test `stats.py` reports beside it also passes). You approve every kept edit; nothing is committed or merged for you. It runs
 only when you type it, and stays locked until its preconditions hold: a
 calibrated judge (when any objective is judged), about 100 usable cases (50
 for deterministic-only objectives), `stage: stable` or later, white-box prompt
