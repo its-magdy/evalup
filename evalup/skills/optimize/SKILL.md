@@ -10,6 +10,7 @@ argument-hint: "[--surface <prompt-id|tool>] [--budget $N] [--include-multi-turn
 disable-model-invocation: true
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Skill(evalup:run)
 ---
 
 # Optimize — The Reflective Loop

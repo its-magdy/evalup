@@ -31,13 +31,16 @@ scoring, so every number is reproducible and CI can gate on it without Claude.
 ## Prerequisites
 
 - **Claude Code**
-- **Python 3.9+**, stdlib only. `scripts/convert_suite.py` alone needs PyYAML.
+- **Python 3.9+ with PyYAML**: `scripts/convert_suite.py` converts the YAML
+  suite before every run and needs it (`python3 -m pip install --user pyyaml`);
+  everything else imports only the stdlib.
 - **An app you can call**: an HTTP endpoint that returns one JSON body, or a
   Python `module:callable`.
 - **Optional:** OpenTelemetry GenAI traces exported to a file. Without them,
   routing and answer checks still score; tool use, trajectory and cost need them.
 
-No judge API key is needed: Claude Code subagents do the judging.
+No judge API key is needed. Judging and judge calibration use Claude Code
+subagents; runs report judged layers as not measured.
 
 ---
 
@@ -155,8 +158,9 @@ Flags, run modes, the scored layers and known limits are in
 
 ## Compared with evals-skills
 
-[`hamelsmu/evals-skills`](https://github.com/hamelsmu/evals-skills) is the
-closest neighbour: Claude Code skills for eval methodology.
+[`ai-evals-course/evals-skills`](https://github.com/ai-evals-course/evals-skills)
+(which replaced the deprecated `hamelsmu/evals-skills`) is a close
+neighbour: Claude Code skills for eval methodology.
 
 | | evals-skills | evalup |
 |---|---|---|
@@ -184,7 +188,7 @@ closest neighbour: Claude Code skills for eval methodology.
 From `evalup/`:
 
 ```bash
-python3 -m unittest discover -s tests                    # 943 tests, ~4 min
+python3 -m unittest discover -s tests                    # 956 tests, ~2.5 min
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```

@@ -31,7 +31,8 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 943 tests, ~4min
+python3 -m unittest discover -s tests                    # 956 tests, ~2.5 min
+python3 tests/run_shards.py      # CI's 4 shards in parallel, ~50 s; not conclusive
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
@@ -64,10 +65,9 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   different app instead. Decided 2026-10-06 (after a second opinion): a
   checkpoint can veto a conversation but never certify it — a union `pass`
   needs a graded `pass` on the final turn (`run_cases.final_turn_certifies`).
-- **Health** (2026-10-06, measured on the multi-turn branch; CI green on
-  `main` 2026-11-19): 943 tests pass on 3.14;
-  934 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 943 pass with
-  `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
+- **Health** (2026-11-19, measured on `fix/first-session`): 956 tests pass
+  on 3.14; 946 + 10 skips on the 3.9 floor (all 10 skips need PyYAML: 956
+  pass with `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
   run on an unseen toy app (4.5 min, 3/3 planted flaws) and on a real ASP.NET
@@ -119,13 +119,14 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   A cursory 2026-09-20 web check found PyPI, npm and the GitHub handle free,
   but **a live French SaaS trades as "EvalUp" (evalup.fr)** and `evalup.com` is
   parked. No trademark register was searched — do INPI/EUIPO/USPTO before any
-  branded launch. The neighbour that matters is **`hamelsmu/evals-skills`**
-  (checked via the GitHub API 2026-09-21: 1.7k stars, 7 Claude Code skills —
-  error analysis, synthetic data, judge prompts, evaluator validation, RAG,
-  review UI, eval audit). It overlaps evalup's methodology skills and ships no
-  runner, scorers, statistics or holdout — which is where evalup is alone.
-  (`evalloop`/`evalview` exist only as tiny GitHub projects; an earlier note
-  calling them marketplace plugins was never confirmed.)
+  branded launch. **Neighbours (2026-11-19):** `hamelsmu/evals-skills` is
+  deprecated in favour of **`ai-evals-course/evals-skills`** (9 Claude Code
+  skills on eval methodology; still no runner, statistics or optimizer). The
+  closest new ones: RELAI **`agent-eval-loop`** (a Claude Code/Codex plugin,
+  created 2026-11-11, skills start/discover/eval/improve/loop), AWS
+  **`Agent-EvalKit`**, and the official **deepeval** and **promptfoo** Claude
+  Code plugins. The sealed holdout, canaries, refusing incomparable diffs and
+  optimizing in the app's own source are still evalup's alone (roadmap #32).
 - **History was rewritten 2026-09-30** before the first public push: every
   commit is authored as `its-magdy` (GitHub noreply email, set repo-locally),
   the reference app's real name, paths and ports became `RefApp` /
@@ -144,10 +145,12 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   honest-degradation. The 2026-09-20 audit fixed defects at their edges
   (strict JSON in, a shared regex watchdog, token-count handling, a URL-scheme
   allowlist) without touching what a number means. Hold that line.
-- **The runner and scorers are feature-frozen**: bugfix-only, and no new layer
-  without deleting one. The owner lifted the freeze for multi-turn ONLY
-  (2026-10-06); Phase 1 is built, later phases (§9 of the spec) are not. New effort goes to the first ten minutes, not the
-  engine.
+- **No new scoring semantics without evidence from a live app** (decided
+  2026-11-19; it replaced the blanket runner/scorer freeze of 2026-09).
+  Changes to how evalup reaches an app (transport, intake) are allowed —
+  that is what lets the run-time judge (#23) and reach (#39) proceed.
+  Multi-turn Phase 1 is built; later phases (§9 of the spec) are not. The
+  roadmap is issue #32, worked in step order.
 - **Out of plan by decision:** RAG/retrieval scoring, and the five "ideas worth
   stealing" from the 2026-08 review. Those are a greenfield wave, not
   remediation. Five reserved case fields wait for a scorer that reads them —

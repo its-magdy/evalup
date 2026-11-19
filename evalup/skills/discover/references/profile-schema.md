@@ -15,7 +15,7 @@ generated: 2026-07-18            # updated by discover; --diff compares against 
 app_git_sha: abc1234             # code state this profile describes
 
 stage: pre-stability | stable | traffic | production
-# pre-stability: invariant checks only. stable: + trajectory layers.
+# pre-stability: every layer but trajectory (see capability_matrix). stable: + trajectory.
 # traffic: + trace mining/real-seeded data. production: + online evals.
 
 architecture:
@@ -103,7 +103,7 @@ oracle:                           # ground-truth capability for the execution la
                                  # postgres/"EF Core", or postgres/"SQLAlchemy").
   # Connection/seed/reset/snapshot mechanics (SELECT-only role, read replica,
   # ephemeral-container, transaction-rollback) are the adapter's contract, not
-  # repeated here — see adapter-contract.md's `oracle:` block for the actual
+  # repeated here — see oracle.md's `oracle:` block for the actual
   # wiring. This block only records WHETHER discover set one up, of what
   # provenance, and is what capability_matrix.execution checks as its precondition.
   verified: true | false
@@ -151,7 +151,7 @@ capability_matrix:               # which eval layers apply and what blocks them
 confirmed_by_human:              # from the discover interview — the app's SHOULD
   domain_boundaries:
     - "cancel subscription → billing (not support)"
-  business_rules:                # become deterministic oracles in scoring
+  business_rules:                # no run scores these yet (run SKILL.md §5)
     - id: no-uncatalogued-prices
       rule: "never state a price not present in a tool result"
     - id: refund-cap
@@ -182,6 +182,6 @@ judge:
                                  # opens nothing.
   model: ""                      # must differ from app's model family, or
   same_family_accepted: false    # ...user consciously accepted the bias risk
-                                 # model is applied as the override whenever the
-                                 # judge agent is launched (run + analyze --label)
+                                 # model overrides the judge agent's, which only
+                                 # analyze --label launches (no run judges)
 ```

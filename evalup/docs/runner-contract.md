@@ -104,7 +104,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
   "capability_matrix": {     // profile.yaml's block, verbatim
     "routing":        {"enabled": true},
     "trajectory":     {"enabled": false, "blocked_by": "no trace-id correlation"},
-    "tool_selection": {"enabled": false, "blocked_by": "stage: pre-stability"},
+    "tool_selection": {"enabled": false, "blocked_by": "no tool-call log"},
     "cost_latency":   {"enabled": false, "blocked_by": "..."},
     "multi_turn":     {"enabled": false, "blocked_by": "adapter declares no invocation.conversation"},
     "answer_quality": {"enabled": true, "judged": "provisional"}
@@ -338,6 +338,18 @@ carries no value at the adapter's declared `<answer>` path, `score_answer.py`
 is not invoked: scoring the empty string against `must_contain` would report a
 content failure for what is an extraction gap.
 
+**`authz` grades the tool-call log, never the chat text.** `answer.txt` is
+passed only as secondary evidence of a forbidden id leaking into the prose; it
+never decides `expect_refusal`, and an empty one counts as no evidence. The
+default id recognizer sees only `letters[-_]digits` tokens (`INV-1042`), so an
+app whose records are integer keys, UUIDs or separator-less ids scores its
+`allowed_record_ids` checks `unscorable` (`forbidden_record_ids` is a literal
+search and is unaffected). `scoring.id_pattern` comes from the profile's
+`record_id_pattern`: when allowed-id checks come back uniformly `unscorable`
+on an app that plainly returns ids, that field is unset or wrong.
+`validate_cases.py` warns `unrecognizable_record_ids` on those cases at
+generate time.
+
 ### 5.1 Invoking a scorer
 
 ```python
@@ -449,7 +461,7 @@ only interesting layer dark, since status *is* its sole routing observable.
 
 ### 5.3 `actual.json` for the execution layer
 
-Per `adapter-contract.md`'s result-extraction contract, in priority order:
+Per the result-extraction contract (`skills/discover/references/oracle.md`), in priority order:
 tool-result span → structured response field → declared prose pattern. The
 runner writes exactly what the scorer expects:
 `{"scalar": v}` | `{"rows": [...]}` | `{"missing": true, "reason": "..."}`.
@@ -488,9 +500,10 @@ that manufactures a failure the app never had.
 Business rules, state-diff, and judged layers have no script. The runner records
 them `unscored`/`unjudged` with a reason and **never** attempts them. (A row
 whose matrix key is disabled is `unscorable` first, like any other: `rules` and
-`judged` under `answer_quality`, `state` under `state` — §5's decision order.) An LLM
-step may fill them in afterward by rewriting `verdict.json`; the runner's own
-output is deterministic and reproducible without a model.
+`judged` under `answer_quality`, `state` under `state` — §5's decision order.) No skill
+fills those rows in afterward: the runner's artifacts stay as written, and
+`verdict.json` is never rewritten (a run-time judge is future work, #23). The
+runner's own output is deterministic and reproducible without a model.
 
 **State-diff is RESERVED, not pending an adapter field.** The runner calls
 `environment.seed`, `.reset` and `.snapshot_state` **nowhere** — an adapter may

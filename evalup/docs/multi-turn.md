@@ -10,7 +10,7 @@ claims were re-checked line by line. The runner is feature-frozen
 Nothing here changes what an existing number means: a single-turn case
 scores exactly as it does today, and no scorer is rewritten. Where the code
 had to settle something this note left open, `runner-contract.md` §7.1 and
-`case-format.md` §Conversations say what it does (an `every_turn` key both
+`conversations.md` (generate's reference) say what it does (an `every_turn` key both
 sides set is a validator ERROR; the runner gates on the adapter block, never
 on `capability_matrix.multi_turn`; `make_plan.py --single-turn` is how
 `optimize` keeps conversations out of its inner loop).

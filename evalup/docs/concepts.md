@@ -48,10 +48,14 @@ whose tools get renamed weekly produces only maintenance pain.
 
 | Stage | What runs |
 |---|---|
-| `pre-stability` | Invariants: crash rate, responds-always, format, loops, refusals |
-| `stable` | + routing, tool selection/args, trajectory (subset default) |
-| `traffic` | + real-trace mining, judged layers (after calibration) |
+| `pre-stability` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool selection/args — every layer but trajectory |
+| `stable` | + trajectory (subset default) |
+| `traffic` | + real-trace mining |
 | `production` | + online sampling, monitoring-window release validation |
+
+Judge calibration (`analyze --label`) is not a stage: it has no stage
+prerequisite and can start whenever a rubric exists. Judged layers are not
+scored at run time yet.
 
 ## Ground truth — how correctness is actually graded
 
@@ -69,8 +73,10 @@ You cannot judge your way to factual correctness; ground truth is
 2. **Mocked/recorded tools**: scripted returns make answers computable and
    runs deterministic.
 3. **Business rules** (cheapest — most real policies are deterministically
-   checkable): "never quote a price not in a tool result" fails any violating
-   answer with no per-case label.
+   checkable): "never quote a price not in a tool result" would fail any
+   violating answer with no per-case label. **Not scored at run time yet**:
+   the runner reports `expect.answer.rules` as `unscored` (see "The judge",
+   below); state such a rule as `must_contain` / `must_not_contain` today.
 4. **Golden labels** for the rest.
 
 The boundary: whether the *backend* returns correct data is backend-test
@@ -106,8 +112,10 @@ would unlock is not built.
   target it.
 - Different model family than the app where possible (self-preference bias is
   measured and real); same-family is a consciously accepted degraded mode.
-- Canary cases (known-good + known-bad) run in every scored run — a canary
-  miss means judge or harness drift, and voids the run.
+- Canary cases (known-good + known-bad) run in every scored run once the
+  suite has any — a first session's smoke run has none, since no case is
+  tagged `canary` until a human accepts it. A canary miss means judge or
+  harness drift, and voids the run.
 - Rubrics are versioned living documents: editing-while-grading is the
   expected workflow (criteria emerge from grading — "criteria drift").
 

@@ -210,6 +210,35 @@ class TestFloors(ScorerCase):
         self.assertEqual(rc, 2)
         self.assertIn("--tpr-floor", out["error"])
 
+    def test_each_remaining_threshold_flag_moves_its_own_gate(self):
+        """#20: --tnr-floor, --kappa-floor and --min-per-class each block a
+        table that clears the defaults, naming themselves; --confidence
+        widens the REPORTED interval and never changes the status."""
+        rows = calibrated_rows()        # tnr 0.95, kappa 0.9167, 60 per class
+        for flag, value, blocking in (
+                ("--tnr-floor", 0.96, ["tnr 0.95 < 0.96"]),
+                ("--kappa-floor", 0.95, ["kappa 0.9167 < 0.95"])):
+            with self.subTest(flag):
+                rc, out, _ = self.score(rows, flag, value)
+                self.assertEqual(rc, 0)
+                self.assertEqual(out["status"], "uncalibrated")
+                self.assertEqual(out["rubrics"]["billing_answer"]["blocking"],
+                                 blocking)
+        with self.subTest("--min-per-class"):
+            rc, out, _ = self.score(rows, "--min-per-class", 61)
+            blocking = out["rubrics"]["billing_answer"]["blocking"]
+            self.assertEqual(out["status"], "uncalibrated")
+            self.assertTrue(all("under 61" in b for b in blocking))
+            self.assertEqual(len(blocking), 2)      # FAIL and PASS both short
+        with self.subTest("--confidence"):
+            rc, out, _ = self.score(rows, "--confidence", 0.99)
+            block = out["rubrics"]["billing_answer"]
+            self.assertEqual(out["status"], "calibrated")
+            self.assertEqual(block["tpr_ci_exact"], [0.8545, 0.9983])
+            rc, out, _ = self.score(rows, "--confidence", 1)
+            self.assertEqual(rc, 2)
+            self.assertIn("--confidence", out["error"])
+
     def test_the_exact_lower_bound_is_reported_when_it_undercuts_the_floor(self):
         rc, out, _ = self.score(calibrated_rows())
         notes = out["rubrics"]["billing_answer"]["notes"]

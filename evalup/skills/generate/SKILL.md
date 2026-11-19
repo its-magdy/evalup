@@ -44,13 +44,20 @@ this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases is a good default, ~12 a legitimate minimum — and ~12 is
 what `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for,
 so a new user sees a result before they are asked to review thirty cases.
+`--count N` sets that size instead (§1's quotas still apply as ratios plus
+floors). `--layer routing|tools|answer` limits §1's grid to the cases that
+exercise that layer — a route label, a tool or args expectation, an answer
+expectation — to extend an existing suite where one layer is thin; the new
+cases go beside the old ones and no existing case changes.
 
 Four documents own what they name, and this file never restates their rules:
 [case-format.md](references/case-format.md) (schema + `validate_cases.py`'s
 error/warning line), [suite-sizing.md](references/suite-sizing.md) (quotas, and
 what a suite this size may claim),
 [generation-method.md](references/generation-method.md) (the evidence behind
-§0–§3), `${CLAUDE_PLUGIN_ROOT}/agents/test-generator.md` (per-case authoring).
+§0–§3 — rationale, not instructions: read it only when a rule here is
+challenged or a case falls outside it),
+`${CLAUDE_PLUGIN_ROOT}/agents/test-generator.md` (per-case authoring).
 
 ## 0. Prefer a different model family than the app under test
 Generate cases — and drive user-simulator personas — with a different model
@@ -144,9 +151,10 @@ where they exist, and record which cases are synthetic-only — a regression
 scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
 still spend suite slots, so hold them to §1's ratio and floor.
 
-**Conversations** (`input.turns`, case-format.md) are written only when the
-adapter declares `invocation.conversation`; otherwise every one is skipped, so
-write none and say so in the handover. Default 10–20 of them — they are slow.
+**Conversations** (`input.turns`,
+[references/conversations.md](references/conversations.md) — read it only
+then) are written only when the adapter declares `invocation.conversation`;
+otherwise every one is skipped, so write none and say so in the handover. Default 10–20 of them — they are slow.
 Word turns so they do not depend on the reply's exact wording; put a checkpoint
 `expect` on turn 1 so a wrong start is caught where it happens; use `clarify_ok`
 checkpoints only where the clarification is deterministic; at most 8 turns.
@@ -162,7 +170,8 @@ is yours, not the agent's): while it is not true, every run skips
 Author them when findings name an attack surface and the owner has not been
 asked — they document the defect — but tell the user, where the suite is
 handed over, that they will not run until the owner sets the flag, and ask
-the owner if one is present. When the owner has said no, leave them out and
+the owner if one is present — never on a first session: there the question
+goes on findings.md's `deferred:` list for start's closing menu. When the owner has said no, leave them out and
 record the decision in findings.md: `--strict` promotes the warning to an
 error, so a CI job validating with `--strict --adapter` would fail on them
 for good.
@@ -179,6 +188,14 @@ marked uncertain, and cases a cheap probe run shows the app disagreeing with.
 Present each as the message, the expected label, and a one-line why — accept /
 fix / delete — and write the review status per case.
 
+**First session** (start's step 4): do not stop for this pass before the
+run — a stop ends the turn and its pre-approvals. List the batch (id,
+label, one-line why) in the handover and leave every case `pending`. Canary
+candidates join it untagged until accepted: a canary `fail` aborts the run,
+reviewed or not. Start
+offers the review after the first result, when the smoke run has become the
+probe that finds the third kind.
+
 **Only a human may set `review.status: accepted`, and `review.by` must be that
 human's name** — not "generate-review", not the agent, not the skill.
 Everything the generator produces starts `pending`. **Never derive an
@@ -188,9 +205,8 @@ labeling. generation-method.md says why each of these three matters.
 **The generator emits `gating: false` on every case** (its brief, rule 3):
 an unreviewed label must not close a gate, which is what
 `validate_cases.py`'s `gating_unreviewed` warns about per case. A reviewer
-who accepts a case flips `gating` to true in the same edit. The 2026-09-26
-user test saw the agent write `gating: true` on 6 of 12 cases under an older
-brief, so check its output before validating anyway: among the cases this
+who accepts a case flips `gating` to true in the same edit. Check the
+generator's output before validating anyway: among the cases this
 delegation just wrote — never a case a human already accepted — find every
 one whose `gating` is not `false` (an absent key means true), set it to
 `false`, and list their ids in chat. The validator's per-case warning is the
@@ -207,12 +223,12 @@ by case, what changed and why.
 
 ## 4. Splits
 The four legal values of `split` are exactly `full`, `smoke`, `holdout`,
-`canary`. `smoke` and `canary` are SUBSETS of `full`, so a case carries both.
-`holdout` is mutually exclusive with `full` (and so with `smoke` and
-`canary`, its subsets; the validator's `holdout_not_sealed` checks all three) — a case is sealed or it is in the
-training pool, never both, and that exclusivity is what the seal rests on.
+`canary`. `smoke` and `canary` are SUBSETS of `full`, so a case carries both;
+`holdout` is exclusive of all three (`holdout_not_sealed`) — the seal rests
+on that.
 
-- `full`: everything reviewed.
+- `full`: every case outside the holdout — reviewed, or on a first session
+  still `pending` (`smoke` too) until the review.
 - `smoke` (~1/3 of full, floor 5): diversity-selected to maximize spread across
   grid cells and phrasings, never random. Used by everyday runs and hooks.
 - `holdout` (20% at ≥25 cases; below that skip it and say so): SEALED. Written
@@ -227,10 +243,9 @@ training pool, never both, and that exclusivity is what the seal rests on.
   which also says when the floor applies). **Every canary also carries
   `smoke`**: a run selects on its mode's split alone, so a canary tagged only
   `[full, canary]` never runs under `--smoke` (the validator warns,
-  `canary_not_in_smoke`). Canaries sit outside every denominator; what the
-  tag adds to a smoke run is the call, and the abort (exit 4) when the canary
-  scores wrong — which is the point: a drifted harness stops the run before
-  it spends the suite producing numbers nobody should read.
+  `canary_not_in_smoke`). Canaries sit outside every denominator; on a smoke
+  run the tag adds the abort (exit 4) when one scores wrong, so a drifted
+  harness stops before it spends the suite on numbers nobody should read.
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither
@@ -238,26 +253,15 @@ unit nor category. Content hash per case; `dataset_version` bumps on any change
 because baselines pin it. case-format.md has both rules and what each prevents.
 
 ### Validate before handing the dataset over
-First `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir
-<work-dir>` (run/SKILL.md §1 defines `<work-dir>`) — it writes the JSON inputs from the YAML (`suite.json`,
-`capabilities.json`, `adapter.json`, and `manifest.json` only when
-`datasets/dataset.yaml` exists), and refuses a duplicate YAML key or one id in
-two files; never transcribe a suite by hand. Then run
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json
---capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json
-[--manifest <work-dir>/manifest.json]` — pass `--manifest` only when that file was
-written, since a missing path is exit 2. It fails the generate step on
-structural errors and warns on the vacuity patterns; case-format.md has the
-field rules and the error/warning line. `--adapter` is what catches a label
-the runner could never observe: `clarify_ok` with no `clarify_from_response`
-(`clarify_unobservable`), or a domain `expect.route` on a trace-less app whose
-adapter maps the HTTP status (`route_not_observable`) — there the observed
-route is the map's value, `<answered>` or `__oos__`, so expect that label and
-keep the domain in `unit`. It also warns `attack_category_will_skip` on an
-`adversarial-refusal` case while `environment.safe_to_attack` is not true. `--capabilities` is required — pass `--no-capabilities`
-only with genuinely no profile, and expect `capabilities_unchecked`.
-`--manifest` catches a stale `dataset.yaml`, so re-run it after ANY later
-hand-edit to a case file.
+Convert, then validate, exactly as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
+§1 spells the two commands — never transcribe a suite by hand. Validation
+fails this step on structural errors and warns on the vacuity patterns
+(case-format.md has the field rules and the error/warning line). One warning
+needs a decision here: `route_not_observable` — on a trace-less app whose
+adapter maps the HTTP status, the observed route is the map's value,
+`<answered>` or `__oos__`, so expect that label and keep the domain in
+`unit`. Re-run both after ANY later hand-edit to a case file: `--manifest`
+catches a stale `dataset.yaml`.
 
 `datasets/dataset.yaml` is the suite's hand-written summary, and it is
 optional (absent → `dataset_version` 1, nothing cross-checked). Every key is

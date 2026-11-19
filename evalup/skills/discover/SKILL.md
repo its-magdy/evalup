@@ -42,7 +42,8 @@ scope.
 **Lean mode** — when `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first
 session sent you here: do steps 1–4 and 8 (plus step 5's one sentence on the
 state location before the first write), set `stage: pre-stability`, and list
-steps 5 and 7 plus step 6's maturity question under `deferred:` in findings.md
+steps 5 and 7, step 6's maturity question and step 3's side-effect
+confirmation under `deferred:` in findings.md
 with what each unlocks — step 7 includes `environment.safe_to_attack`, which
 stays false until asked, so attack cases are skipped until then. Do not
 offer a patch to the user's source and do not interview them before they
@@ -109,7 +110,9 @@ conversation/session handling, OTel setup. Record as you go:
   (compiled-in, embedded, or loaded at startup). Record that in findings.md
   beside the surface; optimize's precondition 6 reads it.
 - Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
-  adapter-contract.md defines them. Confirm each with the human.
+  adapter-contract.md defines them. Confirm each with the human — except in
+  lean mode: there, mark the `tools:` list `# side_effects inferred from code,
+  unconfirmed` in adapter.yaml, and list the confirmation under `deferred:`.
 - `record_id_pattern` — the regex matching the app's own record identifiers
   (order ids, invoice ids, primary keys).
 - The **data-access layer** → `oracle.db`: DB and ORM, where schema/migrations
@@ -138,7 +141,8 @@ Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
 tool registration, feature flags). Send 1–3 harmless requests through the adapter
 and compare observed agent names, tool names and `invoke_agent` span shape
 against the inferred profile — this is also step 2's span-shape evidence. Mark
-every profile entry `verified: true|false`. The **core entries** are exactly
+every profile entry `verified: true|false`, and note each request's latency in
+findings.md — run §2's time estimate uses it. The **core entries** are exactly
 three: `architecture.kind`, the invocation shape (endpoint, request and
 response templates — one request proves them), and at least one route target
 or tool observed live. Generation must not proceed while any of those three is
@@ -176,8 +180,8 @@ A "no" is fine — see Read-only mode below.
   behavior change. Pitch it as what unlocks the optimizer later.
 - **No ground-truth / oracle path** → offer a seeded fixture plus a read-only
   oracle connection, never the app's write connection. Connection, seed and reset
-  mechanics are the adapter's job (adapter-contract.md's `environment:` and
-  `oracle:` blocks); this step decides only **whether** one exists, and records
+  mechanics are the adapter's job (adapter-contract.md's `environment:` block, and the `oracle:` block in
+  [references/oracle.md](references/oracle.md)); this step decides only **whether** one exists, and records
   `oracle:` in profile.yaml.
 
 After each patch, re-verify with one live request.
@@ -201,28 +205,22 @@ For every patch declined or not offered:
 ### 6. Assess maturity → set the stage
 Ask the user, and check git history: are the app's route-target and tool
 boundaries stable, or still changing week to week?
-- Churning → `stage: pre-stability`. Only invariant checks apply: crash rate,
-  responds-always, format compliance, loop detection, refusal of the adversarial
-  set. Say plainly that full trajectory eval would rot within a week, then name
-  what you track instead and what unlocks when.
+- Churning → `stage: pre-stability`. Every layer but trajectory applies:
+  invariants (crash rate, responds-always, format, loops, refusal of the
+  adversarial set), answer checks, routing and tool selection — the matrix in
+  [references/profile-schema.md](references/profile-schema.md) sets
+  `trajectory` off with `blocked_by: "stage: pre-stability"`. Say plainly that
+  full trajectory eval would rot within a week, then name what you track
+  instead and what unlocks when.
 - Stable → `stage: stable`; trajectory layers apply.
 - Real traffic exists → also enable analyze's trace-mining paths.
 
 ### 7. Interview the human
-Code says what the app does; only humans know what it should do. Ask, and record
-the answers under `confirmed_by_human:` in profile.yaml:
-- Route-target boundaries for ambiguous query types, with 3 concrete examples you
-  found. Skip for `single_llm`/`tool_agent`, which have no dispatch step.
-- What must the bot never do or say → business-rule oracles. Draft rules from any
-  policy docs or READMEs found, and ask for confirmation.
-- What a good answer looks like, per route target (or overall) → seeds the rubric.
-- Who is the domain arbiter, the final word on answer quality → `roles:`. That
-  role name is fixed regardless of architecture.
-- May the eval send attack prompts to this environment →
-  `environment.safe_to_attack` in adapter.yaml. It is a governance decision,
-  never a default you pick: while it is false every `adversarial-refusal` case
-  is skipped (runner-contract §7). Name the environment's `kind` and the tools'
-  side effects when you ask.
+Not in lean mode. Code says what the app does; only humans know what it
+should do. Ask the five questions in
+[references/interview.md](references/interview.md) — boundaries, business
+rules, good answers, the domain arbiter, `safe_to_attack` — and record the
+answers where it says.
 
 ### 8. Report findings
 `findings.md`: design gaps (no OOS route, overlapping route targets, vague tool

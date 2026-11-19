@@ -533,6 +533,48 @@ class TestMakePlan(TempDirTest):
         rc, plan = self.plan("--mode", "regression", converted=converted)
         self.assertEqual(len(plan["cases"]), 5)       # the sealed one is out
         self.assertIsNone(plan["paths"]["holdout_ledger"])
+        # --holdout-ledger overrides the default path (#20).
+        rc, plan = self.plan("--mode", "holdout", "--holdout-ledger",
+                             "elsewhere/looks.jsonl", converted=converted)
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["paths"]["holdout_ledger"],
+                         "elsewhere/looks.jsonl")
+
+    def test_run_id_is_taken_as_given_and_its_shape_is_checked(self):
+        """#20: --run-id names the run directory; a malformed one would
+        break run_history.py's timestamp ordering, so it is refused."""
+        rc, plan = self.plan("--mode", "smoke", "--run-id",
+                             "smoke-20261119T120000Z")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["run_id"], "smoke-20261119T120000Z")
+        rc, payload = self.plan("--mode", "smoke", "--run-id", "my-run")
+        self.assertEqual(rc, 2)
+        self.assertIn("--run-id must match", payload["error"])
+
+    def test_judge_calibration_defaults_to_the_sidecar_when_it_exists(self):
+        """#20: the judged gate's sidecar path (runner-contract SS5.4)."""
+        rc, plan = self.plan("--mode", "regression")
+        self.assertIsNone(plan["paths"]["judge_calibration"])
+        (self.state / "judge").mkdir()
+        (self.state / "judge" / "calibration.json").write_text(
+            "{}", encoding="utf-8")
+        rc, plan = self.plan("--mode", "regression")
+        self.assertEqual(plan["paths"]["judge_calibration"],
+                         "judge/calibration.json")
+        rc, plan = self.plan("--mode", "regression", "--judge-calibration",
+                             "judge/other.json")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["paths"]["judge_calibration"],
+                         "judge/other.json")
+
+    def test_dataset_version_overrides_the_manifest(self):
+        """#20: the version the run is labelled with, which baselines and
+        --failing-in compare against."""
+        rc, plan = self.plan("--mode", "smoke")
+        self.assertEqual(plan["manifest_extra"]["dataset_version"], 1)
+        rc, plan = self.plan("--mode", "smoke", "--dataset-version", "7")
+        self.assertEqual(rc, 0)
+        self.assertEqual(plan["manifest_extra"]["dataset_version"], 7)
 
     def test_layer_disables_the_others_with_a_reason(self):
         rc, plan = self.plan("--mode", "smoke", "--layer", "routing")
@@ -628,6 +670,49 @@ def have_yaml():
     except ImportError:
         return False
     return True
+
+
+class TestConvertSuiteSelfCheck(TempDirTest):
+    """#11: /evalup:start and the README's install check run --self-check so
+    a missing PyYAML shows in minute one, not at generate's conversion."""
+
+    def self_check(self, hide_yaml):
+        env = dict(os.environ)
+        if hide_yaml:
+            # A `yaml` package ahead of site-packages whose import fails is
+            # what a Python without PyYAML looks like to the script.
+            shadow = self.tmp / "shadow" / "yaml"
+            shadow.mkdir(parents=True)
+            (shadow / "__init__.py").write_text(
+                "raise ImportError('PyYAML hidden by the test')\n",
+                encoding="utf-8")
+            env["PYTHONPATH"] = str(shadow.parent)
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "convert_suite.py"), "--self-check"],
+            capture_output=True, text=True, timeout=60, env=env)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_without_pyyaml_it_fails_with_the_install_hint(self):
+        rc, out, err = self.self_check(hide_yaml=True)
+        self.assertEqual(rc, 2, out + err)
+        message = json.loads(out)["error"]
+        self.assertIn("needs PyYAML", message)
+        self.assertIn("pip install --user pyyaml", message)
+        self.assertNotIn("Traceback", err)
+
+    @unittest.skipUnless(have_yaml(), "PyYAML not installed")
+    def test_with_pyyaml_it_reports_the_version_and_reads_nothing(self):
+        rc, out, err = self.self_check(hide_yaml=False)
+        self.assertEqual(rc, 0, out + err)
+        doc = json.loads(out)
+        self.assertIs(doc["ok"], True)
+        self.assertTrue(doc["pyyaml"])
+        self.assertEqual(doc["python"], sys.executable)
+
+    def test_no_state_dir_and_no_self_check_is_a_usage_error(self):
+        rc, _, err = run("convert_suite.py")
+        self.assertEqual(rc, 2)
+        self.assertIn("--self-check", err)
 
 
 @unittest.skipUnless(have_yaml(), "PyYAML not installed; convert_suite.py is "

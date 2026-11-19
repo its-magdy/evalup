@@ -49,14 +49,16 @@ Arguments, when the user typed any: `$ARGUMENTS`
 The error-analysis-first entry, and the one branch that needs **no profile, no
 cases and no run**: a user with exported chats, support logs or a folder of
 saved traces can learn what is broken today. Read them, and write one viewer
-record per conversation to a scratch JSON file — `{"case_id": "t-0001",
+record per conversation to a scratch JSON file under `<state-dir>/work/`
+(run/SKILL.md §1's work dir; never `/tmp`) — `{"case_id": "t-0001",
 "trace_id": ..., "answer": {"actual": <the app's reply>}, "tool_calls": [...]}`
 plus the user message; the record shape is loose by design
 (`build_review_viewer.py`'s docstring) and no field is required. Redact first
 when the data may hold PII, and show the redacted form. Build the viewer on
 that file and run annotation-ux.md's open→axial pass with the user: ~20–50
 conversations, free-text critique first, categories only once they repeat.
-No reviewer in the session: code them yourself, record the reviewer as
+No reviewer in the session, or called from start's first session (which
+must not stop before its first result): code them yourself without asking, record the reviewer as
 yourself (not a human) in the annotation log, and call the taxonomy
 provisional. Exported chats rarely carry tool calls; when the app has traces,
 they can be joined by conversation id or time to supply them — say which you
@@ -166,7 +168,9 @@ like a free win. This prices the tokens the trace already recorded and
 summarizes latency as order statistics; with `--baseline` it adds the paired
 diff (an exact sign test, an exact distribution-free interval for the median
 difference, and an exact permutation test on the total — no bootstrap, per
-`stats.py`'s no-approximation rule).
+`stats.py`'s no-approximation rule). `--max-exact-states N` (default
+1,000,000) caps that test's state space: past it the test is declined, never
+approximated, and the other two still stand.
 
 **It is not a second gate.** There is one definition of "better" in this
 package and it is `stats.py`'s keep rule; cost is not in it and there is no
@@ -269,21 +273,11 @@ All three branches edit case files. `--cluster` ends in label corrections,
 reseals and the ones it flips in. Those are exactly the edits `generate` §4
 validates before handing a dataset over — done here later, by hand, with no
 validation step in sight. So run the same check, after the edit and before the
-next run:
-
-```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <suite.json> \
-  --capabilities <profile.capability_matrix.json> --adapter <adapter.json> \
-  [--manifest <dataset-fields.json>]
-```
-
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> --split-dir <work-dir>`
-(run/SKILL.md §1 defines `<work-dir>`) writes the JSON inputs from the YAML — never transcribe them yourself
-(run/SKILL.md §1). The linter takes JSON on purpose (its docstring says why),
-and case-format.md owns the rules it enforces. `--manifest` matters most here
-(pass it whenever `datasets/dataset.yaml` exists — convert_suite writes
-`manifest.json` only then): it catches the `dataset.yaml` counts that a
-reclassification, a deleted case or a reseal leaves stale. A reseal must
+next run: convert, then validate, exactly as
+`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1 spells the two commands —
+never transcribe the YAML into JSON yourself. `--manifest` matters most
+here: it catches the `dataset.yaml` counts that a reclassification, a
+deleted case or a reseal leaves stale. A reseal must
 also come back clean on `holdout_not_sealed` and `missing_split`, the only
 mechanical evidence the seal still holds.
 

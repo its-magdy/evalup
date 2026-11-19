@@ -23,7 +23,8 @@ ratio:
 - **Canary quota** (a small fixed-answer subset carried across runs to detect
   drift — distinct from the judge's own
   calibration set): ~10% of the full set, floor 2 once any data-Q&A layer
-  exists, even in a 12-case suite. Every canary must assert CONTENT
+  exists, even in a 12-case suite — once cases are accepted; an unreviewed
+  first-session suite has none (SKILL.md §3). Every canary must assert CONTENT
   (`expect.result` or `expect.answer`), per SKILL.md §4: one whose only live
   assertion is `http: 200` cannot detect drift, because drift shows up in the
   answer and 200 comes back either way. That is the single most common way a
