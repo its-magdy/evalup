@@ -270,7 +270,11 @@ Warn that looking spends the holdout's validity, append one JSON line —
 `{"date", "mode": "unseal", "reason": "<why you looked>"}` — to the ledger,
 then show what was asked. After 5 recorded looks, require a reseal. Rewrite
 each viewed case's `split` from `holdout` to `full`, flip fresh unviewed cases
-the other way, and bump `dataset_version`.
+the other way, and bump `dataset_version`. Then archive the ledger: the count
+is its line count and nothing resets it, so a bump alone leaves the new seal
+with all 5 looks spent. Write its lines unchanged to
+`datasets/holdout-looks-v<old dataset_version>.jsonl`, then write the ledger
+empty — an archive, never a deletion.
 
 The ledger is a **`.jsonl` sidecar** beside the dataset
 (`datasets/holdout-looks.jsonl`, from the run plan's `paths.holdout_ledger`),

@@ -113,6 +113,8 @@ No mode flag behaves as `regression` (full suite, hard gate).
   floor, exact one-sided sign test reported) — **not** the runner's
   `comparison.json`, whose `keep` is the posterior bar alone
   (`noise_floor_applied: false`). There is no hard threshold beyond those.
+  A holdout run never diffs against, or becomes, `reports/baseline.json`
+  (SKILL.md §4).
 - **Reporting**: aggregate only, always — no per-case trace excerpts, no
   page-one failure clusters (SKILL.md §5's holdout rule). This is the one
   place in the harness where "less detail in the report" is the correct,

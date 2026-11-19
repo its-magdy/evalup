@@ -2591,6 +2591,43 @@ class TestBaselineComparison(RunnerCase):
                 self.assertIn("malformed version field", payload["error"])
                 self.assertFalse(self.out_dir().exists())
 
+    def test_a_holdout_run_against_a_non_holdout_baseline_is_refused(self):
+        """The holdout split shares no case with any other selection, so the
+        pair has zero common ids -- refused before the look is spent."""
+        ledger = self.state / "datasets" / "holdout-looks.jsonl"
+        baseline = self.a_baseline(selecting_split="full")
+        plan = make_plan(
+            self.state, self.app.base_url,
+            run_id="holdout-20260908T120000Z", mode="holdout",
+            selecting_split="holdout",
+            cases=[make_case("c-0001", split=["holdout"])])
+        rc, payload, _ = self.invoke(
+            plan, out=self.out_dir("holdout-20260908T120000Z"),
+            extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 2)
+        self.assertIn("selecting_split: baseline 'full', this run 'holdout'",
+                      payload["error"])
+        self.assertFalse(ledger.exists(), "no look may be spent")
+        self.assertEqual([c for c in self.app.calls], [])
+        # And the reverse: a regression-style run against a holdout run.
+        self.setUp()
+        baseline = self.a_baseline(selecting_split="holdout")
+        plan = make_plan(self.state, self.app.base_url)
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 2)
+        self.assertIn("selecting_split: baseline 'holdout'", payload["error"])
+
+    def test_a_smoke_run_against_a_full_baseline_is_still_paired(self):
+        # Only the holdout boundary is refused: smoke vs a regression
+        # baseline intersects case ids, as it always has.
+        baseline = self.a_baseline(selecting_split="full")
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        rc, _, proc = self.invoke(
+            plan, extra_argv=["--baseline-verdicts", str(baseline)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+
     def test_a_baseline_without_its_manifest_is_refused(self):
         """Version equality and the k-match are the comparison's rules, and
         there is nowhere else to read them from."""

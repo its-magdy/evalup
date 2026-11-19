@@ -414,6 +414,9 @@ class TestStatsNoiseFloor(ScorerTest):
         self.assertEqual(rc, 0, err)
         self.assertEqual(out["multi_look_false_keep_bound"], 0.09)
         self.assertIn("union bound", out["multi_look_explained"])
+        # The bound is a model's; its assumptions travel with the number.
+        for phrase in ("independent cases", "12.5%", "after a keep"):
+            self.assertIn(phrase, out["multi_look_assumptions"])
         rc, loose, err = run_script("stats.py", self.base, self.cand,
                                     "--bayes-threshold", 0.8,
                                     "--candidate-looks", 3)
@@ -453,7 +456,9 @@ class TestNoOpKeepRate(unittest.TestCase):
     PER_LOOK_FALSE_KEEP (3% and 6%) sits above both, and these tests pin it
     above every cell they run. The issue's own bar, <= 5% per look at the new
     defaults, is asserted too; the old-default test proves the simulation can
-    tell the two rules apart."""
+    tell the two rules apart. Every bound here assumes INDEPENDENT flaky
+    cases and one fixed champion; the correlated test below is the pinned
+    counter-example."""
 
     TRIALS = 3000
     GRID_N = (20, 50, 200)
@@ -533,6 +538,48 @@ class TestNoOpKeepRate(unittest.TestCase):
                     n=n, flaky=flaky, p=self.WORST_P, k=3, threshold=0.95,
                     floor=False)
                 self.assertLessEqual(rate, bound)
+
+    def test_correlated_flaky_cases_exceed_the_stated_bound(self):
+        """The counter-example the bound's caveat names (stats.py, THE BOUND
+        IS A MODEL'S), by EXACT enumeration -- no sampling. 20 cases: 14
+        stable, 6 flaky that pass or fail TOGETHER in a run, a fair coin per
+        run (one shared dependency, say). Noise runs A, B and each candidate
+        are independent coin flips; A is the champion. A keep needs the
+        candidate to fix all six (b01=6, b10=0) with A and B agreeing (floor
+        0): 1/8 per look, 7/32 across three. The independence model's 3% and
+        9% do not hold here, which is why every statement of them carries
+        the assumption."""
+        from fractions import Fraction
+        from itertools import product
+        st = self.stats
+        stable = {i: i < 8 for i in range(14)}      # 8 pass, 6 fail, fixed
+
+        def run(flaky_pass):
+            out = dict(stable)
+            out.update({14 + j: flaky_pass for j in range(6)})
+            return out
+        looks = 3
+        per_look = any_look = Fraction(0)
+        weight = Fraction(1, 2 ** (2 + looks))
+        for a, b, *cands in product((True, False), repeat=2 + looks):
+            champ, other = run(a), run(b)
+            noise = st.noise_floor(champ, other, list(champ))[0]
+            kept_any = False
+            for c in cands:
+                cand = run(c)
+                b01 = sum(1 for i in champ if not champ[i] and cand[i])
+                b10 = sum(1 for i in champ if champ[i] and not cand[i])
+                keep, _ = st.keep_decision(
+                    st.posterior_prob_improvement(b01, b10),
+                    (b01 - b10) / len(champ), st.DEFAULT_BAYES_THRESHOLD,
+                    b01 + b10, noise)
+                per_look += weight * keep / looks
+                kept_any = kept_any or keep
+            any_look += weight * kept_any
+        self.assertEqual(per_look, Fraction(1, 8))
+        self.assertEqual(any_look, Fraction(7, 32))
+        self.assertGreater(per_look, st.PER_LOOK_FALSE_KEEP[True])
+        self.assertGreater(any_look, looks * st.PER_LOOK_FALSE_KEEP[True])
 
     def test_old_defaults_keep_a_no_op_often_enough_to_tell_apart(self):
         # The pre-#36 rule: k=1 holdout, bar 0.8, no floor.

@@ -39,14 +39,21 @@ disagree on is "no evidence" (`stats.py --noise-floor`, a count, not a
 judgment). Simulated with `stats.py`'s own functions (holdouts of 20–200
 cases, 10–30% of them flaky at the worst case), that keeps a no-op on at most
 2.4% of looks (20 000 trials; 2.9% in the test's own 3 000-trial cells);
-`stats.py` states 3% per look as its bound, 6% for the bar alone.
+`stats.py` states 3% per look as its bound, 6% for the bar alone. **Both
+are the model's numbers, not guarantees.** The model has independent flaky
+cases (as `stats.py` treats every case) and a fixed champion. Six of twenty
+cases that flip *together* — one shared dependency — give 12.5% per look and
+21.9% over three, by exact enumeration (a pinned test); and after a keep the
+noise pair describes the previous champion, so later looks are outside the
+bound. Say so wherever the bound is quoted (`stats.py` prints it as
+`multi_look_assumptions`).
 
 **Multiple-comparisons honesty.** Every holdout look spends validity (garden
 of forking paths). Count looks; force reseal after 5. Re-rolling candidates
 until one passes the gate is the failure mode this prevents. The two champion
 runs spend two of the five, leaving three candidate looks per seal; every
 report states `multi_look_false_keep_bound` (`--candidate-looks`), at most 9%
-across those three (18% when the floor did not apply).
+across those three (18% when the floor did not apply) under the model above.
 
 **Tool descriptions first.** Independent evidence: the full Trace-Free+
 curriculum-learning framework — of which better tool descriptions are a

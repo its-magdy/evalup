@@ -45,9 +45,19 @@ break anyone who has been tracking this repository directly.
   two champion runs disagree on — or any case those runs do not cover — into
   "no evidence", and `--candidate-looks` prints the multi-look false-keep
   bound (3% per look with the floor, 6% without; simulated, the test pins
-  both). The noise pair is run once per seal and recorded in
-  `reports/holdout-seal.json`, so a later session reuses it instead of
-  spending two more looks. The runner's `comparison.json` says
+  both) with `multi_look_assumptions`: the bound assumes independent flaky
+  cases and the champion the noise pair measured, and a pinned exact
+  counter-example (6 of 20 cases flipping together: 12.5% per look) shows
+  what correlation does. The noise pair is run on the **unedited** app,
+  before a seal's first edit (it used to run after the edit was applied,
+  making the candidate its own baseline), once per seal, after a check that
+  at least three looks are left, and recorded in `reports/holdout-seal.json`
+  after each run, so a later or interrupted session reuses it instead of
+  spending more looks. A reseal archives and empties the ledger: its count
+  is a line count, and bumping `dataset_version` alone left the new seal
+  with no looks. Holdout runs never use or become `reports/baseline.json`,
+  and the runner refuses a holdout/non-holdout baseline pair before the
+  look is spent (they share no case id). The runner's `comparison.json` says
   `noise_floor_applied: false`: it is never the optimizer's decision. A keep
   claims a posterior probability, never significance unless the sign test
   also passes.

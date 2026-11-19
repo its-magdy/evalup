@@ -607,7 +607,11 @@ category of thing this whole step exists to take out of LLM hands. The runner
 refuses the comparison (exit 2) when either version differs, or when the two
 runs used a different `k` (decision **D7**): a baseline at k=1 and a candidate
 at k=3 pair `pass^k` verdicts computed over different numbers of trials, so
-they are not comparable even at the same dataset and scoring version.
+they are not comparable even at the same dataset and scoring version. It also
+refuses a pair where exactly one side selected the `holdout` split (a baseline
+manifest without `selecting_split` is not judged): `holdout` shares no case
+with any other selection, so the pair has zero common case ids, and on a
+holdout run that would surface only after its look was spent.
 
 The version key is `scoring_version` (`_common.SCORING_VERSION`, #38), bumped
 only when a verdict's meaning changes; `harness_version` is the plugin's
@@ -777,6 +781,9 @@ JSON line to a YAML mapping corrupts the document it is meant to append to. A
 JSONL sidecar is also what makes the second writer (`analyze --unseal`) safe
 without a lock file, since a single short `O_APPEND` line write is atomic on
 POSIX, and it is what lets a reader take the running total by counting lines.
+Nothing here resets it: a reseal (`analyze --unseal`) archives the file's
+lines to `holdout-looks-v<old dataset_version>.jsonl` and empties it, so the
+new seal's count starts at zero.
 `run/SKILL.md` §4 and `analyze/SKILL.md` §`--unseal` — the two writers of the
 N=5 count — were pointed at the sidecar in Step 5c; the plan's
 `paths.holdout_ledger` is what names it (`datasets/holdout-looks.jsonl` by

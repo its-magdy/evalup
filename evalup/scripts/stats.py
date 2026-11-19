@@ -88,6 +88,19 @@ union bound N x the per-look false-keep rate simulated for an unchanged app
 only at the default bar or stricter; below it the output says it is not
 bounded rather than inventing a number.
 
+THE BOUND IS A MODEL'S, AND ITS TWO ASSUMPTIONS ARE STATED IN THE OUTPUT
+(`multi_look_assumptions`):
+  independent cases -- the simulation draws each flaky case on its own, the
+    same independence the first item below names. Flaky cases that fail
+    TOGETHER (one shared tool, one rate-limited dependency) break it:
+    20 cases, 6 of them flipping all at once per run as a coin flip, gives
+    12.5% per look and 21.9% across three by exact enumeration of these same
+    functions (TestNoOpKeepRate pins that counter-example).
+  a fixed champion -- the noise pair measures the app as it was when the
+    pair ran. After a keep, the champion is the kept edit, and its noise is
+    not what the pair measured: a later look's floor describes a prior app,
+    so its rate is not covered by the bound.
+
 THREE THINGS THIS GATE DOES NOT DO, stated here so no reader infers them from
 how exact the rest of it is:
 
@@ -136,7 +149,9 @@ DEFAULT_BAYES_THRESHOLD = 0.95
 # 10/20/30% flaky the maxima were 2.4% with the floor and 4.9% without; the
 # test's own 3000-trial cells reach 2.9% and 5.3%. A 0.95 posterior bar alone
 # is about a one-sided 5% test, so sampling noise lands cells just above 5%:
-# hence 6%, not 5%, for the no-floor rate.
+# hence 6%, not 5%, for the no-floor rate. Both assume independent flaky
+# cases and the champion the noise pair measured (docstring, THE BOUND IS A
+# MODEL'S): correlated flips or a promoted champion exceed them.
 PER_LOOK_FALSE_KEEP = {True: 0.03, False: 0.06}
 
 
@@ -436,7 +451,14 @@ def main():
                 f"simulated per-look false-keep rate of at most {per_look:.0%} "
                 f"({'with' if floor_applied else 'without'} the noise floor): "
                 f"an unchanged app is kept by at least one of these looks at "
-                f"most {bound:.0%} of the time (union bound).")
+                f"most {bound:.0%} of the time (union bound), under the "
+                "simulation's assumptions (multi_look_assumptions).")
+            out["multi_look_assumptions"] = (
+                "independent cases: flaky cases that fail together exceed "
+                "the bound (6 of 20 cases flipping at once: 12.5% per look, "
+                "21.9% over three); and the champion the noise pair "
+                "measured: after a keep, the floor describes the previous "
+                "app, so later looks are not covered.")
         else:
             out["multi_look_false_keep_bound"] = None
             out["multi_look_explained"] = (

@@ -208,6 +208,11 @@ app's score.
   k=1 that the default k=3 diff refuses. Say "not pinned: labels
   unreviewed; a `regression` run after the review pins the baseline." **Pinning is yours; the runner never
   writes that file.**
+- **Holdout runs never use or become `reports/baseline.json`**: it names a
+  regression run, which shares no case with `holdout`. A `--holdout` run (and
+  `--full`'s holdout half) takes `--baseline-verdicts` only from its caller
+  (the optimizer's champion holdout run) and is never pinned, even with no
+  pointer; the runner refuses a holdout/non-holdout pair before any spend.
 - **The holdout look**: `--holdout` and `--full` spend one of the N=5 —
   surface the running total the runner prints; run-modes.md's `holdout`
   section says where the ledger is and who else writes it.

@@ -145,7 +145,10 @@ baseline. A plugin release that changes no verdict does not bump it, so it
 leaves every baseline comparable. pass^k (all k repeats succeed) is the reliability
 number — single-run pass rates hide flakiness. Repeated holdout looks are
 counted and force a reseal (multiple-comparisons discipline), and each
-optimize report states the multi-look false-keep bound those looks cost.
+optimize report states the multi-look false-keep bound those looks cost —
+a bound for a model (flaky cases independent, the champion the one the noise
+pair measured), not a guarantee: cases that fail together, or looks after a
+keep, can exceed it.
 
 ## What this can never do
 

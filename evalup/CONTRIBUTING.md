@@ -161,6 +161,8 @@ it is Linux-only.
 - **The holdout ledger is a `.jsonl` sidecar** (`paths.holdout_ledger`), never
   the YAML metadata a stdlib-only runner would corrupt, and its total is a LINE
   COUNT — so it holds one row per run id, and a `--resume` does not add one.
+  A reseal archives its lines (`holdout-looks-v<old dataset_version>.jsonl`)
+  and empties it; no code resets it.
 - **The matrix says `answer_quality`; the runner's rows are `answer`, `rules`
   and `judged`.** `_common.MATRIX_KEY_OF_LAYER` is the one translation, used
   by the runner's lookup and by `make_plan.py --layer`. `http` and `loops`

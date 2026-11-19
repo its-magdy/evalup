@@ -4146,6 +4146,20 @@ def validate_baseline(plan, path):
                 f"{key}: baseline {manifest.get(key)!r}, this run {ours!r}")
     if scoring_mismatch:
         mismatches.insert(1, scoring_mismatch)
+    # The `holdout` split is mutually exclusive with every other selection
+    # (case-format.md), so a holdout run against a non-holdout baseline, or
+    # the reverse, pairs zero case ids: stats.py would die AFTER the run, and
+    # on a holdout run after its look was spent. Refused here, before the
+    # ledger append. A baseline manifest without the field is not judged.
+    theirs_split = manifest.get("selecting_split")
+    if theirs_split is not None and (
+            (theirs_split == HOLDOUT_SPLIT)
+            != (plan["selecting_split"] == HOLDOUT_SPLIT)):
+        mismatches.append(
+            "selecting_split: baseline {!r}, this run {!r} (the holdout "
+            "split shares no case with any other selection, so the pair "
+            "would have zero common case ids)".format(
+                theirs_split, plan["selecting_split"]))
     if mismatches:
         bad_input(
             "baseline run {!r} is not comparable to this one -- {}. A "
@@ -4241,7 +4255,8 @@ def main():
                          "against this run's with stats.py and writes "
                          "comparison.json. Must sit beside its own "
                          "manifest.yaml, and refused up front when the "
-                         "dataset version, scoring version or k differ")
+                         "dataset version, scoring version or k differ, or "
+                         "when exactly one side is a holdout run")
     ap.add_argument("--verify", metavar="DIR",
                     help="run ONLY the completeness check (SS9) over an "
                          "existing run directory and exit; no app calls, no "

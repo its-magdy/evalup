@@ -193,7 +193,12 @@ class TestPluginLayout(unittest.TestCase):
         self.assertEqual(("<noise-a>" in noise_a, "<noise-b>" in noise_b),
                          (True, True))
         self.assertIn("reports/holdout-seal.json", optimize)
-        self.assertIn("run no noise pair", optimize)
+        # Second review: the pair is measured on the UNEDITED app, before
+        # the edit is applied -- after it, the candidate is its own baseline.
+        pair = optimize.index("measure its noise pair — on the\n   unedited app")
+        self.assertLess(pair, optimize.index("**Then measure**: apply the edit"))
+        self.assertIn("Write the record after EACH run", optimize)
+        self.assertIn("Fewer than 3 of the 5 looks left", optimize)
 
 
 if __name__ == "__main__":
