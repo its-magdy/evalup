@@ -131,7 +131,8 @@ class TestPluginLayout(unittest.TestCase):
         # A `Skill(evalup:<name>)` rule on the loader is what was shown to fix
         # it. `optimize` is never listed: only the user may launch it.
         loads = {"start": ("discover", "generate", "run", "analyze"),
-                 "help": ("start",)}
+                 "help": ("start",),
+                 "optimize": ("run",)}
         for loader, loaded in loads.items():
             block = (ROOT / "skills" / loader / "SKILL.md").read_text(
                 encoding="utf-8").split("\n---\n", 1)[0]

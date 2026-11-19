@@ -49,7 +49,8 @@ Arguments, when the user typed any: `$ARGUMENTS`
 The error-analysis-first entry, and the one branch that needs **no profile, no
 cases and no run**: a user with exported chats, support logs or a folder of
 saved traces can learn what is broken today. Read them, and write one viewer
-record per conversation to a scratch JSON file — `{"case_id": "t-0001",
+record per conversation to a scratch JSON file under `<state-dir>/work/`
+(run/SKILL.md §1's work dir; never `/tmp`) — `{"case_id": "t-0001",
 "trace_id": ..., "answer": {"actual": <the app's reply>}, "tool_calls": [...]}`
 plus the user message; the record shape is loose by design
 (`build_review_viewer.py`'s docstring) and no field is required. Redact first

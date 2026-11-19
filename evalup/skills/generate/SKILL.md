@@ -44,6 +44,11 @@ this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases is a good default, ~12 a legitimate minimum — and ~12 is
 what `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for,
 so a new user sees a result before they are asked to review thirty cases.
+`--count N` sets that size instead (§1's quotas still apply as ratios plus
+floors). `--layer routing|tools|answer` limits §1's grid to the cases that
+exercise that layer — a route label, a tool or args expectation, an answer
+expectation — to extend an existing suite where one layer is thin; the new
+cases go beside the old ones and no existing case changes.
 
 Four documents own what they name, and this file never restates their rules:
 [case-format.md](references/case-format.md) (schema + `validate_cases.py`'s
@@ -188,9 +193,8 @@ labeling. generation-method.md says why each of these three matters.
 **The generator emits `gating: false` on every case** (its brief, rule 3):
 an unreviewed label must not close a gate, which is what
 `validate_cases.py`'s `gating_unreviewed` warns about per case. A reviewer
-who accepts a case flips `gating` to true in the same edit. The 2026-09-26
-user test saw the agent write `gating: true` on 6 of 12 cases under an older
-brief, so check its output before validating anyway: among the cases this
+who accepts a case flips `gating` to true in the same edit. Check the
+generator's output before validating anyway: among the cases this
 delegation just wrote — never a case a human already accepted — find every
 one whose `gating` is not `false` (an absent key means true), set it to
 `false`, and list their ids in chat. The validator's per-case warning is the
