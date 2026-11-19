@@ -1498,6 +1498,65 @@ class TestResume(RunnerCase):
         self.assertEqual(rc, 2)
         self.assertIn("plan changed since", payload["error"])
 
+    def edit_manifest(self, **changes):
+        path = self.out_dir() / "manifest.yaml"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        for key, value in changes.items():
+            if value is None:
+                manifest.pop(key, None)
+            else:
+                manifest[key] = value
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def test_resume_refuses_a_run_started_at_another_scoring_version(self):
+        """#38: the plan hash does not cover the runner's verdict rules, so a
+        matching plan used to adopt old verdicts and grade the rest under new
+        rules -- a mixed run, then labelled with the new version."""
+        plan = make_plan(self.state, self.app.base_url, cases=self.cases())
+        self.kill_mid_run(plan)
+        done = sorted(p.parent.name for p in
+                      (self.out_dir() / "cases").glob("*/verdict.json"))
+        ours = run_cases.SCORING_VERSION
+        for bad in (ours + 1, True, "1"):
+            with self.subTest(scoring_version=bad):
+                self.edit_manifest(scoring_version=bad)
+                rc, payload, proc = self.invoke(plan, extra_argv=["--resume"])
+                self.assertEqual(rc, 2, proc.stdout + proc.stderr)
+                self.assertIn("different verdict rules", payload["error"])
+                self.assertIn("scoring_version", payload["error"])
+                self.assertNotIn("Traceback", proc.stderr)
+        # Refused before pre-flight: nothing adopted, nothing re-run.
+        self.assertEqual(
+            sorted(p.parent.name for p in
+                   (self.out_dir() / "cases").glob("*/verdict.json")), done)
+
+    def test_resume_of_a_pre_field_run_warns_and_completes(self):
+        plan = make_plan(self.state, self.app.base_url, cases=self.cases())
+        self.kill_mid_run(plan)
+        self.edit_manifest(scoring_version=None,
+                           harness_version=run_cases.HARNESS_VERSION)
+        rc, _, proc = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertIn("predates scoring_version", proc.stderr)
+        self.assertEqual(self.read("manifest.yaml")["scoring_version"],
+                         run_cases.SCORING_VERSION)
+
+    def test_resume_of_a_pre_field_run_at_an_unknown_release_is_refused(self):
+        plan = make_plan(self.state, self.app.base_url, cases=self.cases())
+        self.kill_mid_run(plan)
+        self.edit_manifest(scoring_version=None, harness_version="0.0.9")
+        rc, payload, _ = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 2)
+        self.assertIn("harness_version", payload["error"])
+
+    def test_resume_refuses_a_manifest_that_is_not_an_object(self):
+        plan = make_plan(self.state, self.app.base_url, cases=self.cases())
+        self.kill_mid_run(plan)
+        (self.out_dir() / "manifest.yaml").write_text("[]", encoding="utf-8")
+        rc, payload, proc = self.invoke(plan, extra_argv=["--resume"])
+        self.assertEqual(rc, 2, proc.stdout + proc.stderr)
+        self.assertIn("not a JSON object", payload["error"])
+
     def test_a_non_empty_out_without_resume_is_refused(self):
         plan = make_plan(self.state, self.app.base_url, cases=self.cases())
         self.kill_mid_run(plan)
@@ -2513,6 +2572,24 @@ class TestBaselineComparison(RunnerCase):
         self.assertIn("harness_version: baseline '0.0.1'", payload["error"])
         self.assertIn("predates scoring_version",
                       payload["comparability_warning"])
+
+    def test_a_malformed_baseline_version_is_refused_not_crashed(self):
+        """#38: `true == 1` used to make a bool scoring_version comparable
+        to scoring 1, and an unhashable harness_version raised TypeError."""
+        for kw in ({"scoring_version": True},
+                   {"scoring_version": "1"},
+                   {"drop": ("scoring_version",), "harness_version": []},
+                   {"drop": ("scoring_version",), "harness_version": {}}):
+            with self.subTest(**{k: repr(v) for k, v in kw.items()}):
+                self.setUp()
+                baseline = self.a_baseline(**kw)
+                plan = make_plan(self.state, self.app.base_url)
+                rc, payload, proc = self.invoke(
+                    plan, extra_argv=["--baseline-verdicts", str(baseline)])
+                self.assertEqual(rc, 2, proc.stdout + proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertIn("malformed version field", payload["error"])
+                self.assertFalse(self.out_dir().exists())
 
     def test_a_baseline_without_its_manifest_is_refused(self):
         """Version equality and the k-match are the comparison's rules, and

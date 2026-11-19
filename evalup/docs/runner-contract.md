@@ -619,7 +619,10 @@ compared on `harness_version` equality, the old rule) — with a
 `comparability_warning` on stderr and in `comparison.json` (or in the
 exit-2 payload when it is refused); never a crash
 (`_common.scoring_key`, the one rule `scoring_comparison` and
-`run_history.py`'s series key share). The
+`run_history.py`'s series key share). A malformed field (`scoring_version`
+not an integer, or a bool; no `scoring_version` and a `harness_version`
+that is not a string) is never comparable, not even to itself: exit 2 here,
+and `run_history.py` lists the run under `excluded_runs`. The
 k-mismatch check lives here, in the runner, for the same reason the rest of the
 diff does — the manifest recording `k` is only useful if something checks it.
 
@@ -899,7 +902,12 @@ field is recorded in the manifest and otherwise unused here.
 1. Read `<out>/manifest.yaml`. If its `plan_sha256` differs from the SHA-256 of
    the current plan's canonical JSON, exit 2: `plan changed since <run-id>
    started; start a new run id`. Resuming a different suite under an old
-   manifest produces a run that is comparable to nothing.
+   manifest produces a run that is comparable to nothing. The plan hash does
+   not cover the runner's own verdict rules, so the manifest's scoring key
+   (`_common.scoring_key`, §5.6's rule) must also equal this runner's, else
+   exit 2: adopted verdicts graded under one `scoring_version` and the rest
+   under another is a mixed run. A pre-field manifest whose release maps to
+   the current version resumes, with a stderr line saying so.
 2. Walk `<out>/cases/`. A case with a parseable `verdict.json` is **done** and is
    not re-invoked. A case directory without one is deleted and re-run — a
    half-written case is cheaper to redo than to reason about. A conversation
@@ -1239,7 +1247,7 @@ record, not the shareable summary) does carry it, since a paired diff needs it.
 |---|---|---|
 | 0 | Ran to completion; §9's completeness check passed. Says **nothing** about pass/fail. | complete |
 | 1 | Unhandled internal error. Traceback to stderr, `{"error": …}` to stdout. | whatever completed |
-| 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest mismatch on resume. | none written |
+| 2 | Bad input or usage: malformed plan, unknown key, duplicate case id, non-empty `--out` without `--resume`, plan/manifest or scoring-version mismatch on resume. | none written |
 | 3 | Pre-flight abort: unresolved env vars, health check failed, trace declared-but-not-joining or an unimplemented trace store, unimplemented `invocation.mode`, unimportable `function` entrypoint, malformed body template, malformed `invocation.conversation`. | manifest only, or nothing. The run directory is created **inside** pre-flight, so a pre-flight failure normally leaves nothing at all — an empty `cases/` would make the next attempt at the same run id look like a run in progress. |
 | 4 | Canary failed — harness/judge drift; run stopped. | complete for cases finished |
 | 5 | Infra rate exceeded `infra_rate_abort`; run stopped. | complete for cases finished |

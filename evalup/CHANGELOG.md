@@ -794,6 +794,18 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   missing, older or newer value and names the migration — a WARN that
   `--strict` does not promote. It gains `--profile`, and `convert_suite.py
   --split-dir` writes the `profile.json` it reads.
+- **One scoring version per run, and no crash on a bad one** (#38, second
+  review). `--resume` refused only a changed plan, so a run interrupted under
+  one `SCORING_VERSION` adopted its verdicts, graded the rest under the next
+  and wrote the new version into the manifest. It now refuses (exit 2) a
+  manifest whose scoring key differs; a pre-field manifest that maps to the
+  current version resumes, with a stderr line. A malformed version field
+  (`scoring_version: true`, which compared equal to 1; a `harness_version`
+  of `[]`, which raised TypeError in every caller) is never comparable: the
+  runner refuses it as a baseline, and `run_history.py` excludes that run
+  instead of aborting the report. A series holding a pre-field run now says
+  so. `analyze`'s revalidation passes `--profile`, so an old profile gets
+  its migration warning there too.
 
 ### Fixed — the 2026-09-21 shape audit
 

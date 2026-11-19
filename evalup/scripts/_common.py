@@ -46,12 +46,40 @@ SCHEMA_VERSION = 1
 LEGACY_SCORING_VERSION = {"0.1.0": 1}
 
 
+def malformed_version(record):
+    """Why a run record's version fields cannot be keyed, or None.
+
+    scoring_version must be an int (a bool is not: `true == 1` would silently
+    join scoring-1 runs); a record without it is keyed on harness_version,
+    which must then be a string (`[]` is unhashable and used to crash every
+    caller). Anything else is MALFORMED: never comparable, never a crash."""
+    if not isinstance(record, dict):
+        return f"the run record is a {type(record).__name__}, not an object"
+    version = record.get("scoring_version")
+    if version is not None:
+        if isinstance(version, bool) or not isinstance(version, int):
+            return f"scoring_version is {version!r}, not an integer"
+        return None
+    harness = record.get("harness_version")
+    if not isinstance(harness, str):
+        return (f"no scoring_version, and harness_version is {harness!r}, "
+                "not a release string")
+    return None
+
+
 def scoring_key(record):
     """The ONE comparability key on the scoring axis, for a run record
     (manifest.yaml or results.json dict). Returns (key, legacy): two runs are
     comparable on this axis exactly when their keys are equal, so a pairwise
     check (scoring_comparison) and a series grouping (run_history.py) cannot
-    disagree. `legacy` is True for a record that predates scoring_version."""
+    disagree. `legacy` is True for a record that predates scoring_version.
+
+    A malformed record (malformed_version) gets ("malformed", <reason>) and
+    `legacy` False: callers that group must exclude it (run_history.py does),
+    and scoring_comparison never calls it comparable, not even to itself."""
+    bad = malformed_version(record)
+    if bad:
+        return ("malformed", bad), False
     version = record.get("scoring_version")
     if version is not None:
         return ("scoring", version), False
@@ -71,6 +99,18 @@ def scoring_comparison(theirs, ours):
     crash, never a silent pass. `mismatch_text` starts with the field that
     actually differed. `theirs` is the older/baseline side in the messages."""
     (ka, la), (kb, lb) = scoring_key(theirs), scoring_key(ours)
+    if "malformed" in (ka[0], kb[0]):
+        parts = [f"{side} {key[1]}" for side, key in
+                 (("baseline:", ka), ("this run:", kb))
+                 if key[0] == "malformed"]
+        # Starts with the field, like every other mismatch text.
+        field = ("scoring_version" if any("scoring_version is" in p
+                                          for p in parts)
+                 else "harness_version")
+        return False, "{}: malformed version field -- {}".format(
+            field, "; ".join(parts)), (
+            "a run record with a malformed version field is never "
+            "comparable; fix or re-run it rather than diffing against it")
     warning = None
     if la or lb:
         side = ("both runs predate" if la and lb else

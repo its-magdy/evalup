@@ -3384,12 +3384,36 @@ class Runner:
             manifest = read_json(manifest_path)
         except (OSError, ValueError) as exc:
             bad_input(f"--resume: cannot read {manifest_path}: {exc}")
+        if not isinstance(manifest, dict):
+            bad_input(f"--resume: {manifest_path} is not a JSON object; "
+                      "start a new run id")
         if manifest.get("plan_sha256") != self.plan_sha256:
             # Resuming a DIFFERENT suite under an old manifest produces a run
             # that is comparable to nothing -- and it would still be labelled
             # with the old run id.
             bad_input("plan changed since {} started; start a new run "
                       "id".format(self.plan["run_id"]))
+        # #38: the plan hash does not cover the runner's own verdict rules.
+        # Adopting verdicts graded at another SCORING_VERSION and grading the
+        # rest at this one, then rewriting the manifest at this version, is a
+        # mixed run that would diff as all-new. Same rule as the baseline
+        # diff (_common.scoring_comparison); a pre-field manifest whose
+        # release maps to this version may resume, and says so.
+        comparable, mismatch, warning = scoring_comparison(
+            manifest, {"scoring_version": SCORING_VERSION,
+                       "harness_version": HARNESS_VERSION})
+        if not comparable:
+            bad_input("--resume: {} was started under different verdict "
+                      "rules ({}); resuming would mix verdicts graded under "
+                      "two scoring versions in one run. Start a new run "
+                      "id".format(self.plan["run_id"], mismatch.replace(
+                          "baseline", "started at", 1)))
+        if warning:
+            sys.stderr.write(
+                "--resume: {} predates scoring_version; its release maps to "
+                "scoring_version {}, so it resumes, and the manifest is "
+                "rewritten with the field\n".format(
+                    self.plan["run_id"], SCORING_VERSION))
 
         done = {}
         listing = sorted(os.listdir(self.cases_dir)) \

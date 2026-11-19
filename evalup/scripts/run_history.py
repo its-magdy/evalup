@@ -326,6 +326,9 @@ def load_point(run_dir):
         "app_git_tree": app.get("git_tree"),
         "disabled_layers": traces.get("disabled_layers"),
         "key": series_key(manifest),
+        # #38: a run older than scoring_version is keyed on its release; the
+        # series it joins says so (build_series) instead of hiding it.
+        "legacy_scoring": scoring_key(manifest)[1],
         "case_sha256": {c.get("id"): c.get("sha256")
                         for c in (manifest.get("cases") or [])
                         if isinstance(c, dict)},
@@ -356,6 +359,10 @@ def series_key(manifest):
     """SS5.6's three keys, plus the two a series of N needs and a pair does
     not. See the module docstring for the argument."""
     scoring, _ = scoring_key(manifest)
+    if scoring[0] == "malformed":
+        # Never comparable, so it can join no series -- and a crash here used
+        # to abort the whole report over one bad manifest.
+        _raise(f"manifest.yaml has a malformed version field: {scoring[1]}")
     return {
         "mode": manifest.get("mode"),
         "selecting_split": manifest.get("selecting_split"),
@@ -784,6 +791,14 @@ def build_series(points, args):
             "{} run(s) were taken against a DIRTY app tree ({}), so their "
             "git_sha does not identify what was measured.".format(
                 len(dirty), ", ".join(dirty[:MAX_REPORTED_CASES])))
+    legacy = [p["run_id"] for p in points if p["legacy_scoring"]]
+    if legacy:
+        warnings.append(
+            "{} run(s) predate scoring_version ({}): each is keyed on its "
+            "harness_version, the old rule (release 0.1.0 = scoring_version "
+            "1), so it joins this series on an inferred, not a recorded, "
+            "scoring version.".format(
+                len(legacy), ", ".join(legacy[:MAX_REPORTED_CASES])))
     return {
         "key": points[0]["key"],
         "n_runs": len(points),
