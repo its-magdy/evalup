@@ -53,18 +53,19 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   scanning's generic patterns and validity checks need a paid plan; a
   personal account's PATCH is accepted and ignored. Community files
   (code of conduct, bug-report form, PR template) are in `.github/`.
-- **`main`** holds everything but multi-turn: through the 2026-09-30 refactor
-  review, code review and canary work, then the 2026-10-09 CI and repo-settings
-  PRs (#1, #3, #5). First pushed 2026-09-30.
-- **Branch `feat/multi-turn`** (2026-10-06; PR #2, open, rebased on main
-  2026-10-09, CI green): multi-turn
-  Phase 1 built per `evalup/docs/multi-turn.md` — §0 bugfix, `input.turns`,
-  `invocation.conversation`, the driver, cookie style, per-turn tree, stats/
-  cost/gate split, skills/docs. Live proof on RefApp still owed (the user runs
-  it). Decided 2026-10-06 (after a second opinion): a checkpoint can veto a
-  conversation but never certify it — a union `pass` needs a graded `pass`
-  on the final turn (`run_cases.final_turn_certifies`).
-- **Health** (2026-10-06, feat/multi-turn): 943 tests pass on 3.14;
+- **`main`** holds everything: through the 2026-09-30 refactor review, code
+  review and canary work, the 2026-10-09 CI and repo-settings PRs (#1, #3,
+  #4, #5), and multi-turn Phase 1 (#2, squash-merged 2026-11-19 as
+  `796c8d3`) built per `evalup/docs/multi-turn.md` — §0 bugfix,
+  `input.turns`, `invocation.conversation`, the driver, cookie style,
+  per-turn tree, stats/cost/gate split, skills/docs. First pushed 2026-09-30.
+  **Multi-turn is merged but not yet proven on a live app**: the user merged
+  it before the planned RefApp run, and decided 2026-11-19 to prove it on a
+  different app instead. Decided 2026-10-06 (after a second opinion): a
+  checkpoint can veto a conversation but never certify it — a union `pass`
+  needs a graded `pass` on the final turn (`run_cases.final_turn_certifies`).
+- **Health** (2026-10-06, measured on the multi-turn branch; CI green on
+  `main` 2026-11-19): 943 tests pass on 3.14;
   934 + 9 skips on the 3.9 floor (all 9 skips need PyYAML: 943 pass with
   `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
   validate` clean for the plugin and the root marketplace.
@@ -111,8 +112,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
     (headless open questions have no home), F-014/F-020/F-030, F-106, F-125
     (friction), F-129 (the bench's agents), F-133, F-144, F-147, F-149
     (nits). Deferred: the validator's profile-name check (F-155).
-- **Known gaps, stated in the README, not bugs:** single-turn only (multi-turn
-  cases are skipped); the judged layer and business rules have no run-time
+- **Known gaps, stated in the README, not bugs:** conversations are scripted,
+  Phase 1 only (no simulated user, §9 of the spec); the judged layer and business rules have no run-time
   scorer; `--mode full` is two runs.
 - **Renamed `agent-eval` → `evalup` on 2026-09-14** (committed 2026-09-20).
   A cursory 2026-09-20 web check found PyPI, npm and the GitHub handle free,

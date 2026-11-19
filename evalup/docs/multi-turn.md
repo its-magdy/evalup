@@ -1,6 +1,7 @@
 # Multi-turn conversations — design
 
-**Status:** Phase 1 **built** on branch `feat/multi-turn` (2026-10-06): the
+**Status:** Phase 1 **built** (2026-10-06) and merged to `main` (2026-11-19,
+PR #2), not yet proven on a live app. The
 runner drives scripted conversations, and the validator, `make_plan.py`,
 `score_cost.py`, `gate.py` and the skills follow this note. Written
 2026-10-06, revised the same day after an independent review whose code

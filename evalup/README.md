@@ -309,6 +309,7 @@ versions. Diffs between incomparable runs are refused.
   assistant turns, and whole-conversation end-state checks
   (`docs/multi-turn.md` §9). A suite made only of skipped cases closes the
   gate. Streaming (SSE), WebSocket and CLI apps are not driven.
+  Phase 1 has passed its tests but has not yet been run against a live app.
 - **Conversations are slow and look worse.** Every turn waits for trace
   quiescence (3 s or more when traces are collected) plus any `turn_delay_s`.
   20 conversations × 5 turns at `k=3` take about an hour, so a headless run
