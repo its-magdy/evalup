@@ -71,6 +71,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
+import _sse
 from _common import (
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
@@ -265,6 +266,9 @@ INFRA_ABORT_MIN_CASES = 8
 # than treating an unimplemented store as "no trace" (which would silently
 # downgrade a fully instrumented app to trace-less scoring).
 QUERYABLE_TRACE_SOURCES = ("otlp-file",)
+# Tool calls read off the response itself (an SSE stream's tool-call events,
+# or a declared list in a JSON body): no store, no join, no quiescence wait.
+RESPONSE_TRACE_SOURCE = "response"
 UNIMPLEMENTED_TRACE_SOURCES = ("jaeger", "tempo", "clickhouse")
 TRACELESS_TRACE_SOURCES = ("view-only", "none")
 # The capability taxonomy the manifest reports as disabled on a trace-less run.
@@ -930,7 +934,35 @@ def transport_kind(exc):
     return kind, f"{type(exc).__name__}: {exc}"
 
 
-def send_http(url, method, headers, body, timeout, insecure):
+def stream_gap(body):
+    """Why a decoded SSE body (_sse.decode) holds no whole run, or None.
+
+    None for any body that is not a decoded stream: a JSON body has no
+    terminal event to miss."""
+    if not (isinstance(body, dict) and isinstance(body.get("sse"), dict)):
+        return None
+    error = body.get("error")
+    if error:
+        code = (error.get("code") or error.get("message")) \
+            if isinstance(error, dict) else error
+        return f"the stream reported a run error ({code})"
+    if body.get("finished") is False:
+        return "the stream ended before its terminal event"
+    return None
+
+
+def is_event_stream(headers):
+    for name, value in (headers or {}).items():
+        if name.lower() == "content-type":
+            return value.split(";")[0].strip().lower() == "text/event-stream"
+    return False
+
+
+def send_http(url, method, headers, body, timeout, insecure, sse=None):
+    """One HTTP call. `sse` is the adapter's invocation.sse block when it
+    declares `response_format: sse`: a text/event-stream body is then decoded
+    by _sse.decode into a JSON-shaped body. Any other content type -- a 403's
+    JSON error, an HTML error page -- parses exactly as without it."""
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") \
         if body is not None else None
     request = urllib.request.Request(url, data=data, headers=headers,
@@ -988,6 +1020,10 @@ def send_http(url, method, headers, body, timeout, insecure):
         raise TransportError("transport", str(exc)) from exc
     latency = round(time.time() - started, 3)
     text = raw.decode("utf-8", errors="replace")
+    if sse is not None and is_event_stream(response_headers):
+        return {"status": status, "body": _sse.decode(text, sse),
+                "latency_s": latency, "headers": response_headers,
+                "set_cookies": set_cookies}
     try:
         parsed = json.loads(text) if text.strip() else None
     except json.JSONDecodeError:
@@ -1442,6 +1478,7 @@ class Runner:
         self.request_template = None
         self.answer_path = None
         self.trace_id_path = None
+        self.sse = None         # invocation.sse, when response_format: sse
         self.url = None
         self.record_url = None
         self.record_template = None
@@ -1545,12 +1582,41 @@ class Runner:
                 f"with {ANSWER_MARKER!r}, e.g. '{{\"message\": \"{ANSWER_MARKER}\"}}'")
         self.trace_id_path = find_marker_path(response_template,
                                               TRACE_ID_MARKER)
+        self.sse = self.prepare_sse(invocation)
+
+    @staticmethod
+    def prepare_sse(invocation):
+        """invocation.response_format / invocation.sse, checked once.
+
+        A declaration, never a sniff: an app that streams only some answers
+        would otherwise be scored on whichever shape a case happened to get.
+        `sse` without `response_format: sse` (or the reverse) is exit 3, like
+        any other half-declared block, rather than a stream scored as raw text.
+        """
+        fmt = invocation.get("response_format", "json")
+        if fmt not in ("json", "sse"):
+            preflight_fail("adapter.invocation.response_format must be json "
+                           f"or sse (got: {fmt!r})")
+        block = invocation.get("sse")
+        if fmt == "json":
+            if block is not None:
+                preflight_fail("adapter.invocation.sse is declared but "
+                               "response_format is not sse")
+            return None
+        problems = _sse.check_config(block)
+        if problems:
+            preflight_fail("; ".join(problems))
+        return dict(block)
 
     def prepare_function(self, invocation):
         app_root = (self.adapter.get("app") or {}).get("repo")
         if app_root and not os.path.isabs(app_root):
             app_root = os.path.normpath(os.path.join(self.state_dir, app_root))
         self.entrypoint = load_entrypoint(invocation, app_root)
+        if invocation.get("response_format", "json") != "json":
+            preflight_fail("adapter.invocation.response_format applies to "
+                           "invocation.mode: http only; a function returns "
+                           "{\"text\": ...}")
         self.url = "function:{}".format(invocation.get("entrypoint"))
         self.method = "CALL"
         # A function entrypoint returns {"text": ...}; the request body is
@@ -1665,7 +1731,8 @@ class Runner:
         shown = unresolve(url, self.sent_refs)
         try:
             result = send_http(url, method, headers, None,
-                               self.timeout(), self.execution["insecure_tls"])
+                               self.timeout(), self.execution["insecure_tls"],
+                               self.sse)
         except TransportError as exc:
             preflight_fail(f"health check {method} {shown} failed: "
                            + unresolve(exc.message, self.sent_refs))
@@ -1697,6 +1764,19 @@ class Runner:
         convention = traces.get("convention")
         self.trace_state["source"] = source
         self.trace_state["correlation"] = correlation
+
+        if source == RESPONSE_TRACE_SOURCE:
+            # Nothing to join: each response IS its own trace, so there is no
+            # store to read, no correlation to declare and no health-check
+            # join to verify. What can still be wrong is the declared path,
+            # and that shows per case as infra_incomplete (collect_trace).
+            path = traces.get("tool_calls_path", "tool_calls")
+            if not (isinstance(path, str) and path.strip()):
+                preflight_fail("traces.tool_calls_path must be a dotted path "
+                               "(default: tool_calls)")
+            self.trace_state["collected"] = True
+            self.trace_state["tool_calls_path"] = path
+            return
 
         if source in UNIMPLEMENTED_TRACE_SOURCES:
             preflight_fail(
@@ -1878,7 +1958,12 @@ class Runner:
                            "url": self.record_url,
                            "timeout_s": self.timeout(),
                            "timeout_enforced":
-                               invocation.get("mode") != "function"},
+                               invocation.get("mode") != "function",
+                           # How the answer was read: a stream decoded by
+                           # _sse (with its protocol), or a JSON body.
+                           "response_format":
+                               "sse" if self.sse else "json",
+                           "sse": self.sse},
             "traces": traces,
             # docs/multi-turn.md SS2/SS6: how conversations were kept, and
             # whether memory outlives a session (`user`): then any case's
@@ -1905,6 +1990,10 @@ class Runner:
         it would be a guess (a numeric id has already lost any leading zero),
         so it is no trace id: infra_incomplete, like any other missing join.
         """
+        if self.trace_state.get("source") == RESPONSE_TRACE_SOURCE:
+            # The spans are built from this very response (collect_trace), so
+            # the id only has to be unique per response; it is minted, not read.
+            return uuid.uuid4().hex
         value = self.raw_trace_id(result)
         return value if isinstance(value, str) and value else None
 
@@ -1966,13 +2055,15 @@ class Runner:
             time.sleep(min(0.05, quiet_s))
         return False
 
-    def collect_trace(self, case_dir, trace_id):
+    def collect_trace(self, case_dir, trace_id, body=None):
         """Copy the store's bytes for this case and say whether it joined.
 
         Returns (collected, reason). A trace that never arrives is
         infra_incomplete for the trace-dependent layers only -- never a fail
         (SS7). The case's other layers still score.
         """
+        if self.trace_state.get("source") == RESPONSE_TRACE_SOURCE:
+            return self.trace_from_response(case_dir, trace_id, body)
         location = self.trace_state.get("location")
         if not trace_id:
             return False, ("no trace id (a non-empty string) on the "
@@ -1989,6 +2080,34 @@ class Runner:
         except OSError as exc:
             return False, f"cannot read trace store: {exc}"
         atomic_write(os.path.join(case_dir, "trace.json"), spans)
+        return True, None
+
+    def trace_from_response(self, case_dir, trace_id, body):
+        """traces.source: response. The tool calls the response itself
+        carries, written as the gen_ai spans normalize_trace.py reads.
+
+        Only a response that is whole can say which tools were NOT called:
+        a stream that stopped early or reported a run error has an
+        incomplete list, and an empty list from it would read as "the agent
+        called nothing". Both are infra_incomplete, like a trace that never
+        arrived.
+        """
+        path = self.trace_state["tool_calls_path"]
+        if not isinstance(body, dict):
+            return False, "the response body is not a JSON object"
+        gap = stream_gap(body)
+        if gap:
+            return False, f"{gap}, so its tool-call list may be incomplete"
+        calls = dotted_get(body, path)
+        if not isinstance(calls, list):
+            return False, f"no tool-call list at traces.tool_calls_path {path!r}"
+        if not all(isinstance(call, dict) for call in calls):
+            return False, (f"an entry at traces.tool_calls_path {path!r} "
+                           "is not an object")
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) \
+            else None
+        atomic_write_json(os.path.join(case_dir, "trace.json"),
+                          _sse.tool_calls_to_otlp(calls, trace_id, usage))
         return True, None
 
     # -- SS7. The serial execute loop -------------------------------------
@@ -2112,7 +2231,8 @@ class Runner:
                 else:
                     result = send_http(self.url, self.method, headers, body,
                                        self.timeout(),
-                                       self.execution["insecure_tls"])
+                                       self.execution["insecure_tls"],
+                                       self.sse)
             except TransportError as exc:
                 result, error = None, exc.message
                 crashed = crashed or exc.kind == "connection"
@@ -2163,7 +2283,7 @@ class Runner:
         if self.entrypoint is not None:
             return send_function(self.entrypoint, body)
         return send_http(self.url, self.method, headers, body, self.timeout(),
-                         self.execution["insecure_tls"])
+                         self.execution["insecure_tls"], self.sse)
 
     def read_session(self, result):
         """A server-id app's session id, off turn 1's response, or None.
@@ -2227,7 +2347,8 @@ class Runner:
         if record["error"] is None and self.trace_state["collected"] \
                 and not shared:
             trace_collected, trace_reason = self.collect_trace(
-                scratch, record["response"]["trace_id"])
+                scratch, record["response"]["trace_id"],
+                record["response"]["body"])
         layers = self.score_layers(turn_case, record, None, scratch,
                                    expect_path, trace_collected, trace_reason)
         scored = {"turn": turn, "record": record, "scratch": scratch,
@@ -2557,7 +2678,8 @@ class Runner:
         trace_collected, trace_reason = False, None
         if not skip and self.trace_state["collected"]:
             trace_collected, trace_reason = self.collect_trace(
-                scratch, record["response"]["trace_id"])
+                scratch, record["response"]["trace_id"],
+                record["response"]["body"])
         layers = self.score_layers(case, record, skip, scratch, expect_path,
                                    trace_collected, trace_reason)
         return {"n": record["response"]["repeat"], "record": record,
@@ -2861,9 +2983,13 @@ class Runner:
             if record["response"]["answer"] is None:
                 # The response carried nothing at the declared <answer> path.
                 # Scoring the empty string against must_contain would report a
-                # content failure for what is an extraction gap.
+                # content failure for what is an extraction gap. A stream
+                # that failed or stopped early says which (_sse keeps what did
+                # arrive as partial_text in response.json).
+                gap = stream_gap(record["response"]["body"])
                 layers["answer"] = unscored(
                     "answer",
+                    f"{gap}; no answer to score" if gap else
                     "the response carried no value at the adapter's declared "
                     "<answer> path; nothing to score")
             else:

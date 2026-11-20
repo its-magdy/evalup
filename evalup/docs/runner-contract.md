@@ -218,6 +218,21 @@ beyond the health check.
    would be a lie about the state of the world. The callable owns its own
    timeout; `manifest.invocation.timeout_enforced` records `false` so no reader
    has to infer it.
+2b. **`invocation.response_format`**: `json` (default) or `sse`, http mode
+   only. With `sse`, `invocation.sse.protocol` is `ag-ui` or `data-path`
+   (which needs `text_path`, the dotted path of the text delta in each frame,
+   and takes an optional `done` sentinel such as `[DONE]`). A `sse` block
+   without `response_format: sse`, the reverse, an unknown key, or `sse` in
+   function mode is exit 3. At run time a `text/event-stream` reply is decoded
+   by `scripts/_sse.py` into the body
+   `{text, partial_text, tool_calls, error, finished, interrupted, usage, sse}`
+   (`tool_calls` for `ag-ui` only: `{id, name, arguments, result}`, arguments
+   joined from their deltas). `response_body` marks the answer in that body,
+   usually `{"text": "<answer>"}`. Any other content type parses as JSON exactly
+   as without the block, so an app's JSON 4xx still reaches the `http` layer.
+   `text` is null unless the run finished without an error (`RUN_FINISHED` for
+   AG-UI, the `done` sentinel or EOF for `data-path`). The manifest records
+   `invocation.response_format` and `invocation.sse`.
 3. **Health check**: one trivial request through the adapter. With no declared
    `invocation.health_check`, this is a `GET` of `base_url` and **any** response
    counts as reachable — including a 404. The question here is "is the host
@@ -241,6 +256,15 @@ beyond the health check.
      verification needs a real app call to join *on*, so it requires a declared
      `invocation.health_check`; without one the runner exits 3 asking for it
      rather than recording an unverified join as verified.
+   - `source: response` → tool calls are read off each response (an `sse`
+     body's `tool_calls`, or the list at `traces.tool_calls_path`, default
+     `tool_calls`) and written as `gen_ai` spans to the case's `trace.json`,
+     which `normalize_trace.py` reads as usual. No location, correlation,
+     convention or health-check join applies: each response is its own
+     trace, so the trace id is minted per response. A stream that reported a
+     run error or ended before its terminal event, or a body with no list at
+     the path, is `infra_incomplete` for the trace layers — an incomplete list
+     must never read as "called nothing".
    - `source: view-only|none`, **or** `correlation: none`, **or**
      `convention != gen_ai` with no `mapping_shim` → **trace-less mode** for the
      whole run. Record `traces.collected: false` plus `disabled_layers` in the
@@ -337,6 +361,10 @@ Four rules make that mechanical:
 carries no value at the adapter's declared `<answer>` path, `score_answer.py`
 is not invoked: scoring the empty string against `must_contain` would report a
 content failure for what is an extraction gap.
+An SSE answer (`invocation.response_format: sse`, decoded by `scripts/_sse.py`)
+is present only when its run finished without an error; a stream that reported
+a run error or stopped before its terminal event is `unscored` with that
+reason, and its partial text stays in `response.json` as `partial_text`.
 
 **`authz` grades the tool-call log, never the chat text.** `answer.txt` is
 passed only as secondary evidence of a forbidden id leaking into the prose; it

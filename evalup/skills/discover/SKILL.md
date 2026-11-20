@@ -131,6 +131,9 @@ conversation/session handling, OTel setup. Record as you go:
   runner cannot read it — no adapter field declares one — but it is how a
   person checks per-route or per-tool behaviour on a trace-less app, and it
   changes what the capability statement should say is one join away.
+- **How the answer comes back.** A streaming route (`text/event-stream`, an
+  AG-UI helper) → `invocation.response_format: sse` + `sse.protocol`; tool
+  calls in the stream or body → `traces.source: response` (adapter-contract.md).
 - **How the app keeps a conversation** → `invocation.conversation` (not the
   legacy `session:` block; adapter-contract.md has the shape). Record the
   `style` (`client-id`, `server-id` or `cookie`); for `server-id`, where turn 1's

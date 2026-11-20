@@ -6,7 +6,9 @@ Every testing mode — static cases, trace mining, policy
 rules — produces or scores the same thing: a structured record of what the
 app did (route chosen, tools called with which arguments, what they returned,
 what was answered). OTel GenAI spans feed it, read from an OTLP file export
-(`traces.source: otlp-file`; a Jaeger or Tempo backend alone is not queried
+(`traces.source: otlp-file`), or the tool calls the response itself carries
+(`traces.source: response`: an AG-UI stream's tool-call events, or a list in
+the JSON body; a Jaeger or Tempo backend alone is not queried
 in v1 — the adapter contract's `traces:` block); `normalize_trace.py` converts
 spans to the internal form and refuses to score transport-lossy traces —
 missing spans or orphaned parents (`INFRA_INCOMPLETE`) — because a partial

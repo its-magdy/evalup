@@ -162,19 +162,21 @@ invocation:
   # NO `session` block (an old adapters/dotnet.md shape): a block must never
   # turn on a driver by accident (hard rule 3). The runner reads
   # `conversation` only, checked at pre-flight (exit 3).
-  # NO streaming field: completion is EOF (http) or return (function), and
-  # no TTFT is recorded anywhere. If the app answers ONLY over SSE,
-  # the runner reads the raw event-stream text as the body, so point the
-  # adapter at a non-streaming route or expect answer extraction to fail
-  # `unscored`. Wall-clock `latency_s` IS recorded per case; TTFT is not.
+  response_format: json        # | sse: a text/event-stream reply becomes {text,
+  # tool_calls, error, finished, usage}; mark '{"text": "<answer>"}'. A failed
+  # stream is `unscored`. runner-contract.md §4 item 2b.
+  # sse: {protocol: ag-ui}       # | {protocol: data-path, text_path: a.b, done: "[DONE]"}
   timeout_s: 60
   max_concurrency: 1           # serial. > 1 is REFUSED (exit 2), never
                                # silently serialized.
 
 traces:
-  source: otlp-file | view-only | none   # jaeger | tempo | clickhouse are reserved:
+  source: otlp-file | response | view-only | none   # jaeger | tempo | clickhouse are reserved:
                                          # runner v1 refuses them (exit 3) rather than
                                          # silently scoring trace-less
+  # response: tool calls read off the response (an sse body's tool_calls, or
+  # a JSON list at `tool_calls_path`, default tool_calls) -- no location,
+  # correlation or join. runner-contract.md §4 item 4.
   # view-only: traces exist but the runner cannot read them (a human
   # dashboard, or a store the runner has no client for -- see
   # docs/traces-jaeger.md). Treated as trace-less for scoring; discover records

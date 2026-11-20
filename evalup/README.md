@@ -38,9 +38,13 @@ it without Claude.
   `PATH` if pip refuses (Homebrew Python). Running the scripts by hand,
   `uv run --with pyyaml python …` needs no install. Everything else imports
   only the stdlib.
-- **An app you can call**: an HTTP endpoint that returns one JSON body, or a
-  Python `module:callable`.
-- **Optional:** OpenTelemetry GenAI traces, exported to a file
+- **An app you can call**: an HTTP endpoint that returns one JSON body or a
+  server-sent event stream (AG-UI, or any JSON-frame stream with a declared
+  text path: `invocation.response_format: sse`), or a Python
+  `module:callable`.
+- **Optional:** tool calls the response itself carries — an AG-UI stream's
+  tool-call events, or a list in the JSON body (`traces.source: response`,
+  no collector needed) — or OpenTelemetry GenAI traces exported to a file
   (`traces.source: otlp-file` — an OTLP collector's file exporter). A Jaeger
   or Tempo backend alone is not read in v1: you put a collector with a file
   exporter in front of it (the fan-out recipe is in `docs/traces-jaeger.md`)
@@ -320,7 +324,9 @@ versions. Diffs between incomparable runs are refused.
   otherwise. Not built: a simulated user, client-sent history, pre-written
   assistant turns, and whole-conversation end-state checks
   (`docs/multi-turn.md` §9). A suite made only of skipped cases closes the
-  gate. Streaming (SSE), WebSocket and CLI apps are not driven.
+  gate. WebSocket and CLI apps are not driven; streaming (SSE) answers are
+  read (`invocation.response_format: sse`), but no time-to-first-token is
+  recorded.
   Phase 1 has passed its tests but has not yet been run against a live app.
 - **Conversations are slow and look worse.** Every turn waits for trace
   quiescence (3 s or more when traces are collected) plus any `turn_delay_s`.
@@ -354,13 +360,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 993 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 1017 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-983 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
+1007 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.

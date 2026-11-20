@@ -1,0 +1,449 @@
+"""SSE answers (#39): scripts/_sse.py on its own, then through the runner.
+
+The AG-UI frames below follow @ag-ui/core 1.x's event schemas (field names
+toolCallId, toolCallName, delta, messageId; RUN_ERROR's message/code;
+RUN_FINISHED's usage list), checked against the published package on
+2026-11-20 -- the wire format of the first live-proof app (#27).
+"""
+import http.server
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from test_run_cases import (  # noqa: E402 - the shared fixtures
+    SCRIPTS,
+    RunnerCase,
+    make_case,
+    make_plan,
+)
+
+sys.path.insert(0, str(SCRIPTS))
+import _sse  # noqa: E402
+
+AG_UI = {"protocol": "ag-ui"}
+
+
+def stream(*events, terminate=True):
+    """An event-stream body, one `data:` frame per event."""
+    text = "".join(f"data: {json.dumps(e)}\n\n" for e in events)
+    return text if terminate else text.rstrip("\n")
+
+
+def text_message(mid, *deltas):
+    return ([{"type": "TEXT_MESSAGE_START", "messageId": mid,
+              "role": "assistant"}]
+            + [{"type": "TEXT_MESSAGE_CONTENT", "messageId": mid,
+                "delta": d} for d in deltas]
+            + [{"type": "TEXT_MESSAGE_END", "messageId": mid}])
+
+
+def tool_call(cid, name, *arg_deltas, result=None):
+    events = [{"type": "TOOL_CALL_START", "toolCallId": cid,
+               "toolCallName": name}]
+    events += [{"type": "TOOL_CALL_ARGS", "toolCallId": cid, "delta": d}
+               for d in arg_deltas]
+    events.append({"type": "TOOL_CALL_END", "toolCallId": cid})
+    if result is not None:
+        events.append({"type": "TOOL_CALL_RESULT", "messageId": "r-" + cid,
+                       "toolCallId": cid, "content": result})
+    return events
+
+
+STARTED = {"type": "RUN_STARTED", "threadId": "t", "runId": "r"}
+FINISHED = {"type": "RUN_FINISHED", "threadId": "t", "runId": "r"}
+
+
+def agent_run(*parts, end=FINISHED):
+    events = [STARTED]
+    for part in parts:
+        events += part
+    if end is not None:
+        events.append(end)
+    return stream(*events)
+
+
+class TestFrames(unittest.TestCase):
+    def test_line_endings_multiline_data_and_comments(self):
+        body = ": keep-alive\r\ndata: one\r\ndata: two\r\n\r\n" \
+               "event: x\ndata:three\n\n\rdata: four"
+        self.assertEqual(_sse.frames(body), ["one\ntwo", "three", "four"])
+
+    def test_an_event_with_no_data_dispatches_nothing(self):
+        self.assertEqual(_sse.frames("event: ping\n\nid: 3\n\n"), [])
+
+
+class TestAgUi(unittest.TestCase):
+    def test_text_and_tool_calls_are_joined_in_order(self):
+        body = _sse.decode(agent_run(
+            text_message("m1", "Let me ", "look."),
+            tool_call("c1", "find_person", '{"name":', '"Nour"}',
+                      result='[{"id": 1}]'),
+            tool_call("c2", "get_seats", "{}"),
+            text_message("m2", "Two ", "people."),
+            end=dict(FINISHED, usage=[{"inputTokens": 100, "outputTokens": 9},
+                                      {"inputTokens": 50, "outputTokens": 1}]),
+        ), AG_UI)
+        self.assertEqual(body["text"], "Let me look.\n\nTwo people.")
+        self.assertIsNone(body["partial_text"])
+        self.assertEqual(body["tool_calls"], [
+            {"id": "c1", "name": "find_person",
+             "arguments": '{"name":"Nour"}', "result": '[{"id": 1}]'},
+            {"id": "c2", "name": "get_seats", "arguments": "{}",
+             "result": None}])
+        self.assertEqual(body["usage"],
+                         {"input_tokens": 150, "output_tokens": 10})
+        self.assertTrue(body["finished"])
+        self.assertFalse(body["interrupted"])
+        self.assertIsNone(body["error"])
+
+    def test_a_run_error_leaves_no_answer_but_keeps_what_arrived(self):
+        body = _sse.decode(agent_run(
+            text_message("m1", "Half an ans"),
+            end={"type": "RUN_ERROR", "message": "stopped",
+                 "code": "budget_reached"}), AG_UI)
+        self.assertIsNone(body["text"])
+        self.assertEqual(body["partial_text"], "Half an ans")
+        self.assertEqual(body["error"], {"message": "stopped",
+                                         "code": "budget_reached"})
+
+    def test_a_stream_without_its_terminal_event_is_not_finished(self):
+        body = _sse.decode(agent_run(text_message("m1", "cut"), end=None),
+                           AG_UI)
+        self.assertFalse(body["finished"])
+        self.assertIsNone(body["text"])
+        self.assertEqual(body["partial_text"], "cut")
+
+    def test_an_interrupt_still_finishes_the_run(self):
+        body = _sse.decode(agent_run(
+            text_message("m1", "Here is the change."),
+            tool_call("c1", "apply_changes", "{}"),
+            end=dict(FINISHED, outcome={"type": "interrupt",
+                                        "interrupts": []})), AG_UI)
+        self.assertTrue(body["finished"])
+        self.assertTrue(body["interrupted"])
+        self.assertEqual(body["text"], "Here is the change.")
+
+    def test_chunk_events_continue_the_last_message_and_call(self):
+        body = _sse.decode(agent_run([
+            {"type": "TEXT_MESSAGE_CHUNK", "messageId": "m1", "delta": "a"},
+            {"type": "TEXT_MESSAGE_CHUNK", "delta": "b"},
+            {"type": "TOOL_CALL_CHUNK", "toolCallId": "c1",
+             "toolCallName": "t", "delta": '{"x"'},
+            {"type": "TOOL_CALL_CHUNK", "delta": ": 1}"},
+        ]), AG_UI)
+        self.assertEqual(body["text"], "ab")
+        self.assertEqual(body["tool_calls"][0]["arguments"], '{"x": 1}')
+
+    def test_a_finished_run_with_no_text_has_no_answer(self):
+        body = _sse.decode(agent_run(tool_call("c1", "t", "{}")), AG_UI)
+        self.assertIsNone(body["text"])
+        self.assertEqual(len(body["tool_calls"]), 1)
+
+    def test_bad_frames_are_counted_not_fatal(self):
+        body = _sse.decode("data: not json\n\n" + agent_run(
+            text_message("m1", "ok")), AG_UI)
+        self.assertEqual(body["sse"]["bad_frames"], 1)
+        self.assertEqual(body["text"], "ok")
+
+
+class TestDataPath(unittest.TestCase):
+    CONFIG = {"protocol": "data-path", "text_path": "choices.0.delta.content",
+              "done": "[DONE]"}
+
+    def frames(self, *deltas, done=True):
+        text = "".join("data: " + json.dumps(
+            {"choices": [{"delta": {"content": d}}]}) + "\n\n" for d in deltas)
+        return text + ("data: [DONE]\n\n" if done else "")
+
+    def test_deltas_join_until_the_sentinel(self):
+        body = _sse.decode(self.frames("Hel", "lo"), self.CONFIG)
+        self.assertEqual((body["text"], body["finished"]), ("Hello", True))
+        self.assertNotIn("tool_calls", body)
+
+    def test_no_sentinel_means_not_finished(self):
+        body = _sse.decode(self.frames("Hel", done=False), self.CONFIG)
+        self.assertEqual((body["text"], body["partial_text"]), (None, "Hel"))
+
+    def test_without_a_declared_sentinel_eof_ends_the_stream(self):
+        config = dict(self.CONFIG)
+        del config["done"]
+        body = _sse.decode(self.frames("Hi", done=False), config)
+        self.assertEqual(body["text"], "Hi")
+
+
+class TestConfig(unittest.TestCase):
+    def test_sound_blocks(self):
+        self.assertEqual(_sse.check_config({"protocol": "ag-ui"}), [])
+        self.assertEqual(_sse.check_config(
+            {"protocol": "data-path", "text_path": "a.b"}), [])
+
+    def test_defects(self):
+        cases = [
+            ("not a mapping", "mapping"),
+            ({"protocol": "sse"}, "protocol must be one of"),
+            ({"protocol": "ag-ui", "colour": 1}, "unknown key"),
+            ({"protocol": "data-path"}, "needs text_path"),
+            ({"protocol": "ag-ui", "text_path": "a"}, "belong(s) to"),
+            ({"protocol": "data-path", "text_path": "a", "done": 1},
+             "must be a string"),
+        ]
+        for block, needle in cases:
+            with self.subTest(block=block):
+                self.assertIn(needle, "; ".join(_sse.check_config(block)))
+
+
+class TestSpans(unittest.TestCase):
+    def test_normalize_trace_reads_the_spans_in_response_order(self):
+        calls = [{"id": "c1", "name": "b_tool", "arguments": '{"k": 1}',
+                  "result": "r"},
+                 {"id": "c2", "name": "a_tool", "arguments": {"k": 2},
+                  "result": None}]
+        doc = _sse.tool_calls_to_otlp(calls, "ab" * 16,
+                                      {"input_tokens": 5, "output_tokens": 2})
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = tmp / "trace.json"
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "normalize_trace.py"), str(path),
+             "--trace-id", "ab" * 16], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["status"], "ok")
+        tools = out["trajectory"]["tool_calls"]
+        self.assertEqual([t["name"] for t in tools], ["b_tool", "a_tool"])
+        self.assertEqual([t["args"] for t in tools], [{"k": 1}, {"k": 2}])
+        self.assertEqual(out["trajectory"]["usage"],
+                         {"input_tokens": 5, "output_tokens": 2})
+        # No invented timing: every duration is unknown.
+        self.assertIsNone(tools[0]["duration_ms"])
+
+
+# -- through the runner ---------------------------------------------------
+
+class _RawHandler(http.server.BaseHTTPRequestHandler):
+    def _serve(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        self.server.calls.append(json.loads(raw) if raw else {})
+        status, content_type, text = self.server.responder(self.path)
+        data = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    do_GET = _serve
+    do_POST = _serve
+
+    def log_message(self, *args):
+        pass
+
+
+class RawApp:
+    def __init__(self, responder):
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
+                                                      _RawHandler)
+        self.server.responder = responder
+        self.server.calls = []
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={"poll_interval": 0.01},
+                                       daemon=True)
+        self.thread.start()
+
+    @property
+    def base_url(self):
+        host, port = self.server.server_address[:2]
+        return f"http://{host}:{port}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+EVENT_STREAM = "text/event-stream; charset=utf-8"
+
+
+class SSERunnerCase(RunnerCase):
+    """RunnerCase with an app that answers raw bodies."""
+
+    body = agent_run(text_message("m1", "ok, ", "done"),
+                     tool_call("c1", "list_invoices", '{"unit_id": "U-1"}',
+                               result='{"n": 7}'))
+    status = 200
+    content_type = EVENT_STREAM
+
+    def setUp(self):
+        super().setUp()
+        self.raw = RawApp(lambda path: (self.status, self.content_type,
+                                        self.body))
+        self.addCleanup(self.raw.close)
+
+    def sse_plan(self, cases=None, traces=True):
+        plan = make_plan(self.state, self.raw.base_url,
+                         cases=cases or [make_case("c-0001")])
+        invocation = plan["adapter"]["invocation"]
+        invocation["response_format"] = "sse"
+        invocation["sse"] = {"protocol": "ag-ui"}
+        invocation["response_body"] = '{"text": "<answer>"}'
+        if traces:
+            plan["adapter"]["traces"] = {"source": "response"}
+            plan["capability_matrix"] = {
+                "routing": {"enabled": True},
+                "trajectory": {"enabled": True},
+                "tool_selection": {"enabled": True}}
+        return plan
+
+
+class TestRunnerReadsStreams(SSERunnerCase):
+    def test_the_answer_is_the_joined_text(self):
+        rc, _, proc = self.invoke(self.sse_plan(traces=False))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["answer"]["verdict"], "pass")
+        response = self.read("cases", "c-0001", "response.json")
+        self.assertEqual(response["answer"], "ok, done")
+        self.assertEqual(response["body"]["sse"]["protocol"], "ag-ui")
+        manifest = self.read("manifest.yaml")
+        self.assertEqual(manifest["invocation"]["response_format"], "sse")
+        self.assertEqual(manifest["invocation"]["sse"], {"protocol": "ag-ui"})
+
+    def test_tool_calls_from_the_stream_feed_the_trace_layers(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        case["expect"]["args"] = {"list_invoices": {"unit_id": "U-1"}}
+        case["expect"]["authz"] = {"forbidden_tools": ["delete_invoice"]}
+        rc, _, proc = self.invoke(self.sse_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        for name in ("trajectory", "tool_selection", "loops", "authz"):
+            self.assertEqual(layers[name]["verdict"], "pass", name)
+        trajectory = self.read("cases", "c-0001", "trajectory.json")
+        self.assertEqual(trajectory["status"], "ok")
+        self.assertEqual(trajectory["trajectory"]["tool_calls"][0]["args"],
+                         {"unit_id": "U-1"})
+        manifest = self.read("manifest.yaml")
+        self.assertEqual(manifest["traces"]["source"], "response")
+        self.assertTrue(manifest["traces"]["collected"])
+
+    def test_a_wrong_tool_is_a_fail(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["get_rooms"]}
+        rc, _, proc = self.invoke(self.sse_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        self.assertEqual(layers["trajectory"]["verdict"], "fail")
+
+    def test_an_expected_route_is_never_failed_on_a_nameless_agent(self):
+        """The spans name no agent, so a route assertion has no observed
+        route from the trace -- that must not read as the wrong route."""
+        case = make_case("c-0001")
+        case["expect"]["route"] = "billing"
+        rc, _, proc = self.invoke(self.sse_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-0001", "verdict.json")["layers"]["routing"]
+        self.assertNotEqual(layer["verdict"], "fail", layer)
+
+
+class TestRunError(SSERunnerCase):
+    body = agent_run(text_message("m1", "ok, half"),
+                     tool_call("c1", "list_invoices", "{}"),
+                     end={"type": "RUN_ERROR", "message": "x",
+                          "code": "assistant_unavailable"})
+
+    def test_no_answer_fail_and_no_trajectory_from_a_failed_run(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        rc, _, proc = self.invoke(self.sse_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        self.assertEqual(layers["answer"]["verdict"], "unscored")
+        self.assertIn("run error (assistant_unavailable)",
+                      layers["answer"]["reason"])
+        self.assertEqual(layers["trajectory"]["verdict"], "infra_incomplete")
+        self.assertIn("assistant_unavailable", layers["trajectory"]["reason"])
+        body = self.read("cases", "c-0001", "response.json")["body"]
+        self.assertEqual(body["partial_text"], "ok, half")
+
+
+class TestJsonErrorUnderSse(SSERunnerCase):
+    status = 403
+    content_type = "application/json"
+    body = json.dumps({"error": "editors_only"})
+
+    def test_a_json_error_parses_as_json(self):
+        case = make_case("c-0001", expect={"http": {"status": 403}})
+        rc, _, proc = self.invoke(self.sse_plan([case]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        response = self.read("cases", "c-0001", "response.json")
+        self.assertEqual(response["body"], {"error": "editors_only"})
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["layers"]["http"]["verdict"], "pass")
+
+
+class TestJsonToolCalls(SSERunnerCase):
+    """traces.source: response on a plain JSON body (#39 option 1)."""
+
+    content_type = "application/json"
+    body = json.dumps({"reply": "ok", "debug": {"calls": [
+        {"name": "list_invoices", "arguments": {"unit_id": "U-1"}}]}})
+
+    def test_a_declared_list_in_a_json_body(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        plan = self.sse_plan([case])
+        invocation = plan["adapter"]["invocation"]
+        del invocation["response_format"], invocation["sse"]
+        invocation["response_body"] = '{"reply": "<answer>"}'
+        plan["adapter"]["traces"] = {"source": "response",
+                                     "tool_calls_path": "debug.calls"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        self.assertEqual(layers["trajectory"]["verdict"], "pass")
+        self.assertEqual(layers["answer"]["verdict"], "pass")
+
+    def test_a_missing_list_is_infra_incomplete(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["list_invoices"]}
+        plan = self.sse_plan([case])
+        invocation = plan["adapter"]["invocation"]
+        del invocation["response_format"], invocation["sse"]
+        invocation["response_body"] = '{"reply": "<answer>"}'
+        plan["adapter"]["traces"] = {"source": "response",
+                                     "tool_calls_path": "nowhere"}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layer = self.read("cases", "c-0001",
+                          "verdict.json")["layers"]["trajectory"]
+        self.assertEqual(layer["verdict"], "infra_incomplete")
+        self.assertIn("nowhere", layer["reason"])
+
+
+class TestPreflight(SSERunnerCase):
+    def refused(self, mutate):
+        plan = self.sse_plan(traces=False)
+        mutate(plan["adapter"]["invocation"])
+        rc, payload, proc = self.invoke(plan)
+        self.assertEqual(rc, 3, proc.stdout + proc.stderr)
+        self.assertEqual(self.raw.server.calls, [])
+        return payload["error"]
+
+    def test_half_declared_and_malformed_blocks_exit_3(self):
+        self.assertIn("response_format is not sse", self.refused(
+            lambda inv: inv.pop("response_format")))
+        self.assertIn("must be json or sse", self.refused(
+            lambda inv: inv.update(response_format="ndjson")))
+        self.assertIn("protocol must be one of", self.refused(
+            lambda inv: inv.update(sse={"protocol": "openai"})))
+
+
+if __name__ == "__main__":
+    unittest.main()

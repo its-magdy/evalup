@@ -1341,10 +1341,13 @@ def check_adapter(rep, cases, records, adapter):
     # (SS4.4): an unqueryable source, no declared correlation, or a foreign
     # convention with no mapping_shim. The field-test adapter was
     # `otlp-file` WITH `correlation: none`, which is trace-less.
-    traceless = (traces.get("source") not in TRACE_ROUTE_SOURCES
-                 or traces.get("correlation") in (None, "none")
-                 or (traces.get("convention") != "gen_ai"
-                     and not traces.get("mapping_shim")))
+    # `response` (tool calls read off the response) needs neither a
+    # correlation nor a convention: run_cases builds gen_ai spans itself.
+    traceless = traces.get("source") != "response" and (
+        traces.get("source") not in TRACE_ROUTE_SOURCES
+        or traces.get("correlation") in (None, "none")
+        or (traces.get("convention") != "gen_ai"
+            and not traces.get("mapping_shim")))
     status_only = (isinstance(status_map, dict) and bool(status_map)
                    and not is_nonempty_str(invocation.get("route_from_response"))
                    and traceless)

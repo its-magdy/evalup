@@ -821,6 +821,35 @@ exactly as before, and no scorer was rewritten. Spec: `docs/multi-turn.md`.
   so. `analyze`'s revalidation passes `--profile`, so an old profile gets
   its migration warning there too.
 
+### Added — reach: streamed answers and tool calls from the response (2026-11-20)
+
+From the first live-proof app (#27): a TypeScript/Cloudflare app whose agent
+answers only over SSE in the AG-UI protocol and, by its own design decision
+(a log budget and no personal data to third parties), emits no OTel. Before
+this, every answer from it was `unscored` and every tool layer dark (#39).
+
+- **`invocation.response_format: sse`** with `invocation.sse.protocol:
+  ag-ui | data-path`. `scripts/_sse.py` (stdlib) decodes a
+  `text/event-stream` reply into a JSON-shaped body — `text`, `tool_calls`
+  with streamed arguments joined, `error`, `finished`, `interrupted`, token
+  `usage`, `partial_text` — and `response_body` marks the answer in it, so
+  everything downstream reads one more JSON body. A non-stream reply (a 403's
+  JSON error) parses as before. `data-path` covers other JSON-frame streams
+  with a declared text path and optional `[DONE]` sentinel. Half a
+  declaration, or `sse` in function mode, is exit 3.
+- **`traces.source: response`**: tool calls read off the response itself —
+  the stream's `tool_calls`, or a list in a JSON body at
+  `traces.tool_calls_path` (#39 option 1) — written as `gen_ai` spans that
+  `normalize_trace.py` reads like any trace. No collector, correlation,
+  health-check join or quiescence wait. Durations are null (none is
+  measured); token usage comes from the stream when it reports any.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1). A stream that
+  reported a run error or stopped before its terminal event has no answer —
+  `unscored`, with that reason, as any missing answer already was — and is
+  `infra_incomplete` for the trace layers, as a trace that never arrived
+  already was: an incomplete tool list must never read as "called nothing".
+  The manifest records `invocation.response_format` and `sse`.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
