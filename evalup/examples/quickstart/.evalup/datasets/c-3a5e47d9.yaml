@@ -26,4 +26,5 @@ expect:
     scalar: 0
   answer:
     must_contain: ["no surgeons"]
+    must_not_contain: ['/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
 gating: true

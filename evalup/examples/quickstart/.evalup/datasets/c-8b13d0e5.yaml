@@ -24,4 +24,5 @@ expect:
     reference_query: "SELECT count(*) FROM roster WHERE role='nurse' AND shift='night'"
   answer:
     must_contain: ["7"]
+    must_not_contain: ['/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
 gating: true

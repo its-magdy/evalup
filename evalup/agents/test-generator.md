@@ -105,8 +105,9 @@ Rules:
    rule as a `must_not_contain` regex (an answer-wide one goes on EVERY case
    you write, not one), a reply language as `must_contain` on words of that
    language with the message written in it, "one answer per candidate plus a
-   question" as `must_contain` on each candidate and `'/\?/'`, "call X
-   (twice) before saying not found" as `expect.tools`, a stated count as
+   question" as `must_contain` on each candidate and `'/\?/'`, "look X up
+   twice before saying not found" as `expect.tools.subset` listing X twice
+   (it is duplicate-aware), a stated count as
    `expect.result` from the oracle. Name the rule id in the case's `notes`.
    A rule with no such check (judge-only, or its layer disabled) gets no
    case: report it, with the reason, as uncovered.

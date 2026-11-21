@@ -48,6 +48,14 @@ business_rules:
   - id: grounded-only
     rule: "Never state a figure not present in a tool result."
     source: "app fixture, answer templates"
+  - id: plain-text
+    rule: "Reply in plain text: no Markdown, no bullet or numbered lines."
+    source: "app fixture, SYSTEM_PROMPT"
+    # The one rule here with a deterministic symptom, so every case carries
+    # its check: a must_not_contain regex on bullet, numbered and heading
+    # lines and on bold. An answer-wide rule goes on every case, never one.
+    # read-only is checked by c-6c1f82ab's strings; grounded-only needs a
+    # judge (the figure must match a tool result), so no case checks it.
 
 routing_contract:
   - route: invoices

@@ -51,6 +51,9 @@ VALIDATOR = ROOT / "scripts" / "validate_cases.py"
 
 RUN_ID = "smoke-20260910T120000Z"
 
+# profile.yaml's `plain-text` rule as the check every case carries.
+PLAIN_TEXT = r"/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/"
+
 # The tree listing the example ships, normalized: the run id is a timestamp, so
 # the committed file names it as a placeholder rather than pinning a date that
 # only one run could ever have.
@@ -64,6 +67,14 @@ TREE_FILE = EXAMPLE / "expected-run-tree.txt"
 # test_scorers.py's JSON_CLI_SCRIPTS, and it is none of those things: it is a
 # target, not part of the harness. Keeping it in tests/ also puts it inside
 # all_sources(), so the 3.9 floor guard covers it like every other module.
+
+# The app's system prompt, as discover would find it. The fixture is
+# rule-based, so nothing reads it: it is the cited source of profile.yaml's
+# `plain-text` rule, the way a real prompt's rule is cited (issue #52), and
+# every answer below obeys it.
+SYSTEM_PROMPT = ("You answer questions about invoices and shifts, and you are "
+                 "read-only. Reply in plain text: no Markdown, and never start "
+                 "a line with -, *, a bullet or a number.")
 
 ANSWERS = [
     # (matcher, status, domain, answer, data)
@@ -115,7 +126,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if pattern.search(message):
                 status, domain, answer, data = st, dom, text, payload
                 break
-        self._send(status, {"message": answer, "domain": domain,
+        self._send(status, {"message": self.server.render(answer),
+                            "domain": domain,
                             "data": data})
 
 
@@ -124,10 +136,13 @@ class HelpdeskApp:
     whose expected answers depend on a model is an example that fails for
     reasons that have nothing to do with the harness."""
 
-    def __init__(self):
+    def __init__(self, render=None):
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
                                                       _Handler)
         self.server.seen = []
+        # A hook on the answer text, so a test can make the app break a
+        # rule it otherwise keeps (the bulleted answer of issue #52).
+        self.server.render = render or (lambda text: text)
         # poll_interval: shutdown() waits for serve_forever's next poll,
         # 0.5 s by default -- paid by every test that closes a stub.
         self.thread = threading.Thread(target=self.server.serve_forever,
@@ -225,6 +240,20 @@ class ExampleCase(unittest.TestCase):
 
 class TestCommittedInputsConform(unittest.TestCase):
     """The half that can rot. Each of these is the check that notices."""
+
+    def test_the_answer_wide_rule_is_checked_on_every_case(self):
+        """generate/SKILL.md SS1's rules row: an answer-wide formatting rule
+        goes on every case, not one, and with the regex the skill names --
+        so the pattern a user copies is the one this example proves."""
+        skill = (ROOT / "skills" / "generate" / "SKILL.md").read_text(
+            encoding="utf-8")
+        self.assertIn("`'" + PLAIN_TEXT + "'`", skill)
+        profile = (STATE / "profile.yaml").read_text(encoding="utf-8")
+        self.assertIn("- id: plain-text", profile)
+        for case in load_converted()["cases"]:
+            with self.subTest(case=case["id"]):
+                self.assertIn(PLAIN_TEXT,
+                              case["expect"]["answer"]["must_not_contain"])
 
     def test_the_suite_is_clean_under_strict(self):
         """Not "zero errors" -- zero FINDINGS. The example is the one suite in
@@ -514,6 +543,30 @@ class TestTheExampleRuns(ExampleCase):
         verdict = self.read("cases", "c-4f2a91c7", "verdict.json")
         judged = verdict["layers"].get("judged")
         self.assertNotIn(judged.get("verdict"), ("pass", "fail"))
+
+    def test_a_bulleted_answer_fails_the_plain_text_rule_on_every_case(self):
+        """Issue #52's acceptance check. The prompt plants a plain-text rule
+        and profile.yaml records it; generate puts its check on every case,
+        because it binds every answer. The same app, answering the same
+        facts as a bulleted list, must fail every case, and on that check
+        alone: every other check still passes, so nothing else explains it.
+        Before #52 a bulleted answer passed, because no case checked it."""
+        self.app.server.render = lambda text: "Here you go:\n- " + text
+        self.invoke(self.build_plan())
+        summary = self.read("results.json")["summary"]
+        self.assertEqual((summary["n"], summary["failures"]), (6, 6))
+        for case in self.converted["cases"]:
+            with self.subTest(case=case["id"]):
+                layers = self.read("cases", case["id"],
+                                   "verdict.json")["layers"]
+                self.assertEqual(layers["answer"]["verdict"], "fail")
+                failed = [c["entry"] for c in layers["answer"]["checks"]
+                          if c["status"] != "pass"]
+                self.assertEqual(failed, [PLAIN_TEXT])
+                for name in ("http", "routing", "execution"):
+                    if name in layers and layers[name]["verdict"] != "n/a":
+                        self.assertEqual(layers[name]["verdict"], "pass",
+                                         name)
 
 
 class TestDemo(unittest.TestCase):

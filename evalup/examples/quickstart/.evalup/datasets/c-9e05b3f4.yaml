@@ -23,5 +23,5 @@ expect:
   route: none
   answer:
     must_contain: ["invoices", "shifts"]
-    must_not_contain: ["/\\d+ ?°/"]
+    must_not_contain: ["/\\d+ ?°/", '/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
 gating: true

@@ -26,5 +26,5 @@ expect:
     reference_query: "SELECT sum(amount) FROM invoices WHERE month = '2026-05'"
   answer:
     must_contain: ["412.50"]
-    must_not_contain: ["I don't know"]
+    must_not_contain: ["I don't know", '/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
 gating: true

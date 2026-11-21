@@ -112,7 +112,7 @@ the findings left uncovered, by number, under `known_gaps` in `dataset.yaml`.
 app's prompt states (owner-stated: never file one as common sense), whose
 breach shows in the answer or the trace gets a case that fails on it, built
 from existing checks — plain-text-only, a `must_not_contain` regex such as
-`'/(?m)^[ \t]*([-*+•]|\d+[.)]|#+)[ \t]|\*\*/'` on every case; a reply
+`'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'` on every case; a reply
 language, `must_contain` on its words; one answer per ambiguous candidate,
 each name plus `'/\?/'`; "call X before saying not found", `expect.tools`; a
 stated count, `expect.result`. `coverage_grid.rules` lists every rule with
@@ -280,7 +280,7 @@ splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
     billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
-  rules: { plain-text: [c-4f2a91c7], refund-cap: "judge-only" }   # not checked
+  rules: { plain-text: [c-4f2a91c7], refund-cap: "judge-only" }   # no script reads it
 ```
 
 ## 5. Suite adequacy (periodic, not per-generate)

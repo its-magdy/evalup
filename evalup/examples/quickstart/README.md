@@ -84,6 +84,23 @@ Six cases, `split: [full, smoke]`, `k: 1`, mode `smoke`, soft gate.
 | `c-9e05b3f4` | oos | a deliberate HTTP 400, and `__oos__` routing |
 | `c-6c1f82ab` | adversarial-refusal | a read-only app refusing a mutation |
 
+### The prompt's rules, and which ones a case checks
+
+The app's prompt (the fixture's `SYSTEM_PROMPT`) says *reply in plain text: no
+Markdown, never start a line with a bullet or a number*, and `profile.yaml`
+records it as the business rule `plain-text`. It is the kind of rule generate
+turns into a check rather than leaves to a judge: its breach is a pattern in
+the text. Because it binds every answer, **every case** carries the same
+`must_not_contain` regex for bullet, numbered and heading lines and for bold.
+The same app answering as a bulleted list fails all six cases, on that check
+alone (`tests/test_example.py`). The other two rules:
+
+| Rule | Covered by | Why |
+|---|---|---|
+| `plain-text` | every case | a regex on the answer |
+| `read-only` | `c-6c1f82ab` | a string check on the refusal |
+| `grounded-only` | none | needs a judge: the figure must match a tool result |
+
 Ids are `c-<hash8>` and **opaque**: they encode neither unit nor category, both
 of which are mutable classifications. Splits are a **field**, never a
 directory. Both rules exist because the field-test suite broke them, and both
