@@ -115,8 +115,9 @@ as run §1 does, and `run_cases.py --dry-run` each: no app call, no look.
 With R, P and H their `app_calls_planned`:
 - messages = R + 3H on a seal's first iteration (step 4's noise pair plus
   the candidate's look; R + 2H when the seal record holds one noise run),
-  R + H after; + P when the candidate is kept. Worst case × the plan's
-  `execution.max_attempts` (default 3): every call retried.
+  R + H after; + P when the candidate is kept. Worst case: the same sum
+  over each plan's `app_calls_max` (every call retried, `max_attempts`
+  times).
 - time = messages × discover §4's per-request latency + every run's
   `wait_floor_s` (the holdout plan's three times on a first iteration).
 - A rate limit recorded in `findings.md` or the adapter (L messages per W

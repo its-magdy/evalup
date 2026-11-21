@@ -955,7 +955,7 @@ correctly, but its preconditions left the agent to guess what they meant (#54).
   checks each flag against that skill's `argument-hint`.
 - **An iteration is estimated before its first app call**: messages from the
   dry runs' `app_calls_planned` (R + 3H on a seal's first iteration, R + H
-  after; × `max_attempts` worst case), and wall time. A rate limit recorded
+  after; `app_calls_max` for the worst case), and wall time. A rate limit recorded
   in findings or the adapter is checked against each run: the serial runner
   does not pace to one (a 429 gets `max_attempts` tries, each wait capped
   at 60 s), so a run that can send more calls inside a window than the

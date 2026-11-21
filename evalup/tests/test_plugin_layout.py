@@ -288,7 +288,7 @@ class TestPluginLayout(unittest.TestCase):
             encoding="utf-8")
         flat = " ".join(optimize.split())
         for phrase in ("messages = R + 3H on a seal's first iteration",
-                       "`execution.max_attempts`", "`app_calls_planned`",
+                       "`app_calls_max`", "`app_calls_planned`",
                        "`wait_floor_s`", "`run_cases.py --dry-run` each", "no look",
                        "the runner does not pace to", "any such run → refuse",
                        "W ÷ the per-request latency > L", "+ P when the "
@@ -303,8 +303,8 @@ class TestPluginLayout(unittest.TestCase):
             encoding="utf-8")
         cost = (ROOT / "scripts" / "score_cost.py").read_text(
             encoding="utf-8")
-        for key in ('"app_calls_planned"', '"wait_floor_s"', '"max_attempts"',
-                    "RETRY_AFTER_CAP_S = 60"):
+        for key in ('"app_calls_planned"', '"app_calls_max"', '"wait_floor_s"',
+                    '"max_attempts"', "RETRY_AFTER_CAP_S = 60"):
             self.assertIn(key, runner)
         for key in ('"usd_per_case_with_trace"', '"holdout_excluded"'):
             self.assertIn(key, cost)
