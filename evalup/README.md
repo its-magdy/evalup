@@ -301,9 +301,11 @@ gates it, and uploads the run directory as the `evalup-run` artifact. Under
 `data.may_contain_pii` that artifact holds raw prompts and answers: shorten
 its retention or drop the step.
 
-The `gate` step fails the job on exit `1` (closed, every reason listed in
+A run that aborts (a canary failed, an infra abort, an incomplete run, a
+scorer error) already fails the `run the suite` step with the runner's
+exit code, and the gate does not run. Otherwise the `gate` step fails the job on exit `1` (closed, every reason listed in
 the job log and summary) or `2` (bad input). It closes on any gating
-failure, an incomplete run, a run that scored nothing, an infra rate above
+failure, a run that scored nothing or fails `--verify`, an infra rate above
 `EVALUP_MAX_INFRA_RATE` (default 0.05), a pass rate below
 `EVALUP_MIN_PASS_RATE` (empty: no floor), and, with
 `EVALUP_REQUIRE_CANARIES: "true"`, a canary that did not pass. With

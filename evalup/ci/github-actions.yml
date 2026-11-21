@@ -13,8 +13,10 @@
 # a baseline every gating failure closes the gate.
 #
 # This file is also the plugin repository's own acceptance test:
-# tests/run_template.py runs every `run:` step below, verbatim, against
-# examples/quickstart, in that repository's CI. So keep shell in `run:` steps
+# tests/run_template.py runs every `run:` step below verbatim (all but
+# start-app, which it swaps for the quickstart's server) against
+# examples/quickstart, in that repository's CI; the `uses:` steps it does not
+# run. So keep shell in `run:` steps
 # and read values from env, never `${{ }}` inside a `run:` (which is also
 # GitHub's advice against script injection).
 
@@ -31,7 +33,9 @@ permissions:
 
 concurrency:
   group: evalup-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a branch makes the older run moot -- except on main,
+  # where every commit keeps its own verdict.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -70,6 +74,7 @@ env:
 jobs:
   evalup:
     runs-on: ubuntu-24.04
+    # EDIT: cases x EVALUP_K x your app's latency, plus its start-up.
     timeout-minutes: 30
     env:
       # EDIT: one line per ${NAME} in adapter.yaml. run_cases.py resolves
@@ -115,7 +120,7 @@ jobs:
       - name: wait until the app answers
         run: |
           for _ in $(seq "$APP_READY_TIMEOUT_S"); do
-            if curl -fs -o /dev/null "$APP_HEALTH_URL"; then
+            if curl -fs --max-time 5 -o /dev/null "$APP_HEALTH_URL"; then
               echo "app ready: $APP_HEALTH_URL"
               exit 0
             fi
@@ -135,7 +140,10 @@ jobs:
             --mode regression --k "$EVALUP_K" --state-dir "$EVALUP_STATE_DIR" \
             --run-id "$run_id" -o "$RUNNER_TEMP/plan.json"
           echo "EVALUP_RUN_DIR=$run_dir" >> "$GITHUB_ENV"
-          # Exit 0 on a red suite: whether it may merge is the gate's call.
+          # Exit 0 on a suite that ran to the end, red or not: whether it may
+          # merge is the gate's call. A run that aborts (3 preflight, 4 a
+          # canary failed, 5 infra, 6 incomplete, 7 a scorer error) fails
+          # this step instead, and the gate step does not run.
           python "$EVALUP_SCRIPTS/run_cases.py" --plan "$RUNNER_TEMP/plan.json" \
             --out "$run_dir"
 
