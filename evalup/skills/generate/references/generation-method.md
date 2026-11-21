@@ -59,10 +59,8 @@ text only, never start a line with a bullet", and discover recorded that as a
 business rule with its source line. One case's answer started lines with `- `
 in two of three regression runs and passed, because no case checked the rule;
 a hand-run's top finding had been the same defect. The prompt's other
-checkable rules (reply language, a count matching the items listed, one answer
-per ambiguous name, a lookup retried before "not found") got no case either,
-while 8 of 12 cases asked about one settings record, the only data the probe
-had grounded. The grid covered its units and still missed the rules, so they
+checkable rules got no case either, while most cases asked about the one
+record the probe had grounded. The grid covered its units and still missed the rules, so they
 are an input of their own, and the tool spread is said out loud.
 
 Every check the row uses already scores: `must_not_contain` regexes,

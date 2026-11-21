@@ -136,13 +136,13 @@ class HelpdeskApp:
     whose expected answers depend on a model is an example that fails for
     reasons that have nothing to do with the harness."""
 
-    def __init__(self, render=None):
+    def __init__(self):
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
                                                       _Handler)
         self.server.seen = []
         # A hook on the answer text, so a test can make the app break a
         # rule it otherwise keeps (the bulleted answer of issue #52).
-        self.server.render = render or (lambda text: text)
+        self.server.render = lambda text: text
         # poll_interval: shutdown() waits for serve_forever's next poll,
         # 0.5 s by default -- paid by every test that closes a stub.
         self.thread = threading.Thread(target=self.server.serve_forever,
@@ -240,6 +240,22 @@ class ExampleCase(unittest.TestCase):
 
 class TestCommittedInputsConform(unittest.TestCase):
     """The half that can rot. Each of these is the check that notices."""
+
+    def test_the_plain_text_regex_catches_markup_and_spares_prose(self):
+        """What the pattern is for, branch by branch, and the near-misses
+        a plain-text answer really contains (a negative, a price, a dash
+        mid-sentence) that it must leave alone."""
+        pattern = re.compile(PLAIN_TEXT[1:-1])
+        for text in ("- a", "* a", "+ a", "\u2022 a", "  - nested",
+                     "1. a", "2) a", "# a", "### a", "x **bold** y",
+                     "intro:\n- a"):
+            with self.subTest(caught=text):
+                self.assertIsNotNone(pattern.search(text))
+        for text in ("-5 degrees tonight", "You spent $412.50.",
+                     "seven nurses - all on nights", "#1 priority",
+                     "2026 was busy", "a * b"):
+            with self.subTest(spared=text):
+                self.assertIsNone(pattern.search(text))
 
     def test_the_answer_wide_rule_is_checked_on_every_case(self):
         """generate/SKILL.md SS1's rules row: an answer-wide formatting rule

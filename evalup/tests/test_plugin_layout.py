@@ -37,6 +37,11 @@ def frontmatter_keys(path):
             for line in lines[1:end] for m in [KEY_RE.match(line)] if m}
 
 
+# The plain-text regex generate names and the generator writes; the
+# quickstart's cases carry the same pattern (tests/test_example.py).
+PLAIN_TEXT_IN_SKILLS = r"`'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'`"
+
+
 class TestPluginLayout(unittest.TestCase):
     def setUp(self):
         self.manifest = json.loads(
@@ -185,6 +190,7 @@ class TestPluginLayout(unittest.TestCase):
         self.assertIn("**rule a system prompt states**", discover)
         self.assertIn("`business_rules`, `source:` its file:line", discover)
         generate = read("skills", "generate", "SKILL.md")
+        self.assertIn(PLAIN_TEXT_IN_SKILLS, generate)
         row = generate[generate.index("**Rules are its fourth.**"):]
         row = row[:row.index("\n\n")]
         for phrase in ("`business_rules`", "never file one as common sense",
@@ -197,7 +203,8 @@ class TestPluginLayout(unittest.TestCase):
                          "checks, never by the unscored expect.answer.rules")
         agent = read("agents", "test-generator.md")
         self.assertIn("8. Rules become checks, never prose.", agent)
-        self.assertIn("goes on EVERY case", agent)
+        self.assertIn("goes on\n     EVERY case you write", agent)
+        self.assertIn(PLAIN_TEXT_IN_SKILLS, agent)
         self.assertIn("each\nrule's case ids or the reason it has none", agent)
         self.assertIn("owner-stated, not common sense", agent)
 

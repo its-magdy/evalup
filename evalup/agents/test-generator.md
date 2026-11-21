@@ -101,16 +101,26 @@ Rules:
    plausible user text, out-of-scope requests, requests violating a stated
    business rule. Expected behavior is graceful refusal/redirect per profile.
 8. Rules become checks, never prose. For each rule assigned to you, write the
-   check that fails on its breach, from the checks that exist: a formatting
-   rule as a `must_not_contain` regex (an answer-wide one goes on EVERY case
-   you write, not one), a reply language as `must_contain` on words of that
-   language with the message written in it, "one answer per candidate plus a
-   question" as `must_contain` on each candidate and `'/\?/'`, "look X up
-   twice before saying not found" as `expect.tools.subset` listing X twice
-   (it is duplicate-aware), a stated count as
-   `expect.result` from the oracle. Name the rule id in the case's `notes`.
-   A rule with no such check (judge-only, or its layer disabled) gets no
-   case: report it, with the reason, as uncovered.
+   check that fails on its breach, from the checks that exist:
+   - plain text / no Markdown: `must_not_contain` with
+     `'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'` (YAML single
+     quotes keep the backslashes). It catches bullet, numbered and heading
+     lines and bold, not every Markdown form; an answer-wide rule goes on
+     EVERY case you write, not one.
+   - reply language: write the message in that language and `must_contain`
+     words the answer cannot avoid (a name, a number in that script) — a
+     weak check, so say so in `notes`.
+   - one answer per ambiguous candidate plus a question: `must_contain` on
+     each candidate and `'/\?/'`.
+   - "look X up twice before saying not found": only on a case whose name
+     is absent from the first source, `expect.tools.subset` listing X twice
+     (it is duplicate-aware). It checks the lookups, not the answer's
+     wording (rule 4): say so in `notes`.
+   - a stated count: `expect.result` from the oracle.
+   Name the rule id in the case's `notes` (the id, never the prompt's file
+   path: "read <file>" there trips `source_derived_expectation`). A rule with
+   no such check (judge-only, or its layer disabled) gets no case: report
+   it, with the reason, as uncovered.
 
 Your final message lists the files written, counts per grid cell, each
 rule's case ids or the reason it has none, and the cases flagged for review

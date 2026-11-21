@@ -269,7 +269,7 @@ catches a stale `dataset.yaml`.
 
 `datasets/dataset.yaml` is the suite's hand-written summary, and it is
 optional (absent → `dataset_version` 1, nothing cross-checked). Every key is
-optional too; the ones the scripts read are exactly these, and each count is
+optional too; the scripts read all of these but `rules`, and each count is
 checked against the case files:
 
 ```yaml
@@ -280,7 +280,7 @@ splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
     billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
-  rules: { plain-text: [c-4f2a91c7], refund-cap: "judge-only" }   # no script reads it
+  rules: { plain-text: all, refund-cap: "judge-only" }   # no script reads this one
 ```
 
 ## 5. Suite adequacy (periodic, not per-generate)

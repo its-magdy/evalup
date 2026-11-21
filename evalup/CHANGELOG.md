@@ -906,7 +906,8 @@ From the same live-proof run (#27): the app's prompt said "plain text only",
 discover recorded that as a business rule with its source line, and one
 case's answer started lines with `- ` in two of three regression runs and
 passed, because no case checked the rule. Its other checkable rules got no
-case either, while 8 of 12 cases asked about one settings record (#52).
+case either, while most cases asked about the one record a probe had
+grounded (#52).
 
 - **A rules row in the coverage grid** (`generate` §1). Every
   `business_rules` entry, and every rule the app's prompt states, whose
