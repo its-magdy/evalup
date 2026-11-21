@@ -888,6 +888,71 @@ class TestManifestCheck(ValidateTest):
         self.assertIn("error", out)
 
 
+class TestLabelFixes(ValidateTest):
+    """dataset.yaml's `label_fixes:` (#53): a proposed fix waits there for
+    the owner instead of in the last session's chat. The validator accepts
+    the section, rejects a malformed entry, and lists the open ones."""
+
+    FIX = {"case": "billing-happy-0000abcd", "status": "pending",
+           "change": "drop the refusal regex: it matches the correct refusal"}
+
+    def manifest(self, fixes, **extra):
+        return self.write_json("manifest.json",
+                               dict({"schema_version": 1, "cases": 1,
+                                     "label_fixes": fixes}, **extra))
+
+    def test_open_fixes_are_accepted_and_listed(self):
+        approved = dict(self.FIX, status="approved")
+        applied = dict(self.FIX, status="applied", applied_in=2)
+        rc, out, err = self.validate(
+            [good_case()], "--strict", "--manifest",
+            self.manifest([self.FIX, approved, applied], dataset_version=2))
+        self.assertEqual(rc, 0, (out, err))
+        self.assertEqual(out["summary"]["label_fixes_open"],
+                         [{"case": "billing-happy-0000abcd",
+                           "status": "pending"},
+                          {"case": "billing-happy-0000abcd",
+                           "status": "approved"}])
+        self.assertEqual(out["error_count"], 0, out["findings"])
+
+    def test_none_open_is_an_empty_list_and_no_manifest_no_key(self):
+        _, out, _ = self.validate([good_case()], "--manifest",
+                                  self.write_json("manifest.json",
+                                                  {"cases": 1}))
+        self.assertEqual(out["summary"]["label_fixes_open"], [])
+        _, out, _ = self.validate([good_case()])
+        self.assertNotIn("label_fixes_open", out["summary"])
+
+    def test_a_malformed_entry_is_an_error(self):
+        for fixes in ({"case": "x"}, ["not a mapping"],
+                      [dict(self.FIX, status="done")],
+                      [dict(self.FIX, change="")],
+                      [dict(self.FIX, status="applied")],
+                      [dict(self.FIX, status="applied", applied_in=5)]):
+            with self.subTest(fixes=fixes):
+                self.assert_finds("label_fix_invalid", [good_case()],
+                                  "--manifest",
+                                  self.manifest(fixes, dataset_version=2))
+
+    def test_applied_in_is_bounded_by_the_older_version_key_too(self):
+        manifest = self.write_json("manifest.json", {
+            "cases": 1, "version": 2,
+            "label_fixes": [dict(self.FIX, status="applied", applied_in=5)]})
+        self.assert_finds("label_fix_invalid", [good_case()],
+                          "--manifest", manifest)
+
+    def test_an_open_fix_for_an_unknown_case_is_an_error(self):
+        self.assert_finds("label_fix_unknown_case", [good_case()],
+                          "--manifest",
+                          self.manifest([dict(self.FIX, case="c-gone")]))
+        # A rejected fix for a case since deleted is history, not a defect.
+        rc, out, _ = self.validate(
+            [good_case()], "--manifest",
+            self.manifest([dict(self.FIX, case="c-gone",
+                                status="rejected")]))
+        self.assertNotIn("label_fix_unknown_case", self.codes(out))
+
+
 class TestAuthzRecordIds(ValidateTest):
     """The allowed_record_ids check recognizes ids BY SHAPE, so an allowlist
     the default recognizer cannot see scores `unscorable` at run time — a case

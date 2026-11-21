@@ -1401,6 +1401,8 @@ Named here so 5b does not grow them, and so 5c knows what stays in the skill:
   but nobody owns it: it is RESERVED, and no skill is told to fill it in
   either — see §5.4.)
 - **Pinning `reports/baseline.json`.** A skill decision, not an execution step.
+  The write itself is `pin_baseline.py`'s, from the run's manifest: never the
+  runner's, never the model's by hand (#53).
 
 ---
 

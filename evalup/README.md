@@ -300,7 +300,8 @@ The steps `start` runs for you, callable directly:
 | `--full` | Release check (currently two runs) |
 
 Other `run` flags: `--tag <component>`, `--filter-failing`, `--layer X`,
-`--k N`, `--baseline`.
+`--k N`, `--single-turn`. `scripts/pin_baseline.py` pins a finished run as
+`reports/baseline.json`.
 
 ---
 

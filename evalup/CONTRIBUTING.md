@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1026 tests, ~2.5 min (136–190 s measured 2026-11-19 to 2026-11-21), the blessed command.
+1047 tests, ~2.5 min (136–190 s measured 2026-11-19 to 2026-11-21), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,16 +43,16 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1014 passed, 12 skipped, 462 subtests.
+whatever `python3` happens to be. Expect 1035 passed, 12 skipped, 471 subtests.
 All twelve skips need PyYAML (nine are `convert_suite.py`'s, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check); add
-`--with pyyaml` and they run (1026 passed, none
+`--with pyyaml` and they run (1047 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
-There are **20** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **21** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`
 is a shared module, not a CLI: it has no argparse, so `python _common.py --help`
 exits 0 having printed nothing, which is why the check tests for output and not

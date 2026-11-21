@@ -1190,6 +1190,64 @@ def check_manifest(rep, cases, records, manifest):
                               f"{key}: {declared_n} but actual is {actual_n}")
 
 
+LABEL_FIX_STATUSES = ("pending", "approved", "applied", "rejected")
+OPEN_LABEL_FIX = ("pending", "approved")
+
+
+def check_label_fixes(rep, all_ids, manifest):
+    """dataset.yaml's `label_fixes:` (#53): a proposed fix to a label waits
+    here for the owner, so the next session reads it from the state location
+    rather than from the last session's chat. Shape errors are ERRORs (a fix
+    nobody can apply is worse than none); an open fix is no finding at all,
+    only a summary line -- waiting on the arbiter is not a defect, and a WARN
+    would fail every --strict job for as long as the owner takes. Returns the
+    open entries for the summary."""
+    fixes = manifest.get("label_fixes")
+    if fixes is None:
+        return []
+    if not isinstance(fixes, list):
+        rep.error(None, "label_fix_invalid",
+                  "dataset.yaml label_fixes must be a list of entries, got "
+                  f"{type(fixes).__name__}")
+        return []
+    # make_plan.py's own reading: `version:` is the older name.
+    version = manifest.get("dataset_version", manifest.get("version"))
+    open_fixes = []
+    for i, fix in enumerate(fixes):
+        where = f"dataset.yaml label_fixes[{i}]"
+        if not isinstance(fix, dict):
+            rep.error(None, "label_fix_invalid",
+                      f"{where} must be a mapping, got {type(fix).__name__}")
+            continue
+        case_id, status = fix.get("case"), fix.get("status")
+        for key in ("case", "change"):
+            if not is_nonempty_str(fix.get(key)):
+                rep.error(None, "label_fix_invalid",
+                          f"{where} needs a non-empty `{key}`")
+        if status not in LABEL_FIX_STATUSES:
+            rep.error(None, "label_fix_invalid",
+                      f"{where}: status {status!r} is not one of "
+                      + ", ".join(LABEL_FIX_STATUSES))
+        if status in OPEN_LABEL_FIX and is_nonempty_str(case_id) \
+                and case_id not in all_ids:
+            rep.error(case_id, "label_fix_unknown_case",
+                      f"{where} names case {case_id!r}, which is not in the "
+                      "suite: a fix that cannot be applied")
+        if status == "applied":
+            applied_in = fix.get("applied_in")
+            if not isinstance(applied_in, int) or isinstance(applied_in, bool):
+                rep.error(None, "label_fix_invalid",
+                          f"{where} is applied but has no integer "
+                          "`applied_in` (the dataset_version that carries it)")
+            elif isinstance(version, int) and applied_in > version:
+                rep.error(None, "label_fix_invalid",
+                          f"{where}: applied_in {applied_in} is newer than "
+                          f"dataset_version {version}")
+        if status in OPEN_LABEL_FIX:
+            open_fixes.append({"case": case_id, "status": status})
+    return open_fixes
+
+
 def count_turns(case):
     messages = mapping(case.get("input")).get("messages")
     if not isinstance(messages, list):
@@ -1502,6 +1560,7 @@ def main():
         adapter = load_json_object(a.adapter, "the adapter")
         check_schema_version(rep, adapter, "adapter")
         check_adapter(rep, cases, records, adapter)
+    open_fixes = None
     if a.manifest:
         text = sys.stdin.read() if a.manifest == "-" else load_text(a.manifest)
         try:
@@ -1513,6 +1572,7 @@ def main():
                 f"fields), got {type(manifest).__name__}")
         check_schema_version(rep, manifest, "manifest")
         check_manifest(rep, cases, records, manifest)
+        open_fixes = check_label_fixes(rep, all_ids, manifest)
 
     layer_counts = {layer: sum(1 for r in records if layer in r["graded"])
                     for layer in LAYERS}
@@ -1548,6 +1608,10 @@ def main():
         "enabled_layers": sorted(enabled),
         "http_only": sum(1 for r in records if r["http_only"]),
     }
+    if open_fixes is not None:
+        # Listed even when empty, so "none waiting" is a statement, not a
+        # missing key. Absent only when no --manifest was given.
+        summary["label_fixes_open"] = open_fixes
     errors = sum(1 for f in rep.findings if f["severity"] == "ERROR")
     print(json.dumps({
         "harness_version": HARNESS_VERSION,
