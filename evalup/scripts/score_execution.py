@@ -83,10 +83,11 @@ _THOUSANDS = re.compile(r"(?<=\d),(?=\d\d\d\b)")
 _NUM_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 _TRAILING_UNIT = re.compile(r"\s*([A-Za-z%]+)$")
 # A bare `e`/`E` welded to the digits is a HALF-WRITTEN EXPONENT, not a unit:
-# "5e" is a malformed number. Read as a unit it made the bare-expected-number
-# rule below accept it as 5 (5 == "5e"), which is the one-sided-unit trade
-# applied to a string that does not spell a quantity at all. A separating space
-# ("5 e") is left alone — that shape is a real, if odd, unit.
+# "5e" is a malformed number. Read as a unit it would make the
+# bare-expected-number rule below accept it as 5 (5 == "5e"), which is the
+# one-sided-unit trade applied to a string that does not spell a quantity at
+# all. A separating space ("5 e") is left alone — that shape is a real, if odd,
+# unit.
 _EXPONENT_FRAGMENT = re.compile(r"\d[eE]$")
 _CURRENCY = tuple("$€£¥")
 
@@ -96,15 +97,15 @@ def split_unit(s):
     unit is None when the string carries no unit at all — that one value is the
     whole answer, so callers test it rather than the core.
 
-    The unit is RETURNED, not discarded. Deleting it here is what let
+    The unit is RETURNED, not discarded. Deleting it here would let
     "12 hours" compare equal to "12 days" — see cells_equal."""
     unit_parts, core = [], s
     # startswith, not `core[:1] in _CURRENCY`: every string CONTAINS the empty
-    # string, so the membership form was true for core == "" and the append
-    # below then indexed an empty string. An empty scalar on either side (an app
-    # that answered with "", a case whose ground truth is "") took the scorer
-    # down with an IndexError — exit 1 and a traceback, outside the exit-2
-    # contract. startswith is empty-safe by construction.
+    # string, so the membership form is true for core == "" and the append
+    # below would then index an empty string. An empty scalar on either side
+    # (an app that answered with "", a case whose ground truth is "") would
+    # take the scorer down with an IndexError — exit 1 and a traceback,
+    # outside the exit-2 contract. startswith is empty-safe by construction.
     if core.startswith(_CURRENCY):
         unit_parts.append(core[0])
         core = core[1:].strip()
@@ -170,12 +171,13 @@ def compare(expected, actual, tol):
     (en, eu), (an, au) = as_number(expected), as_number(actual)
     if en is not None and an is not None:
         near = abs(en - an) <= tol
-        # A unit on ONE side is tolerated: the oracle stores a bare 1200 and the
-        # app answered "1200 hrs" — same answer, different presentation, which
-        # is the whole point of quasi-exact match. DIFFERENT units on BOTH sides
-        # are a real disagreement, and stripping them before comparing made this
-        # scorer pass "12 days" against an expected "12 hours" — precisely the
-        # confidently-wrong answer it exists to catch.
+        # A unit on ONE side is tolerated: the oracle stores a bare 1200 and
+        # the app answered "1200 hrs" — same answer, different presentation,
+        # which is the whole point of quasi-exact match. DIFFERENT units on
+        # BOTH sides are a real disagreement, and stripping them before
+        # comparing would let this scorer pass "12 days" against an expected
+        # "12 hours" — precisely the confidently-wrong answer it exists to
+        # catch.
         if eu is not None and au is not None and eu != au:
             return ((f"numeric values match but the units differ "
                      f"({eu!r} vs {au!r}); if the unit is not part of "
@@ -230,10 +232,10 @@ def bag_match(expected, actual, columns, tol):
 
     The search is ITERATIVE, with its own explicit stack. The natural recursive
     phrasing recurses once per row along an augmenting path, so a result set of
-    ~1000 identical rows blew CPython's default recursion limit and exited 1
-    with a RecursionError traceback — outside the exit-2 error contract every
-    scorer shares, and reported to the run skill as an infra failure rather
-    than as a comparison. Result-set size is app data, not case authoring: it
+    ~1000 identical rows would blow CPython's default recursion limit and
+    exit 1 with a RecursionError traceback — outside the exit-2 error contract
+    every scorer shares, and reported to the run skill as an infra failure
+    rather than as a comparison. Result-set size is app data, not case authoring: it
     must not be able to crash the scorer."""
     if len(expected) != len(actual):
         return False
@@ -296,9 +298,10 @@ def score_rows(spec, expected, actual, tol):
     # Columns to compare: explicit override, else the union of keys the expected
     # rows define (the expected set is the spec; columns the app added are noise).
     # OMITTED and EXPLICITLY EMPTY must stay distinguishable: `not columns` is
-    # true for both, and collapsing them made an explicit `columns: []` silently
-    # switch to bare-scalar-row mode, where whole rows compare as JSON — so the
-    # app's extra columns stopped being ignored and a correct result set FAILED.
+    # true for both, and collapsing them would make an explicit `columns: []`
+    # silently switch to bare-scalar-row mode, where whole rows compare as
+    # JSON — so the app's extra columns would stop being ignored and a correct
+    # result set would FAIL.
     # A manufactured failure is the one outcome this harness must never produce,
     # so an empty list is a loud error, not a mode.
     columns = spec.get("columns")
@@ -359,12 +362,13 @@ def main():
     require_range("--float-tolerance", a.float_tolerance, lo=0, note=_TOL_NOTE)
 
     expect = load_object(a.expect)
-    # `or {}` guarded against null but not against a scalar, and every probe
-    # below happens to be valid on a string: `"scalar" not in spec` became a
-    # SUBSTRING test, so `result: "scalar"` slipped past this gate and died on
-    # spec.get() with an AttributeError, while `result: "nope"` returned a quiet
-    # "unscored" for a case that does assert something. Same require_mapping the
-    # sibling scorers apply to their own expectation blocks.
+    # A bare `expect.get("result") or {}` would guard against null but not
+    # against a scalar, and every probe below happens to be valid on a string:
+    # `"scalar" not in spec` would become a SUBSTRING test, so `result:
+    # "scalar"` would slip past this gate and die on spec.get() with an
+    # AttributeError, while `result: "nope"` would return a quiet "unscored"
+    # for a case that does assert something. Same optional_mapping the sibling
+    # scorers apply to their own expectation blocks.
     spec = optional_mapping("expect.result", expect.get("result"))
     if not spec or ("scalar" not in spec and "rows" not in spec):
         # Nothing to score for this layer — not every case is a data question.
