@@ -76,7 +76,10 @@ a red wall of stale expectations will waste your morning.
 ## When scores plateau — optimize
 
 `/evalup:optimize` (unlocks with: calibrated judge if judged objectives,
-~100+ cases, stable stage). One cluster → one evidence-grounded edit →
+~100+ usable — human-accepted, gating — cases, ~50 when every objective is
+deterministic, a sealed holdout, stable stage; its preconditions table names
+the command that unlocks each; the ~100 bar waits on a run that scores
+the judged layer, so today ~50 applies). One cluster → one evidence-grounded edit →
 training split → sealed holdout gate → keep or revert. Tool descriptions are
 the advertised first lever: cheapest change, empirically the largest measured
 effect. Proposals that need code or architecture changes arrive effort-tagged

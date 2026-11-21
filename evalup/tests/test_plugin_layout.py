@@ -237,6 +237,91 @@ class TestPluginLayout(unittest.TestCase):
         self.assertIn("Write the record after EACH run", optimize)
         self.assertIn("Fewer than 3 of the 5 looks left", optimize)
 
+    def test_optimize_preconditions_are_defined_and_each_names_its_unlock(self):
+        # Issue #54: "objective dimension" and "usable case count" were
+        # undefined, nothing checked a holdout existed, and no refusal named
+        # the command that lifts it.
+        import re
+        optimize = (ROOT / "skills" / "optimize" / "SKILL.md").read_text(
+            encoding="utf-8")
+        for term in ("- **Objective dimension**:", "- **Usable case count**:"):
+            self.assertIn(term, optimize)
+        # The count is a script's, and the script prints that key.
+        flat = " ".join(optimize.split())
+        self.assertIn("`summary.usable_by_split.full` + "
+                      "`summary.by_split.holdout`", flat)
+        # Review of #58: a sealed case is never read, so never accepted;
+        # counting only accepted holdout cases made row 3 unreachable.
+        self.assertIn("Holdout cases count by being sealed", flat)
+        self.assertIn('"usable_by_split"', (ROOT / "scripts" /
+                      "validate_cases.py").read_text(encoding="utf-8"))
+        rows = re.findall(r"^\| (\d) \| (.+) \| (.+) \|$", optimize,
+                          re.MULTILINE)
+        self.assertEqual([n for n, _, _ in rows], list("123456"))
+        self.assertIn("A sealed holdout exists", rows[2][1])
+        hints = {}
+        for path in (ROOT / "skills").glob("*/SKILL.md"):
+            hint = re.search(r'^argument-hint: "(.*)"$',
+                             path.read_text(encoding="utf-8"), re.MULTILINE)
+            hints[path.parent.name] = set(re.findall(
+                r"--[\w-]+", hint.group(1))) if hint else set()
+        for n, _, unlock in rows:
+            with self.subTest(precondition=n):
+                # Every --flag up to the next command, placeholders between.
+                commands = re.findall(r"/evalup:(\w+)((?:(?!/evalup:)[^|])*)",
+                                      unlock)
+                if not commands:
+                    self.assertTrue(unlock.startswith("none:"), unlock)
+                for skill, flags in commands:
+                    self.assertIn(skill, hints, "no such skill")
+                    for flag in re.findall(r"--[\w-]+", flags):
+                        # Membership, not substring: `--lab` is no flag.
+                        self.assertIn(flag, hints[skill],
+                                      f"{skill} takes no {flag}")
+
+    def test_optimize_estimates_an_iteration_and_says_what_the_budget_meters(
+            self):
+        # Issue #54: one iteration's messages and wall time against the app's
+        # rate limit, and a --budget with no meter when cost is off.
+        import re
+        optimize = (ROOT / "skills" / "optimize" / "SKILL.md").read_text(
+            encoding="utf-8")
+        flat = " ".join(optimize.split())
+        for phrase in ("messages = R + 3H on a seal's first iteration",
+                       "`app_calls_max`", "`app_calls_planned`",
+                       "`wait_floor_s`", "`run_cases.py --dry-run` each", "no look",
+                       "the runner does not pace to", "any such run → refuse",
+                       "W ÷ the per-request latency > L", "+ P when the "
+                       "candidate is kept", "R + 2H when the seal record",
+                       "time ≥ runs × W", "never assume one",
+                       "**What `--budget $N` meters**", '`status: "unpriced"`',
+                       "`holdout_excluded`", "`usd_per_case_with_trace`",
+                       "never a gate"):
+            self.assertIn(phrase, flat)
+        # The keys the text names are the ones the scripts write.
+        runner = (ROOT / "scripts" / "run_cases.py").read_text(
+            encoding="utf-8")
+        cost = (ROOT / "scripts" / "score_cost.py").read_text(
+            encoding="utf-8")
+        for key in ('"app_calls_planned"', '"app_calls_max"', '"wait_floor_s"',
+                    '"max_attempts"', "RETRY_AFTER_CAP_S = 60"):
+            self.assertIn(key, runner)
+        for key in ('"usd_per_case_with_trace"', '"holdout_excluded"'):
+            self.assertIn(key, cost)
+        # The worked example's arithmetic holds.
+        m = re.search(r"(\d+) single-turn training cases and (\d+) sealed, "
+                      r"k = (\d): R = (\d+), H = (\d+), so (\d+) messages "
+                      r"on the first iteration \((\d+) worst case\)\. "
+                      r"Against (\d+) per (\d+) minutes at a few seconds a "
+                      r"call, every one of those four runs \(five with a "
+                      r"keep\) outpaces L", flat)
+        self.assertIsNotNone(m, "the worked example moved")
+        train, sealed, k, r, h, msgs, worst, per, _ = map(int, m.groups())
+        self.assertEqual((r, h), (train * k, sealed * k))
+        self.assertEqual(msgs, r + 3 * h)
+        self.assertEqual(worst, msgs * 3)
+        self.assertGreater(min(r, h), per, "a run the example says is over L")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -933,6 +933,43 @@ grounded (#52).
   trimming restatements, and the conversation authoring tips moved into
   `conversations.md`, which is read only when an app keeps conversations.
 
+### Changed — optimize's preconditions and its cost of one iteration (2026-11-21)
+
+From the first live-proof run (#27): `optimize` refused a 12-case suite
+correctly, but its preconditions left the agent to guess what they meant (#54).
+
+- **Two terms defined.** An *objective dimension* is a layer row that fails
+  on the chosen cluster's cases in `verdicts.jsonl`, not the profile's
+  matrix: a `must_not_contain` miss is the deterministic `answer` row even
+  when the matrix says `judged: provisional`. A *usable* training case is
+  human-accepted, gating and not a canary; the usable count adds every
+  sealed case, since nobody may read one to accept it.
+  `validate_cases.py` now prints the accepted count per split
+  (`summary.usable_by_split`), so nobody counts it by hand.
+- **A sealed-holdout precondition.** `generate` skips the holdout below 25
+  cases, so a suite past the 50-case floor could still have none; the
+  holdout now needs ≥ 20% of the usable count, and a seal with no looks left
+  counts as none.
+- **Each refusal names its unlock as a command** (`analyze --label`,
+  `generate --layer … --count`, `analyze --unseal`, `discover`), and a test
+  checks each flag against that skill's `argument-hint`.
+- **An iteration is estimated before its first app call**: messages from the
+  dry runs' `app_calls_planned` (R + 3H on a seal's first iteration, R + H
+  after; `app_calls_max` for the worst case), and wall time. A rate limit recorded
+  in findings or the adapter is checked against each run: the serial runner
+  does not pace to one (a 429 gets `max_attempts` tries, each wait capped
+  at 60 s), so a run that can send more calls inside a window than the
+  limit allows would burn a holdout look on `infra_error`s — optimize
+  refuses it until the limit is raised. The plain regression run a keep
+  needs is dry-run and counted too. At 20 messages per 10 minutes, a 30 + 10-case suite at
+  k = 3 (180 messages) is refused.
+- **`--budget $N` says what meters it**: `score_cost.py`'s dollars × `k`,
+  holdout runs charged per app call. With the cost capability off or unpriced
+  nothing meters dollars, and the budget is taken as messages or iterations.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1): the gate's
+  statistics are untouched, and the usable count is a precondition only —
+  `stats.py` still pairs every pass/fail case it is given.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

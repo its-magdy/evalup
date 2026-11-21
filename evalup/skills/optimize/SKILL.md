@@ -54,31 +54,88 @@ holdout, a hard budget. See
 make gains real instead of overfit.
 
 ## Preconditions — check, and refuse with the unlock path if unmet
-1. `judge.status: calibrated` — if any objective dimension is judge-scored.
-   An uncalibrated judge as an optimization target produces a confidently
-   worse app. Check the flag's **evidence**, not the
-   flag: `paths.judge_calibration`'s sidecar (`score_agreement.py`) is what
-   derives it, and a `calibrated` profile with no sidecar behind it is a
-   hand-set flag — the runner already refuses it.
-2. Usable case count ≥ ~100 for judged objectives (deterministic-only
-   objectives may proceed at ≥ ~50 with Bayesian gating).
-3. `stage:` ≥ stable (set by `discover` §6) — below that, route-target and
-   tool boundaries are still moving, so a measured gain is indistinguishable
-   from drift.
-4. White-box prompt access (gray-box → recommendations only, written to
-   findings).
-5. A budget (`--budget` or ask).
-6. The edit can reach the running app. Read `app.repo_access` in
-   `adapter.yaml`: `read-only` → recommendations only, written to findings,
-   no edit applied — the same outcome as gray-box. Then, per surface, read
-   `findings.md` and the adapter's `prompts[]`: a surface whose edit only takes
-   effect after a rebuild or restart (compiled-in, embedded, or read once at
-   startup — e.g.
-   `kind: tool-descriptions` on a `.cs` path;
-   `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapters/dotnet.md`
-   §Optimizable surfaces) is allowed, but step 4's measure waits on the
-   user. No adapter field records this; if neither file says, ask before the
-   first edit.
+Two terms, used exactly:
+- **Objective dimension**: a layer row that FAILS on the chosen cluster's
+  cases, read per case from `layers` in the latest regression run's
+  `verdicts.jsonl` — not the profile's capability matrix. A
+  `must_not_contain` miss is the `answer` row (deterministic) even when the
+  matrix says `answer_quality: {judged: provisional}`. It is judge-scored
+  only when that row is `judged`. No run scores `judged` today (always
+  `unjudged`, runner-contract §5), so the holdout gate cannot see a cluster
+  that fails on `judged` alone: refuse it, and name the deterministic
+  assertion that would make it visible. Until a run scores `judged`, rows 1
+  and 2's ~100 bar therefore never apply; every objective is deterministic.
+- **Usable case count**: `summary.usable_by_split.full` +
+  `summary.by_split.holdout`, both from what `validate_cases.py` prints
+  (convert and validate as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1
+  does). A usable training case is human-accepted (`review.status:
+  accepted`, a human `review.by`), has `gating` true, and is not a canary
+  (`smoke` and `canary` sit inside `full`). Holdout cases count by being
+  sealed: nobody may read one to accept it, and the gate pairs every one
+  that scored pass or fail.
+
+Each refusal names its unlock, as a command:
+
+| # | Precondition | Unmet → unlock |
+|---|---|---|
+| 1 | `judge.status: calibrated` when any objective dimension is judge-scored. Check the evidence, not the flag: `paths.judge_calibration`'s sidecar (`score_agreement.py --write`) derives it; a `calibrated` profile without one is hand-set, and the runner refuses it. An uncalibrated judge as a target yields a confidently worse app. | `/evalup:analyze --label` until the sidecar backs it |
+| 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --layer <layer> --count <N>` (adds beside the existing cases, changes none), then its §3 review: a human accepts each training case and flips `gating` in the same edit — never a holdout case, which reading unseals |
+| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on, N ≥ 25 (generate's holdout floor) and ≥ 1.25 × the usable training count, so §4's 20% of those fresh, unread cases reaches the bar; looks spent → `/evalup:analyze --unseal` |
+| 4 | `stage:` ≥ stable. Below it, route-target and tool boundaries still move, so a gain is indistinguishable from drift. | `/evalup:discover` — its §6 sets `stage` once the user confirms the boundaries hold |
+| 5 | A budget, and its meter (below). | `/evalup:optimize --budget $N`, or ask |
+| 6 | White-box prompt access, and an edit that reaches the running app (below). | none: gray-box or `repo_access: read-only` → recommendations only, written to findings |
+
+Precondition 6 in full: read `app.repo_access` in `adapter.yaml`:
+`read-only` → recommendations only, written to findings, no edit applied —
+the same outcome as gray-box. Then, per surface, read `findings.md` and the
+adapter's `prompts[]`: a surface whose edit only takes effect after a
+rebuild or restart (compiled-in, embedded, or read once at startup — e.g.
+`kind: tool-descriptions` on a `.cs` path;
+`${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapters/dotnet.md`
+§Optimizable surfaces) is allowed, but step 4's measure waits on the user.
+No adapter field records this; if neither file says, ask before the first
+edit.
+
+**What `--budget $N` meters**: dollars, from `score_cost.py`'s `cost.usd` for
+each run (analyze §What it cost) × the run's `k` — that figure is one
+representative repeat. A holdout run's cases are `holdout_excluded`, so charge
+it at the single-turn regression run's `usd_per_case_with_trace` (one call)
+× H, the holdout plan's app calls below (turns and `k` included).
+With the cost capability off or `status: "unpriced"` (trace-less, no
+`prices.json`, an unknown model) nothing meters dollars: say so, and take the
+budget as app messages or iterations instead (ask which) — never a dollar
+figure guessed from tokens. The budget is a stop condition (step 6), never a
+gate.
+
+**Estimate an iteration before its first app call** — messages and wall
+time, printed, then "Proceed?" (skipped under a pre-approved budget). Build
+the regression plan (`--single-turn` as step 4 runs it), the plain
+regression plan (step 5's pin run after a keep) and the holdout plan (k = 3)
+as run §1 does, and `run_cases.py --dry-run` each: no app call, no look.
+With R, P and H their `app_calls_planned`:
+- messages = R + 3H on a seal's first iteration (step 4's noise pair plus
+  the candidate's look; R + 2H when the seal record holds one noise run),
+  R + H after; + P when the candidate is kept. Worst case: the same sum
+  over each plan's `app_calls_max` (every call retried, `max_attempts`
+  times).
+- time = messages × discover §4's per-request latency + every run's
+  `wait_floor_s` (the holdout plan's three times on a first iteration).
+- A rate limit recorded in `findings.md` or the adapter (L messages per W
+  minutes) is one the runner does not pace to: it sends one call at a time
+  as fast as the app answers, and retries a 429 at most `max_attempts`
+  times with each wait capped at 60 s — never a whole window. A run that
+  can outpace the limit (`app_calls_planned` > L, and W ÷ the per-request
+  latency > L; no latency recorded → the first test alone) therefore ends
+  in `infra_error`s and can abort (exit 5) after a holdout run has already
+  spent its look at pre-flight. So: any such run → refuse; the unlock is
+  the user raising or lifting the limit for the eval's client. A run over L
+  that the latency keeps under it is fine. Start each run a full window
+  after the last one ended, so two runs never share one (time ≥ runs × W).
+  No limit recorded → say so; never assume one.
+- e.g. 30 single-turn training cases and 10 sealed, k = 3: R = 90, H = 30,
+  so 180 messages on the first iteration (540 worst case). Against 20 per
+  10 minutes at a few seconds a call, every one of those four runs (five
+  with a keep) outpaces L: refuse until the limit is raised.
 
 ## The loop (one iteration per session unless told otherwise)
 1. **Ground first, edit never-first**: read the latest `analyze --cluster`
@@ -209,7 +266,7 @@ make gains real instead of overfit.
    Fail or no evidence → revert as step 4 says, verify the blob, keep the
    reflection (it prunes the next hypothesis). Always report regressions on
    any layer, not just the target metric.
-6. **Stop conditions**: budget spent; two consecutive candidates rejected on
+6. **Stop conditions**: budget spent, by its meter (Preconditions); two consecutive candidates rejected on
    the same cluster (→ the lever is probably wrong — escalate to a code/
    architecture proposal); or the honest message "these route targets are
    inherently confusable — no prompt fixes this" with the evidence.
