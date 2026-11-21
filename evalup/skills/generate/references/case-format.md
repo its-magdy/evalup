@@ -271,7 +271,7 @@ no_op_justification: null            # Expected with `pass` (else WARN no_op_pas
                                      # on why this case is the exception. Writing it down is
                                      # the whole gate — the author notices the exemption.
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
-gating: true                         # false = tracked-not-gating (e.g. noise cases pre-launch)
+gating: true                         # true = regression; false = never gates (capability)
 notes: ""                            # reviewer's one-liner: why this case exists
 ```
 

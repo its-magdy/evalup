@@ -114,6 +114,20 @@ where the response text needs reading. A pure status mismatch (expected 200,
 got 400) is already diagnosed by its verdict row; two agent launches to
 re-read it is what the first field test spent.
 
+**Never passed → suspect the case first.** A case that fails every trial is
+more often a broken case than a broken app. Find them before clustering,
+never in a holdout run (its files name sealed cases): at k > 1 a
+`reliability.json` `per_case` row with `c: 0` (a case verdict there is
+pass^k, so a flaky case fails every run too); at k = 1 a
+`run_history.py --all-cases --max-cases <N>` journal row with a `fail` and no
+`pass`; or a `category` in `verdicts.jsonl` with `fail` rows and no `pass`.
+`skipped` and infra rows count as neither. For each, check the case against
+`adapter.yaml`, `profile.yaml` and `findings.md`: does the expected route or
+tool exist under that name, could any correct answer satisfy the check, does
+the answer read right while the check fails? Report them as their own group,
+asked in the closing question below, and keep them out of what `optimize`
+gets until answered. This flags a question; no verdict changes.
+
 Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
 the plugin is installed) per failed case, on its normalized trajectory
 (raw spans when that view is insufficient) and its violated expectations.
@@ -149,7 +163,8 @@ stop a sitting after ~20 that add nothing. `--label` runs on that same rule.
 Zero gating failures → produce insight, not silence:
 - what the passing suite CANNOT detect: unjudged dimensions, layers skipped
   this run, coverage gaps named in the dataset metadata;
-- the non-gating / tracked-only results worth a look;
+- the capability-suite (`gating: false`) results worth a look, and any
+  ready to graduate (below);
 - the next investment: labeling, cases in a named gap, or a skipped layer;
 - an offer to open-code a sample of PASSING traces in the viewer. A passing
   suite is not the same as a good one. That is how the issues a green suite
@@ -176,6 +191,14 @@ monotone drift per metric, and journals each case's verdict history. Quote
 is `stats.py`'s call on a specific pair, and this script deliberately makes
 none. Read `excluded_runs` first: a run without `summary.status: ok` is not in
 the series, which is usually why a series looks short.
+
+**Graduating a capability case**
+(`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Capability and regression suites).
+After any run, name each accepted, non-canary `gating: false` case that
+passed every run of its series (three at least; `--all-cases --max-cases
+<N>`, N the case count, or rows are cut at 40). Suggest flipping it to
+`gating: true`; the user decides. A flip edits the case, so batch them into
+one `dataset_version` bump and pin a new baseline after (run/SKILL.md §4).
 
 ### What it cost, beside whether it worked
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_cost.py <run> [--baseline <run>]
