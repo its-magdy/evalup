@@ -1375,7 +1375,7 @@ def a_rule(rule_id="refund-cap", **overrides):
     rule = {"id": rule_id, "rule": "never promise a refund above the total",
             "quote": "Refunds never exceed the order total.",
             "source": "docs/policy.md §Refunds", "date": "2026-11-01",
-            "status": "confirmed", "confirmed_by": "mohamed"}
+            "status": "confirmed", "confirmed_by": "billing-owner"}
     rule.update(overrides)
     return rule
 
@@ -1428,7 +1428,8 @@ class TestTraceability(ValidateTest):
                                if k != "status"}),
                 ("a typo", a_rule(status="confimred")),
                 ("confirmed by nobody", a_rule(confirmed_by=None)),
-                ("confirmed by a machine", a_rule(confirmed_by="generate"))):
+                ("confirmed by a machine", a_rule(confirmed_by="generate")),
+                ("confirmed by an agent", a_rule(confirmed_by="claude"))):
             with self.subTest(label):
                 rc, out = self.lint([good_case(covers=["refund-cap"])],
                                     [rule])
@@ -1437,6 +1438,27 @@ class TestTraceability(ValidateTest):
                 self.assertEqual(
                     out["summary"]["traceability"]["unconfirmed"],
                     ["refund-cap"])
+
+    def test_a_model_or_agent_never_confirms_a_rule(self):
+        """A rule is confirmed in the interview, by a person: the names an
+        agent signs with are refused as whole words, any case."""
+        for by in ("claude", "Claude Code", "discover", "evalup",
+                   "evalup-discover", "assistant", "agent", "AI", "llm",
+                   "model", "gpt-4o", "gemini", "copilot", "auto",
+                   "test-generator", "generate-review", "machine"):
+            with self.subTest(by=by):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [a_rule(confirmed_by=by)])
+                self.assertIn("rule_confirmed_unattributed", self.codes(out))
+                self.assertIn("unconfirmed_rule_gates", self.codes(out))
+                self.assertEqual(rc, 1)
+        # Whole words only: these are people's names or handles.
+        for by in ("billing-owner", "Aisha", "Gaia Rossi", "j.agentson",
+                   "modelina", "Bottomley"):
+            with self.subTest(by=by):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [a_rule(confirmed_by=by)])
+                self.assertEqual((rc, out["findings"]), (0, []))
 
     def test_an_unconfirmed_rule_may_back_a_non_gating_case(self):
         rule = a_rule(status="inferred", confirmed_by=None)
@@ -1573,6 +1595,22 @@ class TestTraceability(ValidateTest):
             with self.subTest(rule=rule):
                 rc, out = self.lint([good_case(covers=["refund-cap"])],
                                     [rule], (), "--strict")
+                self.assertEqual((rc, out["findings"]), (0, []))
+
+    def test_a_url_source_is_outside_without_the_flag(self):
+        """`outside: true` forgotten on a wiki URL still keeps its quote out
+        of the versioned profile."""
+        for source in ("https://wiki.example/billing §Refunds",
+                       "http://intranet/policy"):
+            with self.subTest(source=source):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [a_rule(source=source)])
+                self.assertIn("outside_quote_versioned", self.codes(out))
+                self.assertNotIn("rule_source_vague", self.codes(out))
+                rc, out = self.lint(
+                    [good_case(covers=["refund-cap"])],
+                    [a_rule(source=source, quote=None, quote_in="local")],
+                    (), "--strict")
                 self.assertEqual((rc, out["findings"]), (0, []))
 
     def test_code_sources_name_the_fragment(self):

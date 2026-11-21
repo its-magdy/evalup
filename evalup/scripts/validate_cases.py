@@ -1626,13 +1626,26 @@ def check_covers_shape(rep, label, case):
                   "unconfirmed-rule gating check")
 
 
+URL_SOURCE = re.compile(r"https?://", re.I)
+# Who may confirm a business rule: a person, by name. Stricter than
+# MACHINE_REVIEWER, which only knows the generator's stamps: a rule is
+# confirmed in discover's interview, so an agent's own names are refused
+# too, as whole words of the name ("claude-code", "gpt-4o", "evalup bot").
+# A person who shares one writes a handle that does not.
+MACHINE_CONFIRMER = re.compile(
+    r"(?<![a-z0-9])(claude|anthropic|discover|evalup|assistant|agent|ai|llm|"
+    r"model|gpt|chatgpt|openai|gemini|copilot|bot|generated?|"
+    r"test-generator|auto|automatic|machine|system)(?![a-z0-9])", re.I)
+
+
 def rule_status(rule):
     """The status a rule is READ as. Only `confirmed` with a human's name in
     `confirmed_by` counts as confirmed; everything else -- no status, a typo,
     a confirmation nobody signed -- is inferred, so it can never gate."""
     by = rule.get("confirmed_by")
     if rule.get("status") == "confirmed" and is_nonempty_str(by) \
-            and not MACHINE_REVIEWER.match(by.strip()):
+            and not MACHINE_REVIEWER.match(by.strip()) \
+            and not MACHINE_CONFIRMER.search(by):
         return "confirmed"
     return "inferred"
 
@@ -1643,7 +1656,10 @@ def check_rule_entry(rep, rule, where):
     it already cannot gate, and nothing scores it."""
     rid = rule.get("id")
     name = f"business_rules {rid!r}" if is_nonempty_str(rid) else where
-    outside = rule.get("outside") is True
+    source = rule.get("source")
+    # A URL is outside the app repo whether or not `outside:` says so.
+    outside = rule.get("outside") is True or (
+        is_nonempty_str(source) and bool(URL_SOURCE.match(source.strip())))
     missing = [key for key in ("rule", "source", "date")
                if not is_nonempty_str(str(rule.get(key) or ""))]
     has_quote = is_nonempty_str(rule.get("quote"))
@@ -1667,8 +1683,8 @@ def check_rule_entry(rep, rule, where):
         rep.warn(None, "rule_confirmed_unattributed",
                  f"profile.yaml {name} is `confirmed` but confirmed_by is "
                  f"{rule.get('confirmed_by')!r}; only a human confirms a "
-                 "rule, by name, so it is read as inferred and cannot gate")
-    source = rule.get("source")
+                 "rule, by name (not a model, an agent or evalup), so it "
+                 "is read as inferred and cannot gate")
     if not outside and is_nonempty_str(source) \
             and not PATH_SHAPED.search(source):
         rep.warn(None, "rule_source_vague",

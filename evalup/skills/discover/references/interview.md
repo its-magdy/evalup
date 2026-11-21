@@ -24,7 +24,8 @@ the answers under `confirmed_by_human:` in profile.yaml:
 
 **Confirming.** A rule becomes `status: confirmed` only when a human says so
 in this interview, with their name in `confirmed_by` — never on your own
-reading, and never headless. An unconfirmed rule never gates:
+reading, and never headless. A model's, an agent's or evalup's name there
+(`claude`, `discover`, `gpt-4o`) is read as unconfirmed. An unconfirmed rule never gates:
 `validate_cases.py --profile` refuses a `gating` case or a canary (whose
 fail aborts the run) that `covers` one (`unconfirmed_rule_gates`). One
 exception: `gate.py --min-pass-rate` counts every scored non-canary case,
@@ -54,4 +55,5 @@ source and date. Before that file's first write, add the line
 `reports/.gitignore` is the precedent), and say so in chat. Only when the
 user opts in does the quote go in `profile.yaml`, with
 `quote_versioned: true`. The validator warns on an outside quote without it
-(`outside_quote_versioned`).
+(`outside_quote_versioned`), and reads an `http(s)://` source as outside
+even without `outside: true`.
