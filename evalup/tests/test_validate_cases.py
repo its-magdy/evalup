@@ -1370,5 +1370,174 @@ class TestSchemaVersion(ValidateTest):
         self.assertNotIn("schema_version_missing", self.codes(out))
 
 
+def a_rule(rule_id="refund-cap", **overrides):
+    """A complete rule entry (#25): quote, source, date, status."""
+    rule = {"id": rule_id, "rule": "never promise a refund above the total",
+            "quote": "Refunds never exceed the order total.",
+            "source": "docs/policy.md §Refunds", "date": "2026-11-01",
+            "status": "confirmed", "confirmed_by": "mohamed"}
+    rule.update(overrides)
+    return rule
+
+
+class TestTraceability(ValidateTest):
+    """#25: cases link to profile rules and risks; an unconfirmed rule never
+    gates; a rule with no case is a gap. Nothing here scores a rule."""
+
+    def profile(self, rules=(), risks=()):
+        return self.write_json("profile.json", {
+            "schema_version": 1, "business_rules": list(rules),
+            "risks": list(risks)})
+
+    def lint(self, cases, rules=(), risks=(), *extra):
+        rc, out, err = self.validate(cases, "--profile",
+                                     self.profile(rules, risks), *extra)
+        self.assertNotIn("Traceback", err, err)
+        return rc, out
+
+    def test_a_linked_suite_is_clean_and_reports_its_coverage(self):
+        rc, out = self.lint(
+            [good_case(covers=["refund-cap", "risk-1"])], [a_rule()],
+            [{"id": "risk-1", "risk": "leaks another tenant's invoice"}])
+        self.assertEqual((rc, out["findings"]), (0, []))
+        trace = out["summary"]["traceability"]
+        self.assertEqual(trace["rules"], {"refund-cap": {
+            "status": "confirmed", "cases": ["billing-happy-0000abcd"]}})
+        self.assertEqual(trace["risks"]["risk-1"]["cases"],
+                         ["billing-happy-0000abcd"])
+        self.assertEqual((trace["gaps"], trace["unconfirmed"],
+                          trace["contradictions"]), ([], [], []))
+
+    def test_a_rule_with_no_case_is_a_gap_not_a_finding(self):
+        rc, out = self.lint([good_case(covers=["refund-cap"])],
+                            [a_rule(), a_rule("plain-text")],
+                            [{"id": "risk-1", "risk": "x"}], "--strict")
+        self.assertEqual((rc, out["findings"]), (0, []))
+        self.assertEqual(out["summary"]["traceability"]["gaps"],
+                         ["rule plain-text has no case",
+                          "risk risk-1 has no case"])
+
+    def test_no_traceability_summary_without_a_profile(self):
+        rc, out, _ = self.validate([good_case()])
+        self.assertNotIn("traceability", out["summary"])
+
+    def test_an_unconfirmed_rule_never_gates(self):
+        for label, rule in (
+                ("inferred", a_rule(status="inferred", confirmed_by=None)),
+                ("no status", {k: v for k, v in a_rule().items()
+                               if k != "status"}),
+                ("a typo", a_rule(status="confimred")),
+                ("confirmed by nobody", a_rule(confirmed_by=None)),
+                ("confirmed by a machine", a_rule(confirmed_by="generate"))):
+            with self.subTest(label):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [rule])
+                self.assertIn("unconfirmed_rule_gates", self.codes(out))
+                self.assertEqual(rc, 1)
+                self.assertEqual(
+                    out["summary"]["traceability"]["unconfirmed"],
+                    ["refund-cap"])
+
+    def test_an_unconfirmed_rule_may_back_a_non_gating_case(self):
+        rule = a_rule(status="inferred", confirmed_by=None)
+        for label, case in (
+                ("gating false", good_case(covers=["refund-cap"],
+                                           gating=False)),
+                ("a canary", good_case(covers=["refund-cap"],
+                                       split=["full", "smoke", "canary"]))):
+            with self.subTest(label):
+                rc, out = self.lint([case], [rule])
+                self.assertNotIn("unconfirmed_rule_gates", self.codes(out))
+        # An absent `gating` gates (case-format.md): still refused.
+        case = good_case(covers=["refund-cap"])
+        del case["gating"]
+        rc, out = self.lint([case], [rule])
+        self.assertIn("unconfirmed_rule_gates", self.codes(out))
+
+    def test_a_link_to_nothing_is_an_error(self):
+        rc, out = self.lint([good_case(covers=["refund-capp"])], [a_rule()])
+        self.assertIn("dangling_cover", self.codes(out))
+        self.assertEqual(rc, 1)
+
+    def test_covers_must_be_a_list_of_ids(self):
+        for bad in ("refund-cap", [], [""], [3]):
+            with self.subTest(covers=bad):
+                self.assert_finds("bad_covers", [good_case(covers=bad)])
+
+    def test_a_case_covering_nothing_warns_once_the_profile_lists_rules(self):
+        rc, out = self.lint([good_case()], [a_rule()])
+        self.assertIn("case_covers_nothing", self.codes(out))
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            out["summary"]["traceability"]["cases_covering_nothing"],
+            ["billing-happy-0000abcd"])
+        # Nothing to link to: no warning with no fix.
+        rc, out = self.lint([good_case()])
+        self.assertEqual(out["findings"], [])
+
+    def test_duplicate_ids_across_rules_and_risks(self):
+        rc, out = self.lint([good_case(covers=["refund-cap"])], [a_rule()],
+                            [{"id": "refund-cap", "risk": "x"}])
+        self.assertIn("duplicate_rule_id", self.codes(out))
+        self.assertEqual(rc, 1)
+
+    def test_rule_shape_warnings(self):
+        cases = [good_case(covers=["refund-cap"], gating=False)]
+        for code, rule in (
+                ("rule_incomplete", {"id": "refund-cap", "rule": "x"}),
+                ("rule_bad_status", a_rule(status="maybe")),
+                ("rule_confirmed_unattributed", a_rule(confirmed_by="")),
+                ("rule_source_vague", a_rule(source="the system prompt")),
+                ("outside_quote_versioned", a_rule(
+                    outside=True, source="https://wiki.example/billing"))):
+            with self.subTest(code):
+                rc, out = self.lint(cases, [rule])
+                finding = next(f for f in out["findings"]
+                               if f["code"] == code)
+                self.assertEqual(finding["severity"], "WARN")
+                self.assertEqual(rc, 0)
+        missing = next(f for f in self.lint(cases, [
+            {"id": "refund-cap", "rule": "x"}])[1]["findings"]
+            if f["code"] == "rule_incomplete")
+        for key in ("source", "date", "quote", "status"):
+            self.assertIn(key, missing["message"])
+
+    def test_an_outside_quote_lives_in_the_local_file_or_is_opted_in(self):
+        for rule in (
+                a_rule(outside=True, quote=None, quote_in="local",
+                       source="https://wiki.example/billing §Refunds"),
+                a_rule(outside=True, quote_versioned=True,
+                       source="https://wiki.example/billing §Refunds")):
+            with self.subTest(rule=rule):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [rule], (), "--strict")
+                self.assertEqual((rc, out["findings"]), (0, []))
+
+    def test_code_sources_name_the_fragment(self):
+        for source in ("prompts/billing.md:4", "app/rules.py:12",
+                       "GLOSSARY.md §Refund", "docs/adr/0003-refunds.md"):
+            with self.subTest(source=source):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [a_rule(source=source)])
+                self.assertNotIn("rule_source_vague", self.codes(out))
+
+    def test_a_contradiction_is_listed(self):
+        rule = a_rule(status="inferred", confirmed_by=None,
+                      contradiction="prompts/billing.md:9 says 14 days")
+        rc, out = self.lint([good_case()], [rule])
+        self.assertEqual(
+            out["summary"]["traceability"]["contradictions"], ["refund-cap"])
+        self.assertEqual(out["summary"]["traceability"]["gaps"],
+                         ["rule refund-cap has no case"])
+
+    def test_covers_without_a_profile_is_unchecked(self):
+        f = self.assert_finds("covers_unchecked",
+                              [good_case(covers=["refund-cap"])],
+                              severity="WARN")
+        self.assertIn("--profile", f["message"])
+        rc, out, _ = self.validate([good_case(covers=["x"])], "--strict")
+        self.assertEqual(rc, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
