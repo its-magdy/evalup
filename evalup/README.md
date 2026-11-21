@@ -299,7 +299,7 @@ Claude-driven run with a tokenless gate step, is in
 
 #### CI workflow template (GitHub Actions)
 
-[`ci/github-actions.yml`](ci/github-actions.yml) is those four commands as a
+[`ci/github-actions.yml`](ci/github-actions.yml) is those five commands as a
 workflow. Copy it to `.github/workflows/evalup.yml` in your app's repository
 and edit the lines marked `EDIT`:
 
@@ -316,14 +316,14 @@ and edit the lines marked `EDIT`:
 It checks out your app, fetches the plugin at **`EVALUP_REF`**, a commit
 SHA (evalup has no release tag yet; a tag replaces the SHA when one exists),
 installs PyYAML for `convert_suite.py` alone (everything else is stdlib, on
-Python 3.9 or later), runs a `regression` run at `EVALUP_K` (default 3),
+Python 3.9 or later), validates the suite, runs a `regression` run at `EVALUP_K` (default 3),
 gates it, and uploads the run directory as the `evalup-run` artifact. Under
 `data.may_contain_pii` that artifact holds raw prompts and answers: shorten
 its retention or drop the step.
 
-A run that aborts (a canary failed, an infra abort, an incomplete run, a
-scorer error) already fails the `run the suite` step with the runner's
-exit code, and the gate does not run. Otherwise the `gate` step fails the job on exit `1` (closed, every reason listed in
+A validator error, or a run that aborts (a canary failed, an infra abort,
+an incomplete run, a scorer error), already fails the `run the suite` step
+with that script's exit code, and the gate does not run. Otherwise the `gate` step fails the job on exit `1` (closed, every reason listed in
 the job log and summary) or `2` (bad input). It closes on any gating
 failure, a run that scored nothing or fails `--verify`, an infra rate above
 `EVALUP_MAX_INFRA_RATE` (default 0.05), a pass rate below
