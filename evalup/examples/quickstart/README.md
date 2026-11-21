@@ -29,7 +29,9 @@ layers can this app actually support?*
 
 | File | What it is | Who writes it |
 |---|---|---|
-| `.evalup/profile.yaml` | the app's capabilities and business rules | `discover` |
+| `.evalup/profile.yaml` | the app's capabilities, business rules (quote, source, date, status) and risks | `discover` |
+| `.evalup/findings.md` | design findings: here, the planted docs-vs-code contradiction | `discover` |
+| `docs/billing-policy.md` | a sample in-repo policy document, the source of one rule | the app's owner |
 | `.evalup/adapter.yaml` | the only thing the harness knows about the app | `discover` |
 | `.evalup/datasets/c-*.yaml` | six cases, one file each | `generate` |
 | `.evalup/rubrics/grounded-answer.md` | the one rubric, in the criteria form, with its self-test | `generate` / you |
@@ -47,7 +49,7 @@ Regenerate the JSON after editing any YAML here:
 python3 scripts/convert_suite.py examples/quickstart/.evalup > /tmp/c.json   # from evalup/
 ```
 
-and copy its `adapter`, `capability_matrix` and `cases` into `converted.json`
+and copy its `adapter`, `capability_matrix`, `profile`, `cases` and `rubrics` into `converted.json`
 (the committed file also carries a `//` comment block the script does not
 write). `tests/test_gate_and_convert.py` asserts the script reproduces the
 committed file exactly, and `TestConversionIsFaithful` checks the file against
@@ -94,9 +96,11 @@ Six cases, `split: [full, smoke]`, `k: 1`, mode `smoke`, soft gate.
 
 ### The prompt's rules, and which ones a case checks
 
-The app's prompt (the fixture's `SYSTEM_PROMPT`) says *reply in plain text: no
-Markdown, never start a line with a bullet or a number*, and `profile.yaml`
-records it as the business rule `plain-text`. It is the kind of rule generate
+The app's prompt (the fixture's `SYSTEM_PROMPT`, built from one fragment per
+line) says *reply in plain text: no Markdown, and no line starting with a
+bullet or a number*, and `profile.yaml` records it as the business rule
+`plain-text`, with the fragment's verbatim quote, its `file:line`, a date and
+`status: confirmed` (with `confirmed_by`, the human who confirmed it). It is the kind of rule generate
 turns into a check rather than leaves to a judge: its breach is a pattern in
 the text. Because it binds every answer, **every case** carries the same
 `must_not_contain` regex for bullet, numbered and heading lines and for bold.
@@ -108,6 +112,25 @@ alone (`tests/test_example.py`). The other two rules:
 | `plain-text` | every case | a regex on the answer |
 | `read-only` | `c-6c1f82ab` | a string check on the refusal |
 | `grounded-only` | `c-4f2a91c7`, judged | the `grounded-answer` rubric: a judge checks every figure against the response data. Provisional: shown with quotes, in no pass rate or gate |
+| `dispute-window` | **none: a gap** | the policy says 30 days, the prompt's fragment says 14 (below) |
+
+Every case names what it is for in `covers`: rule ids, or the ids of the
+three `risks` in `profile.yaml` (out-of-scope answered, a real zero, a
+paraphrase that reroutes). `validate_cases.py --profile` resolves each link
+and prints `summary.traceability`: every rule's and risk's cases, and the
+gaps.
+
+### A rule the docs and the code disagree on
+
+`docs/billing-policy.md` says *an invoice may be disputed within 30 days*;
+the prompt's last fragment says 14. discover reports that in `findings.md`
+(F1, both sides with their sources) and records the rule `dispute-window`
+from the document with `status: inferred` and a `contradiction:` naming the
+fragment. It gets no case until the owner says which is right, so the
+validator lists it under `gaps` and `contradictions`. And it cannot gate:
+a case with `gating: true` that covers a rule no human confirmed is a
+validator ERROR (`unconfirmed_rule_gates`). Nothing scores a rule yet; the
+links are bookkeeping, and no verdict depends on them.
 
 Ids are `c-<hash8>` and **opaque**: they encode neither unit nor category, both
 of which are mutable classifications. Splits are a **field**, never a

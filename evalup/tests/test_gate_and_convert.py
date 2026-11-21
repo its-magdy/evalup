@@ -1014,7 +1014,8 @@ class TestConvertSuite(TempDirTest):
         new = json.loads(out)
         committed = json.loads(
             (QUICKSTART / "converted.json").read_text(encoding="utf-8"))
-        for key in ("adapter", "capability_matrix", "cases", "rubrics"):
+        for key in ("adapter", "capability_matrix", "profile", "cases",
+                    "rubrics"):
             self.assertEqual(new[key], committed[key], key)
         self.assertEqual(sorted(new["sources"]),
                          [case["id"] for case in committed["cases"]])
@@ -1055,6 +1056,7 @@ class TestConvertSuite(TempDirTest):
         rc, out, err = run("validate_cases.py", "--strict",
                            "--cases", str(split / "suite.json"),
                            "--capabilities", str(split / "capabilities.json"),
+                           "--profile", str(split / "profile.json"),
                            "--rubrics", str(split / "rubrics.json"))
         self.assertEqual(rc, 0, out + err)
         self.assertEqual(json.loads(out)["findings"], [])

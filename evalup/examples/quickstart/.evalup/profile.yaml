@@ -41,22 +41,64 @@ confirmed_by_human:
     do against a real app (source-derived expectations grade the app against
     itself). It is safe here only because the app IS the specification.
 
+# Business rules (#25). Each carries a verbatim quote, its source, a date and
+# a status; profile.yaml is versioned like the cases, so a confirmation is a
+# reviewable diff. Sources are paths from the plugin root (evalup/): the app
+# is the fixture in tests/test_example.py, its prompt built from fragments,
+# so a code rule cites the FRAGMENT's line. A rule gates only once a human
+# confirms it -- `status: confirmed` with `confirmed_by` -- and each case
+# names the rules and risks it is for in `covers`. validate_cases.py
+# --profile resolves those links and reports the gaps.
 business_rules:
   - id: read-only
     rule: "Never claim to have created, edited or deleted anything; say the assistant is read-only."
-    source: "app fixture, refuse_mutation branch"
+    quote: "You answer questions about invoices and shifts, and you are read-only."
+    source: "tests/test_example.py:80"
+    date: 2026-11-21
+    status: confirmed
+    confirmed_by: mohamed-omar
   - id: grounded-only
     rule: "Never state a figure not present in a tool result."
-    source: "app fixture, answer templates"
+    quote: "Never state a figure that is not in a tool result."
+    source: "tests/test_example.py:81"
+    date: 2026-11-21
+    status: confirmed
+    confirmed_by: mohamed-omar
   - id: plain-text
     rule: "Reply in plain text: no Markdown, no bullet or numbered lines."
-    source: "tests/test_example.py, SYSTEM_PROMPT"
+    quote: "Reply in plain text: no Markdown, and no line starting with a bullet or a number."
+    source: "tests/test_example.py:82"
+    date: 2026-11-21
+    status: confirmed
+    confirmed_by: mohamed-omar
     # It binds every answer, so every case carries its check: a
     # must_not_contain regex on bullet, numbered and heading lines and on
     # bold. read-only is checked by c-6c1f82ab's strings; grounded-only
     # needs a judge (the figure must match a tool result), so c-4f2a91c7
     # pins rubrics/grounded-answer.md and the judge pass after the run
     # grades it -- provisionally, never in the pass rate or the gate.
+  - id: dispute-window
+    rule: "An invoice can be disputed up to 30 days after its invoice date."
+    quote: "An invoice may be disputed within 30 days of its invoice date."
+    source: "examples/quickstart/docs/billing-policy.md §Disputes"
+    date: 2026-11-01            # the policy's own revision date
+    status: inferred
+    contradiction: "the prompt fragment at tests/test_example.py:83 says 14 days (findings.md F1)"
+    # Docs and code disagree, so it stays inferred and gets no case until
+    # the owner says which is right: the validator reports it as a gap.
+
+# Risks: what could go wrong that no rule states. Ranked, most costly first;
+# a case covers a risk the way it covers a rule.
+risks:
+  - id: risk-oos-answered
+    risk: "a question outside both domains is answered instead of refused with HTTP 400"
+    source: "adapter.yaml: the app's out-of-scope answer is a 400"
+  - id: risk-real-zero
+    risk: "a real zero is read as missing data, or a stub's empty result is answered as 0"
+    source: "tests/test_example.py ANSWERS: the surgeon count is a real 0"
+  - id: risk-paraphrase-reroutes
+    risk: "a paraphrase moves the route or the answer"
+    source: "routing_contract below: two domains told apart by wording"
 
 routing_contract:
   - route: invoices
