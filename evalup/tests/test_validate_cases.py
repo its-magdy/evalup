@@ -134,9 +134,10 @@ class TestCleanSuite(ValidateTest):
         self.assertEqual(self.codes(out), ["no_graded_layer"])
 
     def test_usable_by_split_counts_only_accepted_gating_cases(self):
-        """optimize/SKILL.md precondition 2 reads this count: a human
-        accepted the case, it gates, and it is not a canary. Every split
-        is a key, zero included, so an unusable holdout reads 0."""
+        """optimize/SKILL.md precondition 2 reads `full`'s count: a human
+        accepted the case, it gates, and it is not a canary. Every split is
+        a key, zero included. A sealed pending case reads 0 here, which is
+        why optimize counts the holdout by `by_split`, never by this."""
         cases = [
             good_case("a-ok-1", split=["full", "smoke"]),
             good_case("b-pending-2", gating=False,

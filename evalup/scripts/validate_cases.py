@@ -1114,12 +1114,15 @@ def check_case(rep, case, all_ids, enabled, index=None):
 
 
 def usable(case):
-    """optimize/SKILL.md's "usable case": a human accepted it and it gates.
+    """optimize/SKILL.md's "usable" training case: a human accepted it and
+    it gates.
 
-    The precondition counts these and nothing wider. A pending case's label
-    is the generator's guess, so optimizing toward it fits a guess; a canary
+    optimize counts these in `full`. A pending case's label is the
+    generator's guess, so optimizing toward it fits a guess; a canary
     measures the harness (gates() already excludes it); a machine-signed
-    acceptance is `machine_accepted`, not a review. Only a count: the
+    acceptance is `machine_accepted`, not a review. A sealed case is never
+    read, so never accepted: optimize counts the holdout by `by_split`
+    instead, and this split's tally is informational. Only a count: the
     holdout gate (stats.py) still pairs every pass/fail case it is given."""
     review = mapping(case.get("review"))
     by = review.get("by")

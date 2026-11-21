@@ -247,7 +247,12 @@ class TestPluginLayout(unittest.TestCase):
         for term in ("- **Objective dimension**:", "- **Usable case count**:"):
             self.assertIn(term, optimize)
         # The count is a script's, and the script prints that key.
-        self.assertIn("`summary.usable_by_split`", optimize)
+        flat = " ".join(optimize.split())
+        self.assertIn("`summary.usable_by_split.full` + "
+                      "`summary.by_split.holdout`", flat)
+        # Review of #58: a sealed case is never read, so never accepted;
+        # counting only accepted holdout cases made row 3 unreachable.
+        self.assertIn("Holdout cases count by being sealed", flat)
         self.assertIn('"usable_by_split"', (ROOT / "scripts" /
                       "validate_cases.py").read_text(encoding="utf-8"))
         rows = re.findall(r"^\| (\d) \| (.+) \| (.+) \|$", optimize,
@@ -258,7 +263,8 @@ class TestPluginLayout(unittest.TestCase):
         for path in (ROOT / "skills").glob("*/SKILL.md"):
             hint = re.search(r'^argument-hint: "(.*)"$',
                              path.read_text(encoding="utf-8"), re.MULTILINE)
-            hints[path.parent.name] = hint.group(1) if hint else ""
+            hints[path.parent.name] = set(re.findall(
+                r"--[\w-]+", hint.group(1))) if hint else set()
         for n, _, unlock in rows:
             with self.subTest(precondition=n):
                 commands = re.findall(r"/evalup:(\w+)((?: --[\w-]+)*)",
@@ -268,6 +274,7 @@ class TestPluginLayout(unittest.TestCase):
                 for skill, flags in commands:
                     self.assertIn(skill, hints, "no such skill")
                     for flag in flags.split():
+                        # Membership, not substring: `--lab` is no flag.
                         self.assertIn(flag, hints[skill],
                                       f"{skill} takes no {flag}")
 
@@ -282,7 +289,8 @@ class TestPluginLayout(unittest.TestCase):
         for phrase in ("messages = R + 3H on a seal's first iteration",
                        "`execution.max_attempts`", "`app_calls_planned`",
                        "`wait_floor_s`", "`run_cases.py --dry-run` each", "no look",
-                       "time ≥ messages ÷ L × W", "never assume one",
+                       "the runner does not pace to", "any run over L → refuse",
+                       "time ≥ runs × W", "never assume one",
                        "**What `--budget $N` meters**", '`status: "unpriced"`',
                        "`holdout_excluded`", "`usd_per_case_with_trace`",
                        "never a gate"):
@@ -292,22 +300,23 @@ class TestPluginLayout(unittest.TestCase):
             encoding="utf-8")
         cost = (ROOT / "scripts" / "score_cost.py").read_text(
             encoding="utf-8")
-        for key in ('"app_calls_planned"', '"wait_floor_s"', '"max_attempts"'):
+        for key in ('"app_calls_planned"', '"wait_floor_s"', '"max_attempts"',
+                    "RETRY_AFTER_CAP_S = 60"):
             self.assertIn(key, runner)
         for key in ('"usd_per_case_with_trace"', '"holdout_excluded"'):
             self.assertIn(key, cost)
         # The worked example's arithmetic holds.
         m = re.search(r"(\d+) single-turn training cases and (\d+) sealed, "
                       r"k = (\d): R = (\d+), H = (\d+), so (\d+) messages "
-                      r"on the first iteration \((\d+) worst case\) — at "
-                      r"(\d+) per (\d+) minutes, (\d+) minutes", flat)
+                      r"on the first iteration \((\d+) worst case\)\. "
+                      r"Against (\d+) per (\d+) minutes every one of those "
+                      r"four runs exceeds L", flat)
         self.assertIsNotNone(m, "the worked example moved")
-        train, sealed, k, r, h, msgs, worst, per, window, minutes = map(
-            int, m.groups())
+        train, sealed, k, r, h, msgs, worst, per, _ = map(int, m.groups())
         self.assertEqual((r, h), (train * k, sealed * k))
         self.assertEqual(msgs, r + 3 * h)
         self.assertEqual(worst, msgs * 3)
-        self.assertEqual(minutes, msgs * window // per)
+        self.assertGreater(min(r, h), per, "a run the example says is over L")
 
 
 if __name__ == "__main__":

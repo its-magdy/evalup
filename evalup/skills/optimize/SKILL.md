@@ -64,21 +64,22 @@ Two terms, used exactly:
   `unjudged`, runner-contract §5), so the holdout gate cannot see a cluster
   that fails on `judged` alone: refuse it, and name the deterministic
   assertion that would make it visible.
-- **Usable case count**: from the `summary.usable_by_split` that
-  `validate_cases.py` prints (convert and validate as
-  `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1 does). A usable case is
-  human-accepted (`review.status: accepted`, a human `review.by`), has
-  `gating` true, and is not a canary. The count is `full` + `holdout`, the
-  two splits that partition the suite (`smoke` and `canary` sit inside
-  `full`).
+- **Usable case count**: `summary.usable_by_split.full` +
+  `summary.by_split.holdout`, both from what `validate_cases.py` prints
+  (convert and validate as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1
+  does). A usable training case is human-accepted (`review.status:
+  accepted`, a human `review.by`), has `gating` true, and is not a canary
+  (`smoke` and `canary` sit inside `full`). Holdout cases count by being
+  sealed: nobody may read one to accept it, and the gate pairs every one
+  that scored pass or fail.
 
 Each refusal names its unlock, as a command:
 
 | # | Precondition | Unmet → unlock |
 |---|---|---|
 | 1 | `judge.status: calibrated` when any objective dimension is judge-scored. Check the evidence, not the flag: `paths.judge_calibration`'s sidecar (`score_agreement.py --write`) derives it; a `calibrated` profile without one is hand-set, and the runner refuses it. An uncalibrated judge as a target yields a confidently worse app. | `/evalup:analyze --label` until the sidecar backs it |
-| 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --count <N>`, then its §3 review: a human accepts each case and flips `gating` in the same edit — pending cases do not count |
-| 3 | A sealed holdout exists: `usable_by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal whose ledger has no looks left counts as none (step 4). | `/evalup:generate --count <N>` with its §4 holdout cut from fresh cases nobody has run or read; looks spent → `/evalup:analyze --unseal` |
+| 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --layer <layer> --count <N>` (adds beside the existing cases, changes none), then its §3 review: a human accepts each training case and flips `gating` in the same edit — never a holdout case, which reading unseals |
+| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal whose ledger has no looks left counts as none (step 4). | `/evalup:generate --layer <layer> --count <N>`, its §4 holdout cut from those fresh cases, which nobody has run or read; looks spent → `/evalup:analyze --unseal` |
 | 4 | `stage:` ≥ stable. Below it, route-target and tool boundaries still move, so a gain is indistinguishable from drift. | `/evalup:discover` — its §6 sets `stage` once the user confirms the boundaries hold |
 | 5 | A budget, and its meter (below). | `/evalup:optimize --budget $N`, or ask |
 | 6 | White-box prompt access, and an edit that reaches the running app (below). | none: gray-box or `repo_access: read-only` → recommendations only, written to findings |
@@ -97,7 +98,8 @@ edit.
 **What `--budget $N` meters**: dollars, from `score_cost.py`'s `cost.usd` for
 each run (analyze §What it cost) × the run's `k` — that figure is one
 representative repeat. A holdout run's cases are `holdout_excluded`, so charge
-it at the regression run's `usd_per_case_with_trace` × holdout cases × `k`.
+it at the single-turn regression run's `usd_per_case_with_trace` (one call)
+× H, the holdout plan's app calls below (turns and `k` included).
 With the cost capability off or `status: "unpriced"` (trace-less, no
 `prices.json`, an unknown model) nothing meters dollars: say so, and take the
 budget as app messages or iterations instead (ask which) — never a dollar
@@ -113,13 +115,21 @@ look. With R and H their `app_calls_planned`:
   the candidate's look), R + H after; plus a plain `--regression` run's
   calls when a keep needs one (step 5). Worst case × the plan's `execution.max_attempts` (default
   3): every call retried.
-- time = messages × discover §4's per-request latency + each plan's
-  `wait_floor_s`. With a rate limit recorded in `findings.md` or the adapter
-  (L messages per W minutes), time ≥ messages ÷ L × W: print the larger. No
+- time = messages × discover §4's per-request latency + every run's
+  `wait_floor_s` (the holdout plan's three times on a first iteration).
+- A rate limit recorded in `findings.md` or the adapter (L messages per W
+  minutes) is one the runner does not pace to: it sends as fast as the app
+  answers, and retries a 429 at most `max_attempts` times with each wait
+  capped at 60 s — never a whole window. A run with `app_calls_planned` > L
+  therefore ends in `infra_error`s and can abort (exit 5) after a holdout
+  run has already spent its look at pre-flight. So: any run over L → refuse;
+  the unlock is the user raising or lifting the limit for the eval's
+  client. Runs that fit start a full window apart: time ≥ runs × W. No
   limit recorded → say so; never assume one.
 - e.g. 30 single-turn training cases and 10 sealed, k = 3: R = 90, H = 30,
-  so 180 messages on the first iteration (540 worst case) — at 20 per 10
-  minutes, 90 minutes before any retry.
+  so 180 messages on the first iteration (540 worst case). Against 20 per
+  10 minutes every one of those four runs exceeds L: refuse until the limit
+  is raised.
 
 ## The loop (one iteration per session unless told otherwise)
 1. **Ground first, edit never-first**: read the latest `analyze --cluster`
