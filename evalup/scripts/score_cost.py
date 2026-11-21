@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Cost and latency for evalup runs, and the paired diff. Stdlib only.
 
-The 2026-08 review, SS4.3: "the viewer renders a `cost_usd` column nothing
-computes; no price table, no cached-token accounting, no TTFT, no percentiles.
-`stats.py` compares only binary verdicts -- '2% better but 3x more expensive'
-is indistinguishable from a free win." This script is the missing half. It
-reads one run (or two, paired), prices the tokens a trace already recorded,
-summarizes latency as order statistics, and tests the paired differences with
-tests that are EXACT at every n.
+`stats.py` compares only binary verdicts, so "2% better but 3x more
+expensive" is indistinguishable from a free win. This script is the other
+half. It reads one run (or two, paired), prices the tokens a trace already
+recorded, summarizes latency as order statistics, and tests the paired
+differences with tests that are EXACT at every n.
 
 It reads. It writes nothing except the JSON it prints (or `-o`), invokes no
 scorer, and re-derives no verdict.
@@ -16,11 +14,11 @@ WHAT IT DOES NOT DECIDE. There is exactly one definition of "this change is
 better" in this package and it lives in `stats.py`'s keep rule. Cost does not
 enter it, does not sit beside it as a second gate, and has no threshold here at
 all: this output carries no `keep`, no `better`, no `improved`, no `regressed`
-and no budget, and a test greps for every one of those words. SS4.3's complaint
-is that the trade-off is INVISIBLE, not that it is ungated -- a cost gate would
-need a per-case or per-run budget, nothing declares one, and inventing the
-declaration is the overclaim Step 10 spent a session deleting. Read this beside
-`stats.py`'s verdict and make the trade yourself.
+and no budget, and a test greps for every one of those words. The problem is
+that the trade-off is INVISIBLE, not that it is ungated -- a cost gate would
+need a per-case or per-run budget, nothing declares one, and inventing one
+would be an overclaim: a budget no one set. Read this beside `stats.py`'s
+verdict and make the trade yourself.
 The division "dollars per net fixed case" is deliberately NOT computed here,
 though it is the number a reader wants: it needs the discordant-pair count, and
 computing that here would be a SECOND implementation of `stats.py`'s pairing.
@@ -35,7 +33,7 @@ number it produces; a negotiated rate, a proxy, or a self-hosted model makes
 the list price simply wrong; and a table nobody has to look at is a table
 nobody dates. It is also NOT in `adapter.yaml`, `profile.yaml` or `plan.json`:
 `run_cases.py` never prices anything, so a price key in the plan would be a
-declaration with no reader -- the exact shape Step 10 removed five of.
+declaration with no reader, which this package does not add.
   Shape (see PRICE_SCHEMA): {"schema", "as_of", "currency": "USD", "source",
   "models": {"<gen_ai.request.model>": {"input_per_mtok": "2.50",
   "output_per_mtok": "10.00"}}, "aliases": {"<seen>": "<declared>"}}.
@@ -51,9 +49,10 @@ be DECLARED per app, and `gpt-4o` and `gpt-4o-2024-08-06` are different prices.
 A model the table does not name goes in `unpriced_models` and the run's dollar
 figure is WITHHELD ENTIRELY (`usd: null`) rather than reported over the subset
 that happened to match -- a partial total is an undercount that reads exactly
-like a cheap run, which is the failure SS4.3 is about. Declare an `aliases`
-entry to map one onto another; that is a declaration, not a guess. TOKENS are
-reported either way: tokens are measured, dollars are derived.
+like a cheap run, which is the failure this script exists to expose. Declare
+an `aliases` entry to map one onto another; that is a declaration, not a
+guess. TOKENS are reported either way: tokens are measured, dollars are
+derived.
 
 WHICH RUNS CAN BE PRICED, and it is not all of them. The cost input is
 `cases/<id>/trajectory.json`, which SS6 marks `# only when: a trace was
@@ -64,8 +63,8 @@ collected for this case`. So:
   - a TRACE-LESS run cannot be priced at all -- there is no token count
     anywhere in its output tree. An adapter that declares `correlation: none`
     is exactly this case: `run_cases.py` puts `cost_latency` in
-    `traces.disabled_layers` and no `trajectory.json` is ever written, which
-    is what a real field test did. Such a run reports `status:
+    `traces.disabled_layers` and no `trajectory.json` is ever written. Such
+    a run reports `status:
     "unpriced"` with that reason, and its LATENCY block is still complete.
 LATENCY NEEDS NO TRACE. `results.json.cases[].latency_s` is written on every
 run (SS10), so every run gets the latency half, priced or not.
@@ -89,7 +88,7 @@ copied into a report loses its docstring:
     `cache_accounting: "none"` rides in the output.
   - TTFT. Nothing measures it. `latency_s` (`run_cases.py`) is whole-request
     wall clock, spans carry `duration_ms` and no first-token timestamp, and
-    Step 10 already deleted the adapter's inert `streaming:` declaration. It is
+    the adapter has no `streaming:` declaration. It is
     RESERVED here on the metric side too: buildable only from a first-token
     event this harness does not collect.
   - RETRIES. `results.json` records `latency_s` and NOT `attempts` or
@@ -112,8 +111,8 @@ totals are over VISIBLE cases only: a holdout run spent more than the number
 here says, and `holdout_excluded` reports how many cases the gap is, from
 `summary.holdout` (a count, never an id).
 
-THE STATISTICS, and the recommendation this file DECLINES. SS4.3 asks for
-"continuous paired comparison (bootstrap)". A bootstrap is a Monte Carlo
+THE STATISTICS, and the method this file DECLINES. The usual tool for a
+continuous paired comparison is a bootstrap. A bootstrap is a Monte Carlo
 APPROXIMATION whose answer moves with B and the seed, and `stats.py`'s standing
 rule -- "all are EXACT at every n; no chi-square or normal approximation is
 used in any DECISION or reported test" -- forbids exactly that. Reproducibility
@@ -128,7 +127,7 @@ Every one of them is distribution-free and conditions on the observed data.
   2. EXACT DISTRIBUTION-FREE CI for the MEDIAN paired difference, by inverting
      that sign test over the ORDER STATISTICS of the differences: the interval
      [d_(k+1), d_(m-k)] where k is the largest index with 2*P(X <= k-1) <=
-     alpha. This is the magnitude-with-an-interval the bootstrap was asked for,
+     alpha. This is the magnitude-with-an-interval a bootstrap would give,
      and it needs no resampling: it is exact at every n, assumes nothing about
      the shape of the distribution, and is immune to the heavy tail that makes
      a mean latency meaningless. When m is too small for any interval to have
@@ -413,17 +412,17 @@ def token_count(value):
     """A recorded token count as an int, or None when what was recorded cannot
     be one.
 
-    Absent is 0, as it always was: a span with no usage attribute recorded
+    Absent is 0: a span with no usage attribute recorded
     nothing to price. An integral float is the int it spells -- `1000.0` is
     what a count looks like after a round trip through a JS number or a
     float-typed metrics field, and it is still a thousand tokens. Everything
     else -- a fractional float, a negative, a string, a bool (True would price
     as one token) -- is None, and price_run WITHHOLDS the dollars over it.
 
-    This used to return 0 for all of those, so an exporter emitting floats
-    produced "status": "priced", "usd": 0.0, and a negative count priced to
-    negative dollars (2026-09 audit): the zero-imputation case_usage's
-    docstring forbids, one level down.
+    Returning 0 for those would let an exporter emitting floats produce
+    "status": "priced", "usd": 0.0, and price a negative count to negative
+    dollars: the zero-imputation case_usage's docstring forbids, one level
+    down.
     """
     if value is None:
         return 0
@@ -631,8 +630,8 @@ def median_diff_ci(diffs, alpha):
     1 - 2*P(X <= k-1) for X ~ Binomial(m, 0.5). Pick the largest k whose
     two-sided tail still fits inside alpha. This is exact at every m, assumes
     nothing about the shape of the difference distribution, and needs no
-    resampling -- which is the whole answer to SS4.3's bootstrap: the interval
-    it wanted exists in closed form.
+    resampling -- which is why no bootstrap is needed: the interval it would
+    estimate exists in closed form.
 
     Zero differences are KEPT here, unlike in the sign test above: they are
     real observations of the median's location even though they carry no
@@ -860,7 +859,7 @@ def comparability(base, cand):
 def by_verdict_change(base, cand, shared, lat, cost_pico):
     """What the extra spend bought, partitioned by whether the verdict moved.
 
-    This is the closest this script comes to SS4.3's "2% better but 3x more
+    This is the closest this script comes to "2% better but 3x more
     expensive", and it is deliberately a PARTITION rather than a rate: it
     reports what was spent on the cases whose verdict did not change at all,
     which needs no discordant-pair count and therefore no second copy of
