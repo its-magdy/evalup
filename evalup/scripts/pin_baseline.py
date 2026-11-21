@@ -54,6 +54,7 @@ Usage:
   pin_baseline.py <reports/<run-id>> [--allow-ungated]
 """
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -163,7 +164,7 @@ UNREADABLE = {"unreadable": True}
 
 
 def write_atomic(path, doc):
-    """run_cases.atomic_write's pattern: plain open() so the file gets the
+    """run_cases.atomic_write's pattern: a plain file write, so it gets the
     umask's mode (mkstemp's 0600 would lock a CI reader out), the pid in the
     temp name, and the temp file removed when the rename fails."""
     tmp = f"{path}.tmp.{os.getpid()}"
@@ -172,10 +173,8 @@ def write_atomic(path, doc):
             f.write(json.dumps(doc, indent=2) + "\n")
         os.replace(tmp, path)
     except OSError as e:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         die(f"cannot write {path}: {e}")
 
 
