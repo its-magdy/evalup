@@ -30,6 +30,11 @@ committed fixture replies standing in for the judge, so it needs no Claude.
 out a PROVISIONAL pass with its quotes, and the gate line above it does not
 move.
 
+--serve starts the app and nothing else, on 127.0.0.1:--port (default 8765),
+until SIGTERM or Ctrl-C: the app a CI job starts before its eval steps. The
+repository's own CI runs the workflow template (ci/github-actions.yml)
+against it.
+
 Exit code is gate.py's: 0 on the shipped example, 1 under --break.
 """
 import argparse
@@ -38,6 +43,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -95,6 +101,21 @@ def judge_pass(out, replies):
             print(f"    {crit['id']}: {crit['verdict']}  \"{quote}\"")
 
 
+def serve(port):
+    """Run the app in the foreground until SIGTERM or Ctrl-C."""
+    app = HelpdeskApp(port)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    print(f"helpdesk-demo serving on {app.base_url}", flush=True)
+    try:
+        while app.thread.is_alive():
+            app.thread.join(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        app.close()
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--break", dest="broken", action="store_true",
@@ -105,7 +126,15 @@ def main():
                          "through judge_run.py plan/record/merge")
     ap.add_argument("--keep", action="store_true",
                     help="leave the run directory in place and print its path")
+    ap.add_argument("--serve", action="store_true",
+                    help="only start the app, on 127.0.0.1:--port, until "
+                         "SIGTERM or Ctrl-C (what a CI job runs its suite "
+                         "against)")
+    ap.add_argument("--port", type=int, default=8765,
+                    help="with --serve (default 8765; 0 picks a free port)")
     a = ap.parse_args()
+    if a.serve:
+        return serve(a.port)
     # gate.py prints straight to the terminal; unbuffered, so its lines land
     # after ours rather than before them when stdout is a pipe.
     sys.stdout.reconfigure(line_buffering=True)

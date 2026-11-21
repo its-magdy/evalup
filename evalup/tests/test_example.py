@@ -138,8 +138,8 @@ class HelpdeskApp:
     whose expected answers depend on a model is an example that fails for
     reasons that have nothing to do with the harness."""
 
-    def __init__(self):
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
+    def __init__(self, port=0):
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", port),
                                                       _Handler)
         self.server.seen = []
         # A hook on the answer text, so a test can make the app break a
@@ -631,6 +631,35 @@ class TestDemo(unittest.TestCase):
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("<- failed: answer", proc.stdout)
         self.assertIn("gate closed: 1 gating failure(s)", proc.stdout)
+
+    def test_serve_answers_until_sigterm(self):
+        """--serve is the app the CI template's self-test starts
+        (tests/run_template.py): it answers the adapter's health check and
+        chat endpoint, and SIGTERM stops it cleanly."""
+        import urllib.request
+        proc = subprocess.Popen(
+            [sys.executable, str(EXAMPLE / "demo.py"), "--serve", "--port",
+             "0"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            line = proc.stdout.readline()
+            self.assertIn("serving on http://127.0.0.1:", line)
+            url = line.split("serving on ", 1)[1].strip()
+            with urllib.request.urlopen(url + "/healthz", timeout=10) as r:
+                self.assertEqual(r.status, 200)
+            ask = urllib.request.Request(
+                url + "/api/chat/ask", method="POST",
+                data=json.dumps({"message": "nurses on the night shift?"})
+                .encode("utf-8"))
+            with urllib.request.urlopen(ask, timeout=10) as r:
+                self.assertEqual(json.load(r)["domain"], "shifts")
+            proc.terminate()
+            self.assertEqual(proc.wait(timeout=10), 0, proc.stderr.read())
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc.stdout.close()
+            proc.stderr.close()
 
 
 if __name__ == "__main__":
