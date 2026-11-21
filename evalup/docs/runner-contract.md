@@ -57,6 +57,8 @@ other section exists so §9 has something well-defined to check.
 run_cases.py --plan <plan.json|-> --out <reports/<run-id>> [--resume] [--dry-run]
                              [--baseline-verdicts <prev>/verdicts_for_stats.jsonl]
 run_cases.py --verify <reports/<run-id>>
+run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
+                             [--insecure-tls] [--timeout SECONDS]
 ```
 
 | Flag | Meaning |
@@ -67,14 +69,57 @@ run_cases.py --verify <reports/<run-id>>
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
 | `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1 — what an app-side rate limit has to absorb) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus `turn_delay_s` between turns). |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
+| `--probe` | send **one** request through the adapter and print what came back; no plan, no scoring, no writes (§1.1). Runs alone, with `--adapter` and `--message`, plus optional `--insecure-tls` and `--timeout`, which are probe-only flags. |
 | `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
 
 There are no other flags. Mode, k, filters, and selection are **already
-resolved** in the plan — the runner does not know what `--smoke` means, and does
-not read `adapter.yaml`, `profile.yaml`, or `datasets/**` off disk. Selection is
+resolved** in the plan — the runner does not know what `--smoke` means, and a
+run does not read `adapter.yaml`, `profile.yaml`, or `datasets/**` off disk
+(`--probe`, below, is the one mode that reads an adapter, and it is not a run). Selection is
 the skill's job (`run/SKILL.md` §0); execution is the runner's. Keeping the
 mode taxonomy out of the runner is what lets 5c shrink the skill without
 re-teaching the runner five modes.
+
+### 1.1 `--probe`: discover's live check (#49)
+
+Discover verifies an adapter with 1–3 live requests. They used to be a shell
+`curl … -H "Cookie: $APP_TEST_COOKIE"`, and Claude Code denies a command whose
+variables it cannot check, allow rule or not — so headless, no app needing
+auth got past discover. The runner already resolves `cookie_env`/`token_env`
+and `${VAR}` refs itself (§3) and is pre-approved, so the check is the
+runner's:
+
+- **Input.** `--adapter` is the state location's `adapter.yaml`, handed to
+  `convert_suite.py --adapter-file` in a subprocess so the runner still parses
+  no YAML (§13), or an adapter JSON (a bare adapter, or a document whose
+  `adapter` key holds one, like `convert_suite.py`'s output). Its directory
+  is the state location for `invocation.app.repo` in `function` mode.
+  `--message` is the one user turn.
+- **Path.** The run's own pre-flight (§4) with `--dry-run`'s rules — so no
+  health-check call and nothing written — then one `invoke_once` with
+  `max_attempts: 1`: the same env resolution, auth, headers, body template,
+  SSE decode and answer extraction a case gets, and with `traces.source:
+  response` the same tool-call read. A trace store is neither checked nor
+  joined (its file may not exist yet at discover time); a declared
+  correlation's trace id is still read and shown.
+- **Output**, on stdout, always JSON: `ok`, `problems` (a list, empty when
+  verified), `env_vars` (every env var the adapter needs: its `${NAME}` refs
+  plus the `token_env`/`cookie_env` names), the request as a run records it
+  (headers redacted, refs put back), and `response`: `status`, `latency_s`,
+  `answer`, `trace_id` (a declared correlation's; null under `traces.source:
+  response`, whose ids are minted), `tool_calls` (null unless `traces.source:
+  response`), and `body_preview` (the first 4,000 characters of the body as
+  JSON, `body_truncated` saying whether that was all of it).
+- **Secrets.** Stricter than §3's record: the output is a chat transcript, and
+  an app may echo a header back. Every resolved env value of four characters
+  or more, and every auth value whatever its length, is put back as `${NAME}`
+  *everywhere* in the output, the app's answer and body included.
+- **Exit.** 0 verified: a 2xx, a non-empty answer at the `<answer>` field, a
+  whole stream when `response_format: sse`, a readable tool-call list when
+  `traces.source: response`. 3 with the same report plus `error` when any of
+  those fails, or when pre-flight does (an unset env var is §4's
+  `missing_env` list, with no app call). 2 for bad input. It scores nothing,
+  so no `SCORING_VERSION` question arises.
 
 ---
 
@@ -1325,7 +1370,9 @@ Named here so 5b does not grow them, and so 5c knows what stays in the skill:
 
 - **Case selection and mode semantics.** The skill resolves `--smoke` etc. into
   `cases` + `selecting_split` + `k` + `gate`.
-- **YAML.** The skill converts; the runner reads JSON only.
+- **YAML.** The skill converts; the runner reads JSON only. `--probe` hands a
+  `.yaml` adapter to `convert_suite.py --adapter-file` and reads its JSON
+  (§1.1).
 - **Cost estimation and the "Proceed?" prompt.**
 - **`report.md` / `report.html`.** The skill writes the markdown and runs
   `md_to_html.py`. The runner produces every number those documents quote, but

@@ -58,6 +58,8 @@ FIRST_SESSION = {
 
 # Pointed at from the path, read only when the condition holds.
 CONDITIONAL = {
+    "skills/discover/references/rerun.md":
+        "a later discover: an existing profile.yaml, or --diff",
     "skills/generate/references/generation-method.md":
         "rationale: read only when a rule is challenged",
     "skills/generate/references/conversations.md":
