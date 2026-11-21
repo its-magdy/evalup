@@ -32,6 +32,12 @@ HARNESS_VERSION = "0.1.0"
 # refactors that leave every verdict identical. CONTRIBUTING.md has the rule.
 SCORING_VERSION = 1
 
+# The run-time judge's own rules (docs/judge-run.md SS7): the fold over a
+# reply's criteria, the reply checks, and when a verdict is `calibrated`.
+# Bumped by the same discipline as SCORING_VERSION, and separate from it
+# because the runner's verdicts do not move when the judge's rules do.
+JUDGE_VERSION = 1
+
 # What every state file the plugin writes declares (`schema_version: 1`):
 # profile.yaml, adapter.yaml, case files, plan.json, the run manifest.
 # validate_cases.py warns on a missing or older value; it never errors.
@@ -149,6 +155,22 @@ def scoring_comparison(theirs, ours):
             key[1], record.get("harness_version"))
     return False, (f"{field}: baseline {describe(theirs, ka, la)}, "
                    f"this run {describe(ours, kb, lb)}"), warning
+
+
+def judge_key(judged):
+    """The ONE comparability key for judged verdicts (judge-run.md SS7), the
+    judged counterpart of scoring_key: a judged.json's judge_version, its
+    resolved model id, and every rubric it graded as (id, version, sha256).
+    Two passes compare only when their keys are equal, so a model change
+    behind an alias or any edit to a rubric file refuses the diff."""
+    judge = judged.get("judge") if isinstance(judged.get("judge"), dict) \
+        else {}
+    rubrics = judged.get("rubrics") if isinstance(judged.get("rubrics"), dict) \
+        else {}
+    return (judged.get("judge_version"), judge.get("resolved_model_id"),
+            tuple(sorted((str(rid), str(r.get("version")),
+                          str(r.get("sha256")))
+                         for rid, r in rubrics.items() if isinstance(r, dict))))
 
 
 def add_version_flag(ap):

@@ -67,6 +67,8 @@ CONDITIONAL = {
     "skills/run/references/run-modes.md":
         "before a run in any mode but smoke",
     "skills/run/references/ci-gate.md": "wiring a run into CI",
+    "skills/run/references/judge-pass.md":
+        "after a run in which a selected case pins a rubric",
     "skills/generate/references/label-lifecycle.md":
         "after review: a wrong accepted label, a bump, a re-pin",
     "skills/discover/references/oracle.md":

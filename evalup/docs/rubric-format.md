@@ -1,8 +1,12 @@
 # Rubric Format (`rubrics/*.md`, under the state location)
 
-A rubric is a **decomposed-binary DAG**, not a holistic score. It is the thing
-`${CLAUDE_PLUGIN_ROOT}/agents/judge.md` executes one node of at a time, and the
-thing a case references by id in its `answer.rubric` field (see
+A rubric is a **decomposed-binary** check, not a holistic score, in one of two
+forms: the flat **criteria form** (`form: criteria`, a list of yes/no
+questions graded in one judge call per case — the form the run skill's judge
+pass grades, §"The criteria form" below), or the **DAG** form that
+`${CLAUDE_PLUGIN_ROOT}/agents/judge.md` executes one node of at a time inside
+`analyze --label`. Either is the thing a case references by id in its
+`answer.rubric` field (see
 `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md`). This doc is
 the concrete spec: node types, authoring procedure, file shape, and the
 calibration workflow. The rationale for decomposed-binary over holistic scoring
@@ -60,8 +64,9 @@ one. A `canary_guard` node goes first after the `TaskNode`s: `agents/judge.md`
 rule 6 then applies to every node below it when the case's
 `expect.authz.expect_refusal` is true — and to none on any other case — so a correct
 decline is never failed by a later evidence gate that assumes an answer.
-(`agents/judge.md` executes one node per call; no script parses this file's
-`nodes:`, so whoever drives the walk keeps the order.)
+(`agents/judge.md` executes one node per call; no script walks this file's
+`nodes:`, so whoever drives the walk keeps the order. A case that pins a DAG
+rubric is not judged at run time in v1.)
 
 The ordering principle: **deterministic gates run first, the subjective tail
 is structurally unreachable until they pass.** A nicely-worded hallucination
@@ -167,8 +172,9 @@ so the numbers are for whoever reads the DAG walk's result.
 **Examples.** There is no per-node examples field and nothing would read one;
 put few-shot examples in the node's `criterion` text, or in the body.
 
-A complete, valid rubric using every field (the judge reads the nodes; the
-header and `status:` are record-keeping — no script reads a rubric file):
+A complete, valid DAG rubric using every field (the judge reads the nodes; the
+header and `status:` are record-keeping — `convert_suite.py` parses the
+frontmatter, and only the criteria form's fields are read at run time):
 
 ```yaml
 ---
@@ -228,6 +234,52 @@ Free-form body: rationale, calibration history, worked examples.
 
 A never-calibrated rubric writes `status: { calibrated: false }` and omits the
 numbers (or sets them to `null`), and `last_calibrated: null`.
+
+## The criteria form (v1, graded at run time)
+
+The form the judge pass after a run grades (`${CLAUDE_PLUGIN_ROOT}/docs/judge-run.md`
+§2). It keeps this doc's ids, versioning and frontmatter; `form: criteria`
+replaces `nodes:` with `criteria:`, and a `self_test` is required:
+
+```yaml
+---
+rubric_id: grounded-answer
+version: 1
+form: criteria
+last_calibrated: null
+status: { calibrated: false }
+criteria:
+  - id: states_the_amount
+    question: "Does the answer state the amount in the reference result?"
+    reference_guided: true         # the judge is handed expect.result
+  - id: no_unsupported_claim
+    question: "Is every figure in the answer present in the app's response data?"
+self_test:                         # graded before any case; both must come out right
+  good: { user: "...", answer: "...", response: {...}, reference: {...} }
+  bad:  { user: "...", answer: "...", response: {...}, reference: {...},
+          fails: [no_unsupported_claim] }
+---
+```
+
+What `validate_cases.py --rubrics` checks: 1–12 criteria, snake_case ids,
+unique; each `question` a non-empty string (one question — a criterion that
+can fail for either of two reasons is the double-barreled node above: split
+it); `self_test.good` and `.bad` both present, each with `user`, `answer` and
+`response`; `bad.fails` naming at least one real criterion. A criterion is
+never a substring or regex check — that is `answer.must_contain` (the split
+below). `canary_guard: true` keeps rule 6's meaning on a case whose
+`expect.authz.expect_refusal` is true.
+
+How a case's verdict follows from its criteria: any checked `fail` →
+`fail`; every criterion a checked `pass` → `pass`; otherwise the case is
+`unjudged`. A verdict is `provisional` until `score_agreement.py`'s sidecar
+holds a calibration for **this `rubric_id`, this file's `version` and the
+judge's resolved model id** — so a version bump, or a new model behind the
+alias, sends a rubric back to provisional until it is recalibrated. No judged
+verdict gates in v1 (judge-run.md §8). A case pin older than the file is
+judged on the file's version and can never be `calibrated`: re-pin it.
+
+The quickstart ships one: `examples/quickstart/.evalup/rubrics/grounded-answer.md`.
 
 ## Defaults
 
@@ -362,10 +414,10 @@ friends:
 
 ## Cross-references
 
-- `${CLAUDE_PLUGIN_ROOT}/docs/judge-run.md` — the run-time judge's design
-  (#23, not built): a flat yes/no `criteria:` form with a self-test, graded
-  in one call per case, and the three states `unjudged` / `provisional` /
-  `calibrated`.
+- `${CLAUDE_PLUGIN_ROOT}/docs/judge-run.md` — the run-time judge's design:
+  the criteria form with a self-test, graded in one call per case by
+  `scripts/judge_run.py` and the run skill, and the three states `unjudged`
+  / `provisional` / `calibrated`.
 - `${CLAUDE_PLUGIN_ROOT}/agents/judge.md` — executes one node at a time; owns
   the runtime contract (reasoning-before-verdict, evidence quoting, unknown,
   temperature 0).

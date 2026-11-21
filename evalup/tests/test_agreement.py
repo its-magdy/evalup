@@ -396,6 +396,74 @@ class TestSidecar(ScorerCase):
         self.assertIn("stdlib-only", out["error"])
 
 
+class TestSidecarV2(ScorerCase):
+    """docs/judge-run.md SS6: rubric_version and judge_model_id join the
+    dedupe key and the group key."""
+
+    def tagged(self, model, version=1, **kw):
+        rows = calibrated_rows(**kw)
+        for row in rows:
+            row.update(rubric_version=version, judge_model_id=model)
+        return rows
+
+    def test_two_models_are_two_groups_and_neither_replaces_the_other(self):
+        path = self.tmp / "calibration.json"
+        rows = self.tagged("claude-opus-5-5") + self.tagged(
+            "claude-sonnet-5-5", misses=30)
+        rc, out, _ = self.score(rows, "--write", path)
+        self.assertEqual(rc, 0)
+        sidecar = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(sidecar["schema"], "evalup/judge-calibration/2")
+        self.assertEqual(sidecar["rubrics_measured"], ["billing_answer"])
+        groups = {g["judge_model_id"]: g for g in sidecar["groups"]}
+        self.assertEqual(groups["claude-opus-5-5"]["labelled_pairs"], 120)
+        self.assertTrue(groups["claude-opus-5-5"]["calibrated"])
+        self.assertFalse(groups["claude-sonnet-5-5"]["calibrated"])
+        self.assertEqual(groups["claude-opus-5-5"]["rubric_version"], 1)
+        self.assertEqual(sorted(out["rubrics"]),
+                         ["billing_answer v1 on claude-opus-5-5",
+                          "billing_answer v1 on claude-sonnet-5-5"])
+        self.assertNotIn("groups", out)
+
+    def test_rows_without_the_fields_read_as_before(self):
+        rc, out, _ = self.score(calibrated_rows())
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(out["rubrics"]), ["billing_answer"])
+        self.assertEqual(out["rubrics"]["billing_answer"]["labelled_pairs"],
+                         120)
+
+    def test_a_plain_redo_still_supersedes_a_versioned_pair(self):
+        """As before /2: a later line on the same (rubric, node, case) with
+        no version or model drops the earlier pairing from the numbers."""
+        rows = self.tagged("claude-opus-5-5")
+        redo = {k: rows[0][k] for k in ("case_id", "rubric_id", "node_id")}
+        redo["label"] = "fail"
+        rc, out, _ = self.score([*rows, redo])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["unpaired_annotations"], 1)
+        self.assertEqual(
+            out["rubrics"]["billing_answer v1 on claude-opus-5-5"]
+            ["labelled_pairs"], 119)
+
+    def test_a_half_versioned_row_is_exit_2(self):
+        rows = calibrated_rows()
+        rows[0]["rubric_version"] = 1
+        rc, out, _ = self.score(rows)
+        self.assertEqual(rc, 2)
+        self.assertIn("come together", out["error"])
+
+    def test_a_bad_version_or_model_is_exit_2(self):
+        for field, value in (("rubric_version", "1"),
+                             ("rubric_version", True),
+                             ("judge_model_id", "")):
+            with self.subTest(field=field, value=value):
+                rows = calibrated_rows()
+                rows[0][field] = value
+                rc, out, _ = self.score(rows)
+                self.assertEqual(rc, 2)
+                self.assertIn(field, out["error"])
+
+
 class TestJudgedGate(unittest.TestCase):
     """run_cases.py's half: `judge.status: calibrated` is necessary, not
     sufficient. Before this, the harness's central credibility gate opened on
@@ -452,6 +520,13 @@ class TestJudgedGate(unittest.TestCase):
         reason = self.runner(
             self.good_sidecar(status="uncalibrated")).unjudged_reason()
         self.assertIn("judge not calibrated per", reason)
+
+    def test_a_v1_sidecar_still_serves_the_runner(self):
+        """/2 keeps the keys this check reads, and /1 files written before
+        it are not stranded."""
+        sidecar = self.good_sidecar(schema="evalup/judge-calibration/1")
+        self.assertEqual(self.runner(sidecar).unjudged_reason(),
+                         "deferred to skill")
 
     def test_a_foreign_schema_is_refused(self):
         reason = self.runner(

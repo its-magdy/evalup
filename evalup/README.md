@@ -53,8 +53,11 @@ it without Claude.
   trajectory and cost layers need them.
 
 No existing tests and no judge API key are needed. Judging and judge
-calibration use Claude Code subagents; runs report judged layers as not
-measured.
+calibration use Claude Code subagents. After a run, a case that pins a rubric
+is judged in the same turn and shown as **provisional**, with quoted
+evidence; no judged verdict reaches a pass rate, the gate or the optimizer
+(`docs/judge-run.md`). CI can gate without Claude: it gates on the scripted
+layers only.
 
 Python 3.9 is past upstream end-of-life and is the floor on purpose: RHEL 9
 ships it with backported fixes, and long-lived enterprise environments are
@@ -345,9 +348,13 @@ versions. Diffs between incomparable runs are refused.
   about 0.66 of the time), so `generate` writes conversations
   `gating: false` until a baseline exists, and `gate.py` prints the
   multi-turn pass rate beside the single-turn one.
-- **Judged answer quality and business rules have no run-time scorer.** The
-  judge agent and its calibration flow (`/evalup:analyze --label`) exist; runs
-  report those layers "not measured".
+- **Judged verdicts never gate (v1).** The judge pass after a run shows
+  `provisional` verdicts with their quotes, or `calibrated` ones once
+  `/evalup:analyze --label` has measured the rubric on the same judge model,
+  but none of them is in a pass rate, `gate.py` or an optimize objective
+  until a live calibration has been measured (#27). Business rules
+  (`expect.answer.rules`) still have no scorer; one that needs a judge
+  becomes a rubric criterion.
 - **Tool expectations are whole-app.** In a multi-agent app, a call made by the
   wrong sub-agent still satisfies `expect.tools`.
 - **No retrieval/RAG scoring.**

@@ -239,7 +239,18 @@ Launch the `judge` agent (`evalup:judge` when installed) with profile.yaml's
 in the calibration notes: calibration must measure the model a judged run would
 use, not the agent's default.
 
-The judge executes one rubric node per call, so label **per node**. A
+**When the run has `judge/judged.json`**, start from it: each judged case's
+criteria are already graded, so **copy its recorded reply and launch no
+second judge** (another launch would label a different judge's verdict).
+Pre-fill `judge_label` from each criterion's `verdict`, with `rubric_id`,
+`node_id` (the criterion id), `rubric_version` (the case's
+`graded_version`) and `judge_model_id` (`resolved_model_id`). **Record
+agreements too, not only disagreements**: a sample of only contested cases
+makes TPR and TNR meaningless. An `unjudged` case still carries the
+criteria that came back a checked `pass`/`fail`: label those too (only
+`unknown` ones have nothing to pair), or the sample loses the hard cases.
+
+The judge grades per node (or per criterion), so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:
 1. Show: user message → app answer → the tool results it drew on (compact).
 2. Show that node's provisional verdict, its quoted evidence and its one-line
@@ -254,7 +265,8 @@ case-level agree/disagree cannot say which criterion drifted. Per case:
    into a training split.
 
 Do not compute the numbers yourself. Append one JSONL line per labelled node —
-`{case_id, rubric_id, node_id, label, judge_label, critique, reviewer, ts}`
+`{case_id, rubric_id, node_id, label, judge_label, critique, reviewer, ts}`,
+plus `rubric_version` and `judge_model_id` when pre-filled from `judged.json`
 (annotation-ux.md §"The calibration fields") — then run
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
 <state>/judge/calibration.json`. That sidecar is what the runner reads; a

@@ -106,16 +106,20 @@ matching fails correct agents and teaches people to ignore the suite.
 
 ## The judge
 
-**What a run does not score today.** `run_cases.py` has no scorer for the
-**judged** layer (`expect.answer.rubric`) or for **business rules**
+**What a run scores, and what it only shows.** `run_cases.py` has no scorer
+for the **judged** layer (`expect.answer.rubric`) or for **business rules**
 (`expect.answer.rules`): it records them as `unjudged (…)` and `unscored` (or
-`unscorable`, like `answer`, when the matrix disables `answer_quality`), and
-nothing else scores them either. The judge agent runs only inside `analyze
---label`, where a human labels beside it; its verdicts live in the calibration
-record, never in a run's pass/fail. Calibration is therefore groundwork: it
-tells you whether the judge could be trusted, and the run-time judged layer it
-would unlock is not built (its design, reviewed before any code, is
-`docs/judge-run.md`, #23).
+`unscorable`, like `answer`, when the matrix disables `answer_quality`). After
+the run, the run skill's **judge pass** (`docs/judge-run.md`) grades each case
+that pins a `form: criteria` rubric, one Claude subagent call per case, after
+the judge has passed the rubric's own self-test. A verdict is one of three
+states: `unjudged` (no rubric, an `unknown`, a refusal, a reply that failed a
+check), `provisional` (judged, every quote found in the file it names, not yet
+calibrated) or `calibrated` (a human-label calibration for the same rubric
+version on the same judge model backs it). **None of the three reaches a pass
+rate, `gate.py`, `stats.py` or an optimize objective in v1**: they are shown,
+with their evidence, in their own report section. Business rules stay
+unscored; one that needs a judge becomes a rubric criterion.
 
 - One strong judge, one rubric dimension per call, binary verdicts,
   reasoning first, "unknown" allowed.

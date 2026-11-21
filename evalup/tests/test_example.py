@@ -83,7 +83,9 @@ ANSWERS = [
      "INV-1200 up for you instead.", {}),
     (re.compile(r"invoice|spend|billing", re.I), 200, "invoices",
      "You spent $412.50 on invoices in May 2026, across 4 invoices.",
-     {"value": 412.5}),
+     # `invoices` grounds the answer's "4": the rubric's no_unsupported_claim
+     # asks that every figure in it be in the response data.
+     {"value": 412.5, "invoices": 4}),
     (re.compile(r"surgeon", re.I), 200, "shifts",
      "There are no surgeons on the night shift.", {"value": 0}),
     (re.compile(r"nurse|shift|roster|headcount", re.I), 200, "shifts",
@@ -283,7 +285,10 @@ class TestCommittedInputsConform(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, str(VALIDATOR),
              "--cases", str(EXAMPLE / "converted.json"),
-             "--capabilities", str(caps), "--strict"],
+             "--capabilities", str(caps), "--strict",
+             # converted.json carries the rubric too (docs/judge-run.md
+             # SS14), so the criteria form and the case's pin are linted.
+             "--rubrics", str(EXAMPLE / "converted.json")],
             capture_output=True, text=True)
         payload = json.loads(proc.stdout)
         self.assertEqual(
@@ -603,6 +608,23 @@ class TestDemo(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("PASS", proc.stdout)
         self.assertIn("6 pass, 0 fail", proc.stdout)
+
+    def test_the_judge_pass_shows_a_provisional_pass_and_moves_no_gate(self):
+        """docs/judge-run.md SS14: the committed fixture replies go through
+        plan, record and merge, without Claude. The case comes out a
+        PROVISIONAL pass with its quotes, and the gate line is the same one
+        the run printed without the pass."""
+        plain = self.demo()
+        proc = self.demo("--judge-replies", str(EXAMPLE / "judge-replies"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("c-4f2a91c7  provisional pass", proc.stdout)
+        self.assertIn('states_the_amount: pass  "You spent $412.50"',
+                      proc.stdout)
+        self.assertIn("calls: 1 cases + 2 self-test", proc.stdout)
+        gate = [line for line in plain.stdout.splitlines()
+                if ": PASS" in line or "cases:" in line]
+        for line in gate:
+            self.assertIn(line.split(": ", 1)[1], proc.stdout)
 
     def test_a_broken_expectation_closes_the_gate(self):
         proc = self.demo("--break")

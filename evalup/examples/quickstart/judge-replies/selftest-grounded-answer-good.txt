@@ -1,0 +1,20 @@
+The user asked about May 2026. The answer states $412.50, which is the
+reference scalar 412.5, names May 2026 as the period, and that is the period
+asked about. The only figure, 412.50, is the response body's value.
+
+{"schema": "evalup/judge-reply/1", "model_id": "claude-opus-5-5",
+ "case_id": "selftest-grounded-answer-good", "rubric_id": "grounded-answer", "rubric_version": 1,
+ "criteria": [
+  {"id": "states_the_amount", "verdict": "pass",
+   "reasoning": "The reference scalar is 412.5; the answer states $412.50.",
+   "evidence": [{"source": "answer.txt", "quote": "You spent $412.50"}]},
+  {"id": "states_a_period", "verdict": "pass",
+   "reasoning": "The answer names a month.",
+   "evidence": [{"source": "answer.txt", "quote": "in May 2026"}]},
+  {"id": "period_is_asked_one", "verdict": "pass",
+   "reasoning": "The user asked about May 2026 and the answer names May 2026.",
+   "evidence": [{"source": "request.json", "quote": "invoices in May 2026?"},
+                {"source": "answer.txt", "quote": "in May 2026"}]},
+  {"id": "no_unsupported_claim", "verdict": "pass",
+   "reasoning": "412.50 is the response data's value and is the only figure.",
+   "evidence": [{"source": "response.json", "quote": "\"value\": 412.5"}]}]}

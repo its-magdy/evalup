@@ -61,7 +61,7 @@ have flagged the empty result as suspicious rather than reporting it as 0.",
 ```
 
 **The calibration fields.** A line written during a calibration pass carries
-three more, and `${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py` counts only
+three more (five when the verdict came from a run's judge pass), and `${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py` counts only
 lines that have the first of them:
 
 ```jsonc
@@ -69,16 +69,24 @@ lines that have the first of them:
  "judge_label": "pass",              // the judge's verdict for the SAME node:
                                      //   pass | fail | unknown
  "rubric_id": "billing-answer",      // groups the numbers — calibration is per rubric
- "node_id": "correct_amount",        // the judge runs ONE node per call, so label per node
+ "node_id": "correct_amount",        // a DAG node, or a criteria-form criterion id
+ "rubric_version": 1,                // judged.json's graded_version (never the case pin)
+ "judge_model_id": "claude-opus-5-5",// judged.json's resolved_model_id
  "critique": "...", "reviewer": "priya", "ts": "..."}
 ```
 
+`rubric_version` and `judge_model_id` are what let a calibration back a
+run-time verdict (`docs/judge-run.md` §6): `score_agreement.py` groups on
+`(rubric_id, rubric_version, judge_model_id)`, and a group without both
+counts as before but calibrates nothing at run time.
+
 `judge_label` is recorded **at labeling time, on the same line as the human
-label**, and there is a hard reason it cannot be joined in later instead: no
-artifact in this harness holds a judge verdict. `run_cases.py`'s judged layer
-is always `unjudged (<reason>)` — it has no script (`runner-contract.md` §5.4)
-— so the only moment both sides exist together is the moment the reviewer is
-looking at them. The viewer's export panel writes the human side only, so a
+label**. `run_cases.py`'s judged layer is always `unjudged (<reason>)` — it
+has no script (`runner-contract.md` §5.4) — and the one artifact that holds
+a judge verdict is a run's `judge/judged.json`, written by the judge pass
+after the run. `analyze --label` copies from it: each criterion's checked
+verdict becomes `judge_label`, and the human's call fills `label`, so both
+sides still land on one line at the moment the reviewer looks at them. The viewer's export panel writes the human side only, so a
 viewer-only file scores nothing and says so; the per-node conversational flow
 (`analyze --label`) is what writes both.
 

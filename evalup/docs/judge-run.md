@@ -1,7 +1,8 @@
 # The run-time judge — design
 
-**Status:** design only, written 2026-11-21 for issue #23, to be reviewed
-before any code. Nothing below is built. The issue body's "Changes after two
+**Status:** written 2026-11-21 for issue #23 and built in the same issue's
+code PR; §19 lists where the build settled a detail this design left open.
+The issue body's "Changes after two
 independent reviews" list is the brief, and every item on it is honoured
 here: three states, one judge call per case behind an estimate, a grader
 self-test, no Rogan–Gladen correction, no CI gating until a live calibration
@@ -654,3 +655,49 @@ unless the owner says otherwise.
 - A cross-family judge (a Claude Code subagent cannot leave the family).
 - `run_history.py` series over judged verdicts.
 - Judging holdout cases.
+
+## 19. As built: details the design left open
+
+- **Rubric files reach the pass as JSON.** Every script but
+  `convert_suite.py` is stdlib-only, so it parses the frontmatter
+  (`--rubrics-dir`; a state dir with `rubrics/` also gets a `rubrics` key and,
+  under `--split-dir`, `rubrics.json`). `plan --rubrics` takes a directory
+  (it runs `convert_suite.py --rubrics-dir`, as `--probe` does with the
+  adapter) or that JSON; the run skill passes `<work-dir>/rubrics.json`, the
+  run's own parse. The rules of §2 live in `scripts/_rubric.py`, shared by
+  the linter and `plan`.
+- **The judge never reads the rubric file.** `plan.json` carries each
+  launch's prompt, with the criteria inline and the case's files listed.
+  A self-test's `case_id` and directory carry a random label
+  (`selftest-<rubric_id>-<6 hex>`), never `good` or `bad`; the mapping
+  lives only in `plan.json`, which no assignment names (rule 0 is what keeps
+  the judge out of it). `record --self-test RUBRIC:good|bad` and `pending`'s
+  `side` are for the skill; the labels are drawn in order, never sorted.
+  A quote's unredacted text holds at least two letters or digits, and one
+  redaction stands for at most 4000 characters of the file (a PEM key,
+  not a stretch of it); the match is linear, never backtracking.
+- **The reply scan is §4's, with one consequence stated:** a `{` that does
+  not parse is skipped by one character, so a whole reply wrapped in a
+  broken outer object is still found, and must pass every check. Skipping a
+  broken object's balanced extent instead lost real replies whose prose
+  held an odd quote mark.
+- **Flags §5 did not name:** `plan --resume` (keep the plan and its
+  budget, list launches with no reply; a different `--max-calls` is exit 2) and `--restart` (discard an earlier pass; a plain `plan`
+  over existing replies is exit 2), `record --tokens N`, `merge
+  --launch-denied`. `record` counts each launch in `judge/launches.jsonl`
+  and refuses one past `--max-calls`; `plan` pays for a rubric's self-test
+  only when at least one of its cases fits under the cap.
+- **The sidecar's `/2` shape:** the `/1` keys, with `rubrics_measured`
+  still bare rubric ids, plus `groups`, one entry per `(rubric_id,
+  rubric_version, judge_model_id)`; that is what `merge` matches.
+- **§6 condition 4 never fails alone:** a rubric whose self-test failed
+  leaves its cases `unjudged` before §6 is asked, so §16 test 7 checks it
+  as `unjudged`, not `provisional`.
+- **`cost.wall_s`** is the time from `plan` to the last recorded launch.
+- **Canaries are counted apart**: `summary.canaries` holds their own state
+  counts, and `summary`'s other counts are the non-canary cases only.
+- **Sealed holdout cases' rubric pins are not read**: `holdout_not_judged`
+  counts every holdout case of the run, whether it pins a rubric or not.
+- **The quickstart's fixture app** returns `invoices: 4` beside the total,
+  so the answer's "across 4 invoices" is grounded and the case's
+  provisional `pass` is the right verdict.

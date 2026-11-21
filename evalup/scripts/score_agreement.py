@@ -34,18 +34,28 @@ Per line, on top of that doc's fields:
   node_id     -- optional; part of the identity key, since the judge executes
                  ONE rubric node per call and `analyze/SKILL.md` §`--label`
                  says to label per node.
+  rubric_version, judge_model_id
+              -- optional (docs/judge-run.md SS6): the rubric file's version
+                 the judge graded and the judge's resolved model id, copied
+                 from judged.json by the label flow. Both join the dedupe key
+                 AND the group key, so one rubric labelled on two models is
+                 two groups, and a later label on a new model never replaces
+                 the earlier pair. A row without either is counted exactly
+                 as before and calibrates nothing at run time; a row with
+                 only one of the two is exit 2.
 
-`judge_label` is not a field the viewer exports today, and it cannot be: the
-runner NEVER writes a judge verdict — `run_cases.py`'s judged layer is always
-`unjudged (<reason>)` and runner-contract.md §5.4 leaves filling it in to an
-LLM step. So there is no artifact on disk pairing a judge verdict with a case,
-and this script does not pretend to join one. The pairing is recorded at
-labeling time, when the flow has both sides in hand, on one line. Lines with no
+`judge_label` is not a field the viewer exports today. The runner NEVER
+writes a judge verdict -- `run_cases.py`'s judged layer is always
+`unjudged (<reason>)` -- and the one artifact that holds one is a run's
+`judge/judged.json` (judge_run.py, docs/judge-run.md). This script does not
+join it: the pairing is recorded at labeling time, when `analyze --label`
+has both sides in hand (pre-filled from judged.json), on one line. Lines with no
 `judge_label` are ordinary open-coding annotations; they are counted under
 `unpaired_annotations` and skipped, so one file can hold both kinds of pass.
 
 Append-only, latest-wins: annotation-ux.md says re-reviewing a trace APPENDS.
-Rows are deduped by (rubric_id, node_id, case_id or trace_id) with the LAST
+Rows are deduped by (rubric_id, node_id, case_id or trace_id, rubric_version,
+judge_model_id) with the LAST
 occurrence in FILE ORDER winning — file order, not `ts`, because that is what
 the viewer itself does and a second rule would disagree with the page the
 reviewer read. `case_id` is preferred over `trace_id` as the identity, per that
@@ -103,7 +113,11 @@ rule. Exit 0 either way: "uncalibrated" is a measurement, not a failure. Errors
 go to STDOUT as {"error": ...} with exit 2 (_common.die).
 
 --write <path> emits the sidecar `run_cases.py` reads (paths.judge_calibration,
-a .json file). It is a SIDECAR for the same reason the holdout ledger is one:
+a .json file), schema evalup/judge-calibration/2: the /1 keys (`status`,
+`rubrics_measured` -- bare rubric ids -- and `rubrics`) plus `groups`, one
+entry per (rubric_id, rubric_version, judge_model_id), which is what
+judge_run.py merge reads to call a verdict `calibrated`. It is a SIDECAR for
+the same reason the holdout ledger is one:
 this package is stdlib-only, profile.yaml and the rubric frontmatter are YAML,
 and a hand-rolled YAML writer would corrupt documents that hold the harness's
 configuration. Writing numbers this script computed into a file the runner
@@ -139,9 +153,11 @@ from _common import (
 
 HUMAN_LABELS = ("pass", "fail")
 JUDGE_LABELS = ("pass", "fail", "unknown")
-# Rubrics are grouped by `rubric_id`; a file that names none is still scorable
-# as one group, and this is what that group is called in the output.
+# Rubrics are grouped by `rubric_id` (+ version and judge model when the rows
+# carry them); a file that names none is still scorable as one group, and
+# this is what that group is called in the output.
 UNGROUPED = "__unspecified__"
+SIDECAR_SCHEMA = "evalup/judge-calibration/2"
 # Above this share of `unknown` judge verdicts the numbers below are computed
 # on a filtered minority of the labels and the criterion itself is the finding.
 UNKNOWN_WARN_RATE = 0.10
@@ -297,6 +313,34 @@ def optional_id(row, field):
         else None
 
 
+def optional_version(row, lineno, path):
+    value = row.get("rubric_version")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        die(f"{path}:{lineno}: rubric_version={value!r} must be an integer "
+            ">= 1 (the rubric file's `version`)")
+    return value
+
+
+def optional_model(row, lineno, path):
+    value = row.get("judge_model_id")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        die(f"{path}:{lineno}: judge_model_id={value!r} must be a non-empty "
+            "string (judged.json's resolved_model_id)")
+    return nfc(value).strip()
+
+
+def group_name(rubric_id, version, model):
+    """The output key: the bare id when the rows carry neither field, so a
+    pre-/2 annotation file reads exactly as it did."""
+    if version is None and model is None:
+        return rubric_id
+    return f"{rubric_id} v{version} on {model}"
+
+
 def load_pairs(path):
     """Annotation JSONL -> (paired rows, unpaired count).
 
@@ -308,18 +352,40 @@ def load_pairs(path):
     latest = {}
     for lineno, row in enumerate(rows, 1):
         key = (optional_id(row, "rubric_id"), optional_id(row, "node_id"),
-               identity(row, lineno, path))
+               identity(row, lineno, path),
+               optional_version(row, lineno, path),
+               optional_model(row, lineno, path))
         # Dedupe over EVERY line, paired or not, before filtering for
         # judge_label -- so a later open-coding re-annotation supersedes an
         # earlier calibration pairing rather than being invisible to it.
+        # A line WITHOUT rubric_version/judge_model_id is the pre-/2 shape
+        # and supersedes every earlier line on its (rubric, node, case),
+        # versioned or not, exactly as before; a versioned line supersedes
+        # only its own (version, model) and an earlier unversioned line.
+        # So a new model's label never replaces another model's pair, and
+        # a plain re-annotation still drops them all.
+        if (key[3] is None) != (key[4] is None):
+            die(f"{path}:{lineno}: rubric_version and judge_model_id come "
+                "together (both copied from judged.json) or not at all -- "
+                "a row with one of them backs no group")
+        base = key[:3]
+        if key[3] is None and key[4] is None:
+            for old in [k for k in latest if k[:3] == base]:
+                del latest[old]
+        else:
+            latest.pop(base + (None, None), None)
+        latest.pop(key, None)
         latest[key] = (lineno, row)
     paired, unpaired = [], 0
-    for (rubric_id, node_id, ident), (lineno, row) in latest.items():
+    for (rubric_id, node_id, ident, version, model), (lineno, row) in \
+            latest.items():
         if "judge_label" not in row:
             unpaired += 1
             continue
         paired.append({
             "rubric_id": rubric_id or UNGROUPED,
+            "rubric_version": version,
+            "judge_model_id": model,
             "node_id": node_id,
             "id": ident,
             "human": label_of(row, "label", HUMAN_LABELS, lineno, path),
@@ -404,19 +470,25 @@ def score_group(rows, opts):
 def sidecar(out, opts):
     """The artifact run_cases.py reads (plan paths.judge_calibration)."""
     return {
-        "schema": "evalup/judge-calibration/1",
+        "schema": SIDECAR_SCHEMA,
         "harness_version": HARNESS_VERSION,
         "generated_at": datetime.datetime.now(
             datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "status": out["status"],
         "thresholds": out["thresholds"],
-        "rubrics_measured": sorted(out["rubrics"]),
+        "rubrics_measured": out["rubrics_measured"],
         "rubrics": {name: {"calibrated": block["calibrated"],
                            "labelled_pairs": block["labelled_pairs"],
                            "tpr": block["tpr"], "tnr": block["tnr"],
                            "kappa": block["kappa"],
                            "blocking": block["blocking"]}
                     for name, block in out["rubrics"].items()},
+        "groups": [dict(out["groups"][name],
+                        calibrated=block["calibrated"],
+                        labelled_pairs=block["labelled_pairs"],
+                        tpr=block["tpr"], tnr=block["tnr"],
+                        kappa=block["kappa"], blocking=block["blocking"])
+                   for name, block in out["rubrics"].items()],
         "note": ("Attests only to the rubrics in this file's annotations. It "
                  "cannot know which rubrics are ACTIVE; run_cases.py refuses "
                  "the judged gate when a case in the run references a rubric "
@@ -466,14 +538,19 @@ def main():
         die(f"{a.annotations}: no annotation carries a 'judge_label', so there "
             f"is nothing to compare ({unpaired} human-only annotation(s) "
             "read). A viewer export holds the human side only; the judge's "
-            "verdict is written by no artifact in this harness "
-            "(run_cases.py's judged layer is always 'unjudged'), so the "
-            "labelling flow must record both sides on one line -- see this "
-            "script's docstring and annotation-ux.md.")
+            "verdict is in a run's judge/judged.json, never in the "
+            "runner's judged layer, so the labelling flow must record both "
+            "sides on one line -- see this script's docstring and "
+            "annotation-ux.md.")
 
-    groups = {}
+    groups, keys = {}, {}
     for row in paired:
-        groups.setdefault(row["rubric_id"], []).append(row)
+        name = group_name(row["rubric_id"], row["rubric_version"],
+                          row["judge_model_id"])
+        groups.setdefault(name, []).append(row)
+        keys[name] = {"rubric_id": row["rubric_id"],
+                      "rubric_version": row["rubric_version"],
+                      "judge_model_id": row["judge_model_id"]}
     rubrics = {name: score_group(rows, a) for name, rows in sorted(groups.items())}
     # profile-schema.md §`judge:`: `calibrated` only when EVERY active rubric
     # is individually calibrated -- one uncalibrated rubric holds the whole
@@ -483,13 +560,15 @@ def main():
 
     out = {
         "status": status,
-        "rubrics_measured": sorted(rubrics),
+        # Bare rubric ids, what run_cases.py's calibration check matches.
+        "rubrics_measured": sorted({keys[n]["rubric_id"] for n in rubrics}),
         "labelled_pairs": sum(b["labelled_pairs"] for b in rubrics.values()),
         "unpaired_annotations": unpaired,
         "thresholds": {"tpr": a.tpr_floor, "tnr": a.tnr_floor,
                        "kappa": a.kappa_floor, "min_labeled": a.min_labeled,
                        "min_per_class": a.min_per_class},
         "rubrics": rubrics,
+        "groups": keys,
         "positive_class": "fail",
         "accuracy": "not reported by design -- an always-pass judge scores "
                     "0.90 on a 90%-pass app while catching no failures at all",
@@ -501,6 +580,7 @@ def main():
     if a.write:
         write_output(a.write, json.dumps(sidecar(out, a), indent=2) + "\n")
         out["written"] = a.write
+    out.pop("groups")
     print(json.dumps(out, indent=2))
 
 

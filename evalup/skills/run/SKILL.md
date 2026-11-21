@@ -6,9 +6,9 @@ description: >-
   scorer, the artifacts and the baseline diff; this skill decides what to run
   and what the numbers mean. Five modes — smoke, regression, targeted, holdout,
   full — cover everyday edits through release validation, plus a CI gate.
-argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn]"
+argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn] [--no-judge]"
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Agent(evalup:judge) Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # Run — Execute and Score
@@ -80,7 +80,7 @@ plan, or any case body, by hand** — three scripts do it, in this order:
 
 ```
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <work-dir>/converted.json --split-dir <work-dir>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json --profile <work-dir>/profile.json [--manifest <work-dir>/manifest.json]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json --profile <work-dir>/profile.json [--manifest <work-dir>/manifest.json] [--rubrics <work-dir>/rubrics.json]
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
 ```
 
@@ -99,8 +99,8 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   re-lint. Fix errors in the YAML and re-convert — never in the JSON.
   `--capabilities` is required (`--no-capabilities` only with genuinely no
   profile); `--adapter` catches a label the runner could never observe; pass
-  `--manifest` only when convert wrote it (`datasets/dataset.yaml` exists) —
-  a missing path is exit 2. Name each `label_fixes_open` entry: a label fix
+  `--manifest` and `--rubrics` only when convert wrote them — a missing path
+  is exit 2. Name each `label_fixes_open` entry: a label fix
   awaiting the owner.
 - **`make_plan.py`** resolves the mode via §0 into `cases`, `selecting_split`,
   `k` and `gate`, fills every required key, and prints the `run_id`, the
@@ -232,16 +232,12 @@ subset, exactly what `stats.py` pairs), and, when they apply,
 number you quote comes from those. You add `report.md`
 beside them.
 
-- **What a run does not score today.** `run_cases.py` has no scorer for the
-  **judged** layer (`expect.answer.rubric`) or for **business rules**
-  (`expect.answer.rules`): it records them as `unjudged (…)` and `unscored`
-  (or `unscorable`, like `answer`, when the matrix disables `answer_quality`),
-  and nothing else does: the judge agent runs only inside `analyze --label`,
-  and its verdicts live in the calibration record, never in a run's
-  pass/fail. **Report both as "not measured in this run"**, even when the
-  rubric is calibrated and the reason reads `deferred to skill` — no step
-  picks that up, and scoring them yourself is the eyeball-scoring this file
-  forbids.
+- **The judge pass.** The runner scores neither the **judged** layer
+  (`expect.answer.rubric`, row `unjudged (…)`) nor **business rules**
+  (`expect.answer.rules`, "not measured in this run"). When a selected case
+  pins a rubric, and no `--no-judge`, run the pass in this turn:
+  [references/judge-pass.md](references/judge-pass.md). Its verdicts go in
+  their own section, never in a pass rate or the gate; never judge by eye.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
   redacted: reports are written to be shared and committed. When nothing

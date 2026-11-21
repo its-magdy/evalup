@@ -35,11 +35,14 @@ No mode flag behaves as `regression` (full suite, hard gate).
   `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example`) proceeds regardless of the
   verdict; the run is advisory, meant to be looked at, not to block anything by
   itself.
-- **Judged layers**: never scored at run time, in any mode — the runner has
-  no judge (runner-contract §5.4). Only the reason string varies: here it is
+- **Judged layers**: never scored by the runner, in any mode — it has no
+  judge (runner-contract §5.4). Only its reason string varies: here it is
   `unjudged (mode: smoke)`, even if `judge.status: calibrated`. That is
   deliberately a different string from the uncalibrated-judge banner, so a
-  calibration gap does not hide behind a cadence choice.
+  calibration gap does not hide behind a cadence choice. The judge pass
+  after the run ([judge-pass.md](judge-pass.md)) still runs in this mode, as
+  in every mode but a holdout one: its `provisional` verdicts sit beside the
+  runner's reason, in their own report section.
 - **Cost**: sub-dollar, minutes — see `${CLAUDE_PLUGIN_ROOT}/docs/workflow.md`
   "Steady state."
 
@@ -57,10 +60,11 @@ No mode flag behaves as `regression` (full suite, hard gate).
 - **Gate**: hard. The CI step exits nonzero on gating failures — this is the
   mode CI runs pre-merge/nightly (SKILL.md §6; the runner itself always exits 0
   on a red suite).
-- **Judged layers**: `unjudged`, like every mode. The reason is
-  `judge not calibrated` (or the sidecar gap that blocks it), and
-  `deferred to skill` once a calibrated judge is backed by its sidecar — no
-  skill fills that row in yet, so it is still not measured.
+- **Judged layers**: the runner's row is `unjudged`, like every mode. The
+  reason is `judge not calibrated` (or the sidecar gap that blocks it), and
+  `deferred to skill` once a calibrated judge is backed by its sidecar. The
+  judge pass after the run grades the cases ([judge-pass.md](judge-pass.md)),
+  but in v1 none of its verdicts — `calibrated` included — closes the gate.
 
 ## `targeted`
 
@@ -149,9 +153,10 @@ No mode flag behaves as `regression` (full suite, hard gate).
   not weaken the seal.
 - **k**: ≥3 default, same reasoning as `regression`.
 - **Gate**: hard.
-- **Judged layers**: `unjudged`, as in `regression` — not measured. If judged
-  dimensions matter to the release decision, that row on page one means a
-  human has to check them before shipping.
+- **Judged layers**: as in `regression` for the `full` cases; the holdout
+  half is never judged (the seal). No judged verdict gates in v1, so if
+  judged dimensions matter to the release decision, a human checks the
+  provisional ones before shipping.
 - **Adversarial/authz cases**: run if the adapter's `environment.safe_to_attack`
   is true (same gate as any other red-team probe; the runner applies it at
   pre-flight, runner-contract §4 item 5 and §7); still skipped (not failed) otherwise.

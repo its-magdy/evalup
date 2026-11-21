@@ -1,9 +1,10 @@
 {
   "//": [
     "The YAML->JSON conversion the `run` skill performs before it calls",
-    "run_cases.py, which takes JSON and nothing else. Three sources, one",
+    "run_cases.py, which takes JSON and nothing else. Four sources, one",
     "file: adapter.yaml verbatim, profile.yaml's capability_matrix",
-    "verbatim, and every case file under datasets/.",
+    "verbatim, every case file under datasets/, and each rubric under",
+    "rubrics/ (its frontmatter and the sha256 of its bytes).",
     "",
     "It is committed because it is the exact input validate_cases.py and",
     "run_cases.py read -- `--cases converted.json` works directly, since",
@@ -244,7 +245,8 @@
           "must_not_contain": [
             "I don't know",
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
-          ]
+          ],
+          "rubric": "grounded-answer-v1"
         }
       },
       "gating": true
@@ -395,6 +397,67 @@
         }
       },
       "gating": true
+    }
+  ],
+  "rubrics": [
+    {
+      "file": "rubrics/grounded-answer.md",
+      "sha256": "22c1ba129f3d250975677ce6c20122634b98d51936ed07410ab2123a92a8db97",
+      "frontmatter": {
+        "rubric_id": "grounded-answer",
+        "version": 1,
+        "form": "criteria",
+        "last_calibrated": null,
+        "calibration_notes": "v1: written for the quickstart's invoice case.\n",
+        "status": {
+          "calibrated": false
+        },
+        "criteria": [
+          {
+            "id": "states_the_amount",
+            "question": "Does the answer state the amount in the reference result?",
+            "reference_guided": true
+          },
+          {
+            "id": "states_a_period",
+            "question": "Does the answer say which period the amount covers?"
+          },
+          {
+            "id": "period_is_asked_one",
+            "question": "Is the period the answer names the one the user asked about?"
+          },
+          {
+            "id": "no_unsupported_claim",
+            "question": "Is every figure in the answer present in the app's response data (response.json body), with nothing added?"
+          }
+        ],
+        "self_test": {
+          "good": {
+            "user": "what did I spend on invoices in May 2026?",
+            "answer": "You spent $412.50 on invoices in May 2026.",
+            "response": {
+              "value": 412.5
+            },
+            "reference": {
+              "scalar": 412.5
+            }
+          },
+          "bad": {
+            "user": "what did I spend on invoices in May 2026?",
+            "answer": "You spent $412.50 on invoices in April 2026, and $90 on fees.",
+            "response": {
+              "value": 412.5
+            },
+            "reference": {
+              "scalar": 412.5
+            },
+            "fails": [
+              "period_is_asked_one",
+              "no_unsupported_claim"
+            ]
+          }
+        }
+      }
     }
   ]
 }

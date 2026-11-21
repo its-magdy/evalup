@@ -1414,8 +1414,10 @@ JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py", "score_agreement.py",
 # harness version into artifacts that runs get compared against, so a silent
 # drift there is a comparability bug. convert_suite.py is only in THIS set:
 # its input is a directory of YAML, not JSON, so malformed JSON is not
-# malformed input to it.
-CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("convert_suite.py",)
+# malformed input to it. judge_run.py takes a subcommand first, so a bare
+# garbage path is a usage error, not malformed JSON; tests/test_judge_run.py
+# owns its error contract.
+CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("convert_suite.py", "judge_run.py")
 
 
 class TestHarnessVersion(ScorerTest):

@@ -1,0 +1,19 @@
+The answer gives the right amount but for April 2026, while the user asked
+about May 2026, and it adds a $90 fee that the response data does not hold.
+
+{"schema": "evalup/judge-reply/1", "model_id": "claude-opus-5-5",
+ "case_id": "selftest-grounded-answer-bad", "rubric_id": "grounded-answer", "rubric_version": 1,
+ "criteria": [
+  {"id": "states_the_amount", "verdict": "pass",
+   "reasoning": "The answer states $412.50, the reference scalar.",
+   "evidence": [{"source": "answer.txt", "quote": "You spent $412.50"}]},
+  {"id": "states_a_period", "verdict": "pass",
+   "reasoning": "The answer names April 2026.",
+   "evidence": [{"source": "answer.txt", "quote": "in April 2026"}]},
+  {"id": "period_is_asked_one", "verdict": "fail",
+   "reasoning": "The user asked about May 2026; the answer names April 2026.",
+   "evidence": [{"source": "request.json", "quote": "in May 2026?"},
+                {"source": "answer.txt", "quote": "in April 2026"}]},
+  {"id": "no_unsupported_claim", "verdict": "fail",
+   "reasoning": "$90 in fees appears nowhere in the response data.",
+   "evidence": [{"source": "answer.txt", "quote": "and $90 on fees"}]}]}
