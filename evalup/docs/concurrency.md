@@ -14,8 +14,8 @@ said concurrent repeats replace #17 item 1, and Phase 1 does not (Q8).
 nothing sent or written changes. Concurrency is transport, which the
 2026-11-19 rule allows; §5 says how that is proven.
 
-Line numbers are `evalup/scripts/run_cases.py` at `1e16839` unless a file
-is named.
+Line numbers are `evalup/scripts/run_cases.py` on `main` at `063c10d`
+unless a file is named.
 
 ## 1. Scope
 
@@ -23,35 +23,35 @@ is named.
 
 `adapter.invocation.max_concurrency: w` with `w > 1` is accepted only when
 every condition below holds. Each failing one is **exit 2 at plan
-validation**, in `validate_adapter_block` (L535), where D5 refuses today
-(L545-555). Refused, never silently serialized: D5's reason still holds for
+validation**, in `validate_adapter_block` (L537), where D5 refuses today
+(L547-557). Refused, never silently serialized: D5's reason still holds for
 every configuration Phase 1 does not cover. `null` is absent, as today
-(L549-551) and as for `rate_limit` (contract L936).
+(L551-553) and as for `rate_limit` (contract L936).
 
 | Refused when | Why |
 |---|---|
 | no `rate_limit.requests` + `window_s` | #30's decision: concurrency only behind a declared budget. A loose budget is how an app with headroom says so |
-| `rate_limit.min_interval_s` is set | the interval runs from the previous call's *finish* (`RateBudget`, L599-608), so no two calls may overlap |
-| `traces.source` is anything but `response`, `view-only`, `none` or absent (L278, L280; absent is `not source`, L2062) | an allow-list: `otlp-file`'s quiescence wait watches the whole store (§1.2), and `jaeger`/`tempo`/`clickhouse` fail pre-flight anyway (L2055-2060). Keyed on the declared `source` alone; declare `view-only` to run a store trace-less |
-| `invocation.mode: function` | an in-process callable of unknown thread safety (`send_function`, L1276), whose `timeout_s` is not enforced (L2235) |
+| `rate_limit.min_interval_s` is set | the interval runs from the previous call's *finish* (`RateBudget`, L601-610), so no two calls may overlap |
+| `traces.source` is anything but `response`, `view-only`, `none` or absent (L280, L282; absent is `not source`, L2065) | an allow-list: `otlp-file`'s quiescence wait watches the whole store (§1.2), and `jaeger`/`tempo`/`clickhouse` fail pre-flight anyway (L2059-2063). Keyed on the declared `source` alone; declare `view-only` to run a store trace-less |
+| `invocation.mode: function` | an in-process callable of unknown thread safety (`send_function`, L1278), whose `timeout_s` is not enforced (L2238) |
 | `invocation.conversation.memory: user` | memory outlives a session (`multi-turn.md` §6), so concurrent repeats would contaminate each other in an order no one controls |
-| any `w` outside the integers `[1, 8]` (exit 2 at every `w`; `w > 1` also needs every row above) | a bound against a typo. A small behaviour change: today a non-integer or 0 passes silently (L549-550) |
+| any `w` outside the integers `[1, 8]` (exit 2 at every `w`; `w > 1` also needs every row above) | a bound against a typo. A small behaviour change: today a non-integer or 0 passes silently (L551-552) |
 
-On `response` the trace id is minted per response (L2272-2275) and
-`collect_trace` never waits (L2344-2345).
+On `response` the trace id is minted per response (L2276-2279) and
+`collect_trace` never waits (L2348-2349).
 
-All repeats of a case are sent as one identity (`build_headers`, L2495). An
+All repeats of a case are sent as one identity (`build_headers`, L2498). An
 app that allows one request in flight per user may answer the second with
-a 409 or 423, a non-429 4xx and so scored as the app's answer (L2517-2522).
+a 409 or 423, a non-429 4xx and so scored as the app's answer (L2520-2525).
 Open question 2.
 
 ### 1.2 Store-traced apps are deferred
 
-`wait_for_quiescence` (L2314-2335) polls the store file's size and mtime until
+`wait_for_quiescence` (L2318-2339) polls the store file's size and mtime until
 it is unchanged for `quiescence_ms`. With concurrent writers it never goes
 quiet: every call waits the full `max_wait_s`, and late spans become
 `infra_incomplete`. `collect_trace` also copies the **whole** store into
-`trace.json` (L2356-2361), so a concurrent run's file would hold other
+`trace.json` (L2360-2365), so a concurrent run's file would hold other
 repeats' spans. A later phase needs:
 
 - **Quiescence per trace id:** wait until this id's spans are present and
@@ -72,31 +72,31 @@ time. Cases stay serial.**
 | | k repeats at once |
 |---|---|
 | Speedup ceiling | `min(w, k)`: 3× at regression/holdout's default k=3; **none at k=1** (smoke, targeted; `run-modes.md`) |
-| Case-level writes, `verdicts`, `refresh_derived`, `results.json`, abort check | unchanged: `execute_case` (L2845) still returns one finished case to `execute` (L3905-3915) |
-| Overspend after an abort | **none beyond serial**: serial already sends all k repeats before `abort_check` (L3917) |
-| Canary barrier | automatic: canaries are cases and run first (`ordered_cases`, L2390-2399) |
-| Verdict aggregation | `fold_repeats` (L1450) and `repeated_5xx`/`same_4xx` (L1479-1527) read the attempts as a set; `chosen` (L2898) needs repeat order, which a gather by index keeps |
+| Case-level writes, `verdicts`, `refresh_derived`, `results.json`, abort check | unchanged: `execute_case` (L2849) still returns one finished case to `execute` (L3910-3920) |
+| Overspend after an abort | **none beyond serial**: serial already sends all k repeats before `abort_check` (L3922) |
+| Canary barrier | automatic: canaries are cases and run first (`ordered_cases`, L2394-2403) |
+| Verdict aggregation | `fold_repeats` (L1453) and `repeated_5xx`/`same_4xx` (L1482-1530) read the attempts as a set; `chosen` (L2902) needs repeat order, which a gather by index keeps |
 | Conversations | k independent conversations, each serial within |
 
 N cases at once would reach `w` at any k, but needs a plan-order commit
 buffer, an explicit canary barrier and a new abort point. Repeats are
 already independent: "a full independent invoke + score" (contract §5.5),
-each with a fresh `<uuid>` (L2489, L2671).
+each with a fresh `<uuid>` (L2492, L2674).
 
 ## 2. Composition with the rate budget (#76)
 
 ### 2.1 Rules (all only when `w > 1`)
 
-1. **One pacer per run, shared by every worker.** `RateBudget` (L599) gains
-   a lock; its docstring's "The runner is serial, so no lock" (L608) goes.
+1. **One pacer per run, shared by every worker.** `RateBudget` (L601) gains
+   a lock; its docstring's "The runner is serial, so no lock" (L610) goes.
    §1.1 makes a budget mandatory, so the pacer always exists.
 2. **A slot is reserved atomically, and `sent_at` follows it.** Today
-   `sent_at` follows a bare `self.pace()` (L2497-2502, L2703-2713) and the
-   slot is taken later (`send_one` → `RateBudget.call`, L2557-2564,
-   L628-637), so another worker could take it in between. `acquire()`
+   `sent_at` follows a bare `self.pace()` (L2500-2505, L2706-2716) and the
+   slot is taken later (`send_one` → `RateBudget.call`, L2560-2567,
+   L630-639), so another worker could take it in between. `acquire()`
    (check and take, one locked step) moves to those two sites, before
    `sent_at`; a retry, holding no slot, acquires inside `send_one`. The
-   health check (L2008) precedes every worker and stays on `paced`.
+   health check (L2011) precedes every worker and stays on `paced`.
    `release()`, in a `finally`, records the finish.
 3. **In-flight calls count against the window.** A call may start at `t`
    only when (calls that finished after `t − window_s`) + (calls in flight)
@@ -108,10 +108,10 @@ each with a fresh `<uuid>` (L2489, L2671).
 5. **A 429, or a 503 carrying `Retry-After`, pauses every worker.** In the
    same locked `release()` that records the finish, the pacer sets
    `paused_until = max(paused_until, finish + wait)` and grants no slot
-   before it. `wait` is `retry_wait` (L1086-1104); on the last attempt,
-   which has no `backoff_s` entry (L517), it is the header alone, capped at
-   60 s (L199). A 429 without the header, other 5xx, timeouts and
-   connection errors back off only their own worker (L2531, L2801).
+   before it. `wait` is `retry_wait` (L1087-1105); on the last attempt,
+   which has no `backoff_s` entry (L519), it is the header alone, capped at
+   60 s (L201). A 429 without the header, other 5xx, timeouts and
+   connection errors back off only their own worker (L2534, L2805).
 6. **Bound per 429:** set inside the locked release, the pause stops every
    later grant; only the at most `w − 1` calls already in flight reach the
    window the app has closed. When it lifts, up to `w` calls restart
@@ -123,14 +123,14 @@ each with a fresh `<uuid>` (L2489, L2671).
    blocked, and a new `pause` event records rule 5.
 9. **`close()` stops everything that waits.** It wakes every worker in
    `acquire()` (parked up to `window_s`, at most a day) with `PacerClosed`,
-   which is not a `TransportError`, so L2512 and L2716 do not retry it as
-   infra. Retry and turn-delay sleeps (L2531, L2801, L2691) wait on the
+   which is not a `TransportError`, so L2515 and L2719 do not retry it as
+   infra. Retry and turn-delay sleeps (L2534, L2805, L2694) wait on the
    close event, and a worker checks `closed` before each turn and each
-   `run_scorer` (`score_layers` L3197-3257). `timeout_s` bounds each socket
-   operation, not the call (L1175-1178), so a join takes the in-flight
+   `run_scorer` (`score_layers` L3202-3262). `timeout_s` bounds each socket
+   operation, not the call (L1176-1179), so a join takes the in-flight
    call's own duration plus one `scorer_timeout_s`. The case thread then
    re-raises the `KeyboardInterrupt` or the first non-`PacerClosed`
-   exception, never "internal error: PacerClosed" (L5123-5127).
+   exception, never "internal error: PacerClosed" (L5129-5133).
 
 ### 2.2 When the budget binds, concurrency buys nothing
 
@@ -143,7 +143,7 @@ budget already binds the serial run**.
 
 Live evidence: a real app rate-limited to 20 messages per 10 minutes.
 Serial is budget-bound for any cycle under about 30 s. 100 cases × k=3 is
-300 calls; `RateBudget.floor_s(300)` (L639-651) puts a floor of `(299 // 20)
+300 calls; `RateBudget.floor_s(300)` (L641-653) puts a floor of `(299 // 20)
 × 600 = 8400 s` (140 min) under it at any `w`. Concurrency only compresses
 each window's burst of 20, which the window waits out anyway. A serial run
 that is latency-bound at `L ≈ c ≈ 60 s` (about 300 min) gains about 1.8×
@@ -158,18 +158,18 @@ Today's estimate (`run/SKILL.md` L138-140) is `app_calls_planned × latency
 
 | # | Rule | Enforced by |
 |---|---|---|
-| 1 | **Artifact and verdict order is plan order.** Cases run in `ordered_cases` order (L2390); `verdicts` is appended by the case thread (L2923). Repeats are gathered by repeat `n`, never by completion, so `chosen` (L2898), `repeats/<n>/` and `verdict.repeats` are as serial. | gather by index; §6.2 |
-| 2 | **Canaries are a serial barrier.** No non-canary repeat is sent before every canary case has a `verdict.json` and passed `abort_check` (L3917-3936). | cases stay serial |
-| 3 | **No overspend after an abort beyond serial**, since the abort check follows all k repeats (L3905-3915). | §6.8 |
-| 4 | **Every worker is joined before the case thread moves on or re-raises.** On a worker exception or Ctrl-C (the runner has no signal handler) the pacer closes (§2.1 rule 9), every future is joined, and only then does `execute_case`'s `finally` remove the scratch dirs (L2919-2921) and re-raise (rule 9). The case has no `verdict.json`; `--resume` redoes it. | join in `execute_case`; §6.7 |
-| 5 | **Shared state is locked; case state stays on one thread.** Locked: `run.log` appends (`Runner.log`, L1768-1780), `scorer_errors` (L3124), the pacer. The judge-gate memo needs no lock: pre-flight's `write_results` (L1828) → `summary` → `unjudged_reason` (L3657) already fills it (L3684-3685), or returns before it, before any worker. Not shared: `attempted` (L2879), `crashes` (L2890), `verdicts`, `routing_rows` (L3501), `refresh_derived`/`write_results` (L3910-3911), `abort_check`. The case thread creates each repeat's scratch list before submitting it, so a worker that raises leaks no dir. | code review; §6.4, §6.5, §6.7 |
-| 6 | **Turns stay serial within a conversation.** A worker owns one conversation repeat: `converse` (L2771) and `conversation_attempt` (L2659) run inside it, `turn_delay_s` included (L2685-2691). | one repeat per worker |
-| 7 | **Cookie jars are per attempt**, a local of `conversation_attempt` (L2677); the static auth cookie is read-only. | unchanged code |
-| 8 | **Each worker writes only its own scratch dir and `run.log`; the case thread does every other run-tree write.** `tempfile.mkdtemp` (L2617, L2961) is thread-safe, but `atomic_write`'s temp name `{path}.tmp.{pid}` (L357) is the same in every thread. | `publish`/`write_repeats` stay on the case thread |
-| 9 | **Resume is unchanged.** `verdict.json` is a case's last write (L2918), a directory without one is deleted and re-run (L3836-3846), adoption is in plan order (L3847-3858). | unchanged code |
-| 10 | **The holdout ledger and seals are unaffected.** The ledger is appended once at pre-flight (L1829, L2134), before any worker; the runner writes no seal file. | pre-flight is serial |
-| 11 | **Trace-id attribution is unaffected.** Response-sourced ids are minted per response (L2272-2275); trace-less runs read no trace; attribution was never by time (`read_trace_id`, L2259). | Phase 1 scope |
-| 12 | **The dry run's `app_calls_max` stays an upper bound**: every planned call × `max_attempts` (L4540), and concurrency adds no call. `pace_floor_s` and `pace_max_s` are unchanged; `wait_floor_s` (L4542) stays a serial sum, so it overstates at `w > 1`, and its note says so. The dry run adds `max_concurrency`. | §6.8 |
+| 1 | **Artifact and verdict order is plan order.** Cases run in `ordered_cases` order (L2394); `verdicts` is appended by the case thread (L2927). Repeats are gathered by repeat `n`, never by completion, so `chosen` (L2902), `repeats/<n>/` and `verdict.repeats` are as serial. | gather by index; §6.2 |
+| 2 | **Canaries are a serial barrier.** No non-canary repeat is sent before every canary case has a `verdict.json` and passed `abort_check` (L3922-3941). | cases stay serial |
+| 3 | **No overspend after an abort beyond serial**, since the abort check follows all k repeats (L3910-3920). | §6.8 |
+| 4 | **Every worker is joined before the case thread moves on or re-raises.** On a worker exception or Ctrl-C (the runner has no signal handler) the pacer closes (§2.1 rule 9), every future is joined, and only then does `execute_case`'s `finally` remove the scratch dirs (L2923-2925) and re-raise (rule 9). The case has no `verdict.json`; `--resume` redoes it. | join in `execute_case`; §6.7 |
+| 5 | **Shared state is locked; case state stays on one thread.** Locked: `run.log` appends (`Runner.log`, L1771-1783), `scorer_errors` (L3128), the pacer. The judge-gate memo needs no lock: pre-flight's `write_results` (L1831) → `summary` → `unjudged_reason` (L3661) already fills it (L3688-3689), or returns before it, before any worker. Not shared: `attempted` (L2883), `crashes` (L2894), `verdicts`, `routing_rows` (L3505), `refresh_derived`/`write_results` (L3915-3916), `abort_check`. The case thread creates each repeat's scratch list before submitting it, so a worker that raises leaks no dir. | code review; §6.4, §6.5, §6.7 |
+| 6 | **Turns stay serial within a conversation.** A worker owns one conversation repeat: `converse` (L2774) and `conversation_attempt` (L2662) run inside it, `turn_delay_s` included (L2688-2694). | one repeat per worker |
+| 7 | **Cookie jars are per attempt**, a local of `conversation_attempt` (L2680); the static auth cookie is read-only. | unchanged code |
+| 8 | **Each worker writes only its own scratch dir and `run.log`; the case thread does every other run-tree write.** `tempfile.mkdtemp` (L2620, L2965) is thread-safe, but `atomic_write`'s temp name `{path}.tmp.{pid}` (L359) is the same in every thread. | `publish`/`write_repeats` stay on the case thread |
+| 9 | **Resume is unchanged.** `verdict.json` is a case's last write (L2922), a directory without one is deleted and re-run (L3840-3850), adoption is in plan order (L3851-3862). | unchanged code |
+| 10 | **The holdout ledger and seals are unaffected.** The ledger is appended once at pre-flight (L1832, L2137), before any worker; the runner writes no seal file. | pre-flight is serial |
+| 11 | **Trace-id attribution is unaffected.** Response-sourced ids are minted per response (L2276-2279); trace-less runs read no trace; attribution was never by time (`read_trace_id`, L2263). | Phase 1 scope |
+| 12 | **The dry run's `app_calls_max` stays an upper bound**: every planned call × `max_attempts` (L4546), and concurrency adds no call. `pace_floor_s` and `pace_max_s` are unchanged; `wait_floor_s` (L4548) stays a serial sum, so it overstates at `w > 1`, and its note says so. The dry run adds `max_concurrency`. | §6.8 |
 
 ## 4. Reversing D5
 
@@ -186,7 +186,7 @@ The code PR edits these; this PR does not.
   D5 row (L1465) says the same. §7's budget paragraph adds the in-flight
   count and the shared pause; §12 adds `pause`; §10's manifest gains
   `invocation.max_concurrency`, only when `> 1`, like `rate_limit`
-  (`run_cases.py` L2244-2245).
+  (`run_cases.py` L2248-2249).
 - **`skills/discover/references/adapter-contract.md` L175-176:** the comment
   is rewritten and points at `runner-contract.md` §7, not at this doc
   (a first-session file; a pointer here would need a conditional entry).
@@ -198,7 +198,7 @@ The code PR edits these; this PR does not.
   adapter-contract, discover and run edits are all on it, so each is
   word-neutral or offset elsewhere, and the code PR runs
   `test_context_budget`.
-- `examples/quickstart/.evalup/adapter.yaml` L45, README L375 ("Runs are
+- `examples/quickstart/.evalup/adapter.yaml` L45, README L421 ("Runs are
   serial."), and `score_cost.py` if open question 3 changes it.
 
 ## 5. No new scoring semantics
@@ -211,9 +211,9 @@ same run tree after normalization**. Normalized:
   `verdict.json` and `results.json`; manifest `started_at`; the ledger row's
   `date`; all of `run.log` (interleaved; nothing reads it, contract §12).
 - **Per-run random values:** the rendered `<uuid>`; the minted trace id in
-  `response.json`, `trace.json` and `trajectory.json` (L2275); scratch paths
+  `response.json`, `trace.json` and `trajectory.json` (L2279); scratch paths
   and minted trace ids anywhere in a `layer_error` row (its `argv` carries
-  both, L3127, L3199).
+  both, L3131, L3204).
 - **Provenance:** the manifest's `invocation.max_concurrency` and
   `plan_sha256`, which covers it.
 
@@ -222,8 +222,8 @@ files, `reliability.json`, the routing report, `results.json` `summary`) is
 byte-identical. `SCORING_VERSION` does not move.
 
 **Load can still move a value, never a meaning.** More calls at once can
-push a call past `execution.timeout_s` (`infra_error`, `send_http` L1197),
-concurrent scorers past `scorer_timeout_s` (`LAYER_ERROR`, L3093-3100), a
+push a call past `execution.timeout_s` (`infra_error`, `send_http` L1198),
+concurrent scorers past `scorer_timeout_s` (`LAYER_ERROR`, L3097-3104), a
 one-in-flight-per-user app into a 409/423 (§1.1), and every latency up. §7
 checks each against a `w = 1` noise floor.
 
@@ -235,9 +235,9 @@ L117), plus an in-flight counter.
 1. **Byte-compatibility (§5):** single-turn and conversation plans, k=3,
    one answer per case (pass, fail, 4xx, 5xx, 429 across cases), trace-less
    and under `traces.source: response` (tool calls in a JSON body and in an
-   SSE reply, `trace_from_response` L2364-2387), at `w = 1` and `w = 3`,
+   SSE reply, `trace_from_response` L2368-2391), at `w = 1` and `w = 3`,
    each with a fresh state dir (`summary.holdout.looks_recorded` counts
-   ledger lines, L3670, L2174-2175): normalized trees equal.
+   ledger lines, L3674, L2177-2178): normalized trees equal.
    Repeated with a canary and a resume from a kill.
 2. **Repeat order:** the fake records a `<uuid>` → arrival-index map,
    answers by arrival (pass, fail, pass), and holds arrival 1 and arrival 2
@@ -272,7 +272,8 @@ L117), plus an in-flight counter.
    and `w = 3`.
 9. **Refusals (§1.1):** each row is exit 2 before any call. `w = 1`,
    `null` and an absent field match golden normalized trees of §6.1's plans
-   made at `1e16839` and committed, including a last-attempt `Retry-After`. `test_max_concurrency_is_refused_not_downgraded`
+   made at `1e16839` and committed, including a last-attempt
+   `Retry-After`. `test_max_concurrency_is_refused_not_downgraded`
    (`tests/test_run_cases.py` L374) becomes the no-budget case.
 10. **Turn order:** at `w = 3`, the gap from each reply to the next turn's
    arrival, measured on the app side by extending the helper at
