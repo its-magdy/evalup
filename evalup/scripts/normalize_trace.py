@@ -286,6 +286,11 @@ def main():
         op = at.get("gen_ai.operation.name")
         if op == "execute_tool":
             args_raw = at.get("gen_ai.tool.call.arguments")
+            # An empty argument string is a call with no arguments: an AG-UI
+            # stream sends no TOOL_CALL_ARGS for one (#47), and an exporter
+            # may serialize one as "". Only malformed JSON is _unparsed.
+            if isinstance(args_raw, str) and not args_raw.strip():
+                args_raw = "{}"
             try:
                 args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
             except json.JSONDecodeError:

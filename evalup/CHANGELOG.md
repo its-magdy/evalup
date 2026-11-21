@@ -869,6 +869,20 @@ this, every answer from it was `unscored` and every tool layer dark (#39).
   says where they are. No scoring semantics changed (`SCORING_VERSION`
   stays 1): the same counts are read, from every event instead of one.
 
+### Fixed — zero-argument tool calls (2026-11-21)
+
+- **A tool call with no arguments reads as `args: {}`, not
+  `{"_unparsed": true}`** (#47). An AG-UI stream sends no `TOOL_CALL_ARGS`
+  for one, so its joined argument string is empty, and `normalize_trace.py`
+  failed `json.loads("")`. On the live-proof run every zero-argument call was
+  recorded that way, and `score_args.py` calls `_unparsed` unscorable, so an
+  args check on such a call could never pass. Fixed in the normalizer, the
+  one place both trace sources meet, so an exporter that writes
+  `gen_ai.tool.call.arguments` as `""` is covered too. An empty or
+  whitespace-only string is `{}`; malformed JSON is still `_unparsed`, and a
+  missing attribute is still `null`. No scorer changed (`SCORING_VERSION`
+  stays 1).
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
