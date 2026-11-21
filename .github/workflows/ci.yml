@@ -223,6 +223,41 @@ jobs:
             exit 1
           }
 
+  # #40's acceptance: the workflow template users copy into their app's repo,
+  # evalup/ci/github-actions.yml, runs green here against examples/quickstart.
+  # tests/run_template.py runs the template's own `run:` steps, verbatim, in
+  # three passes (no baseline -> open; pinned baseline -> open; a broken case
+  # -> closed on a regression). Not a reusable workflow: a real app's copy
+  # needs its own setup and start steps, which a caller cannot inject into
+  # one. Not a copy of the steps here either: that would stay green while the
+  # shipped file rotted. The plugin pin is overridden to this commit, fetched
+  # from this checkout as the template fetches a pin. This job supplies the
+  # `uses:` steps the runner skips, at the template's pins
+  # (tests/test_ci_template.py fails when the two drift; Dependabot bumps
+  # only this file).
+  ci-template:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      # The step runner's own reader. The template's steps install their
+      # pinned PyYAML for convert_suite.py into this same interpreter.
+      - run: python -m pip install -q --disable-pip-version-check pyyaml
+      - run: python tests/run_template.py --keep
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: template-runs
+          path: ${{ runner.temp }}/evalup-template-*/app*/.evalup/reports/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
   # The one check main-guard requires. Requiring each job by name breaks the
   # day a job or matrix leg is renamed: the old name never reports again and
   # GitHub waits for it forever, refusing every push to main. This job's name
@@ -232,7 +267,7 @@ jobs:
   # as skipped, and a required check that is skipped counts as passed.
   ci-ok:
     if: always()
-    needs: [tests, lint, floor-3-9, cli-help]
+    needs: [tests, lint, floor-3-9, cli-help, ci-template]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     defaults:

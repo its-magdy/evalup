@@ -1328,6 +1328,31 @@ outlast a 10-minute window.
 With no block, nothing the runner sends or writes changes. Transport only:
 no verdict, retry rule or `SCORING_VERSION` (still 1) changes.
 
+### Added — a CI workflow template (2026-11-21)
+
+#40, item 2. Running the gate in an app's CI meant cloning the plugin and
+wiring four scripts by hand.
+
+- **`ci/github-actions.yml`**, a GitHub Actions workflow to copy into the
+  app's repository: it fetches the plugin at a pinned commit SHA (a release
+  tag replaces it once one exists, #40 item 3), starts the app and waits
+  for it, runs `convert_suite.py` → `make_plan.py --mode regression` →
+  `run_cases.py`, gates with `gate.py` (`--baseline reports/baseline.json`
+  when the repository holds one, plus `--min-pass-rate` and
+  `--require-canaries` as options), and uploads the run directory. No
+  Claude and no model key: deterministic layers only. README "CI workflow
+  template" says what to edit.
+- **Run in this repository's CI**: the `ci-template` job runs the
+  template's own `run:` steps, verbatim, against the quickstart
+  (`tests/run_template.py`): with no baseline, then with a pinned and
+  committed one, then with a broken case that must close the gate on a
+  regression. `tests/test_ci_template.py` pins the template's actions to
+  ci.yml's, which Dependabot keeps current.
+- **`examples/quickstart/demo.py --serve [--port N]`** runs the demo app
+  alone, until SIGTERM: the app that job starts.
+
+No script, verdict or `SCORING_VERSION` (still 1) changes.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

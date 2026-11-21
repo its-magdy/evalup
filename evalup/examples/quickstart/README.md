@@ -64,8 +64,12 @@ python3 examples/quickstart/demo.py --break    # the same run with one wrong exp
 python3 examples/quickstart/demo.py --keep     # leave the run directory + viewer.html to open
 python3 examples/quickstart/demo.py --judge-replies examples/quickstart/judge-replies
                                                # + the judge pass, on fixture replies: a PROVISIONAL pass with quotes
+python3 examples/quickstart/demo.py --serve    # only the app, on 127.0.0.1:8765, until Ctrl-C
 python3 -m unittest tests.test_example         # the same example, as the suite checks it
 ```
+
+`--serve` is the app a CI job starts: the repository's CI runs the workflow
+template `ci/github-actions.yml` against it (`tests/run_template.py`).
 
 `demo.py` starts the demo app on a local port, builds the plan from
 `plan.template.json` + `converted.json`, runs `run_cases.py`, then `gate.py`

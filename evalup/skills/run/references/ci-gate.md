@@ -80,7 +80,10 @@ holdout run (exit 2: its cases have no per-case row). `--json` prints the
 same facts for a dashboard. Deterministic-only CI needs no
 `claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
 `gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
-pipeline, runnable). A pipeline may want `make_plan.py`'s overrides:
+pipeline, runnable, and `${CLAUDE_PLUGIN_ROOT}/ci/github-actions.yml` is it as a
+GitHub Actions workflow to copy into the app's repository, plugin pinned by
+commit SHA, `--baseline` used when `reports/baseline.json` is committed with
+its run directory; README "CI workflow template" lists what to edit). A pipeline may want `make_plan.py`'s overrides:
 `--run-id <mode>-<YYYYMMDDTHHMMSSZ>` names the run directory (default: the mode
 and UTC now; any other shape is refused), `--dataset-version N` labels the run
 (default: `dataset.yaml`'s), and `--holdout-ledger` / `--judge-calibration`,
