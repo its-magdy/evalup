@@ -286,8 +286,8 @@ under a cluster-robust correction, §12). So:
   later (§9).
 - **Run time.** 20 conversations × 5 turns × (model latency + at least 3 s
   quiescence) at `k=3` is about an hour. The dry run's `app_calls_planned`
-  (`run_cases.py:3260`) counts turns, not cases, and adds the quiescence
-  floor; `generate` defaults to 10–20 conversations; the README says a
+  (`run_cases.py` `dry_run_report`) counts turns, not cases, and adds the
+  quiescence floor; `app_calls_max` counts every retry; `generate` defaults to 10–20 conversations; the README says a
   headless run will need several `wait_run.py` waits (540 s each).
 
 ## 6. Memory that outlives the session

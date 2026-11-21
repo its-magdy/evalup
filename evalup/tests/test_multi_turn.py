@@ -1022,6 +1022,9 @@ class TestDryRunCountsTurns(ConversationCase):
         rc, payload, proc = self.invoke(plan, extra_argv=["--dry-run"])
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         self.assertEqual(payload["app_calls_planned"], 2 * 3 + 2 * 1)
+        # #48: a retry replays the whole conversation, up to max_attempts.
+        self.assertEqual(payload["app_calls_max"],
+                         (2 * 3 + 2 * 1) * plan["execution"]["max_attempts"])
         # Trace-less: no quiescence; two gaps of 2 s per repeat.
         self.assertEqual(payload["wait_floor_s"], 2 * 2 * 2)
         convo = next(c for c in payload["cases"] if c["id"] == "c-convo-01")

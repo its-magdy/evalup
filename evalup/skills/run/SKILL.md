@@ -134,15 +134,16 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan <work-dir>/plan.json -
 on anything unfamiliar. Then estimate, without calling the app by hand:
 time is its `app_calls_planned` × the per-request latency discover §4
 recorded in findings.md, plus its `wait_floor_s`; dollars are those calls ×
-tokens × price (+ judge calls) when a price is known. Ask "≈ $X, ~Y min.
+tokens × price (+ judge calls) when a price is known. Under an app-side
+rate limit (findings or adapter), also state `app_calls_max` (every retry)
+and fit `--max-attempts` to it. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
 go: a first session must not stop here), under a pre-approved budget, or
 under the headless gate (§6). Resume
-an interrupted run with `--resume` under the same run id; re-check a finished
-one any time with `--verify reports/<run-id>`. Conversations are slow: with
-traces, each turn waits 3 s or more for quiescence, plus any `turn_delay_s`
-(20 five-turn conversations at k=3 ≈ an hour; `app_calls_planned` counts
-turns); headless, expect several `wait_run.py` waits below.
+an interrupted run with `--resume` (same run id); re-check a finished one
+with `--verify reports/<run-id>`. Conversations are slow (20 five-turn
+ones at k=3 ≈ an hour; `app_calls_planned` counts turns); headless, expect
+several `wait_run.py` waits below.
 
 **Wait for the runner; never end the turn on a `running` run.** Launch
 `run_cases.py` in the **foreground** of one Bash call with `timeout` at its

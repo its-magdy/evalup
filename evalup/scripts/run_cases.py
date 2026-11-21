@@ -4186,8 +4186,11 @@ def dry_run_report(runner):
     plan = runner.plan
     completeness = (runner.adapter.get("traces") or {}).get(
         "completeness") or {}
+    # A response-borne trace has no store to settle, so the runner never
+    # waits for quiescence on it (RESPONSE_TRACE_SOURCE): neither does this.
     quiet_s = (completeness.get("quiescence_ms") or 3000) / 1000.0 \
-        if runner.trace_state["collected"] else 0.0
+        if runner.trace_state["collected"] and \
+        runner.trace_state.get("source") != RESPONSE_TRACE_SOURCE else 0.0
     delay_s = (runner.conversation or {}).get("turn_delay_s") or 0
     planned = []            # (app calls, seconds of waiting) per sent case
     for case in plan["cases"]:
@@ -4215,11 +4218,16 @@ def dry_run_report(runner):
         # docs/multi-turn.md SS5: a conversation is one app call PER TURN,
         # and a retry replays it from turn 1 -- so this is the floor.
         "app_calls_planned": sum(calls for calls, _ in planned),
+        # The worst case: every attempt retried to max_attempts (a 429 or
+        # a 5xx each time), a conversation's from its last turn. What an
+        # app-side rate limit has to absorb, since a 429 often counts too.
+        "app_calls_max": sum(calls for calls, _ in planned)
+        * runner.execution["max_attempts"],
         "wait_floor_s": round(sum(wait for _, wait in planned), 3),
         "wait_floor_note": (
             "seconds the run waits beyond the app's own latency, with no "
             "retry: the trace quiescence window after every app call when "
-            "traces are collected, plus turn_delay_s between a "
+            "traces are collected from a store, plus turn_delay_s between a "
             "conversation's turns. A real run is slower"),
         "execution": runner.execution,
     }

@@ -883,6 +883,22 @@ this, every answer from it was `unscored` and every tool layer dark (#39).
   missing attribute is still `null`. No scorer changed (`SCORING_VERSION`
   stays 1).
 
+### Fixed — the dry-run estimate on a rate-limited app (2026-11-21)
+
+From the same live-proof run (#48), on an app limited to 20 messages per 10
+minutes: the estimate was wrong in both directions.
+
+- **`--dry-run` left retries out.** `app_calls_planned` is the no-retry
+  floor, but 12 cases at the default `max_attempts: 3` can send 36 requests,
+  and a 429 often counts against the limit too. The dry run now also prints
+  `app_calls_max` (planned × `max_attempts`; a conversation's retry replays
+  every turn), and `run` §2 names it when findings or the adapter record an
+  app-side rate limit.
+- **`wait_floor_s` counted a wait that never happens.** It added the 3 s
+  trace-quiescence window per call for `traces.source: response`, which the
+  runner never waits for; a 12-case run printed a 36 s floor. It is 0 for
+  that source now. No verdict changes.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
