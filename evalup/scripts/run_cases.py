@@ -1640,10 +1640,10 @@ def final_turn_certifies(verdict, union, final_layers):
     validator's no_graded_layer rule, broken at run time. So a union `pass`
     stands only when the final turn has a graded `pass` of its own (a layer
     other than http/loops), or when the whole conversation asserts nothing
-    but liveness (rule 6 over the union);
-    otherwise it is `unscored`, and the final turn's own rows say why. Every
-    other verdict is returned unchanged: the stop rule, infra and scorer
-    errors are already decided by roll_up().
+    but liveness (rule 6 over the union); otherwise it is `unscored`, and
+    the final turn's own rows say why. Every other verdict is returned
+    unchanged: the stop rule, infra and scorer errors are already decided by
+    roll_up().
     """
     if verdict != PASS:
         return verdict
@@ -1841,8 +1841,8 @@ class Runner:
                            "invocation.mode: http")
         # An ALLOWLIST, not a denylist: urlopen also speaks file:// and
         # ftp://, so `base_url: file:///etc/...` would read a local file into
-        # every response.json. Only the scheme is quoted back --
-        # by now the value is resolved and may hold a credential.
+        # every response.json. Only the scheme is quoted back -- by now the
+        # value is resolved and may hold a credential.
         scheme = urllib.parse.urlsplit(base).scheme.lower()
         if scheme not in ("http", "https"):
             preflight_fail("adapter.invocation.base_url must be an http:// or "
@@ -2002,10 +2002,10 @@ class Runner:
         # guard may refuse even a GET without its Origin (#50).
         headers = static_headers(self.adapter)
         # `url` is RESOLVED and these messages go to stdout, CI logs and an
-        # agent's transcript: a credential in base_url
-        # (https://user:${TOKEN}@host, ?key=${KEY}) would be printed in clear
-        # by a failed health check, the one path not using record_url. SS3
-        # covers a message as much as a file.
+        # agent's transcript: without unresolve() here, a credential in
+        # base_url (https://user:${TOKEN}@host, ?key=${KEY}) would be printed
+        # in clear by a failed health check, the one path that does not go
+        # through record_url. SS3 covers a message as much as a file.
         shown = unresolve(url, self.sent_refs)
         try:
             result = self.paced(lambda: send_http(
@@ -2243,7 +2243,8 @@ class Runner:
                                "sse" if self.sse else "json",
                            "sse": self.sse,
                            # #76: present only when declared, so a run with
-                           # no budget writes no rate_limit key.
+                           # no budget writes the same manifest as one from
+                           # a runner without the field.
                            **({"rate_limit": self.rate_limit}
                               if self.rate_limit else {})},
             "traces": traces,
@@ -2774,12 +2775,13 @@ class Runner:
         """One repeat of a conversation, with whole-conversation retries.
 
         `max_attempts` counts CONVERSATION attempts, with `backoff_s`
-        between them; on exhaustion the case is `infra_error`, as today.
-        The case verdict is roll_up() over the union of every sent turn's
-        layers, keyed `t<n>.<layer>`, and then final_turn_certifies(): a
-        checkpoint can veto a conversation but never certify it. Returns
-        the attempt dict execute_case folds, carrying the DECIDING turn (the
-        stopping turn, or the last) as its record."""
+        between them; on exhaustion the case is `infra_error`, as a
+        single-turn case's is. The case verdict is roll_up() over the union
+        of every sent turn's layers, keyed `t<n>.<layer>`, and then
+        final_turn_certifies(): a checkpoint can veto a conversation but
+        never certify it. Returns the attempt dict execute_case folds,
+        carrying the DECIDING turn (the stopping turn, or the last) as its
+        record."""
         turns = conversation_turns(case)
         max_attempts = self.execution["max_attempts"]
         backoff = self.execution["backoff_s"]
@@ -3160,10 +3162,11 @@ class Runner:
             return layers
         # SS9(b) requires actual.json of every SENT case carrying expect.result,
         # whatever became of the execution layer -- so it is written on the
-        # two paths below that never reach the scorer as well. Written only
-        # for a live layer, a run with one execution case whose app call
-        # failed, or with `execution` disabled (every `make_plan.py --layer X`
-        # plan), would exit 6 over a file nothing wrote.
+        # two paths below that never reach the scorer as well. If it were
+        # written only for a live layer, a run with one execution case whose
+        # app call failed, or with `execution` disabled (every
+        # `make_plan.py --layer X` plan), would exit 6 over a file nothing
+        # wrote.
         actual_path = os.path.join(scratch, "actual.json")
         if record["error"]:
             for name in applicable - set(blocked):
@@ -3305,7 +3308,7 @@ class Runner:
                 "rules", "business rules are evaluated by the skill")
         if live("state"):
             # RESERVED, and the reason says so rather than naming a field the
-            # user could go declare. "state-diff needs
+            # user could go declare. A reason such as "state-diff needs
             # environment.snapshot_state" would be a to-do the adapter cannot
             # discharge: nothing in this runner calls seed, reset or
             # snapshot_state, so declaring all three changes nothing here.
@@ -3690,7 +3693,7 @@ class Runner:
         """Is `judge.status: calibrated` backed by measurements? (SS5.4)
 
         `manifest_extra.judge.status` is copied from profile.yaml, which a
-        model edits -- and profile-schema.md has always said the flag is
+        model edits -- and profile-schema.md says the flag is
         DERIVED, "not set by hand", from each rubric's own tpr/tnr/kappa.
         Trusted on its own, the flag would open the harness's central
         credibility gate on a word an LLM typed. So the runner treats it as
@@ -3867,9 +3870,9 @@ class Runner:
         does, so without this `--resume` would walk past the failed canary,
         run every case after it and finalize `ok`, exit 0 -- and gate.py would
         open on a run whose own abort had said nothing from it was
-        trustworthy. Drift is
-        not fixed by continuing: the canary's verdict is on disk and would be
-        adopted again, so the answer is a new run id once it is.
+        trustworthy. Drift is not fixed by continuing: the canary's verdict
+        is on disk and would be adopted again, so the answer is a new run id
+        once it is.
         """
         for verdict in self.verdicts:
             if verdict["canary"] and verdict["verdict"] == FAIL:
@@ -3984,9 +3987,9 @@ class Runner:
         if oos:
             # --oos-route only RENAMES a label, so a name matching nothing
             # renames nothing and the scorer exits 2 listing the labels
-            # present. The runner performs the check itself
-            # rather than discovering it from an exit code, because a run that
-            # simply has no OOS cases selected is not an error.
+            # present. The runner performs the check itself rather than
+            # discovering it from an exit code, because a run that simply has
+            # no OOS cases selected is not an error.
             present = set()
             for row in self.routing_rows:
                 for key in ("expected", "observed"):
@@ -4095,8 +4098,8 @@ class Runner:
         # stderr, like the holdout-look count: stdout stays reserved for the
         # machine-readable {"error": ...} payload, so a clean run still prints
         # nothing THERE. But exit 0 and total silence read as "did that work?"
-        # at a terminal, and exit 0 is not a verdict -- a
-        # red suite exits 0 too -- so the line names the step that gives one.
+        # at a terminal, and exit 0 is not a verdict -- a red suite exits 0
+        # too -- so the line names the step that gives one.
         flagged = uniform_4xx(self.verdicts)
         if flagged:
             sys.stderr.write(
