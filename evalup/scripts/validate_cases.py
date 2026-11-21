@@ -1035,7 +1035,8 @@ def check_case(rep, case, all_ids, enabled, index=None):
             # the mode's split alone, so `[holdout, smoke]` runs -- and is
             # read -- on every smoke run, and `[holdout, canary]` runs as a
             # canary whose id the runner names when it aborts on it.
-            # Checking only `full` would catch the pairing nobody writes.
+            # Checking only `full` would catch just the one pairing nobody
+            # writes.
             rep.error(label, "holdout_not_sealed",
                       "case is in `holdout` and also in {}; the seal rests "
                       "on holdout being exclusive, so a case in another "
