@@ -5,15 +5,15 @@ This is the implementation of ${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md,
 which is the spec. Read that first; this module implements it and does not
 re-argue it. Section markers below (SS2, SS4, ...) point at it.
 
-WHY THIS EXISTS. run/SKILL.md SS2 "Execute" used to be hand-orchestrated by the
-LLM on every run: not reproducible, expensive, and it silently dropped required
-outputs. The proof was a real run from July 2026 that looked finished and had
-no verdicts.jsonl and no verdicts_for_stats.jsonl -- so stats.py had nothing to
-pair and that run could never be a baseline. The mechanism that makes
-that unreachable is SS9: both jsonl files are DERIVED from the completed case
-directories after every case, and a required-artifact table is checked before
-the terminal status is written. "The run finished" and "the run's required
-outputs exist" are the same statement here, or the exit code is 6.
+WHY THIS EXISTS. Executing a run by hand -- an LLM orchestrating run/SKILL.md
+SS2 "Execute" on every run -- is not reproducible, is expensive, and silently
+drops required outputs: a run can look finished with no verdicts.jsonl and no
+verdicts_for_stats.jsonl, so stats.py has nothing to pair and that run can
+never be a baseline. The mechanism that makes that unreachable is SS9: both
+jsonl files are DERIVED from the completed case directories after every case,
+and a required-artifact table is checked before the terminal status is
+written. "The run finished" and "the run's required outputs exist" are the
+same statement here, or the exit code is 6.
 
 TWO CONSTRAINTS, both load-bearing:
 
@@ -99,8 +99,9 @@ RUNNER_VERSION = 1
 PLAN_VERSION = 1
 
 # SS11. Distinct codes rather than 0/1/2 because 6 is the one that makes the
-# shipped run's failure mode nameable, and once 6 exists the others cost
-# nothing to distinguish. A RED SUITE EXITS 0: gating is run/SKILL.md SS6's
+# failure mode this module exists for (a finished-looking run without its
+# required outputs) nameable, and once 6 exists the others cost nothing
+# to distinguish. A RED SUITE EXITS 0: gating is run/SKILL.md SS6's
 # separate tokenless shell step, and a runner that exited non-zero on failures
 # would quietly move the gate in here (contract SS7).
 EXIT_OK = 0
@@ -125,7 +126,7 @@ REQUIRED_SCORERS = (
 # the contract itself -- one execs SS9(b)'s python block out of the file, the
 # other parses SS6's tree and diffs the `# only when:` strings against
 # REQUIRED_IF's values. A file added to the tree without a check here is how
-# the shipped run lost verdicts.jsonl.
+# a run loses verdicts.jsonl unnoticed.
 REQUIRED_ALWAYS = ("manifest.yaml", "results.json", "verdicts.jsonl",
                    "verdicts_for_stats.jsonl")
 REQUIRED_PER_CASE = ("request.json", "response.json", "verdict.json",
@@ -187,10 +188,11 @@ def touches_seal(plan):
     The MODE `holdout` does, and so does any selection on the `holdout`
     split. The SPLIT named "full" does not: it is the reviewed,
     unsealed set that `regression` selects, mutually exclusive with `holdout`
-    (case-format.md). One tuple used to be compared against both the mode and
-    the split name, so every everyday regression run -- selecting_split "full"
-    -- spent a holdout look and needed a ledger, and five pre-merge CI runs
-    forced a reseal without one sealed case having been read (2026-09-21).
+    (case-format.md). So the mode and the split are checked against separate
+    names: one tuple compared against both would make every everyday
+    regression run -- selecting_split "full" -- spend a holdout look and need
+    a ledger, and five pre-merge CI runs would force a reseal without one
+    sealed case having been read.
     """
     return (plan["mode"] in SEAL_TOUCHING_MODES
             or plan["selecting_split"] == HOLDOUT_SPLIT)
@@ -542,7 +544,7 @@ def validate_adapter_block(plan):
 
     validate_rate_limit(invocation.get("rate_limit"))
 
-    # Decision D5, confirmed 2026-09-08: REFUSE rather than warn-and-serialize.
+    # Decision D5 (runner-contract.md): REFUSE rather than warn-and-serialize.
     # A warning that scrolls past leaves the adapter field looking supported
     # while every run is serial; exit 2 makes the gap loud at the one moment
     # someone can act on it.
@@ -673,8 +675,7 @@ def resolve_env(adapter):
     dump of the adapter object can leak them.
 
     Every missing name is reported at once, not the first: discovering them one
-    run at a time is the exact complaint the field test's identity_headers note
-    records.
+    run at a time costs a failed run per name.
     """
     missing = []
     secret_paths = set()
@@ -737,10 +738,10 @@ def unresolve(node, sent_refs):
     """Put `${NAME}` back wherever a resolved env value sits, for the RECORD of
     a request -- never for the request itself.
 
-    SS3 says a resolved value never reaches disk, and redact() only ever kept
-    that promise for headers. `${API_KEY}` inside `request_body` was resolved
-    into the template, sent, and then written verbatim into every
-    cases/<id>/request.json (2026-09 audit) -- and an API key in the body is an
+    SS3 says a resolved value never reaches disk, and redact() keeps that
+    promise only for headers. Without this, `${API_KEY}` inside `request_body`
+    would be resolved into the template, sent, and then written verbatim into
+    every cases/<id>/request.json -- and an API key in the body is an
     ordinary way to authenticate. It is applied to the TEMPLATE before the
     case's placeholders are rendered into it, never to the rendered body: a
     short value (`EVAL_TENANT=42`) must not rewrite a user turn that happens to
@@ -790,7 +791,7 @@ def secret_header_names(adapter, secret_paths):
 
 
 # --------------------------------------------------------------------------
-# Invocation. Two modes (decision D6, confirmed 2026-09-08): http and
+# Invocation. Two modes (decision D6, runner-contract.md): http and
 # function. `cli` exits 3 -- adapter-contract.md advertises it, and refusing
 # loudly is the only honest thing to do with a mode nothing implements.
 # --------------------------------------------------------------------------
@@ -1087,11 +1088,11 @@ def retry_wait(declared, result):
     """The wait before the next attempt: the plan's backoff, or the server's
     Retry-After when that is LONGER, capped at RETRY_AFTER_CAP_S.
 
-    A rate-limited app says how long to wait, and the fixed backoff ignored
-    it: three attempts inside five seconds cannot outlast a per-minute window,
-    so every case went to infra_error, infra_rate_abort fired, and the run
-    exited 5 -- "the service is degraded" -- when the truth was that the
-    runner would not wait (2026-09 audit). Only the delay-seconds form is
+    A rate-limited app says how long to wait, and a fixed backoff alone
+    ignores it: three attempts inside five seconds cannot outlast a per-minute
+    window, so every case would go to infra_error, infra_rate_abort would
+    fire, and the run would exit 5 -- "the service is degraded" -- when the
+    truth is that the runner would not wait. Only the delay-seconds form is
     read; an HTTP-date is rare from an API and not worth a clock comparison.
     Capped, so a hostile or mistaken header cannot park a run for an hour."""
     if not result or result.get("status") not in (429, 503):
@@ -1183,7 +1184,7 @@ def send_http(url, method, headers, body, timeout, insecure, sse=None):
             set_cookies = response.headers.get_all("Set-Cookie") or []
     except urllib.error.HTTPError as exc:
         # A 4xx/5xx is a RESPONSE, not a transport failure -- and often the
-        # expected one (the field test asserts a deliberate 400 on OOS). It
+        # expected one (a case may assert a deliberate 400 on OOS). It
         # must reach the taxonomy in SS7 as a status, not as an exception.
         status = exc.code
         try:
@@ -1215,8 +1216,9 @@ def send_http(url, method, headers, body, timeout, insecure, sse=None):
     except http.client.HTTPException as exc:
         # urllib wraps only OSError, so a response that is not HTTP
         # (BadStatusLine, LineTooLong) or a body cut short of its
-        # Content-Length (IncompleteRead) arrives here unwrapped -- and used to
-        # escape to main() as exit 1, killing the run over one case's reply.
+        # Content-Length (IncompleteRead) arrives here unwrapped -- and
+        # uncaught it would escape to main() as exit 1, killing the run over
+        # one case's reply.
         # (RemoteDisconnected is also a ConnectionError: caught above.)
         raise TransportError(*transport_kind(exc)) from exc
     except OSError as exc:
@@ -1408,7 +1410,7 @@ def roll_up(layers, skipped_reason):
     values = [layer.get("verdict") for layer in layers.values()]
     # A conversation's union is keyed `t<n>.<layer>` (docs/multi-turn.md
     # SS3); rules 5-6 judge the LAYER, so the turn prefix comes off first.
-    # A single-turn case has no prefix and reads exactly as before.
+    # A single-turn case has no prefix, so its names pass through as-is.
     base = {name: name.rsplit(".", 1)[-1] for name in layers}
     if INFRA_ERROR in values:
         return INFRA_ERROR
@@ -1420,22 +1422,23 @@ def roll_up(layers, skipped_reason):
         return UNSCORED
     if FAIL in values:
         return FAIL
-    # Rule 5, and `http` is excluded from it on purpose (Step 10). A status
-    # code is a LIVENESS check -- validate_cases.py refuses to count it toward
+    # Rule 5, and `http` is excluded from it on purpose. A status code is a
+    # LIVENESS check -- validate_cases.py refuses to count it toward
     # gradedness for exactly this reason -- so letting it be the one `pass`
-    # that carries a case made every case whose real layers came back
+    # that carries a case would make every case whose real layers came back
     # unscored/unscorable a `pass`: a trace-less run of an expect.tools case,
     # an answer the adapter's <answer> path could not reach, and every
     # RESERVED expectation (expect.state) alike. SS5 says a `pass` on an
-    # unscorable trajectory row "would have been a lie"; this is where the lie
-    # was told, one level up. A case that asserts nothing BUT http is still a
-    # pass -- there the liveness check is the whole claim.
+    # unscorable trajectory row "would have been a lie"; without this
+    # exclusion the lie would be told here, one level up. A case that asserts
+    # nothing BUT http is still a pass -- there the liveness check is the
+    # whole claim.
     #
-    # `loops` is excluded for the same reason (2026-09-30 review): a collected
-    # trace triggers it, not anything the case asserts, so its `pass` let a
-    # traced run carry a rubric-only or state-only case to `pass` -- and made
-    # an http-only case `pass` or `unscored` by whether loops scored. Its
-    # `fail` still fails the case (rule 4): a loop is a real pathology.
+    # `loops` is excluded for the same reason: a collected trace triggers it,
+    # not anything the case asserts, so its `pass` would let a traced run
+    # carry a rubric-only or state-only case to `pass` -- and make an
+    # http-only case `pass` or `unscored` by whether loops scored. Its `fail`
+    # still fails the case (rule 4): a loop is a real pathology.
     if any(base[name] not in RUN_TRIGGERED and layer.get("verdict") == PASS
            for name, layer in layers.items()):
         return PASS
@@ -1458,11 +1461,11 @@ def fold_repeats(values):
     An observed `fail` wins first: it already makes "every repeat passed"
     false, and filing it under provider noise would lose the one thing the run
     saw. Otherwise any repeat that was not a `pass` decides, in roll_up()'s
-    order -- a repeat the app never answered cannot count toward pass^k. The
-    fold used to stop at pass/fail, so [pass, infra_error] kept repeat 1's
-    `pass` while [infra_error, pass] kept its `infra_error`: one pair, two
-    verdicts, and a canary that missed a repeat read "passed" (F-158, the
-    2026-09-26 user test).
+    order -- a repeat the app never answered cannot count toward pass^k. A
+    fold that stopped at pass/fail would be order-dependent: [pass,
+    infra_error] would keep repeat 1's `pass` while [infra_error, pass] kept
+    its `infra_error` -- one pair, two verdicts -- and a canary that missed a
+    repeat would read "passed" (F-158).
     """
     if len(values) == 1:
         return values[0]
@@ -1480,8 +1483,8 @@ def repeated_5xx(attempts):
     """The one 5xx (status and body) every attempt of every repeat got.
 
     An exhausted 5xx is `infra_error` (SS7) and stays so: the app's own
-    500 and a throttled provider's 500 can carry byte-identical bodies (the
-    2026-09-26 user test's guard-blocked injection and its Gemma outage did),
+    500 and a throttled provider's 500 can carry byte-identical bodies (a
+    guard-blocked injection and an upstream model outage have been seen to),
     so nothing in one response can tell them apart. What CAN be said is that
     the same status came back on every attempt, which is how a deterministic
     app error looks and a passing blip does not -- so it is recorded, counted
@@ -1572,9 +1575,9 @@ def context_messages_reason(case):
     """Why `input.messages` is not exactly one user message, or None.
 
     case_text() sends the user message and nothing else. A system or
-    assistant message beside it never reached the app, and the case used to
-    score as if it had -- the truncated-conversation verdict hard rule 3
-    refuses, one door over (docs/multi-turn.md SS0). So such a case is
+    assistant message beside it never reaches the app, and scoring the case
+    would treat it as if it had -- the truncated-conversation verdict hard
+    rule 3 refuses, one door over (docs/multi-turn.md SS0). So such a case is
     skipped with this reason, and validate_cases.py reports it first.
     """
     messages = ((case.get("input") or {}).get("messages")) or []
@@ -1630,17 +1633,17 @@ def final_turn_certifies(verdict, union, final_layers):
     """A conversation's `pass` must rest on its FINAL turn (docs/multi-turn.md
     SS1: the top-level expect is the case's claim).
 
-    The union rollup alone let a passing checkpoint -- or an every_turn copy
-    on turn 1 -- carry a case whose final turn came back `unscored` to `pass`:
-    the app answered turn 2 with a body lacking the <answer> field, and the
-    memory bug the case was written for read as a pass (2026-10-06 review,
-    reproduced). That is the validator's no_graded_layer rule, broken at run
-    time. So a union `pass` stands only when the final turn has a graded
-    `pass` of its own (a layer other than http/loops), or when the whole
-    conversation asserts nothing but liveness (rule 6 over the union);
-    otherwise it is `unscored`, and the final turn's own rows say why. Every
-    other verdict is returned unchanged: the stop rule, infra and scorer
-    errors are already decided by roll_up().
+    The union rollup alone would let a passing checkpoint -- or an every_turn
+    copy on turn 1 -- carry a case whose final turn came back `unscored` to
+    `pass`: if the app answers turn 2 with a body lacking the <answer> field,
+    the memory bug the case was written for reads as a pass. That is the
+    validator's no_graded_layer rule, broken at run time. So a union `pass`
+    stands only when the final turn has a graded `pass` of its own (a layer
+    other than http/loops), or when the whole conversation asserts nothing
+    but liveness (rule 6 over the union); otherwise it is `unscored`, and
+    the final turn's own rows say why. Every other verdict is returned
+    unchanged: the stop rule, infra and scorer errors are already decided by
+    roll_up().
     """
     if verdict != PASS:
         return verdict
@@ -1727,7 +1730,7 @@ class Runner:
         # and every input.turns case is skipped (docs/multi-turn.md SS2).
         self.conversation = None
         # invocation.rate_limit (#76): None = undeclared, and every call is
-        # sent as soon as the last one finished, exactly as before.
+        # sent as soon as the last one finished.
         declared = (plan["adapter"].get("invocation") or {}).get("rate_limit")
         self.rate_limit = dict(declared) if declared else None
         self.budget = RateBudget(declared) if declared else None
@@ -1837,9 +1840,9 @@ class Runner:
             preflight_fail("adapter.invocation.base_url is required for "
                            "invocation.mode: http")
         # An ALLOWLIST, not a denylist: urlopen also speaks file:// and
-        # ftp://, so `base_url: file:///etc/...` read a local file into every
-        # response.json (2026-09-21 audit). Only the scheme is quoted back --
-        # by now the value is resolved and may hold a credential.
+        # ftp://, so `base_url: file:///etc/...` would read a local file into
+        # every response.json. Only the scheme is quoted back -- by now the
+        # value is resolved and may hold a credential.
         scheme = urllib.parse.urlsplit(base).scheme.lower()
         if scheme not in ("http", "https"):
             preflight_fail("adapter.invocation.base_url must be an http:// or "
@@ -1907,9 +1910,9 @@ class Runner:
         template: discovering it one conversation at a time would bill turn
         1 of every case to learn turn 2 can never be sent. The block is the
         ONLY switch that turns the driver on. It is named `conversation`,
-        not `session`, because adapters/dotnet.md once shipped a `session`
-        block, and hard rule 3's history is that declaring one must never be
-        enough to turn a driver on by accident.
+        not `session`, because an adapter written from an older
+        adapters/dotnet.md may carry a `session` block, and hard rule 3 says
+        declaring one must never be enough to turn a driver on by accident.
         """
         block = invocation.get("conversation")
         if block is None:
@@ -1999,10 +2002,10 @@ class Runner:
         # guard may refuse even a GET without its Origin (#50).
         headers = static_headers(self.adapter)
         # `url` is RESOLVED and these messages go to stdout, CI logs and an
-        # agent's transcript: a credential in base_url
-        # (https://user:${TOKEN}@host, ?key=${KEY}) was printed in clear by a
-        # failed health check while every other path used record_url
-        # (2026-09-21 audit). SS3 covers a message as much as a file.
+        # agent's transcript: without unresolve() here, a credential in
+        # base_url (https://user:${TOKEN}@host, ?key=${KEY}) would be printed
+        # in clear by a failed health check, the one path that does not go
+        # through record_url. SS3 covers a message as much as a file.
         shown = unresolve(url, self.sent_refs)
         try:
             result = self.paced(lambda: send_http(
@@ -2152,9 +2155,9 @@ class Runner:
                 "document")
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         # SS6: "--resume does not append again". The look is the spend and
-        # it was spent when this run id first reached pre-flight; every
-        # resume used to append another, so a run resumed twice cost three
-        # of the five looks before a reseal. Keyed on the run id's own row
+        # it was spent when this run id first reached pre-flight; appending
+        # on every resume would make a run resumed twice cost three of the
+        # five looks before a reseal. Keyed on the run id's own row
         # rather than on the flag, so a first attempt that died before its
         # append still gets counted once.
         recorded = False
@@ -2182,12 +2185,12 @@ class Runner:
 
     # -- SS10. manifest.yaml ----------------------------------------------
     def manifest(self):
-        """JSON bytes in a .yaml file (decision D1, confirmed 2026-09-08).
+        """JSON bytes in a .yaml file (decision D1, runner-contract.md).
 
         JSON is a subset of YAML 1.2, so the CI example's `yq -r '.run_id'`
         reads this unchanged and the stdlib -- which has no YAML writer -- can
-        still produce it. The shipped run already does exactly this; renaming
-        the file would touch six references for a cosmetic gain.
+        still produce it. Existing run directories hold it exactly this way;
+        renaming the file would touch six references for a cosmetic gain.
         """
         extra = self.plan.get("manifest_extra") or {}
         invocation = self.adapter.get("invocation") or {}
@@ -2240,7 +2243,8 @@ class Runner:
                                "sse" if self.sse else "json",
                            "sse": self.sse,
                            # #76: present only when declared, so a run with
-                           # no budget writes the manifest it always did.
+                           # no budget writes the same manifest as one from
+                           # a runner without the field.
                            **({"rate_limit": self.rate_limit}
                               if self.rate_limit else {})},
             "traces": traces,
@@ -2264,8 +2268,8 @@ class Runner:
         trace is worse than a layer that reports it has none.
 
         A trace id is a string (W3C: 32 lowercase hex). A number or an object
-        at the declared field is not one, and it used to reach `in` and
-        normalize_trace.py's argv as-is -- a TypeError, exit 1. Stringifying
+        at the declared field is not one: passed as-is to `in` or to
+        normalize_trace.py's argv, it raises a TypeError (exit 1). Stringifying
         it would be a guess (a numeric id has already lost any leading zero),
         so it is no trace id: infra_incomplete, like any other missing join.
         """
@@ -2452,8 +2456,7 @@ class Runner:
                 # silently DROP a claim (the final turn's own `expect`,
                 # which conversation_turns never reads; `input.messages`
                 # beside the turns) are refused. Each is a validator ERROR,
-                # and run unvalidated each scored an http-only pass
-                # (2026-10-06 review).
+                # and run unvalidated each would score an http-only pass.
                 return ("input.turns is malformed (fewer than two turns, a "
                         "turn that is not an object or has no `user` text, "
                         "an `expect` on the final turn instead of the "
@@ -2515,8 +2518,8 @@ class Runner:
             else:
                 status = result["status"]
                 # A 4xx other than 429 is NOT retried: it is a response, and
-                # often the expected one (the field test asserts a deliberate
-                # 400 on OOS). Retrying it would triple the spend on every
+                # often the expected one (a case may assert a deliberate 400
+                # on OOS). Retrying it would triple the spend on every
                 # correctly-refused case.
                 if status != 429 and not 500 <= status < 600:
                     error = None
@@ -2772,12 +2775,13 @@ class Runner:
         """One repeat of a conversation, with whole-conversation retries.
 
         `max_attempts` counts CONVERSATION attempts, with `backoff_s`
-        between them; on exhaustion the case is `infra_error`, as today.
-        The case verdict is roll_up() over the union of every sent turn's
-        layers, keyed `t<n>.<layer>`, and then final_turn_certifies(): a
-        checkpoint can veto a conversation but never certify it. Returns
-        the attempt dict execute_case folds, carrying the DECIDING turn (the
-        stopping turn, or the last) as its record."""
+        between them; on exhaustion the case is `infra_error`, as a
+        single-turn case's is. The case verdict is roll_up() over the union
+        of every sent turn's layers, keyed `t<n>.<layer>`, and then
+        final_turn_certifies(): a checkpoint can veto a conversation but
+        never certify it. Returns the attempt dict execute_case folds,
+        carrying the DECIDING turn (the stopping turn, or the last) as its
+        record."""
         turns = conversation_turns(case)
         max_attempts = self.execution["max_attempts"]
         backoff = self.execution["backoff_s"]
@@ -2950,8 +2954,8 @@ class Runner:
                     "latency_s": None, "attempts": 0, "retry_count": 0,
                     "body": None, "answer": None, "trace_id": None,
                     "error": None, "crashed": False,
-                    # SS6 marks both files; the response used to carry only
-                    # attempts: 0 and leave the reader to infer it (F-126).
+                    # SS6 marks both files, so the reader never has to infer
+                    # "not sent" from attempts: 0 (F-126).
                     "sent_at": None, "sent": False}
         return {"request": request, "response": response, "error": None,
                 "crashed": False}
@@ -3158,10 +3162,11 @@ class Runner:
             return layers
         # SS9(b) requires actual.json of every SENT case carrying expect.result,
         # whatever became of the execution layer -- so it is written on the
-        # two paths below that never reach the scorer as well. It used to be
-        # written only for a live layer, and a run with one execution case
-        # whose app call failed, or with `execution` disabled (every
-        # `make_plan.py --layer X` plan), exited 6 over a file nothing wrote.
+        # two paths below that never reach the scorer as well. If it were
+        # written only for a live layer, a run with one execution case whose
+        # app call failed, or with `execution` disabled (every
+        # `make_plan.py --layer X` plan), would exit 6 over a file nothing
+        # wrote.
         actual_path = os.path.join(scratch, "actual.json")
         if record["error"]:
             for name in applicable - set(blocked):
@@ -3303,11 +3308,10 @@ class Runner:
                 "rules", "business rules are evaluated by the skill")
         if live("state"):
             # RESERVED, and the reason says so rather than naming a field the
-            # user could go declare. It used to read "state-diff needs
-            # environment.snapshot_state", which is a to-do the adapter cannot
+            # user could go declare. A reason such as "state-diff needs
+            # environment.snapshot_state" would be a to-do the adapter cannot
             # discharge: nothing in this runner calls seed, reset or
             # snapshot_state, so declaring all three changes nothing here.
-            # Same correction Step 7 made to the multi_turn blocked_by string.
             layers["state"] = unscored(
                 "state", "state-diff is RESERVED: no scorer compares "
                          "environment snapshots, and the runner never invokes "
@@ -3342,7 +3346,7 @@ class Runner:
         """SS5.2. Where an observed route may come from, in declared order.
 
         Every source is something the ADAPTER declared. The runner never
-        infers a route: the shipped run did (200=answered, 400=none), which is
+        infers a route: reading one off the status (200=answered, 400=none) is
         a defensible run-specific judgement and exactly the kind of judgement a
         runner must not make silently across every app. Decision D2 makes it
         declared and per-app instead.
@@ -3689,12 +3693,12 @@ class Runner:
         """Is `judge.status: calibrated` backed by measurements? (SS5.4)
 
         `manifest_extra.judge.status` is copied from profile.yaml, which a
-        model edits -- and profile-schema.md has always said the flag is
-        DERIVED, "not set by hand", from each rubric's own tpr/tnr/kappa. Until
-        score_agreement.py existed nothing derived it, so the harness's central
-        credibility gate opened on a word an LLM typed. This is the half of the
-        fix that lives in the runner: the flag is now necessary and NOT
-        sufficient, and the sufficient part is a sidecar of numbers.
+        model edits -- and profile-schema.md says the flag is DERIVED,
+        "not set by hand", from each rubric's own tpr/tnr/kappa.
+        Trusted on its own, the flag would open the harness's central
+        credibility gate on a word an LLM typed. So the runner treats it as
+        necessary and NOT sufficient; the sufficient part is a sidecar of
+        numbers score_agreement.py derives.
 
         Every failure degrades to a REASON STRING, never an exit code. The
         judged layer is `unjudged` either way -- it has no script and is never
@@ -3760,8 +3764,8 @@ class Runner:
         """results.json: written at pre-flight, rewritten per case, finalized.
 
         A run directory therefore never exists without a results.json, so SS9's
-        check has something to fail on from the first second -- rather than the
-        shipped run's shape, where absence looked like success.
+        check has something to fail on from the first second -- rather than a
+        tree where absence would look like success.
         """
         rows = [dict({"case_id": v["case_id"], "verdict": v["verdict"],
                       "gating": v["gating"],
@@ -3863,11 +3867,12 @@ class Runner:
         """SS8: a run that aborted on a canary is still aborted when resumed.
 
         abort_check() runs after a case EXECUTES and an adopted case never
-        does, so `--resume` walked past the failed canary, ran every case
-        after it and finalized `ok`, exit 0 -- and gate.py opened on a run
-        whose own abort had said nothing from it was trustworthy. Drift is
-        not fixed by continuing: the canary's verdict is on disk and would be
-        adopted again, so the answer is a new run id once it is.
+        does, so without this `--resume` would walk past the failed canary,
+        run every case after it and finalize `ok`, exit 0 -- and gate.py would
+        open on a run whose own abort had said nothing from it was
+        trustworthy. Drift is not fixed by continuing: the canary's verdict
+        is on disk and would be adopted again, so the answer is a new run id
+        once it is.
         """
         for verdict in self.verdicts:
             if verdict["canary"] and verdict["verdict"] == FAIL:
@@ -3981,10 +3986,10 @@ class Runner:
         oos = self.plan["scoring"]["oos_route"]
         if oos:
             # --oos-route only RENAMES a label, so a name matching nothing
-            # renames nothing and the scorer exits 2 listing the labels present
-            # (Step 3 made it do that). The runner performs the check itself
-            # rather than discovering it from an exit code, because a run that
-            # simply has no OOS cases selected is not an error.
+            # renames nothing and the scorer exits 2 listing the labels
+            # present. The runner performs the check itself rather than
+            # discovering it from an exit code, because a run that simply has
+            # no OOS cases selected is not an error.
             present = set()
             for row in self.routing_rows:
                 for key in ("expected", "observed"):
@@ -4093,8 +4098,8 @@ class Runner:
         # stderr, like the holdout-look count: stdout stays reserved for the
         # machine-readable {"error": ...} payload, so a clean run still prints
         # nothing THERE. But exit 0 and total silence read as "did that work?"
-        # at a terminal (2026-09-21 audit), and exit 0 is not a verdict -- a
-        # red suite exits 0 too -- so the line names the step that gives one.
+        # at a terminal, and exit 0 is not a verdict -- a red suite exits 0
+        # too -- so the line names the step that gives one.
         flagged = uniform_4xx(self.verdicts)
         if flagged:
             sys.stderr.write(
@@ -4117,9 +4122,9 @@ class Runner:
 #
 # Deliberately not a method: finalize and --verify must be the same check, or
 # "the run finished" and "this old run's outputs exist" become two different
-# statements again -- which is the failure this whole contract is written
-# against. Everything below is read off the tree, so it works months later
-# with no plan, no adapter and no app.
+# statements -- which is the failure this whole contract is written against.
+# Everything below is read off the tree, so it works months later with no
+# plan, no adapter and no app.
 # --------------------------------------------------------------------------
 
 def read_jsonl(path):
@@ -4417,11 +4422,11 @@ def check_results_json(results, cases, sealed=None):
                                and v.get("verdict") == FAIL),
     }
     if "repeated_5xx" in summary:
-        # Absent from runs older than the 2026-09-26 user-test fixes -- and
-        # so is SS10's infra_rate, whose denominator those fixes changed
-        # (every term is on disk now: infra_errors over n - skipped). The key
-        # marks a run written under the current definition, so an older run
-        # is not failed for the definition it was written under.
+        # The key marks a run written under SS10's current infra_rate
+        # definition (infra_errors over n - skipped, every term on disk).
+        # Older runs lack the key and used a different denominator, so a run
+        # without the key is not failed for the definition it was written
+        # under.
         recounted["repeated_5xx"] = sum(1 for v in graded
                                         if v.get("repeated_5xx"))
         recounted["infra_rate"] = infra_rate(
@@ -4446,9 +4451,10 @@ def check_results_json(results, cases, sealed=None):
                 f"case directories count {value})")
     if summary.get("status") == "ok":
         # SS7: a canary `fail` aborts the run, so `ok` beside one is a run
-        # that walked past its own abort (a --resume did, until 2026-09-30)
-        # or a status edited by hand. Either way its numbers are the ones SS7
-        # calls untrustworthy, and gate.py reads this check.
+        # that walked past its own abort (as a --resume without
+        # adopted_abort() would) or a status edited by hand. Either way its
+        # numbers are the ones SS7 calls untrustworthy, and gate.py reads
+        # this check.
         for case_id in sorted(cid for cid, v in cases.items()
                               if v.get("canary") and v.get("verdict") == FAIL):
             # THE HOLDOUT SEAL: gate.py prints this line, so a sealed id
@@ -4470,7 +4476,7 @@ def check_results_json(results, cases, sealed=None):
 
 def is_canary(case):
     """Canary membership is a SPLIT, like every other selection in this
-    harness since Step 1 -- not a directory and not a naming convention."""
+    harness -- not a directory and not a naming convention."""
     return "canary" in (case.get("split") or [])
 
 
@@ -4655,8 +4661,8 @@ def verify_command(out_dir):
 
     No app calls, no scoring, no writes -- so it can be pointed at any run,
     including one produced before this runner existed. A hand-orchestrated run
-    missing its verdict rollups exits 6 here and names both files; that is the
-    audit finding turned into a check anyone can re-run.
+    missing its verdict rollups exits 6 here and names both files -- a check
+    anyone can re-run.
     """
     if not os.path.isdir(out_dir):
         bad_input(f"--verify {out_dir} is not a directory")
@@ -4710,9 +4716,9 @@ def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
 # --------------------------------------------------------------------------
 # SS1.1. --probe: ONE request through the adapter, for discover's live check.
 #
-# Discover used to verify an adapter with a shell `curl ... -H "Cookie:
-# $APP_TEST_COOKIE"`, and Claude Code denies a command whose variables it
-# cannot check, allow rule or not -- so headless, no app needing auth got past
+# Discover cannot verify an adapter with a shell `curl ... -H "Cookie:
+# $APP_TEST_COOKIE"`: Claude Code denies a command whose variables it cannot
+# check, allow rule or not -- so headless, no app needing auth would get past
 # discover (#49). The runner already reads cookie_env/token_env itself and is
 # pre-approved; this gives it a single-request mode. Everything below reuses
 # the run's own pre-flight and invoke_once, so the probe proves the path real
