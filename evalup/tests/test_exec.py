@@ -2,10 +2,12 @@
 the runner -- a run, a conversation, the dry run, pacing and --probe --
 against tests/exec_shim.py, a stdlib stand-in for an app's own shim.
 """
+import contextlib
 import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -188,6 +190,17 @@ class TestRun(unittest.TestCase):
         self.assertEqual(caught.exception.kind, "transport")
         self.assertIn("stdout exceeded 64 bytes", caught.exception.message)
 
+    def test_scrub_catches_every_quoted_form_whatever_the_length(self):
+        value = 'ab"c\\d\u00e9'
+        text = " | ".join(["plain " + value,
+                           "json " + json.dumps(value),
+                           "json8 " + json.dumps(value, ensure_ascii=False),
+                           "repr " + repr(value), "short 42"])
+        out = _exec.scrub(text, [(value, "K"), ("42", "TENANT")])
+        self.assertNotIn("ab", out)
+        self.assertEqual(out.count("${K}"), 4, out)
+        self.assertIn("short ${TENANT}", out)
+
     def test_a_secret_in_stderr_is_scrubbed(self):
         env = dict(_exec.child_env([]), SHIM_SECRET=SECRET)
         with self.assertRaises(_exec.ExecFailure) as caught:
@@ -196,6 +209,52 @@ class TestRun(unittest.TestCase):
         self.assertIn("auth failed for ${SHIM_SECRET}",
                       caught.exception.message)
         self.assertNotIn(SECRET, caught.exception.message)
+
+
+@unittest.skipUnless(POSIX, "setsid and process groups")
+class TestDetachedGrandchild(unittest.TestCase):
+    """A process that left the call's group (setsid) and holds its pipes
+    may outlive the call, but must never hang it: run() is bounded by
+    timeout + DRAIN_GRACE_S on every path (review of #39)."""
+
+    def setUp(self):
+        self.pidfile = pathlib.Path(tempdir(self)) / "pid"
+        self.addCleanup(self.kill_grandchild)
+
+    def kill_grandchild(self):
+        if self.pidfile.exists():
+            with contextlib.suppress(ProcessLookupError, ValueError):
+                os.kill(int(self.pidfile.read_text(encoding="utf-8")),
+                        signal.SIGKILL)
+
+    def timed(self, *flags, timeout=10):
+        started = time.monotonic()
+        try:
+            return run_shim("--pidfile", str(self.pidfile), *flags,
+                            timeout=timeout), time.monotonic() - started
+        except _exec.ExecFailure as exc:
+            return exc, time.monotonic() - started
+
+    def test_exit_with_stdout_held_is_bounded_and_no_answer(self):
+        outcome, wall = self.timed("--detach", "both")
+        self.assertLess(wall, _exec.DRAIN_GRACE_S + 3, wall)
+        self.assertIsInstance(outcome, _exec.ExecFailure)
+        self.assertEqual(outcome.kind, "transport")
+        self.assertIn("stdout was still open", outcome.message)
+
+    def test_timeout_with_pipes_held_is_bounded(self):
+        outcome, wall = self.timed("--detach", "both", "--hang", timeout=1)
+        self.assertLess(wall, 1 + _exec.DRAIN_GRACE_S + 3, wall)
+        self.assertIsInstance(outcome, _exec.ExecFailure)
+        self.assertEqual(outcome.kind, "timeout")
+
+    def test_stderr_held_still_answers_with_latency_at_exit(self):
+        outcome, wall = self.timed("--detach", "stderr")
+        self.assertLess(wall, _exec.DRAIN_GRACE_S + 3, wall)
+        self.assertIsInstance(outcome, dict, outcome)
+        self.assertEqual(outcome["body"]["text"], "ok: hi")
+        # Measured at exit, not after the grace the held stderr cost.
+        self.assertLess(outcome["latency_s"], _exec.DRAIN_GRACE_S)
 
 
 class ExecRunnerCase(RunnerCase):
@@ -377,7 +436,8 @@ class TestPreflight(ExecRunnerCase):
             ({"exec": {"argv": ["no-such-command-39"]}},
              "is not an executable file"),
             ({"auth": {"type": "bearer", "token_env": "SHIM_SECRET"}},
-             "pass a credential to an exec command by NAME"),
+             "list the credential's env var in exec.env (exec.env: "
+             "[SHIM_SECRET])"),
             ({"headers": {"Origin": "http://x"}}, "needs invocation.mode: http"),
             ({"identity_map": {"role": "X-Role"}}, "identity_map maps to"),
             ({"health_check": {"path": "/"}}, "health_check needs"),

@@ -52,6 +52,20 @@ SCHEMA_VERSION = 1
 LEGACY_SCORING_VERSION = {"0.1.0": 1}
 
 
+def secret_forms(value):
+    """The forms a secret takes in quoted text: plain, JSON-escaped (ASCII
+    and not), and inside a repr. A plain replace misses a quoted cookie in
+    a JSON body or an exception message. Shared by the probe's scrubbing
+    and run_cases' exec stderr (_exec.scrub)."""
+    forms = []
+    for form in (value, json.dumps(value)[1:-1],
+                 json.dumps(value, ensure_ascii=False)[1:-1],
+                 repr(value)[1:-1]):
+        if form and form not in forms:
+            forms.append(form)
+    return forms
+
+
 def malformed_version(record):
     """Why a run record's version fields cannot be keyed, or None.
 

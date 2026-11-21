@@ -14,6 +14,11 @@ for one of the failures the runner must map:
   echo-secret writes $SHIM_SECRET to stderr, then exits 2
   leak        answers normally, with $SHIM_SECRET in the text
 
+--detach both|stderr first starts a grandchild in its OWN session
+(setsid: out of the call's process group) that holds stdout and stderr,
+or stderr only, open for 30 s; its pid goes to --pidfile. --hang then
+sleeps 60 s instead of answering.
+
 --tools adds a tool_calls list to the answer; --log appends each request
 it read (with the time it read it, as `_t`) to a JSONL file. The answer
 echoes the message, the session fields it was sent, its cwd and the names
@@ -33,12 +38,26 @@ def main():
     ap.add_argument("--tools", action="store_true")
     ap.add_argument("--log")
     ap.add_argument("--pidfile")
+    ap.add_argument("--detach", choices=("both", "stderr"))
+    ap.add_argument("--hang", action="store_true")
     a = ap.parse_args()
 
     request = json.loads(sys.stdin.read())
     if a.log:
         with open(a.log, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(dict(request, _t=time.time())) + "\n")
+
+    if a.detach:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdin=subprocess.DEVNULL, start_new_session=True,
+            stdout=None if a.detach == "both" else subprocess.DEVNULL)
+        if a.pidfile:
+            with open(a.pidfile, "w", encoding="utf-8") as fh:
+                fh.write(str(child.pid))
+        if a.hang:
+            time.sleep(60)
+            return 0
 
     if a.misbehave == "exit":
         sys.stderr.write("Traceback: boom\n")

@@ -94,6 +94,7 @@ from _common import (
     nfc,
     run_bounded,
     scoring_comparison,
+    secret_forms,
     unsafe_case_id,
 )
 
@@ -1951,14 +1952,18 @@ class Runner:
         a missing directory or command is exit 3 with nothing billed -- it
         is also exec's health check, as the import is function mode's."""
         block = invocation["exec"]
+        auth = invocation.get("auth") or {}
+        auth_env = auth.get("token_env") or auth.get("cookie_env")
         refused = [
             (invocation.get("response_format", "json") != "json",
              "response_format applies to invocation.mode: http only; an "
              "exec command prints one JSON object"),
-            ((invocation.get("auth") or {}).get("type", "none") != "none",
-             "auth applies to invocation.mode: http only; pass a "
-             "credential to an exec command by NAME in exec.env, or as a "
-             "${REF} in request_body (stdin)"),
+            (auth.get("type", "none") != "none",
+             "auth applies to invocation.mode: http only; list the "
+             "credential's env var in exec.env ({}) so the command gets it "
+             "by name, or put it as a ${{REF}} in request_body (stdin)"
+             .format(f"exec.env: [{auth_env}]" if isinstance(auth_env, str)
+                     else "its NAME")),
             (bool(invocation.get("identity_map")),
              "identity_map maps to headers, which an exec command never "
              "gets; carry the persona in request_body as <persona>"),
@@ -1990,8 +1995,13 @@ class Runner:
                 "gets")
         # Scrubbed out of any stderr/stdout an error quotes: what the child
         # was handed by name, and what request_body resolved.
+        # exec.env values whatever their length (each is a credential by
+        # declaration, as an auth value is to the probe); request_body refs
+        # from PROBE_SCRUB_MIN_LEN up, so a tenant id "42" does not rewrite
+        # every 42 in a traceback.
         secrets = [(os.environ[n], n) for n in names if os.environ.get(n)]
-        secrets += [(value, name) for name, value in self.sent_refs.items()]
+        secrets += [(value, name) for name, value in self.sent_refs.items()
+                    if len(value) >= PROBE_SCRUB_MIN_LEN]
         self.exec = {"argv": list(block["argv"]), "executable": executable,
                      "cwd": cwd, "env": env, "env_names": names,
                      "secrets": secrets}
@@ -4968,7 +4978,11 @@ def probe_redactions(adapter):
     places a run records. Read from the environment directly, so a
     pre-flight failure is scrubbed too. Longest first, as in unresolve()."""
     pairs = {}
-    auth_names = set(header_env_names(adapter, url=False))
+    # An exec command's passthrough names count as auth names: each is
+    # handed to the app as a credential would be (#39).
+    auth_names = set(header_env_names(adapter, url=False)) | set(
+        _exec.env_names(_mapping(_mapping(adapter).get("invocation"))
+                        .get("exec")))
     for name in adapter_env_names(adapter):
         value = os.environ.get(name)
         if value and (name in auth_names
@@ -4976,9 +4990,7 @@ def probe_redactions(adapter):
             # Also the forms a value takes inside text that is itself
             # JSON (a tool result, a raw body) or a repr in an exception
             # message: the plain replace would miss a quoted cookie there.
-            for form in (value, json.dumps(value)[1:-1],
-                         json.dumps(value, ensure_ascii=False)[1:-1],
-                         repr(value)[1:-1]):
+            for form in secret_forms(value):
                 pairs.setdefault(form, name)
     return sorted(pairs.items(), key=lambda item: len(item[0]), reverse=True)
 

@@ -22,8 +22,11 @@ The rules, each a decision rather than a default:
   runner's own environment -- every credential the user exported for some
   other tool -- is not inherited.
 - One process per call, in its own process group (session), from a fixed
-  cwd. When it exits, or the timeout passes, the whole group is killed, so a
-  call leaves nothing running behind it.
+  cwd. When it exits, or the timeout passes, the whole group is killed. A
+  process that left the group (setsid, a daemon) is out of reach and may
+  outlive the call, but cannot hang it: run() is bounded by the timeout
+  plus DRAIN_GRACE_S whatever holds the pipes. Windows has no group kill
+  here: only the command itself is killed.
 - stdout and stderr are drained in full and capped in memory: stdout over
   STDOUT_CAP_BYTES is a failed call (an answer cut short is no answer), and
   stderr keeps its last STDERR_KEEP_BYTES -- a traceback ends there. App
@@ -45,13 +48,17 @@ import subprocess
 import threading
 import time
 
+from _common import secret_forms
+
 EXEC_KEYS = ("argv", "cwd", "env")
 # What a process needs to start at all, passed through when set. Nothing
 # here is a credential; a variable the command needs beyond these goes in
 # exec.env by name.
 BASE_ENV = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL",
-            "LC_CTYPE", "TZ", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT",
-            "COMSPEC", "PATHEXT")
+            "LC_CTYPE", "TZ", "TMPDIR", "TMP", "TEMP",
+            # Windows: what a process there expects to find set.
+            "SYSTEMROOT", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA",
+            "LOCALAPPDATA", "SYSTEMDRIVE", "WINDIR", "PROGRAMDATA")
 ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 ENV_REF_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 STDOUT_CAP_BYTES = 16 * 1024 * 1024
@@ -59,9 +66,6 @@ STDERR_KEEP_BYTES = 64 * 1024
 # How much of stderr (its end) and of a bad stdout (its start) an error
 # message quotes. Messages land in response.json and run output.
 QUOTE_CHARS = 2000
-# A value shorter than this is not scrubbed out of quoted output: an
-# `EVAL_TENANT=42` would otherwise rewrite every "42" (as the probe does).
-SCRUB_MIN_LEN = 4
 # After the process exits, how long to wait for its pipes to close. A
 # grandchild that left the process group can hold them open forever.
 DRAIN_GRACE_S = 2.0
@@ -168,62 +172,125 @@ def resolve_command(command, cwd, env):
 
 
 def scrub(text, secrets):
-    """Put ${NAME} back for every (value, NAME) in `secrets`, longest first."""
-    for value, name in sorted(secrets, key=lambda p: len(p[0]), reverse=True):
-        if len(value) >= SCRUB_MIN_LEN:
-            text = text.replace(value, "${" + name + "}")
+    """Put ${NAME} back for every (value, NAME) in `secrets`, in each form
+    the value takes in quoted text (_common.secret_forms: plain, JSON-
+    escaped, repr), longest first. The caller chooses which values count;
+    every one given is scrubbed, whatever its length."""
+    pairs = {}
+    for value, name in secrets:
+        if value:
+            for form in secret_forms(value):
+                pairs.setdefault(form, name)
+    for form, name in sorted(pairs.items(), key=lambda p: len(p[0]),
+                             reverse=True):
+        text = text.replace(form, "${" + name + "}")
     return text
 
 
 class _Drain(threading.Thread):
-    """Read a pipe to EOF. `keep_head` bytes from its start, or (tail) the
-    last `keep` bytes; `total` counts everything, kept or not, so the
-    child never blocks on a full pipe."""
+    """Read one pipe to EOF, from a file descriptor this thread OWNS.
 
-    def __init__(self, pipe, keep, tail):
+    os.read on a raw fd, never a buffered file object: closing a
+    BufferedReader blocks on the lock a reader blocked in read() holds, so
+    a pipe a detached grandchild kept open used to hang run() until that
+    grandchild exited. The thread closes its fd at EOF and nothing else
+    ever does, so run() can give up on a pipe without touching it.
+    `keep` bytes from the start, or (tail) the last `keep`; `total` counts
+    everything, so the child never blocks on a full pipe."""
+
+    def __init__(self, fd, keep, tail):
         super().__init__(daemon=True)
-        self.pipe, self.keep, self.tail = pipe, keep, tail
+        self.fd, self.keep, self.tail = fd, keep, tail
         self.data = bytearray()
         self.total = 0
+        self.lock = threading.Lock()
 
     def run(self):
         try:
             while True:
-                chunk = self.pipe.read(_CHUNK)
+                chunk = os.read(self.fd, _CHUNK)
                 if not chunk:
                     break
-                self.total += len(chunk)
-                if self.tail:
-                    self.data += chunk
-                    if len(self.data) > self.keep:
-                        del self.data[:len(self.data) - self.keep]
-                elif len(self.data) < self.keep:
-                    self.data += chunk[:self.keep - len(self.data)]
-        except (OSError, ValueError):
+                with self.lock:
+                    self.total += len(chunk)
+                    if self.tail:
+                        self.data += chunk
+                        if len(self.data) > self.keep:
+                            del self.data[:len(self.data) - self.keep]
+                    elif len(self.data) < self.keep:
+                        self.data += chunk[:self.keep - len(self.data)]
+        except OSError:
             pass
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(self.fd)
+
+    def snapshot(self):
+        with self.lock:
+            return bytes(self.data), self.total
 
 
 class _Feed(threading.Thread):
-    """Write stdin and close it. A command that never reads its stdin is
-    not an error here; its exit and its stdout decide the call."""
+    """Write stdin and close it, from an fd this thread owns. A command
+    that never reads its stdin is not an error here; its exit and its
+    stdout decide the call. Never joined: a write a detached grandchild
+    blocks stays in this daemon thread, not in run()."""
 
-    def __init__(self, pipe, data):
+    def __init__(self, fd, data):
         super().__init__(daemon=True)
-        self.pipe, self.data = pipe, data
+        self.fd, self.data = fd, data
 
     def run(self):
         try:
-            self.pipe.write(self.data)
-        except (OSError, ValueError):
+            view = memoryview(self.data)
+            while view:
+                view = view[os.write(self.fd, view):]
+        except OSError:
             pass
         finally:
-            with contextlib.suppress(OSError, ValueError):
-                self.pipe.close()
+            with contextlib.suppress(OSError):
+                os.close(self.fd)
+
+
+def _own_fd(pipe):
+    """A duplicate of a Popen pipe's fd for a thread to own, and the file
+    object closed at once -- before any thread reads, so no lock is held."""
+    fd = os.dup(pipe.fileno())
+    pipe.close()
+    return fd
+
+
+def _wait_unreaped(proc, deadline):
+    """Wait for the child to exit WITHOUT reaping it (waitid + WNOWAIT),
+    until `deadline`. True when it exited. Unreaped, its pid -- and so its
+    process group id -- cannot be reused, so the killpg after this cannot
+    hit an unrelated group. Where waitid is missing, Popen.wait (reaps)."""
+    waitid = getattr(os, "waitid", None)
+    if waitid is None or not hasattr(os, "WNOWAIT"):
+        try:
+            proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+    pause = 0.002
+    while True:
+        try:
+            info = waitid(os.P_PID, proc.pid,
+                          os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        except ChildProcessError:
+            return True
+        if info is not None:
+            return True
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        time.sleep(min(pause, left))
+        pause = min(pause * 2, 0.05)
 
 
 def _kill_group(proc):
-    """SIGKILL the call's whole process group; just the process where
-    there are no groups (Windows)."""
+    """SIGKILL the call's whole process group. Windows has no groups here:
+    only the process itself is killed, and what it started may live on."""
     killpg = getattr(os, "killpg", None)
     if killpg is not None:
         try:
@@ -236,21 +303,29 @@ def _kill_group(proc):
 
 
 def _stderr_tail(drain, secrets):
-    text = bytes(drain.data).decode("utf-8", errors="replace").strip()
+    data, _ = drain.snapshot()
+    text = data.decode("utf-8", errors="replace").strip()
     if not text:
         return ""
+    # Scrubbed before the cut, so a value is never split by it.
+    text = scrub(text, secrets)
     if len(text) > QUOTE_CHARS:
         text = "..." + text[-QUOTE_CHARS:]
-    return "; stderr: " + scrub(text, secrets)
+    return "; stderr: " + text
 
 
 def run(argv, executable, cwd, env, body, timeout, secrets=()):
     """One call. Returns run_cases' result shape -- {status, body,
     latency_s, headers, set_cookies} -- with status 200, or raises
     ExecFailure. `secrets` are (value, NAME) pairs scrubbed out of every
-    quoted byte of the command's output."""
+    quoted byte of the command's output.
+
+    Bounded in every case by `timeout` + DRAIN_GRACE_S (plus the kill):
+    the command is waited for until the timeout, then its group is
+    killed, and its pipes get the grace to reach EOF. A pipe still open
+    then (a detached grandchild holds it) is abandoned to its thread."""
     payload = (json.dumps(body, ensure_ascii=False) + "\n").encode("utf-8")
-    started = time.time()
+    started = time.monotonic()
     try:
         proc = subprocess.Popen(
             list(argv), executable=executable, cwd=cwd, env=env,
@@ -260,28 +335,28 @@ def run(argv, executable, cwd, env, body, timeout, secrets=()):
         why = scrub(str(exc), secrets)
         raise ExecFailure("transport", f"could not start {argv[0]}: "
                           f"{type(exc).__name__}: {why}") from exc
-    out = _Drain(proc.stdout, STDOUT_CAP_BYTES + 1, tail=False)
-    err = _Drain(proc.stderr, STDERR_KEEP_BYTES, tail=True)
-    feed = _Feed(proc.stdin, payload)
+    out = _Drain(_own_fd(proc.stdout), STDOUT_CAP_BYTES + 1, tail=False)
+    err = _Drain(_own_fd(proc.stderr), STDERR_KEEP_BYTES, tail=True)
+    feed = _Feed(_own_fd(proc.stdin), payload)
     for thread in (out, err, feed):
         thread.start()
-    timed_out = False
+    exited = False
     try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
+        exited = _wait_unreaped(proc, started + timeout)
     finally:
+        # Measured when the command exited (or timed out), not after the
+        # kill and the drain grace.
+        latency = round(time.monotonic() - started, 3)
         # The group goes whether the command finished or not: one process
-        # per call, and nothing it started outlives it.
+        # per call, and nothing it started IN ITS GROUP outlives it. A
+        # process that left the group (setsid) is out of reach; it cannot
+        # hang the call (below), but it can outlive it.
         _kill_group(proc)
         proc.wait()
+    grace_end = time.monotonic() + DRAIN_GRACE_S
     for thread in (out, err):
-        thread.join(DRAIN_GRACE_S)
-    for pipe in (proc.stdout, proc.stderr):
-        with contextlib.suppress(OSError):
-            pipe.close()
-    latency = round(time.time() - started, 3)
-    if timed_out:
+        thread.join(max(0.0, grace_end - time.monotonic()))
+    if not exited:
         tail = _stderr_tail(err, secrets)
         raise ExecFailure("timeout", f"timed out after {timeout}s; killed "
                           f"its process group{tail}")
@@ -296,10 +371,11 @@ def run(argv, executable, cwd, env, body, timeout, secrets=()):
         raise ExecFailure("transport", "stdout was still open "
                           f"{DRAIN_GRACE_S}s after the command exited (a "
                           "process it started outside its group holds it)")
-    if out.total > STDOUT_CAP_BYTES:
+    data, total = out.snapshot()
+    if total > STDOUT_CAP_BYTES:
         raise ExecFailure("transport", f"stdout exceeded {STDOUT_CAP_BYTES} "
-                          f"bytes ({out.total} written)")
-    text = bytes(out.data).decode("utf-8", errors="replace")
+                          f"bytes ({total} written)")
+    text = data.decode("utf-8", errors="replace")
     if not text.strip():
         raise ExecFailure("transport", "the command printed nothing on "
                           "stdout; it must print one JSON object"
