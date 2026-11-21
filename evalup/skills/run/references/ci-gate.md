@@ -88,12 +88,14 @@ its run directory; README "CI workflow template" lists what to edit). The
 validate step stops the job on a non-zero exit; it is what
 refuses a gating case or canary covering a business rule no human
 confirmed (`unconfirmed_rule_gates`), so skipping it lets an inferred rule
-decide the gate. The combined document serves every flag:
+decide the gate. The combined document serves every flag, in a CI step
+or script (not pasted into a terminal, which `set -e` would close):
 
 ```bash
+set -e   # stop at the first command that fails
 python3 "$EVALUP_ROOT/scripts/convert_suite.py" .evalup -o converted.json
 python3 "$EVALUP_ROOT/scripts/validate_cases.py" --cases converted.json \
-  --capabilities converted.json --profile converted.json || exit
+  --capabilities converted.json --profile converted.json
 ```
 
 `gate.py --min-pass-rate` counts every scored non-canary case, `gating:

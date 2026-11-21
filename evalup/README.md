@@ -270,12 +270,16 @@ you to rebuild). A first session is several sessions away from that;
 
 ### Without Claude (CI)
 
-Five scripts run a suite with no LLM involved. From the plugin directory:
+Five scripts run a suite with no LLM involved: a script, run from the
+plugin directory (`bash ci.sh`, not pasted into a terminal, which `set -e`
+would close on the first failure):
 
 ```bash
+#!/usr/bin/env bash
+set -e   # stop at the first command that fails
 python3 scripts/convert_suite.py your-app/.evalup -o converted.json
 python3 scripts/validate_cases.py --cases converted.json \
-  --capabilities converted.json --profile converted.json || exit
+  --capabilities converted.json --profile converted.json
 python3 scripts/make_plan.py converted.json --mode regression \
   --state-dir your-app/.evalup -o plan.json    # prints the exact run command next
 python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/<run-id>
