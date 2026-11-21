@@ -11,10 +11,14 @@ for one of the failures the runner must map:
   sleep       starts a grandchild (pid to --pidfile), then sleeps 60 s
   stderr      writes 1 MiB to stderr, then answers normally
   stderr-exit writes 1 MiB to stderr, then exits 1
-  echo-secret writes $SHIM_SECRET to stderr, then exits 2
-  leak        answers normally, with $SHIM_SECRET in the text
-  raw         writes --raw-stdout and --raw-stderr as given ({secret} is
-              $SHIM_SECRET, {pad:N} N x's), then exits --code
+  echo-secret writes $SHIM_PLANTED to stderr, then exits 2
+  leak        answers normally, with $SHIM_PLANTED in the text
+  raw         writes --raw-stdout and --raw-stderr as given ({planted} is
+              $SHIM_PLANTED, {pad:N} N x's), then exits --code
+
+$SHIM_PLANTED is a fake value the tests plant to check scrubbing; printing
+it is the point. It is not named *SECRET* so code scanning does not read
+the deliberate leak as a real credential being logged.
 
 --detach both|stderr first starts a grandchild in its OWN session
 (setsid: out of the call's process group) that holds stdout and stderr,
@@ -42,7 +46,7 @@ def write_pid(path, pid):
 
 
 def expand(text):
-    text = text.replace("{secret}", os.environ.get("SHIM_SECRET", ""))
+    text = text.replace("{planted}", os.environ.get("SHIM_PLANTED", ""))
     while "{pad:" in text:
         start = text.index("{pad:")
         end = text.index("}", start)
@@ -106,14 +110,14 @@ def main():
         if a.misbehave == "stderr-exit":
             return 1
     if a.misbehave == "echo-secret":
-        sys.stderr.write("auth failed for " + os.environ.get("SHIM_SECRET", "")
+        sys.stderr.write("auth failed for " + os.environ.get("SHIM_PLANTED", "")
                          + "\n")
         return 2
 
     message = request.get("message", "")
     text = "ok: " + str(message)
     if a.misbehave == "leak":
-        text += " (token " + os.environ.get("SHIM_SECRET", "") + ")"
+        text += " (token " + os.environ.get("SHIM_PLANTED", "") + ")"
     answer = {"text": text,
               "session_id": request.get("session_id"),
               "conversationId": request.get("conversation") or "conv-1",

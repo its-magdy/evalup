@@ -215,25 +215,25 @@ class TestRun(unittest.TestCase):
         # The secret straddles character 200, where the quote is cut. No
         # dictionary words in it, so no 5 characters of it occur by chance.
         secret = "Q7zK9wX2vB8nM4pL5rT1"
-        env = dict(_exec.child_env([]), SHIM_SECRET=secret)
+        env = dict(_exec.child_env([]), SHIM_PLANTED=secret)
         with self.assertRaises(_exec.ExecFailure) as caught:
             run_shim("--misbehave", "raw", "--raw-stdout",
-                     "{pad:190}{secret} not json", env=env,
-                     secrets=[(secret, "SHIM_SECRET")])
+                     "{pad:190}{planted} not json", env=env,
+                     secrets=[(secret, "SHIM_PLANTED")])
         message = caught.exception.message
         self.assertIn("not one JSON document", message)
         for i in range(len(secret) - 4):
             self.assertNotIn(secret[i:i + 5], message)
 
     def test_a_secret_cut_by_the_stderr_window_does_not_leak_its_tail(self):
-        env = dict(_exec.child_env([]), SHIM_SECRET=SECRET)
+        env = dict(_exec.child_env([]), SHIM_PLANTED=SECRET)
         with mock.patch.object(_exec, "STDERR_KEEP_BYTES", 40), \
                 self.assertRaises(_exec.ExecFailure) as caught:
             # The 40-byte window starts 10 characters before the
             # secret's end.
             run_shim("--misbehave", "raw", "--raw-stderr",
-                     "{pad:100}{secret}{pad:30}", "--code", "1", env=env,
-                     secrets=[(SECRET, "SHIM_SECRET")])
+                     "{pad:100}{planted}{pad:30}", "--code", "1", env=env,
+                     secrets=[(SECRET, "SHIM_PLANTED")])
         message = caught.exception.message
         self.assertIn("exited 1", message)
         self.assertNotIn(SECRET[-6:], message)
@@ -248,11 +248,11 @@ class TestRun(unittest.TestCase):
         self.assertIn("not one JSON document", caught.exception.message)
 
     def test_a_secret_in_stderr_is_scrubbed(self):
-        env = dict(_exec.child_env([]), SHIM_SECRET=SECRET)
+        env = dict(_exec.child_env([]), SHIM_PLANTED=SECRET)
         with self.assertRaises(_exec.ExecFailure) as caught:
             run_shim("--misbehave", "echo-secret", env=env,
-                     secrets=[(SECRET, "SHIM_SECRET")])
-        self.assertIn("auth failed for ${SHIM_SECRET}",
+                     secrets=[(SECRET, "SHIM_PLANTED")])
+        self.assertIn("auth failed for ${SHIM_PLANTED}",
                       caught.exception.message)
         self.assertNotIn(SECRET, caught.exception.message)
 
@@ -453,21 +453,21 @@ class TestEnvPassthrough(ExecRunnerCase):
 
     def test_a_body_secret_goes_by_stdin_and_is_recorded_as_its_name(self):
         plan = self.exec_plan(request_body='{"message": "<user turn>", '
-                                           '"key": "${SHIM_SECRET}"}')
-        rc, _, proc = self.invoke(plan, env={"SHIM_SECRET": SECRET})
+                                           '"key": "${SHIM_PLANTED}"}')
+        rc, _, proc = self.invoke(plan, env={"SHIM_PLANTED": SECRET})
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.calls()[0]["key"], SECRET)
         request = self.read("cases", "c-0001", "request.json")
-        self.assertEqual(request["body"]["key"], "${SHIM_SECRET}")
+        self.assertEqual(request["body"]["key"], "${SHIM_PLANTED}")
 
     def test_stderr_quoted_in_an_error_is_scrubbed(self):
         plan = self.exec_plan("--misbehave", "echo-secret",
-                              env=["SHIM_SECRET"])
-        rc, _, proc = self.invoke(plan, env={"SHIM_SECRET": SECRET})
+                              env=["SHIM_PLANTED"])
+        rc, _, proc = self.invoke(plan, env={"SHIM_PLANTED": SECRET})
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         text = (self.out_dir() / "cases" / "c-0001"
                 / "response.json").read_text(encoding="utf-8")
-        self.assertIn("auth failed for ${SHIM_SECRET}", text)
+        self.assertIn("auth failed for ${SHIM_PLANTED}", text)
         self.assertNotIn(SECRET, text)
 
 
@@ -509,7 +509,7 @@ class TestPreflight(ExecRunnerCase):
         cases = [
             ({"exec": {"argv": " ".join(argv), "cwd": "../app"}},
              "never a shell string"),
-            ({"exec": {"argv": [*argv, "--k", "${SHIM_SECRET}"],
+            ({"exec": {"argv": [*argv, "--k", "${SHIM_PLANTED}"],
                        "cwd": "../app"}}, "holds a ${REF}"),
             ({"exec": {"argv": argv}}, "exec.cwd is required"),
             ({"exec": {"argv": argv, "cwd": "missing"}}, "is not a directory"),
@@ -517,9 +517,9 @@ class TestPreflight(ExecRunnerCase):
              "is not an executable file"),
             ({"exec": {"argv": ["no-such-command-39"], "cwd": "../app"}},
              "is not an executable file"),
-            ({"auth": {"type": "bearer", "token_env": "SHIM_SECRET"}},
+            ({"auth": {"type": "bearer", "token_env": "SHIM_PLANTED"}},
              "list the credential's env var in exec.env (exec.env: "
-             "[SHIM_SECRET])"),
+             "[SHIM_PLANTED])"),
             ({"headers": {"Origin": "http://x"}}, "needs invocation.mode: http"),
             ({"identity_map": {"role": "X-Role"}}, "identity_map maps to"),
             ({"health_check": {"path": "/"}}, "health_check needs"),
@@ -533,7 +533,7 @@ class TestPreflight(ExecRunnerCase):
         for invocation, fragment in cases:
             with self.subTest(fragment):
                 self.refused(self.exec_plan(**invocation), fragment,
-                             env={"SHIM_SECRET": SECRET})
+                             env={"SHIM_PLANTED": SECRET})
 
     def test_a_status_exec_cannot_report_skips_the_case(self):
         refused = make_case("c-0001", expect={"http": {"status": 403}})
@@ -649,15 +649,15 @@ class TestProbe(ExecRunnerCase):
 
     def test_one_call_answer_tool_calls_and_scrubbed_env(self):
         plan = self.exec_plan("--tools", "--misbehave", "leak", tools=True,
-                              env=["SHIM_SECRET"])
-        rc, report, proc = self.probe(plan, env={"SHIM_SECRET": SECRET})
+                              env=["SHIM_PLANTED"])
+        rc, report, proc = self.probe(plan, env={"SHIM_PLANTED": SECRET})
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         self.assertTrue(report["ok"], report)
         self.assertEqual(report["response"]["answer"],
-                         "ok: hi (token ${SHIM_SECRET})")
+                         "ok: hi (token ${SHIM_PLANTED})")
         self.assertEqual(report["response"]["tool_calls"][0]["name"],
                          "list_invoices")
-        self.assertIn("SHIM_SECRET", report["env_vars"])
+        self.assertIn("SHIM_PLANTED", report["env_vars"])
         self.assertEqual(report["request"]["method"], "EXEC")
         # Where the command ran, resolved, so a wrong cwd is obvious.
         self.assertEqual(os.path.realpath(report["request"]["cwd"]),
