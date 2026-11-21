@@ -249,13 +249,7 @@ class TestConfig(unittest.TestCase):
 
 
 class TestSpans(unittest.TestCase):
-    def test_normalize_trace_reads_the_spans_in_response_order(self):
-        calls = [{"id": "c1", "name": "b_tool", "arguments": '{"k": 1}',
-                  "result": "r"},
-                 {"id": "c2", "name": "a_tool", "arguments": {"k": 2},
-                  "result": None}]
-        doc = _sse.tool_calls_to_otlp(calls, "ab" * 16,
-                                      {"input_tokens": 5, "output_tokens": 2})
+    def normalize(self, doc):
         tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, True)
         path = tmp / "trace.json"
@@ -266,6 +260,16 @@ class TestSpans(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
         self.assertEqual(out["status"], "ok")
+        return out
+
+    def test_normalize_trace_reads_the_spans_in_response_order(self):
+        calls = [{"id": "c1", "name": "b_tool", "arguments": '{"k": 1}',
+                  "result": "r"},
+                 {"id": "c2", "name": "a_tool", "arguments": {"k": 2},
+                  "result": None}]
+        doc = _sse.tool_calls_to_otlp(calls, "ab" * 16,
+                                      {"input_tokens": 5, "output_tokens": 2})
+        out = self.normalize(doc)
         tools = out["trajectory"]["tool_calls"]
         self.assertEqual([t["name"] for t in tools], ["b_tool", "a_tool"])
         self.assertEqual([t["args"] for t in tools], [{"k": 1}, {"k": 2}])
@@ -316,6 +320,19 @@ class TestSpans(unittest.TestCase):
                          {"input_tokens": 600, "output_tokens": 60})
         self.assertEqual([t["name"] for t in out["tool_calls"]],
                          ["lookup", "lookup"])
+
+    def test_a_zero_argument_call_has_empty_args(self):
+        # #47: a call with no arguments sends no TOOL_CALL_ARGS, so its
+        # argument string is empty. That is "no arguments" ({}), not an
+        # unparseable one; malformed JSON still is.
+        body = agent_run(tool_call("c1", "no_args_tool"),
+                         tool_call("c2", "blank_tool", "  "),
+                         tool_call("c3", "bad_tool", '{"k":'))
+        calls = _sse.decode(body, AG_UI)["tool_calls"]
+        self.assertEqual([c["arguments"] for c in calls], ["", "  ", '{"k":'])
+        out = self.normalize(_sse.tool_calls_to_otlp(calls, "ab" * 16))
+        self.assertEqual([t["args"] for t in out["trajectory"]["tool_calls"]],
+                         [{}, {}, {"_unparsed": True}])
 
 
 # -- through the runner ---------------------------------------------------
