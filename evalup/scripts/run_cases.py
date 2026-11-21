@@ -2558,9 +2558,15 @@ class Runner:
         sent, seen, shared = [], {}, None
         out = {"turns": sent, "retry": None, "stop_reason": None,
                "session_missing": False}
+        replied_at = None
         for index, (text, expect) in enumerate(turns, 1):
-            if index > 1 and conversation["turn_delay_s"]:
-                time.sleep(conversation["turn_delay_s"])
+            if replied_at is not None and conversation["turn_delay_s"]:
+                # #17: measured from the previous reply, so the quiescence
+                # wait and scoring since then count toward it.
+                wait = conversation["turn_delay_s"] \
+                    - (time.monotonic() - replied_at)
+                if wait > 0:
+                    time.sleep(wait)
             values = {"<user turn>": text, "<uuid>": session_id,
                       "<persona>": persona, "<case id>": case["id"],
                       SESSION_MARKER: session}
@@ -2590,6 +2596,7 @@ class Runner:
                                 "crashed": exc.kind == "connection",
                                 "five": None}
                 return out
+            replied_at = time.monotonic()
             if jar is not None:
                 absorb_cookies(jar, self.url, result.get("set_cookies"))
             status = result["status"]
@@ -4380,8 +4387,11 @@ def dry_run_report(runner):
             continue
         turns = conversation_turns(case)
         n = len(turns) if turns is not None else 1
+        # turn_delay_s runs from the previous reply (#17), so the
+        # quiescence wait after a turn already covers part of it.
         planned.append((plan["k"] * n,
-                        plan["k"] * (n * quiet_s + (n - 1) * delay_s)))
+                        plan["k"] * (n * quiet_s
+                                     + (n - 1) * max(0.0, delay_s - quiet_s))))
     return {
         "dry_run": True,
         "run_id": plan["run_id"], "mode": plan["mode"], "k": plan["k"],
@@ -4410,8 +4420,10 @@ def dry_run_report(runner):
         "wait_floor_note": (
             "seconds the run waits beyond the app's own latency, with no "
             "retry: the trace quiescence window after every app call when "
-            "traces are collected from a store, plus turn_delay_s between a "
-            "conversation's turns. A real run is slower"),
+            "traces are collected from a store, plus whatever part of "
+            "turn_delay_s that window has not covered between a "
+            "conversation's turns (the delay runs from the previous reply). "
+            "A real run is slower"),
         "execution": runner.execution,
     }
 

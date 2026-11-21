@@ -274,9 +274,10 @@ under a cluster-robust correction, §12). So:
   Slicing spans by turn is not attempted.
 - **Background writes.** Some apps store history or summarise memory after
   replying, so a turn sent too soon reads as "forgot the context". The
-  optional `turn_delay_s` waits between turns; `discover` sets it when it
+  optional `turn_delay_s` is the least time between a reply and the next
+  turn (the quiescence wait counts toward it); `discover` sets it when it
   sees async memory writes.
-- **Session expiry.** The per-turn quiescence wait (from a store) plus `turn_delay_s` can
+- **Session expiry.** The per-turn quiescence wait (from a store) or `turn_delay_s` can
   outlive a server-side session TTL, and the resulting "new conversation"
   reads as "forgot the context". Each turn's `request.json` keeps `sent_at`;
   `analyze` reads the gaps before calling a failure a memory bug.
@@ -289,8 +290,9 @@ under a cluster-robust correction, §12). So:
   quiescence, when traces come from a store) at `k=3` is about an hour. The
   dry run (`run_cases.py` `dry_run_report`) counts turns, not cases, in
   `app_calls_planned`, every retry in `app_calls_max`, and the quiescence
-  floor (none for `traces.source: response`) plus `turn_delay_s` in
-  `wait_floor_s`; `generate` defaults to 10–20 conversations; the README
+  floor (none for `traces.source: response`) plus what of `turn_delay_s`
+  it leaves uncovered in `wait_floor_s`; `generate` defaults to 10–20
+  conversations; the README
   says a headless run will need several `wait_run.py` waits (540 s each).
 
 ## 6. Memory that outlives the session

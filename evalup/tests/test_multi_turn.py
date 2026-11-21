@@ -1022,6 +1022,65 @@ class TestOneConversationOneRow(ConversationCase):
         self.assertIn("memory: user", self.gate())
 
 
+class TestTurnDelayFromReply(ConversationCase):
+    """#17 item 2: turn_delay_s runs from the previous reply. The gap after
+    a reply is never shorter than the delay, and the quiescence wait since
+    the reply counts toward it instead of being added to it."""
+
+    def timed(self, inner):
+        """`inner`, recording (arrived, replied) monotonic times per ask.
+        `replied` is taken before the bytes leave, so a gap measured from
+        it is never shorter than the runner's own: the app's view."""
+        times = []
+
+        def handler(path, body, headers):
+            arrived = time.monotonic()
+            result = inner(path, body, headers)
+            if path != "/":
+                times.append((arrived, time.monotonic()))
+            return result
+        return handler, times
+
+    def gaps(self, times):
+        return [times[i + 1][0] - times[i][1] for i in range(len(times) - 1)]
+
+    def test_never_shorter_than_the_delay(self):
+        handler, times = self.timed(LicenceApp())
+        app = self.start(handler)
+        case = licence_case()
+        case["input"]["turns"].append({"user": "and the active ones?"})
+        self.run_ok(self.plan_for(app, [case], style="client-id",
+                                  turn_delay_s=0.4))
+        self.assertEqual(len(times), 3)
+        for gap in self.gaps(times):
+            self.assertGreaterEqual(gap, 0.4)
+
+    def test_the_quiescence_wait_counts_toward_it(self):
+        spans = self.tmp / "spans.json"
+        spans.write_text(json.dumps(otlp([
+            span(tid, f"aaaaaaaaaaaaaa{i}0", "execute_tool", "list_licences")
+            for i, tid in enumerate((TRACE, OTHER))])), encoding="utf-8")
+        licences, ids = LicenceApp(), iter([TRACE, OTHER])
+
+        def traced(path, body, headers):
+            status, payload, extra = licences(path, body, headers)
+            tid = TRACE if path == "/" else next(ids)
+            return status, dict(payload, traceId=tid), extra
+        handler, times = self.timed(traced)
+        app = self.start(handler)
+        plan = self.plan_for(app, [licence_case()], style="client-id",
+                             turn_delay_s=1.5)
+        plan["adapter"]["traces"] = {
+            "source": "otlp-file", "convention": "gen_ai",
+            "correlation": "response-field:traceId", "location": str(spans),
+            "completeness": {"quiescence_ms": 1200, "max_wait_s": 5}}
+        self.run_ok(plan)
+        [gap] = self.gaps(times)
+        self.assertGreaterEqual(gap, 1.5)
+        # Added to the wait, as before #17, the gap would be >= 2.7 s.
+        self.assertLess(gap, 2.5)
+
+
 class TestDryRunCountsTurns(ConversationCase):
     """SS5: app calls are turns, not cases, and a wait floor is stated."""
 
@@ -1064,7 +1123,9 @@ class TestDryRunCountsTurns(ConversationCase):
                  "correlation": "response-field:traceId",
                  "location": str(spans),
                  "completeness": {"quiescence_ms": 500, "max_wait_s": 2}}
-        self.assertEqual(self.floor_for(store), 3 * 0.5 + 2 * 2)
+        # The delay runs from the reply, so each gap is max(0.5, 2), not
+        # their sum (#17); the last turn still waits out its window.
+        self.assertEqual(self.floor_for(store), 3 * 0.5 + 2 * (2 - 0.5))
         self.assertEqual(self.floor_for({"source": "response"}), 2 * 2)
 
 

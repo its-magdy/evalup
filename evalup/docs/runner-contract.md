@@ -67,7 +67,7 @@ run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
 | `--out DIR` | the run directory to write. Must equal `<state>/reports/<run_id>` where `run_id` is the plan's. Required except with `--verify`. |
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
-| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1 — what an app-side rate limit has to absorb) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus `turn_delay_s` between turns). |
+| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1 — what an app-side rate limit has to absorb) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus whatever part of `turn_delay_s` that window has not already covered between turns, since the delay runs from the previous reply). |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
 | `--probe` | send **one** request through the adapter and print what came back; no plan, no scoring, no writes (§1.1). Runs alone, with `--adapter` and `--message`, plus optional `--insecure-tls` and `--timeout`, which are probe-only flags. |
 | `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
@@ -945,8 +945,10 @@ conversation attempt:
    request, no retry of its own), read the answer and trace id with the
    adapter's existing paths, score the turn with the existing layers against
    its expect (a checkpoint, or the final turn's top-level `expect`, with
-   `every_turn` overlaid), and `roll_up()` the turn. `turn_delay_s` is waited
-   before turns 2+.
+   `every_turn` overlaid), and `roll_up()` the turn. Before turns 2+, the runner
+   waits until `turn_delay_s` has passed since the previous turn's response
+   arrived: the quiescence wait and scoring since then count toward it, and
+   the gap after the reply is never shorter than `turn_delay_s`.
 3. **Stop at the first turn that rolls up `fail` or `infra_*`; continue past
    `unscored`.** `verdict.json` records `failed_turn` and `stop_reason`.
 
