@@ -46,8 +46,8 @@ A case's expect keys map onto capability layers:
 The pairing is the contract's (docs/runner-contract.md §5) and run_cases.py's,
 and it reads backwards on purpose: `expect.tools` is scored by
 trajectory_match.py on the `trajectory` layer, `expect.args` by score_args.py
-on `tool_selection`. This map had the two swapped, which made no_graded_layer
-blame a layer the runner never consults for that expectation.
+on `tool_selection`. Swapped, no_graded_layer would blame a layer the runner
+never consults for that expectation.
 `expect.http` maps to NOTHING. A status code is a liveness check: it says the
 request reached the app, not that the app did the right thing. A case whose
 only expectation is `http` is reported http-only and, having no graded layer,
@@ -55,10 +55,11 @@ is an ERROR.
 
 `expect.state` maps to nothing either, and for a sharper reason: state-diff is
 RESERVED (no scorer compares environment snapshots, and run_cases.py never
-invokes environment.seed/reset/snapshot_state). While it graded `trajectory`,
-a state-only case was stamped graded and then rolled up to `pass` off its
-`http` row alone -- a case that could not fail. It is now an ERROR by the same
-no_graded_layer rule, and a state expectation alongside real ones WARNs.
+invokes environment.seed/reset/snapshot_state). Mapped to `trajectory`, a
+state-only case would be stamped graded and then rolled up to `pass` off its
+`http` row alone -- a case that could not fail. Mapped to nothing, it is an
+ERROR by the same no_graded_layer rule, and a state expectation alongside real
+ones WARNs.
 
 With --capabilities (the profile's capability_matrix, {"routing": {"enabled":
 false}, ...}), a layer only counts while it is enabled — a suite carried over
@@ -161,13 +162,13 @@ LAYER_OF_EXPECT = {
     "answer": "answer_quality",
     "format": "answer_quality",
 }
-# `state` is NOT in the map above, deliberately (Step 10). It used to grade
-# `trajectory`, so a case whose only expectation was `expect.state` earned the
-# graded stamp -- and then run_cases.py scored the state layer `unscored` (no
-# state-diff scorer exists) and rolled the case up from its `http` row alone.
-# A case that can only pass is exactly what no_graded_layer exists to stop, so
-# removing the entry turns those into that ERROR instead of a free pass. The
-# key stays in EXPECT_SHAPE: a malformed expect.state is still worth reporting.
+# `state` is NOT in the map above, deliberately. Mapped to `trajectory`, a
+# case whose only expectation is `expect.state` would earn the graded stamp --
+# and then run_cases.py scores the state layer `unscored` (no state-diff
+# scorer exists) and rolls the case up from its `http` row alone. A case that
+# can only pass is exactly what no_graded_layer exists to stop, so leaving the
+# entry out turns those into that ERROR instead of a free pass. The key stays
+# in EXPECT_SHAPE: a malformed expect.state is still worth reporting.
 #
 # Reserved expect keys: present in case-format.md, scored by nothing. The value
 # is the sentence the per-case WARN explains itself with.
@@ -471,16 +472,16 @@ def reserved_expectations(expect):
 
 
 def check_reserved_fields(rep, case_id, case, expect):
-    """WARN on every field the case format offers that nothing scores (Step 10).
+    """WARN on every field the case format offers that nothing scores.
 
-    All four are WARN, not ERROR, on Step 4's line, and the line is the same
-    one Step 7 applied to multi-turn: ERROR exists to stop a suite inflating a
-    denominator with cases that cannot fail. None of these does that by itself
-    -- the state-only case that could is now an ERROR through no_graded_layer
-    (see LAYER_OF_EXPECT), and what is left here is dead weight in a case that
-    is otherwise graded normally. The cost is wasted authoring and a test that
-    is not the test the author wrote, so it is worth saying loudly and is not
-    worth failing a run over. `--strict` escalates all four.
+    All four are WARN, not ERROR, by the module docstring's ERROR vs WARN line,
+    the same line multi-turn cases are held to: ERROR exists to stop a suite
+    inflating a denominator with cases that cannot fail. None of these does
+    that by itself -- the state-only case that could is an ERROR through
+    no_graded_layer (see LAYER_OF_EXPECT), and what is left here is dead weight
+    in a case that is otherwise graded normally. The cost is wasted authoring
+    and a test that is not the test the author wrote, so it is worth saying
+    loudly and is not worth failing a run over. `--strict` escalates all four.
     """
     for key in sorted(reserved_expectations(expect)):
         rep.warn(case_id, "reserved_expectation",
@@ -522,7 +523,7 @@ def check_reserved_fields(rep, case_id, case, expect):
 def check_expect_shapes(rep, case_id, expect):
     """Report any expect key whose VALUE is the wrong type. Without this a
     malformed expectation is silently inert: `expect.args: [x]` parses, asserts
-    nothing, and (before this check) still marked the trajectory layer graded."""
+    nothing, and still marks the trajectory layer graded."""
     for key, shape in sorted(EXPECT_SHAPE.items()):
         value = expect.get(key)
         if value is None or isinstance(value, shape):
@@ -739,13 +740,13 @@ def user_text(case):
 def check_echo_assertions(rep, case_id, case, expect):
     """A must_contain entry the case's own input already satisfies.
 
-    Field test 2026-09-25: a case asked about "Mohammed", asserted
-    `/(?i:mohammed)/`, and the app answered "I couldn't find any employees
-    named Mohammed" -- pass. Any app that repeats the request satisfies such
-    an entry without answering, so the pass measures nothing. Same entry
-    grammar as score_answer.py (plain substring, or /regex/), compared
-    case-insensitively because an echo may re-case the words; a regex that
-    does not compile or terminate is left to the scorer's own report."""
+    For example, a case asked about "Mohammed", asserted `/(?i:mohammed)/`, and
+    the app answered "I couldn't find any employees named Mohammed" -- pass.
+    Any app that repeats the request satisfies such an entry without answering,
+    so the pass measures nothing. Same entry grammar as score_answer.py (plain
+    substring, or /regex/), compared case-insensitively because an echo may
+    re-case the words; a regex that does not compile or terminate is left to
+    the scorer's own report."""
     answer = mapping(expect.get("answer"))
     entries = answer.get("must_contain")
     text = user_text(case)
@@ -804,8 +805,8 @@ def check_review(rep, case_id, case):
 # runner's hard cap, and it may sit above this.
 LONG_CONVERSATION_TURNS = 8
 # Keys a later phase puts beside `user` (SS9): seeded assistant history, a
-# simulated user. Refused now, so a case written for them is never run as if
-# Phase 1 understood it.
+# simulated user. Refused in Phase 1, so a case written for them is never run
+# as if Phase 1 understood it.
 RESERVED_TURN_KEYS = ("assistant", "simulate")
 TURN_KEYS = ("user", "expect")
 
@@ -989,7 +990,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
 
     splits = case.get("split")
     if splits is None or splits == []:
-        # Absent used to pass silently, which made every split-shaped claim
+        # Absent must not pass silently: it leaves every split-shaped claim
         # unbacked at once: no run mode selects this case (run-modes.md
         # selects ON THE FIELD), and a case sitting in a holdout/ DIRECTORY
         # is not sealed by anything a script can see — the seal is the
@@ -1017,9 +1018,9 @@ def check_case(rep, case, all_ids, enabled, index=None):
             # make_plan.py selects on the mode's split alone and the runner
             # refuses a case that does not carry it (it labels every verdict
             # with that split), so a canary without `smoke` is silent on
-            # every smoke run -- 1 of 2 ran in the field test (2026-09-25).
-            # The fix is on the case, not the plan: a canary carries every
-            # split it should run in.
+            # every smoke run (one suite ran 1 of its 2 canaries). The fix
+            # is on the case, not the plan: a canary carries every split it
+            # should run in.
             rep.warn(label, "canary_not_in_smoke",
                      "case is a canary but not in `smoke`; runs select on "
                      "the mode's split alone, so this canary is silent on "
@@ -1031,8 +1032,8 @@ def check_case(rep, case, all_ids, enabled, index=None):
             # Every other split, not only `full`. make_plan.py selects on
             # the mode's split alone, so `[holdout, smoke]` runs -- and is
             # read -- on every smoke run, and `[holdout, canary]` runs as a
-            # canary whose id the runner names when it aborts on it. Only
-            # `full` was checked, which is the pairing nobody writes.
+            # canary whose id the runner names when it aborts on it.
+            # Checking only `full` would catch the pairing nobody writes.
             rep.error(label, "holdout_not_sealed",
                       "case is in `holdout` and also in {}; the seal rests "
                       "on holdout being exclusive, so a case in another "
@@ -1178,12 +1179,12 @@ def check_case(rep, case, all_ids, enabled, index=None):
     check_review(rep, label, case)
 
     if "filter" in case:
-        # case-format.md described `filter:` as provenance from the SS2b
-        # mechanical pass, but no script here computes a self-containedness
-        # score or a ROUGE-L neighbour, so every block on disk was typed by
-        # a model to satisfy the schema (field test 2026-09-25: rouge_l 0.0
-        # on all ten cases, no check run). A number that reads as a
-        # measurement and is not one is the defect this linter exists for.
+        # A `filter:` block reads as provenance from the SS2b mechanical
+        # pass, but no script here computes a self-containedness score or
+        # a ROUGE-L neighbour, so every block on disk is typed by a model
+        # to satisfy the schema (one suite had rouge_l 0.0 on all ten
+        # cases, with no check run). A number that reads as a measurement
+        # and is not one is the defect this linter exists for.
         rep.warn(label, "filter_unattested",
                  "case carries a `filter:` block, but no script in this "
                  "harness computes those values, so they are authored, not "
@@ -1226,13 +1227,12 @@ def check_manifest(rep, cases, records, manifest):
     """Cross-check dataset.yaml's hand-written summary against the case files
     it describes. dataset.yaml is authored prose, not generated, and nothing
     else re-derives it — a hand-edit to a case file (a reclassification, a
-    deleted case, a split change, exactly the kind of edit the 2026-08 review
-    documents happening directly on cases/*.yaml) can leave it stale with
-    nothing to say so. This is the same stale-metadata failure the id scheme was
-    designed to avoid, one level up, so it gets the same treatment: check it
-    or don't claim it. `manifest` is JSON the caller extracted from
-    dataset.yaml with its own YAML parser (mirrors --cases/--capabilities:
-    this script never parses YAML itself)."""
+    deleted case, a split change, exactly the kind of edit made directly on
+    cases/*.yaml) can leave it stale with nothing to say so. This is the same
+    stale-metadata failure the id scheme was designed to avoid, one level up,
+    so it gets the same treatment: check it or don't claim it. `manifest` is
+    JSON the caller extracted from dataset.yaml with its own YAML parser
+    (mirrors --cases/--capabilities: this script never parses YAML itself)."""
     declared_total = manifest.get("cases")
     if isinstance(declared_total, int) and declared_total != len(cases):
         rep.error(None, "manifest_mismatch",
@@ -1393,11 +1393,12 @@ def check_suite(rep, cases, records):
     # Two user messages in input.messages are not one: run_cases.py sends
     # exactly one user message and SKIPS a case carrying more, rather than
     # send the last and score a truncated conversation (adapter-contract.md
-    # hard rule 3). WARN, not ERROR, on Step 4's line: ERROR exists to stop a
-    # suite inflating its numbers with cases that cannot fail, and a SKIPPED
-    # case inflates nothing -- skips stay out of every denominator. The cost
-    # here is wasted authoring, not a false pass rate. `--strict` escalates it
-    # for anyone who wants the suite to hold no dead cases at all.
+    # hard rule 3). WARN, not ERROR, by the module docstring's ERROR vs WARN
+    # line: ERROR exists to stop a suite inflating its numbers with cases that
+    # cannot fail, and a SKIPPED case inflates nothing -- skips stay out of
+    # every denominator. The cost here is wasted authoring, not a false pass
+    # rate. `--strict` escalates it for anyone who wants the suite to hold no
+    # dead cases at all.
     for i, (record, case) in enumerate(zip(records, cases)):
         if "turns" in mapping(case.get("input")):
             continue        # check_turns owns it, mutual exclusion included
@@ -1415,7 +1416,7 @@ def check_suite(rep, cases, records):
         elif context_messages(case):
             # docs/multi-turn.md SS0. run_cases.py sends the one user message
             # and nothing else, so it SKIPS a case carrying more (the
-            # context would never reach the app, and the case used to score
+            # context would never reach the app, and the case would score
             # as if it had). WARN, on the line above: a skip inflates nothing.
             rep.warn(record["id"] or f"<no id: cases[{i}]>",
                      "not_one_user_message",
@@ -1485,29 +1486,28 @@ ATTACK_CATEGORIES = ("adversarial-refusal",)
 def check_adapter(rep, cases, records, adapter):
     """Labels the adapter gives the runner no way to observe.
 
-    Both come from the field test of 2026-09-25 on a trace-less app whose
-    only routing observable was the HTTP status:
+    Two arise on a trace-less app whose only routing observable is HTTP status:
     - `expect.clarify_ok: true` with no `invocation.clarify_from_response`
       is `unscored` on the routing layer (runner-contract SS5.2), on exactly
       the cases whose point is that clarifying is acceptable;
     - under `invocation.route_from_status` the observed route is the map's
       VALUE (`<answered>`, `__oos__`, ...), so `expect.route: billing` can
       never pass until a trace or `route_from_response` supplies a domain
-      label. Nothing said so; the generator wrote domain labels on every
-      case. An `oos` case is exempt when the map yields `__oos__`, because
-      its expected route is the profile's out-of-scope name, which
-      --oos-route maps onto that label at run time.
-    And one from the 2026-09-26 user test: an adversarial-refusal case under
+      label. Without this check nothing says so, and a generator writes
+      domain labels on every case. An `oos` case is exempt when the map
+      yields `__oos__`, because its expected route is the profile's
+      out-of-scope name, which --oos-route maps onto that label at run time.
+    And one on any app: an adversarial-refusal case under
     `environment.safe_to_attack` not true is skipped by every run
-    (runner-contract SS7), so the one case written to catch a jailbreak
-    never ran and the user saw only "1 skipped"."""
+    (runner-contract SS7), so the one case written to catch a jailbreak never
+    runs and the user sees only "1 skipped"."""
     invocation = mapping(adapter.get("invocation"))
     traces = mapping(adapter.get("traces"))
     status_map = invocation.get("route_from_status")
     # The same three trace-less triggers run_cases.trace_branch applies
     # (SS4.4): an unqueryable source, no declared correlation, or a foreign
-    # convention with no mapping_shim. The field-test adapter was
-    # `otlp-file` WITH `correlation: none`, which is trace-less.
+    # convention with no mapping_shim. An `otlp-file` adapter WITH
+    # `correlation: none` is trace-less.
     # `response` (tool calls read off the response) needs neither a
     # correlation nor a convention: run_cases builds gen_ai spans itself.
     traceless = traces.get("source") != "response" and (
