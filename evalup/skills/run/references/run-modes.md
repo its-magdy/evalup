@@ -1,7 +1,7 @@
 # Run Modes
 
 One execution engine — `${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py`, spec in
-`${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md`. These five modes are named
+`${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md`. These four modes are named
 selections + gate policies the skill resolves into that runner's `plan.json`
 (SKILL.md §1); nothing else about the engine changes per mode.
 
@@ -11,9 +11,10 @@ selections + gate policies the skill resolves into that runner's `plan.json`
 | regression | `--regression` (or no mode flag) | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
 | targeted | `--targeted --tag <component>` [+ `--filter-failing`] | tag-filtered subset of the `full` (or `smoke`) split | 1 by default (`--k N`) | soft | right after optimizing one surface |
 | holdout | `--holdout` | sealed `holdout` split | 3 by default (`--k N`), pass^k | decision | optimizer's keep/revert step |
-| full | `--full` | `full` + `holdout` splits as **two runs** (`regression`, then `holdout`) | 3 by default (`--k N`), pass^k | hard | release validation |
 
-No mode flag behaves as `regression` (full suite, hard gate).
+No mode flag behaves as `regression` (full suite, hard gate). There is no
+`--full` mode: release validation is two runs, `regression` then `holdout`
+(below).
 
 ---
 
@@ -78,7 +79,7 @@ No mode flag behaves as `regression` (full suite, hard gate).
   mutable classifications and a glob like `billing-*` would silently select
   nothing the day a case is reclassified. `--tag <component>` is required for
   this mode; it has no default "everything" behavior (that is what
-  `regression`/ `full` are for).
+  `regression` is for).
 - **`--filter-failing`**: add this to further restrict the (already
   tag-filtered) set to cases that scored `fail` on the most recent
   *comparable* prior run for that tag (same `dataset_version` AND same
@@ -143,25 +144,27 @@ No mode flag behaves as `regression` (full suite, hard gate).
   positive — not a mode a developer reaches for directly in the everyday
   loop.
 
-## `full`
+## Release validation: `regression`, then `holdout`
 
-- **Selection**: everything — the `full` **and** `holdout` splits, as **two
-  runs**: `regression`, then `holdout`. One plan cannot carry both
-  (`make_plan.py --mode full` refuses, exit 2: every case is labelled with one
-  `selecting_split`). The holdout run counts against the same N=5 budget as any
-  `--holdout` (see above) and is still reported aggregate-only — `full` does
-  not weaken the seal.
-- **k**: ≥3 default, same reasoning as `regression`.
-- **Gate**: hard.
-- **Judged layers**: as in `regression` for the `full` cases; the holdout
-  half is never judged (the seal). No judged verdict gates in v1, so if
-  judged dimensions matter to the release decision, a human checks the
-  provisional ones before shipping.
+Not a mode — two runs, in this order. (A `--full` mode used to stand for this
+pair; it was removed because one plan cannot hold both, and `make_plan.py
+--mode full` now exits 2 with this hint. A hand-kept `plan.json` with `mode:
+full` is refused the same way.)
+
+1. `--regression`: the `full` split, k=3, hard gate. Stop here if it fails.
+2. `--holdout`: the sealed split. It spends one of the same N=5 looks as any
+   `--holdout` (see above) and is still reported aggregate-only.
+
+- **Why two**: every case is labelled with one `selecting_split`, and the
+  `full` and `holdout` splits are mutually exclusive.
+- **Judged layers**: as in `regression` for the first run; the holdout run is
+  never judged (the seal). No judged verdict gates in v1, so if judged
+  dimensions matter to the release decision, a human checks the provisional
+  ones before shipping.
 - **Adversarial/authz cases**: run if the adapter's `environment.safe_to_attack`
   is true (same gate as any other red-team probe; the runner applies it at
   pre-flight, runner-contract §4 item 5 and §7); still skipped (not failed) otherwise.
-- **When**: release validation, before staged rigor moves an app toward
-  `traffic`/`production` — a
+- **When**: before staged rigor moves an app toward `traffic`/`production` — a
   monitoring-window release habit sits on top of this, not instead of it
   (`${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` "Production era").
 

@@ -426,6 +426,15 @@ class TestSelection(JudgeRunTest):
         self.assertNotIn("c-hold", plan)
         self.assertEqual(judged["summary"]["holdout_not_judged"], 1)
 
+    def test_a_run_recorded_under_the_removed_full_mode_stays_sealed(self):
+        # #42 removed the mode, but a run directory from before may say it,
+        # and such a run may have read sealed cases.
+        self.manifest.update(mode="full", selecting_split="full")
+        self.case("c-1")
+        self.plan()
+        self.assertEqual(self.plan_doc()["launches"], [])
+        self.assertEqual(self.plan_doc()["holdout_not_judged"], 1)
+
     def test_a_holdout_run_selects_nothing(self):
         self.manifest.update(mode="holdout", selecting_split="holdout")
         self.case("c-1")

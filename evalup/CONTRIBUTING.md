@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1144 tests, ~3.5 min (191–211 s measured 2026-11-21), the blessed command.
+1160 tests, ~3.5 min (191–211 s measured 2026-11-21), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,11 +43,11 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1128 passed, 16 skipped, 522 subtests.
+whatever `python3` happens to be. Expect 1144 passed, 16 skipped, 526 subtests.
 All sixteen skips need PyYAML (thirteen are `convert_suite.py`'s, rubric
 files included, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check); add
-`--with pyyaml` and they run (1144 passed, none
+`--with pyyaml` and they run (1160 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -106,8 +106,10 @@ it is Linux-only.
   docstrings refuse, relocated.
 - **`plan.json` is built by `make_plan.py`, never by the model.** Same rule,
   one step later: a plan assembled by hand cost the first live session half
-  its tool calls. It refuses `--mode full` because one plan carries one
-  `selecting_split`.
+  its tool calls. One plan carries one `selecting_split`, so a
+  release check is two plans (`regression`, then `holdout`); the removed
+  `--mode full` is refused with that hint (`_common.FULL_MODE_REMOVED`), by
+  `make_plan.py` and by the runner reading an old `plan.json`.
 - **`gate.py` fails closed.** Zero scored cases, a count that is not an int, or
   a run directory that fails `--verify` closes the gate. `results.json` is the
   file under audit; never let the gate take its word for its own integrity.
@@ -117,7 +119,7 @@ it is Linux-only.
   NOT VERIFIED, and `--require-canaries` is the opt-in strict form.
 - **A tool call the harness cannot name is never evidence of absence.**
   `_common.load_trajectory` refuses it, for every consumer at once.
-- **Only the MODES `holdout`/`full` and the SPLIT `holdout` touch the seal**
+- **Only the MODE `holdout` and the SPLIT `holdout` touch the seal**
   (`run_cases.touches_seal`). The split named `full` is the unsealed set.
 - **Skills invoke scripts as `python3 <path>` and pre-approve them in
   `allowed-tools`, in both the quoted and unquoted spelling.**

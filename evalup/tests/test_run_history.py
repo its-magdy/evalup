@@ -392,7 +392,7 @@ class TestSeries(HistoryCase):
         # has nothing to intersect, so a 4-case smoke rate and a 200-case full
         # rate would land on one line.
         payload = self.two_runs_differing_by(selecting_split="full",
-                                             mode="full")
+                                             mode="regression")
         self.assertEqual(payload["series_count"], 2)
 
     def test_disabling_a_layer_splits_the_series(self):

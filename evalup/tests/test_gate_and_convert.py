@@ -924,7 +924,8 @@ class TestMakePlan(TempDirTest):
             for case in cases:
                 case["split"] = ["full"]
         for label, argv, needle, converted in (
-                ("full is two runs", ["--mode", "full"], "regression", None),
+                ("full is removed", ["--mode", "full"],
+                 "regression, then --mode holdout", None),
                 ("unknown mode", ["--mode", "nightly"], "--mode", None),
                 ("k under smoke", ["--mode", "smoke", "--k", "3"], "--k", None),
                 ("unknown layer", ["--mode", "smoke", "--layer", "vibes"],

@@ -4,9 +4,9 @@ description: >-
   Resolve a run mode into a plan, execute it with run_cases.py, and turn the
   result into a report. The runner owns pre-flight, every app call, every
   scorer, the artifacts and the baseline diff; this skill decides what to run
-  and what the numbers mean. Five modes — smoke, regression, targeted, holdout,
-  full — cover everyday edits through release validation, plus a CI gate.
-argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn] [--no-judge]"
+  and what the numbers mean. Four modes — smoke, regression, targeted, holdout
+  — cover everyday edits through release validation, plus a CI gate.
+argument-hint: "[--smoke|--regression|--targeted|--holdout] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn] [--no-judge]"
 allowed-tools: >-
   Read Grep Glob Agent(evalup:judge) Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
@@ -47,7 +47,7 @@ baseline diff. **Never hand-orchestrate a run; never eyeball-score anything.**
 Yours is that contract's §13, below.
 
 Arguments, when the user typed any: `$ARGUMENTS` — the mode flag is in there.
-`--holdout` and `--full` spend a sealed look (§4), so read it before you plan.
+`--holdout` spends a sealed look (§4), so read it before you plan.
 
 ## 0. Run modes
 
@@ -63,9 +63,9 @@ there is.
 | `regression` | cases with `full` in `split` | 3 by default (`--k N`), pass^k | hard | pre-merge / nightly |
 | `targeted` | component-tag filter (+ `--filter-failing`) | 1 by default (`--k N`) | soft | after optimizing one surface |
 | `holdout` | sealed `holdout` split | 3 by default (`--k N`), pass^k | decision | optimizer's keep/revert step |
-| `full` | `full` + `holdout`, as **two runs**: `regression`, then `holdout` | 3 by default (`--k N`), pass^k | hard | release validation |
 
-No mode flag → `regression`. `k` is a plan-level value: `make_plan.py` sets
+No mode flag → `regression`. Release validation is `regression`, then
+`holdout` (two runs; there is no `full` mode). `k` is a plan-level value: `make_plan.py` sets
 the mode's default and `--k N` overrides it; no script reads a per-case `k`.
 **Selection reads the
 case's `split` field, never a directory** — the field is owned by
@@ -112,9 +112,9 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   profile's `oos_handling: route:<name>`, so pass it when the route is
   declared any other way, or OOS metrics go unreported — and `--insecure-tls` for a self-signed local dev host
   (pre-flight otherwise exits 3, `CERTIFICATE_VERIFY_FAILED`). Never
-  hand-edit the plan to change any of these. It refuses `--mode full`: one
+  hand-edit the plan to change any of these. There is no `full` mode: one
   plan carries one `selecting_split`, so release validation is a
-  `regression` run and a `holdout` run.
+  `regression` run, then a `holdout` run.
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
   `datasets/holdout-looks.jsonl`); **`paths.judge_calibration`** is set when
   `judge/calibration.json` exists. `judge.status: calibrated` alone does not
@@ -216,9 +216,9 @@ endpoint: fix `invocation.headers`, auth or endpoint, re-run before quoting.
   runs `--k 1` until a k=3 run is pinned. Details:
   `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`.
 - **Holdout runs never use or become `reports/baseline.json`**: a
-  `--holdout` run (and `--full`'s holdout half) takes `--baseline-verdicts`
+  `--holdout` run takes `--baseline-verdicts`
   only from its caller, the optimizer's champion holdout run.
-- **The holdout look**: `--holdout` and `--full` spend one of the N=5 —
+- **The holdout look**: `--holdout` spends one of the N=5 —
   surface the running total the runner prints; run-modes.md's `holdout`
   section says where the ledger is and who else writes it.
 
@@ -285,7 +285,7 @@ beside them.
 
 ## 6. Headless / CI gate
 
-`regression` and `full` run unattended, and **the LLM is never in the gate
+`regression` runs unattended, and **the LLM is never in the gate
 path**: it produces the run, then a separate tokenless step —
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gate.py reports/<run-id>` (or `reports/
 --latest --mode regression`) — reads `results.json`, prints a one-screen

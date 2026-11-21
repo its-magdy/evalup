@@ -318,8 +318,8 @@ empty — an archive, never a deletion.
 The ledger is a **`.jsonl` sidecar** beside the dataset
 (`datasets/holdout-looks.jsonl`, from the run plan's `paths.holdout_ledger`),
 **not** the dataset YAML — `${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` §6
-owns why. N=5 counts **looks**, not unseals: `run --holdout` and `run --full`
-append to this same file (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4). Take
+owns why. N=5 counts **looks**, not unseals: `run --holdout` appends to
+this same file (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4). Take
 the running total by **counting its lines**, not the entries this skill wrote,
 or the optimizer's repeated holdout gates spend the seal invisibly.
 

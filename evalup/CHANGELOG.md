@@ -1232,6 +1232,22 @@ flaky case, and `gate.py` closed on it.
 A gate policy over verdicts the runner already wrote: no verdict, the pass^k
 fold and `SCORING_VERSION` (still 1) are unchanged.
 
+### Removed — the `full` run mode (2026-11-21)
+
+- **`--full` is gone** (#42, item 1). It was always two runs and never one
+  plan: `make_plan.py` already refused it. Release validation is documented
+  as what it was: `run --regression`, then `run --holdout`. The runner's
+  `MODES` drop `full`; `make_plan.py --mode full` and a kept `plan.json` with
+  `mode: full` both exit 2 with that migration (`_common.FULL_MODE_REMOVED`)
+  rather than the generic unknown-mode error. The SPLIT named `full` is
+  unchanged. `judge_run.py` still treats a run recorded under `mode: full`
+  as sealed, so an old run never has holdout cases judged.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1, no
+  `schema_version` bump): no verdict depended on the mode and no file's
+  layout changed. A recorded run's `mode` field may still say `full`
+  (manifest, results, baseline, ledger rows); every reader keeps working,
+  since only a value `make_plan.py` always refused is retired.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

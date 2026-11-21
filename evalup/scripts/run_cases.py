@@ -75,6 +75,7 @@ from datetime import datetime, timezone
 
 import _sse
 from _common import (
+    FULL_MODE_REMOVED,
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
     REGEX_TIMEOUT_S,
@@ -171,19 +172,19 @@ REQUIRED_KEYS = (
     "adapter", "capability_matrix", "cases",
 )
 
-MODES = ("smoke", "regression", "targeted", "holdout", "full")
+MODES = ("smoke", "regression", "targeted", "holdout")
 GATES = ("soft", "hard", "decision")
 # SS6: the holdout ledger is appended for a run that reaches sealed cases, and
 # holdout_ledger: null with one is exit 2 rather than an uncounted look.
-SEAL_TOUCHING_MODES = ("holdout", "full")
+SEAL_TOUCHING_MODES = ("holdout",)
 HOLDOUT_SPLIT = "holdout"
 
 
 def touches_seal(plan):
     """Does this run read a sealed case?
 
-    The MODES `holdout` and `full` do, and so does any selection on the
-    `holdout` split. The SPLIT named "full" does not: it is the reviewed,
+    The MODE `holdout` does, and so does any selection on the `holdout`
+    split. The SPLIT named "full" does not: it is the reviewed,
     unsealed set that `regression` selects, mutually exclusive with `holdout`
     (case-format.md). One tuple used to be compared against both the mode and
     the split name, so every everyday regression run -- selecting_split "full"
@@ -415,6 +416,8 @@ def validate_plan(plan, out_dir):
         bad_input(f"--out basename must equal run_id {run_id!r}, got "
                   f"{os.path.basename(os.path.normpath(out_dir))!r}")
 
+    if plan["mode"] == "full":
+        bad_input(FULL_MODE_REMOVED)
     if plan["mode"] not in MODES:
         bad_input("mode must be one of {}, got {!r}".format(
             "|".join(MODES), plan["mode"]))

@@ -3,7 +3,7 @@
 Read from `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §6 when wiring a run
 into CI; the modes themselves are [run-modes.md](run-modes.md).
 
-The hard-gated modes (`regression`, `full`) are the ones wired into CI. The
+The hard-gated mode (`regression`) is the one wired into CI. The
 LLM produces the run and nothing more; a separate, tokenless shell step
 owns the actual gate. Flags and event fields below were checked against
 Claude Code 2.1.282 and its headless and permission-mode docs on 2026-09-25;

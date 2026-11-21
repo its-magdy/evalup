@@ -78,7 +78,7 @@ run does not read `adapter.yaml`, `profile.yaml`, or `datasets/**` off disk
 (`--probe`, below, is the one mode that reads an adapter, and it is not a run). Selection is
 the skill's job (`run/SKILL.md` §0); execution is the runner's. Keeping the
 mode taxonomy out of the runner is what lets 5c shrink the skill without
-re-teaching the runner five modes.
+re-teaching the runner four modes.
 
 ### 1.1 `--probe`: discover's live check (#49)
 
@@ -147,7 +147,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
   "plan_version": 1,
 
   "run_id": "smoke-20260818T183920Z",   // <mode>-<UTC YYYYMMDDTHHMMSSZ>
-  "mode": "smoke",                       // smoke|regression|targeted|holdout|full
+  "mode": "smoke",                       // smoke|regression|targeted|holdout ("full" is refused: removed, #42)
   "k": 1,                                // repeats per case, >= 1
   "gate": "soft",                        // soft|hard|decision — recorded, never enforced here (§7)
   "selecting_split": "smoke",            // the split this mode selected on; becomes `set` in verdicts.jsonl
@@ -155,7 +155,7 @@ keys are a hard error (exit 2) — a typo'd key must not silently disable a laye
   "paths": {
     "scripts_dir": "/abs/path/to/evalup/scripts",   // ${CLAUDE_PLUGIN_ROOT}/scripts
     "state_dir": "/abs/path/to/.evalup",            // for reports/.gitignore and the holdout ledger
-    "holdout_ledger": "datasets/holdout-looks.jsonl",   // .jsonl sidecar, relative to state_dir; null = runner refuses --holdout/--full (§6)
+    "holdout_ledger": "datasets/holdout-looks.jsonl",   // .jsonl sidecar, relative to state_dir; null = runner refuses --holdout (§6)
     "judge_calibration": "judge/calibration.json"       // .json sidecar from score_agreement.py --write, relative to state_dir; null = the judged gate stays shut (§5.4)
   },
 
@@ -873,7 +873,7 @@ outside the tree the completeness check walks.
   and from `routing_results.jsonl` / `routing_report.json` (their own
   `routing` layer still scores).
 
-**Holdout ledger** (decision **D8**). When `mode` is `holdout` or `full`, or
+**Holdout ledger** (decision **D8**). When `mode` is `holdout`, or
 `selecting_split` is `holdout`, the runner appends one line —
 `{run_id, date, mode, reason: "run"}` — to `paths.holdout_ledger` and writes the
 running count to **stderr** (stdout carries the machine-readable `{"error": …}`

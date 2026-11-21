@@ -390,6 +390,15 @@ CASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 # gate.py --latest parses it. Use fullmatch; the groups are (mode, stamp).
 RUN_ID_RE = re.compile(r"([a-z]+)-(\d{8}T\d{6}Z)")
 
+# The run mode `full` is gone (#42): it was always two runs, never one plan.
+# make_plan.py and run_cases.py both answer it with this, not with the generic
+# unknown-mode error, so a stale command or a hand-kept plan.json says how to
+# migrate. Only the MODE is gone; the SPLIT named "full" is the unsealed set.
+FULL_MODE_REMOVED = ("mode 'full' was removed: it was two runs, never one "
+                     "plan. Build two plans with make_plan.py --mode "
+                     "regression, then --mode holdout (run-modes.md, "
+                     "section Release validation)")
+
 # runner layer (run_cases.LAYER_ORDER) -> the capability_matrix key that
 # switches it off. The matrix is the profile's vocabulary and the layers are
 # the runner's, and they differ in one place: `answer_quality` is ONE
