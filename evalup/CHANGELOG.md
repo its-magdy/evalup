@@ -970,6 +970,50 @@ correctly, but its preconditions left the agent to guess what they meant (#54).
   statistics are untouched, and the usable count is a precondition only —
   `stats.py` still pairs every pass/fail case it is given.
 
+### Added — reach: discover verifies an authenticated app headless (2026-11-21)
+
+From the same live-proof app (#27), plugin-only: `/evalup:start`, `discover`
+and `generate` all stopped at discover's live check, a shell `curl -H
+"Cookie: $APP_TEST_COOKIE"`. Claude Code denies a command whose variables it
+cannot check, allow rule or not, and the adapter contract puts every auth
+value in an env var — so headless, no app needing auth got past step 1 (#49).
+
+- **`run_cases.py --probe --adapter <state>/adapter.yaml --message "…"`**
+  (runner-contract §1.1): one request through the run's own pre-flight and
+  `invoke_once` — env refs, `cookie_env`/`token_env`, headers, body
+  template, SSE decode, answer extraction, and with `traces.source:
+  response` the tool calls. No plan, no health-check call, no retries, no
+  writes, no scoring. It prints JSON (`ok`, `problems`, the redacted
+  request, status, answer, tool calls, a body preview, `env_vars`) and exits
+  0 when that verifies the adapter, 3 when it does not, in the same shape
+  when pre-flight fails. Every resolved env value of four characters or
+  more, and every auth value, is put back as `${NAME}` everywhere in the
+  output — the app's own answer included, since an app may echo a header —
+  and the body is scrubbed before its preview is cut, so neither the cut
+  nor JSON escaping (also inside a tool result) can leave part of a
+  secret. An auth or URL value holding a control character (CR, LF, tab)
+  is exit 3 naming the variable: `http.client` would have quoted the value
+  in its error. No outcome prints a traceback.
+  The YAML goes through **`convert_suite.py --adapter-file`**, new, so the
+  runner still parses no YAML. The tool-call read is now one helper
+  (`response_tool_calls`) shared by a case's trace and the probe.
+- **Discover step 4 is that script call**, pre-approved like the others;
+  never `curl`. Its closing summary lists the probe's `env_vars` — the
+  adapter's `base_url: ${APP_BASE_URL}` was first mentioned by `generate`.
+  The README's headless recipe drops `Bash(curl *)`.
+- **A denied optional read no longer ends a session.** Every skill's "a
+  denial of any call is a stop" now reads: never retried in another form,
+  a stop only if the step needs it (a denied optional `grep`: use Read or
+  Grep, or skip it); the earlier "if a call is denied, stop" is about
+  script calls. A multi-file `grep` the session could do
+  without had ended a whole first session.
+- Discover's re-run prose (an existing profile, `--diff`) moved to
+  `references/rerun.md`, read only then: the first session's 25k-token
+  budget had five tokens left.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1): the probe
+  scores nothing, and the shared helper returns exactly what
+  `trace_from_response` computed before.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

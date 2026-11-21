@@ -56,6 +56,12 @@ runner's job (runner-contract.md SS3), and a secret must not reach this file.
 Exit 0 converted; 2 bad input ({"error": ...} on stdout, like every script
 here). It does NOT lint: run validate_cases.py on the output.
 
+--adapter-file <path> converts ONE file, an adapter.yaml, and nothing else:
+no profile.yaml, no datasets. It exists for `run_cases.py --probe`, which
+discover runs before any case exists; the runner hands its adapter.yaml here
+so it still parses no YAML itself (runner-contract.md SS1.1). Same strict
+loader, same `${VAR}` refs left as written, same {"error": ...}/exit 2.
+
 --self-check reads nothing and converts nothing: it only imports PyYAML, then
 prints {"ok": true, "pyyaml": <version>, "python": <interpreter>} and exits 0,
 or exits 2 with the same install hint a conversion would hit. It exists so
@@ -64,6 +70,7 @@ one instead of at generate's conversion, about fifteen minutes in.
 
 Usage:
   convert_suite.py <state-dir> [-o converted.json] [--split-dir <dir>]
+  convert_suite.py --adapter-file <state-dir>/adapter.yaml [-o adapter.json]
   convert_suite.py --self-check
 """
 import argparse
@@ -172,6 +179,9 @@ def main():
     ap.add_argument("--self-check", action="store_true",
                     help="only check that PyYAML imports, and exit: 0 with "
                          "its version, 2 with the install hint")
+    ap.add_argument("--adapter-file", metavar="PATH",
+                    help="convert only this adapter.yaml (no profile, no "
+                         "datasets) -- what run_cases.py --probe reads")
     ap.add_argument("-o", "--output", help="write the combined document here "
                                            "(default: stdout)")
     ap.add_argument("--split-dir", help="also write suite.json, "
@@ -184,6 +194,16 @@ def main():
         print(json.dumps({"ok": True,
                           "pyyaml": getattr(yaml, "__version__", "unknown"),
                           "python": sys.executable}))
+        return
+    if a.adapter_file is not None:
+        if a.state_dir is not None or a.split_dir:
+            ap.error("--adapter-file converts one file: it takes no state_dir "
+                     "and no --split-dir")
+        if not os.path.isfile(a.adapter_file):
+            die(f"bad input: {a.adapter_file}: not a file")
+        yaml = yaml_module()
+        dump(load_mapping(yaml, strict_loader(yaml), a.adapter_file),
+             a.output)
         return
     if a.state_dir is None:
         ap.error("the state_dir argument is required (or pass --self-check)")
