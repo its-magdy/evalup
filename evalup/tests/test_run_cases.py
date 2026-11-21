@@ -791,6 +791,14 @@ class TestSkipGates(RunnerCase):
         self.assertIn("never-live tool(s) send_email",
                       verdict["layers"]["http"]["reason"])
 
+    def test_never_live_tool_named_only_in_any_of(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"any_of": [["search"], ["send_email"]]}
+        verdict = self.skip_reason_for(
+            case, tools=[{"name": "send_email", "side_effects": "never-live"}])
+        self.assertIn("never-live tool(s) send_email",
+                      verdict["layers"]["http"]["reason"])
+
     def multi_turn_case(self):
         return make_case("c-0001", input={"messages": [
             {"role": "user", "content": "hi"},

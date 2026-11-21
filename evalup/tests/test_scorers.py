@@ -172,6 +172,124 @@ class TestTrajectoryMatch(ScorerTest):
         self.assertEqual(rc, 2)
 
 
+class TestTrajectoryAnyOf(ScorerTest):
+    """expect.tools.any_of (#51): a list of alternatives, each a multiset."""
+
+    def run_any_of(self, names, tools):
+        return run_script(
+            "trajectory_match.py",
+            self.write_json("t.json", {"tool_calls": [
+                {"name": n, "args": {}} for n in names]}),
+            self.write_json("e.json", {"tools": tools}))
+
+    def test_passes_on_either_alternative(self):
+        for names, matched in ((["a"], 0), (["b"], 1), (["x", "b"], 1)):
+            rc, out, _ = self.run_any_of(names, {"any_of": [["a"], ["b"]]})
+            self.assertEqual((rc, out["verdict"]), (0, "pass"), names)
+            self.assertEqual(out["mode"], "any_of")
+            self.assertEqual(out["detail"]["matched"], matched)
+            self.assertEqual(out["pr_alternative"], matched)
+
+    def test_fails_when_no_alternative_is_met(self):
+        rc, out, _ = self.run_any_of(["c"], {"any_of": [["a"], ["b"]]})
+        self.assertEqual(out["verdict"], "fail")
+        self.assertIsNone(out["detail"]["matched"])
+        self.assertEqual(out["recall"], 0.0)
+
+    def test_alternative_is_a_multiset(self):
+        rc, out, _ = self.run_any_of(["a"], {"any_of": [["a", "a"]]})
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(out["detail"]["missing"], ["a"])
+        rc, out, _ = self.run_any_of(["a", "a"], {"any_of": [["a", "a"]]})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_anded_with_subset(self):
+        tools = {"subset": ["s"], "any_of": [["a"], ["b"]]}
+        self.assertEqual(self.run_any_of(["a"], tools)[1]["verdict"], "fail")
+        self.assertEqual(self.run_any_of(["s"], tools)[1]["verdict"], "fail")
+        rc, out, _ = self.run_any_of(["s", "b"], tools)
+        self.assertEqual(out["verdict"], "pass")
+        self.assertEqual(out["detail"]["expected"], ["s", "b"])
+        self.assertEqual((out["precision"], out["recall"]), (1.0, 1.0))
+        # The same tool in both is ONE requirement, not two calls: each
+        # part is met on its own, so the pair needs the max count.
+        rc, out, _ = self.run_any_of(["s"], {"subset": ["s"],
+                                             "any_of": [["s"], ["b"]]})
+        self.assertEqual(out["verdict"], "pass")
+
+    def test_forbidden_still_applies(self):
+        rc, out, _ = self.run_any_of(
+            ["a", "w"], {"any_of": [["a"], ["b"]], "forbidden": ["w"]})
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(out["forbidden_violations"], ["w"])
+
+    def test_pr_names_the_alternative_that_matched(self):
+        # Alternative 1 is met; precision/recall come from it, not from
+        # alternative 0 nor from the union of both.
+        rc, out, _ = self.run_any_of(["b", "c", "x"],
+                                     {"any_of": [["a"], ["b", "c"]]})
+        self.assertEqual(out["pr_alternative"], 1)
+        self.assertEqual((out["precision"], out["recall"]), (0.6667, 1.0))
+        # None met: the closest one (fewest missing, first on a tie).
+        rc, out, _ = self.run_any_of(["b"], {"any_of": [["a", "c"],
+                                                        ["b", "c"]]})
+        self.assertEqual(out["verdict"], "fail")
+        self.assertEqual(out["pr_alternative"], 1)
+        self.assertEqual(out["recall"], 0.5)
+
+    def test_input_errors(self):
+        for tools in ({"any_of": ["a", "b"]},            # flat list
+                      {"any_of": [["a"], "b"]},          # half flat
+                      {"any_of": "a"},
+                      {"any_of": []},
+                      {"any_of": [[]]},                  # empty alternative
+                      {"any_of": [["a"], []]},
+                      {"any_of": None},
+                      {"any_of": [[1]]},
+                      {"any_of": [["a"]], "order": ["a"]},
+                      {"any_of": [["a"]], "subset": []}):
+            rc, out, _ = self.run_any_of(["a"], tools)
+            self.assertEqual(rc, 2, tools)
+            self.assertIn("error", out, tools)
+
+    def test_without_any_of_output_is_byte_identical(self):
+        """Every case WITHOUT any_of prints exactly what it printed before
+        any_of existed. trajectory_golden.json holds main's stdout and exit
+        code (as of 2026-11-21, before #51) over a matrix of trajectories x
+        expectations: every mode, forbidden, NFC, errored calls with and
+        without --fail-on-errored-calls, and each malformed shape."""
+        import contextlib
+        import io
+        import unittest.mock
+        golden = json.loads(
+            (pathlib.Path(__file__).parent / "trajectory_golden.json")
+            .read_text(encoding="utf-8"))
+        self.assertGreater(len(golden), 200)
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import trajectory_match
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        t = self.tmp / "t.json"
+        e = self.tmp / "e.json"
+        for row in golden:
+            t.write_text(json.dumps({"tool_calls": row["tool_calls"]}),
+                         encoding="utf-8")
+            e.write_text(json.dumps(row["expect"]), encoding="utf-8")
+            buf, rc = io.StringIO(), 0
+            argv = ["trajectory_match.py", str(t), str(e), *row["flags"]]
+            with contextlib.redirect_stdout(buf), \
+                    unittest.mock.patch.object(sys, "argv", argv):
+                try:
+                    trajectory_match.main()
+                except SystemExit as exc:
+                    rc = exc.code
+            with self.subTest(expect=row["expect"], flags=row["flags"],
+                              calls=row["tool_calls"]):
+                self.assertEqual((rc, buf.getvalue()),
+                                 (row["rc"], row["stdout"]))
+
+
 class TestDetectLoops(ScorerTest):
     def traj(self, calls):
         return self.write_json("t.json", {"tool_calls": calls})

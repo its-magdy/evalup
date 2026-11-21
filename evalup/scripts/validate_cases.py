@@ -570,6 +570,73 @@ def check_tools(rep, case_id, expect):
                   f"expect.tools.order_mode {mode!r} is not one of "
                   f"{', '.join(ORDER_MODES)}; an unrecognized mode is a hard "
                   "error, never a silent fallback to the loosest one")
+    if "any_of" in tools:
+        check_any_of(rep, case_id, tools)
+
+
+def check_any_of(rep, case_id, tools):
+    """expect.tools.any_of is a list of non-empty lists of tool names.
+
+    The same rules trajectory_match.py exits 2 on, reported here first so
+    the author sees every one before a run: a flat list (`[a, b]` for
+    `[[a], [b]]`) is ambiguous between "both" and "either", and an empty
+    alternative is met by every trajectory."""
+    if "order" in tools:
+        rep.error(case_id, "any_of_with_order",
+                  "expect.tools has both any_of and order; an order fixes "
+                  "one sequence and any_of names several, so the scorer "
+                  "refuses the pair (exit 2) -- write one or the other")
+    alternatives = tools["any_of"]
+    if not isinstance(alternatives, list) or not alternatives:
+        rep.error(case_id, "bad_any_of",
+                  "expect.tools.any_of must be a non-empty list of "
+                  "alternatives, each a list of tool names, e.g. "
+                  f"[[a], [b]]; got {alternatives!r}")
+        return
+    if not all(isinstance(alt, list) for alt in alternatives):
+        rep.error(case_id, "any_of_flat",
+                  "expect.tools.any_of is a list of LISTS ([[a], [b]] means "
+                  "a or b; [[a, b]] means both): a flat entry is ambiguous "
+                  "between the two, so the scorer refuses it")
+        return
+    for i, alt in enumerate(alternatives):
+        if not alt or not all(isinstance(t, str) and t for t in alt):
+            rep.error(case_id, "bad_any_of",
+                      f"expect.tools.any_of[{i}] must be a non-empty list of "
+                      "tool names; an empty alternative is met by every "
+                      "trajectory, which makes the whole any_of vacuous")
+
+
+# The stages at or past `stable` (profile-schema.md). Order is asserted only
+# there: the stage exists because a tool SEQUENCE churns before it, while
+# which tools were called (subset, forbidden, any_of) does not depend on it.
+ORDER_STAGES = ("stable", "traffic", "production")
+
+
+def check_order_stage(rep, cases, stage):
+    """expect.tools.order before `stage: stable` is an ERROR (#51)."""
+    if stage is None or stage in ORDER_STAGES:
+        return
+    for i, case in enumerate(cases):
+        if not isinstance(case, dict):
+            continue
+        label = case.get("id") if is_nonempty_str(case.get("id")) \
+            else f"<no id: cases[{i}]>"
+        blocks = [("expect", case.get("expect")),
+                  ("every_turn", case.get("every_turn"))]
+        turns = mapping(case.get("input")).get("turns")
+        if isinstance(turns, list):
+            blocks += [(f"input.turns[{n}].expect", mapping(turn).get("expect"))
+                       for n, turn in enumerate(turns)
+                       if isinstance(turn, dict)]
+        for where, block in blocks:
+            if "order" in mapping(mapping(block).get("tools")):
+                rep.error(label, "order_before_stable",
+                          f"{where}.tools.order is asserted but the profile "
+                          f"says stage: {stage}; a tool SEQUENCE is graded "
+                          "only from stage: stable, because it churns before "
+                          "then -- use subset/any_of (which tools were "
+                          "called) until discover sets the stage")
 
 
 def check_args(rep, case_id, expect):
@@ -1560,7 +1627,9 @@ def main():
                          "would skip")
     ap.add_argument("--profile",
                     help="JSON profile (convert_suite.py --split-dir writes "
-                         "profile.json); checked for its schema_version only")
+                         "profile.json); checked for its schema_version, and "
+                         "its stage refuses expect.tools.order before "
+                         "stage: stable")
     ap.add_argument("--manifest",
                     help="JSON with dataset.yaml's cases/splits/coverage_grid "
                          "fields (caller extracts them with its own YAML "
@@ -1611,8 +1680,9 @@ def main():
         if isinstance(case, dict):
             check_schema_version(rep, case, "case", case.get("id"))
     if a.profile:
-        check_schema_version(rep, load_json_object(a.profile, "the profile"),
-                             "profile")
+        profile = load_json_object(a.profile, "the profile")
+        check_schema_version(rep, profile, "profile")
+        check_order_stage(rep, cases, profile.get("stage"))
     if a.adapter:
         adapter = load_json_object(a.adapter, "the adapter")
         check_schema_version(rep, adapter, "adapter")

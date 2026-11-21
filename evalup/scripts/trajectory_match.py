@@ -7,6 +7,9 @@ Modes (per case, not global):
   in_order           - expected tools appear in this relative order; extras allowed
   exact              - exactly these calls, in this order, nothing else
   any_order          - exactly these calls, any order
+  any_of             - a list of alternatives, each a subset-style multiset;
+                       passes when ONE is met (ANDed with `subset` when both
+                       are given). Never combined with an order mode.
 
 Tool names are compared in NFC on both sides (see _common.nfc).
 
@@ -18,6 +21,8 @@ that adding the signal does not silently re-score existing datasets.
 Also computes trajectory precision/recall and forbidden-tool violations.
 Precision/recall are computed from the SAME expectation list the verdict
 used (order when present, else subset) — metrics never contradict the mode.
+Under any_of they come from the alternative the verdict used (the first one
+met, or when none is, the closest), and `pr_alternative` names it.
 
 Usage: trajectory_match.py <trajectory.json> <case.json>
   trajectory.json: normalize_trace.py output, or {"tool_calls": [...]}
@@ -73,11 +78,77 @@ def asserted_list(field, value):
     return [nfc(e) for e in entries]
 
 
+def any_of_alternatives(value):
+    """expect.tools.any_of as a list of non-empty tool-name lists.
+
+    A FLAT list is the plausible slip (`any_of: [a, b]` for `[[a], [b]]`)
+    and it is an input error, never read as either guess: as one
+    alternative it would demand BOTH tools, as singletons it would accept
+    either, and those are opposite verdicts for one trajectory."""
+    alternatives = require_list("expect.tools.any_of", value,
+                                item="alternative", of_strings=False)
+    if not alternatives:
+        die("expect.tools.any_of is present but empty; it asserts nothing — "
+            "remove the key instead")
+    out = []
+    for i, alt in enumerate(alternatives):
+        if not isinstance(alt, list):
+            die(f"expect.tools.any_of[{i}] must be a list of tool names "
+                f"(any_of is a list of lists, e.g. [[a], [b]]), got "
+                f"{type(alt).__name__}")
+        out.append(asserted_list(f"expect.tools.any_of[{i}]", alt))
+    return out
+
+
+def match_any_of(observed_names, expect_tools):
+    """Alternatives ANDed with `subset`: the case passes when the subset is
+    met AND at least one alternative is. Both are multiset containment, so
+    the pair is met exactly when the observed calls contain the multiset
+    UNION (max count per tool) of subset and that alternative — which is
+    the list P/R are computed from, so metrics never contradict the verdict.
+    """
+    if "order" in expect_tools:
+        die("expect.tools.any_of cannot be combined with expect.tools.order: "
+            "an order assertion fixes one sequence and any_of names several; "
+            "write one or the other")
+    alternatives = any_of_alternatives(expect_tools["any_of"])
+    subset = (asserted_list("expect.tools.subset", expect_tools["subset"])
+              if "subset" in expect_tools else [])
+    obs = Counter(observed_names)
+    scored = []
+    for i, alt in enumerate(alternatives):
+        need = Counter(subset) | Counter(alt)
+        # In first-appearance order, subset first: a stable, readable list.
+        expected = []
+        for t in subset + alt:
+            if expected.count(t) < need[t]:
+                expected.append(t)
+        missing = [t for t in sorted(need)
+                   for _ in range(max(0, need[t] - obs[t]))]
+        scored.append((i, expected, missing))
+    met = [s for s in scored if not s[2]]
+    # The first alternative met; when none is, the closest (fewest missing
+    # calls, first on a tie), so the P/R a failure reports are the most
+    # charitable reading rather than an arbitrary one.
+    index, expected, missing = met[0] if met else \
+        min(scored, key=lambda s: (len(s[2]), s[0]))
+    detail = {"any_of": alternatives, "matched": index if met else None,
+              "scored_against": index, "expected": expected,
+              "missing": missing, "observed": observed_names}
+    if subset:
+        detail["expected_subset"] = subset
+    return ("any_of", bool(met), detail, expected)
+
+
 def match(observed_names, expect_tools):
     """Returns (mode, passed, detail, expected_used) — expected_used is the
     list the verdict was scored against, so P/R derive from the same list."""
     if not expect_tools:
         return ("none", True, "no tool expectations", [])
+    # An addition at the edge: a case without the key takes the code below
+    # unchanged, so its verdict and output stay byte-identical.
+    if "any_of" in expect_tools:
+        return match_any_of(observed_names, expect_tools)
 
     # A bare string is the plausible YAML slip — `subset: get_invoice` instead
     # of `subset: [get_invoice]` — and it must not degrade silently: `subset:
@@ -198,6 +269,8 @@ def main():
         "recall": recall,
         "detail": detail,
     }
+    if mode == "any_of":
+        out["pr_alternative"] = detail["scored_against"]
     if errored and not a.fail_on_errored_calls:
         out["warning"] = (f"{len(errored)} observed tool call(s) reported an "
                           "error; this layer scores which tools were CALLED, "
