@@ -4502,7 +4502,7 @@ def probe_auth_names(adapter):
     return names
 
 
-def probe_secrets(adapter):
+def probe_redactions(adapter):
     """(value, NAME) pairs to scrub from everything the probe prints.
 
     Wider than the run's record redaction on purpose: the probe's output is
@@ -4538,15 +4538,15 @@ def header_env_names(adapter, url=True):
     return sorted(names)
 
 
-def scrub(node, secrets):
+def scrub(node, redactions):
     if isinstance(node, dict):
-        return {scrub(key, secrets): scrub(value, secrets)
+        return {scrub(key, redactions): scrub(value, redactions)
                 for key, value in node.items()}
     if isinstance(node, list):
-        return [scrub(value, secrets) for value in node]
+        return [scrub(value, redactions) for value in node]
     if not isinstance(node, str):
         return node
-    for value, name in secrets:
+    for value, name in redactions:
         node = node.replace(value, "${" + name + "}")
     return node
 
@@ -4597,14 +4597,14 @@ def probe_print(report, adapter):
     dumped and cut: scrubbing the dumped text missed a value JSON escapes
     (a quoted cookie) and one the 4,000-character cut split in two."""
     try:
-        secrets = probe_secrets(adapter)
-        report = scrub(report, secrets)
+        redactions = probe_redactions(adapter)
+        report = scrub(report, redactions)
         response = report.get("response")
         if isinstance(response, dict) and "body" in response:
             body_text = json.dumps(response.pop("body"), ensure_ascii=False,
                                    default=str)
             response["body_preview"] = scrub(
-                body_text[:PROBE_BODY_PREVIEW_CHARS], secrets)
+                body_text[:PROBE_BODY_PREVIEW_CHARS], redactions)
             response["body_truncated"] = \
                 len(body_text) > PROBE_BODY_PREVIEW_CHARS
         text = json.dumps(report, indent=2, ensure_ascii=False, default=str)
