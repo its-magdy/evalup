@@ -143,8 +143,9 @@ request to your app, editing a prompt.
   pre-approved script that reads `cookie_env`/`token_env` itself. A `curl`
   naming `$APP_TEST_COOKIE` would be denied anyway — Claude Code refuses a
   command whose variables it cannot check, allow rule or not. Export every
-  env var your adapter references (discover's summary lists them) before
-  you start. The same rule in the app's `.claude/settings.json`, for a
+  env var your adapter references (its `${…}` refs, `cookie_env`,
+  `token_env`) before you start; discover's summary lists them for next
+  time. The same rule in the app's `.claude/settings.json`, for a
   project that runs this often:
 
   ```json

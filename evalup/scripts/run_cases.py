@@ -57,6 +57,7 @@ import http.client
 import http.cookiejar
 import importlib
 import json
+import math
 import os
 import re
 import shutil
@@ -4403,6 +4404,7 @@ PROBE_BODY_PREVIEW_CHARS = 4000
 # unless it is an auth value: a tenant id "42" would otherwise rewrite every
 # "42" in the app's answer. Auth values are scrubbed whatever their length.
 PROBE_SCRUB_MIN_LEN = 4
+PROBE_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class ProbeRunner(Runner):
@@ -4412,8 +4414,12 @@ class ProbeRunner(Runner):
     does not make. A declared correlation's id is still read and shown."""
 
     def trace_branch(self, health):
-        source = (self.adapter.get("traces") or {}).get("source")
-        if source == RESPONSE_TRACE_SOURCE:
+        traces = self.adapter.get("traces") or {}
+        source = traces.get("source")
+        if source == RESPONSE_TRACE_SOURCE or source in (
+                UNIMPLEMENTED_TRACE_SOURCES):
+            # The response branch reads no store; an unimplemented store is
+            # refused before any store is touched -- as a run would.
             super().trace_branch(health)
             return
         self.trace_state["source"] = source
@@ -4476,17 +4482,18 @@ def adapter_env_names(adapter):
             names.update(ENV_REF_RE.findall(node))
 
     walk(adapter)
-    auth = (adapter.get("invocation") or {}).get("auth") or {}
-    for kind, field in (("bearer", "token_env"), ("cookie", "cookie_env")):
-        if auth.get("type") == kind and isinstance(auth.get(field), str) \
-                and auth[field]:
-            names.add(auth[field])
+    names.update(probe_auth_names(adapter).values())
     return sorted(names)
 
 
+def _mapping(node):
+    return node if isinstance(node, dict) else {}
+
+
 def probe_auth_names(adapter):
-    """{kind: NAME} for auth.token_env / auth.cookie_env."""
-    auth = (adapter.get("invocation") or {}).get("auth") or {}
+    """{kind: NAME} for auth.token_env / auth.cookie_env. Type-safe: it
+    also runs on an adapter pre-flight just refused as malformed."""
+    auth = _mapping(_mapping(_mapping(adapter).get("invocation")).get("auth"))
     names = {}
     for kind, field in (("bearer", "token_env"), ("cookie", "cookie_env")):
         if auth.get("type") == kind and isinstance(auth.get(field), str) \
@@ -4505,21 +4512,28 @@ def probe_secrets(adapter):
     places a run records. Read from the environment directly, so a
     pre-flight failure is scrubbed too. Longest first, as in unresolve()."""
     pairs = {}
-    auth_names = set(probe_auth_names(adapter).values())
+    auth_names = set(header_env_names(adapter, url=False))
     for name in adapter_env_names(adapter):
         value = os.environ.get(name)
         if value and (name in auth_names
                       or len(value) >= PROBE_SCRUB_MIN_LEN):
-            pairs[value] = name
+            # Also the forms a value takes inside text that is itself
+            # JSON (a tool result, a raw body) or a repr in an exception
+            # message: the plain replace would miss a quoted cookie there.
+            for form in (value, json.dumps(value)[1:-1],
+                         json.dumps(value, ensure_ascii=False)[1:-1],
+                         repr(value)[1:-1]):
+                pairs.setdefault(form, name)
     return sorted(pairs.items(), key=lambda item: len(item[0]), reverse=True)
 
 
-def header_env_names(adapter):
-    """The env vars whose value goes into a header or the URL: auth names,
-    and the ${refs} under invocation.auth, base_url and endpoint."""
-    invocation = adapter.get("invocation") or {}
+def header_env_names(adapter, url=True):
+    """The env vars whose value goes into a header (auth names, ${refs}
+    under invocation.auth) or, with url, the URL (base_url, endpoint)."""
+    invocation = _mapping(_mapping(adapter).get("invocation"))
     names = set(probe_auth_names(adapter).values())
-    for field in ("auth", "base_url", "endpoint"):
+    fields = ("auth", "base_url", "endpoint") if url else ("auth",)
+    for field in fields:
         names.update(adapter_env_names({"x": invocation.get(field)}))
     return sorted(names)
 
@@ -4582,14 +4596,23 @@ def probe_print(report, adapter):
     """Scrub, then print. The body is scrubbed as a STRUCTURE before it is
     dumped and cut: scrubbing the dumped text missed a value JSON escapes
     (a quoted cookie) and one the 4,000-character cut split in two."""
-    secrets = probe_secrets(adapter)
-    report = scrub(report, secrets)
-    response = report.get("response")
-    if isinstance(response, dict) and "body" in response:
-        body_text = json.dumps(response.pop("body"), ensure_ascii=False)
-        response["body_preview"] = body_text[:PROBE_BODY_PREVIEW_CHARS]
-        response["body_truncated"] = len(body_text) > PROBE_BODY_PREVIEW_CHARS
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    try:
+        secrets = probe_secrets(adapter)
+        report = scrub(report, secrets)
+        response = report.get("response")
+        if isinstance(response, dict) and "body" in response:
+            body_text = json.dumps(response.pop("body"), ensure_ascii=False,
+                                   default=str)
+            response["body_preview"] = scrub(
+                body_text[:PROBE_BODY_PREVIEW_CHARS], secrets)
+            response["body_truncated"] = \
+                len(body_text) > PROBE_BODY_PREVIEW_CHARS
+        text = json.dumps(report, indent=2, ensure_ascii=False, default=str)
+    except Exception as exc:  # noqa: BLE001 - nothing unscrubbed escapes
+        text = json.dumps({"probe": True, "ok": False,
+                           "error": "internal error while printing the "
+                                    f"probe report ({type(exc).__name__})"})
+    print(text)
 
 
 def probe_command(adapter_path, message, insecure_tls=False, timeout_s=None):
@@ -4627,18 +4650,23 @@ def probe_send(adapter, adapter_path, message, insecure_tls, timeout_s):
     # .gitignore, run.log) and from spending a health-check call: the probe
     # IS the call. invoke_once below sends for real either way.
     runner = ProbeRunner(plan, out_dir="", dry_run=True)
-    runner.preflight()
-    # A CR or LF in a header value is refused by http.client with the value
-    # in its message (a cookie pasted from a Windows file). Named here, not
-    # sent.
+    # Function mode imports and calls the app in this process: anything it
+    # prints goes to stderr, so stdout stays the one JSON report.
+    with contextlib.redirect_stdout(sys.stderr):
+        runner.preflight()
+    # A control character in a header or URL value (a cookie pasted from a
+    # Windows file, a tab) is refused by http.client with the value in its
+    # message. Named here, not sent.
     broken = [name for name in header_env_names(adapter)
-              if any(c in os.environ.get(name, "") for c in "\r\n")]
+              if PROBE_CONTROL_RE.search(os.environ.get(name, ""))]
     if broken:
-        preflight_fail("env var(s) holding a CR or LF, which no header or "
-                       "URL may carry: " + ", ".join(broken))
+        preflight_fail("env var(s) holding a control character (CR, LF, "
+                       "tab ...), which no header or URL may carry: "
+                       + ", ".join(broken))
     case = {"id": PROBE_CASE_ID,
             "input": {"messages": [{"role": "user", "content": message}]}}
-    record = runner.invoke_once(case, 1)
+    with contextlib.redirect_stdout(sys.stderr):
+        record = runner.invoke_once(case, 1)
     response = record["response"]
 
     tool_calls, tool_calls_error = None, None
@@ -4653,6 +4681,10 @@ def probe_send(adapter, adapter_path, message, insecure_tls, timeout_s):
                           "traces.source: response; a trace store is not "
                           "read by the probe")
     problems = probe_problems(response, tool_calls_error, runner.sse)
+    if isinstance(_mapping(adapter.get("invocation")).get("health_check"),
+                  dict):
+        traces["health_check"] = ("declared, not exercised: a run's "
+                                  "pre-flight sends it")
     request = record["request"]
     probe_print(probe_report(
         adapter, problems,
@@ -4731,7 +4763,8 @@ def main():
                           "flags")
             if not a.adapter:
                 bad_input("--probe needs --adapter <state>/adapter.yaml")
-            if a.timeout is not None and not a.timeout > 0:
+            if a.timeout is not None and not (
+                    math.isfinite(a.timeout) and a.timeout > 0):
                 bad_input(f"--timeout must be > 0, got {a.timeout}")
             return probe_command(a.adapter, a.message, a.insecure_tls,
                                  a.timeout)

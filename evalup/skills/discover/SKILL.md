@@ -154,7 +154,7 @@ itself, sends as a run does, writes nothing, and prints JSON: `ok`,
 `problems`, `response.answer`, `response.tool_calls`, `env_vars`. Exit 3
 names the problem (`missing_env`: ask the user to export them).
 Compare observed agent and tool names and `invoke_agent` span shape
-against the inferred profile — this is also step 2's span-shape evidence. Mark
+(Read the store at the printed `trace_id`) against the profile. Mark
 every profile entry `verified: true|false`, and note each request's latency in
 findings.md — run §2's time estimate uses it. The **core entries** are exactly
 three: `architecture.kind`, the invocation shape (endpoint, request and

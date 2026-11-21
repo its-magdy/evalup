@@ -990,9 +990,10 @@ value in an env var — so headless, no app needing auth got past step 1 (#49).
   more, and every auth value, is put back as `${NAME}` everywhere in the
   output — the app's own answer included, since an app may echo a header —
   and the body is scrubbed before its preview is cut, so neither the cut
-  nor JSON escaping can leave part of a secret. An auth or URL value
-  holding a CR or LF is exit 3 naming the variable: `http.client` would
-  have quoted the value in an exit-1 error.
+  nor JSON escaping (also inside a tool result) can leave part of a
+  secret. An auth or URL value holding a control character (CR, LF, tab)
+  is exit 3 naming the variable: `http.client` would have quoted the value
+  in its error. No outcome prints a traceback.
   The YAML goes through **`convert_suite.py --adapter-file`**, new, so the
   runner still parses no YAML. The tool-call read is now one helper
   (`response_tool_calls`) shared by a case's trace and the probe.

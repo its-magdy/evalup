@@ -101,7 +101,9 @@ runner's:
   SSE decode and answer extraction a case gets, and with `traces.source:
   response` the same tool-call read. A trace store is neither checked nor
   joined (its file may not exist yet at discover time); a declared
-  correlation's trace id is still read and shown.
+  correlation's trace id is still read and shown. An unimplemented store
+  (jaeger, tempo, clickhouse) is still refused, as a run would. A declared
+  `invocation.health_check` is not sent; `traces.health_check` says so.
 - **Output**, on stdout, always JSON in one shape once the adapter is read
   — a pre-flight failure too, with `request`/`response` null and its own
   keys (`missing_env`) added: `ok`, `problems` (a list, empty when
@@ -119,7 +121,13 @@ runner's:
   is scrubbed as a structure before it is dumped and cut, so JSON escaping
   and the 4,000-character cut cannot leave part of a value. A value bound
   for a header or the URL that holds a CR or LF is exit 3 naming the
-  variable, before any send (`http.client` quotes the value in its error).
+  variable, before any send (`http.client` quotes the value in its error),
+  and so is any control character (tab, NUL…). The scrub also matches each
+  value's JSON-escaped and `repr` forms, as it appears inside a JSON string
+  (a tool result, a raw body) or an exception message; an auth value is
+  any `${NAME}` under `invocation.auth` plus `token_env`/`cookie_env`.
+  Function mode's own prints go to stderr, so stdout stays one report, and
+  no outcome prints a traceback.
 - **Exit.** 0 verified: a 2xx, a non-empty answer at the `<answer>` field, a
   whole stream when `response_format: sse`, a readable tool-call list when
   `traces.source: response`. 3 with the same report plus `error` when any of

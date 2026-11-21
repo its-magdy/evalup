@@ -223,6 +223,86 @@ class TestScrubEdges(ProbeCase):
         self.assertEqual(report["request"]["body"]["message"], "say 42")
 
 
+class TestSecondReview(ProbeCase):
+    """Findings of the second review of PR #60."""
+
+    @staticmethod
+    def responder(path, body, headers):
+        key = headers.get("X-Api-Key", "")
+        return 200, {"message": "ok " + key, "calls": [
+            {"name": "t", "result": json.dumps({"seen": headers.get(
+                "Cookie", "")})}]}, {}
+
+    def test_a_tab_in_a_url_secret_is_named_not_printed(self):
+        adapter = make_adapter(self.app.base_url, invocation={
+            "endpoint": "POST /chat?key=${APP_KEY}"})
+        rc, report, proc = self.probe(
+            self.write_adapter(adapter),
+            env={"APP_KEY": "super\tsecretvalue"})
+        self.assertEqual(rc, 3, proc.stdout)
+        self.assertIn("APP_KEY", report["error"])
+        self.assertNotIn("secretvalue", proc.stdout + proc.stderr)
+        self.assertEqual(self.app.calls, [])
+
+    def test_a_quoted_cookie_inside_a_json_string_is_scrubbed(self):
+        adapter = cookie_adapter(self.app.base_url)
+        adapter["traces"] = {"source": "response", "tool_calls_path": "calls"}
+        rc, report, proc = self.probe(
+            self.write_adapter(adapter),
+            env={"APP_TEST_COOKIE": 'sid="nested-secret-4242"'})
+        self.assertEqual(rc, 0, proc.stdout)
+        self.assertNotIn("nested-secret-4242", proc.stdout + proc.stderr)
+
+    def test_a_short_headers_auth_value_echoed_back_is_scrubbed(self):
+        adapter = make_adapter(self.app.base_url, invocation={
+            "auth": {"type": "headers", "headers": {"X-Api-Key": "${K}"}}})
+        rc, report, proc = self.probe(self.write_adapter(adapter),
+                                      env={"K": "zq7"})
+        self.assertEqual(rc, 0, proc.stdout)
+        self.assertEqual(report["response"]["answer"], "ok ${K}")
+
+    def test_a_malformed_adapter_is_the_report_not_a_traceback(self):
+        for adapter in ({"invocation": "x"},
+                        make_adapter(self.app.base_url,
+                                     invocation={"auth": "cookie"})):
+            with self.subTest(adapter=adapter):
+                rc, report, proc = self.probe(self.write_adapter(adapter))
+                # exit 1: the run's own pre-flight raises on auth: "cookie"
+                self.assertIn(rc, (1, 2, 3), proc.stdout + proc.stderr)
+                self.assertIs(report["ok"], False)
+                self.assertNotIn("Traceback", proc.stderr)
+
+    def test_an_unimplemented_trace_source_is_refused(self):
+        adapter = make_adapter(self.app.base_url, traces={
+            "source": "jaeger", "correlation": "traceparent-echo"})
+        rc, report, _ = self.probe(self.write_adapter(adapter))
+        self.assertEqual(rc, 3)
+        self.assertIn("jaeger", report["error"])
+        self.assertEqual(self.app.calls, [])
+
+    def test_an_infinite_timeout_is_bad_input(self):
+        path = self.write_adapter(make_adapter(self.app.base_url))
+        rc, report, _ = self.probe(path, extra=["--timeout", "inf"])
+        self.assertEqual(rc, 2)
+        self.assertIn("--timeout", report["error"])
+
+    def test_function_mode_keeps_stdout_one_report(self):
+        (self.tmp / "probe_entry.py").write_text(
+            "print('import noise')\n"
+            "def handle(request):\n"
+            "    print('call noise')\n"
+            "    return {'text': 'from function', 'status': 200}\n",
+            encoding="utf-8")
+        adapter = {"app": {"name": "f", "repo": str(self.tmp)},
+                   "invocation": {"mode": "function",
+                                  "entrypoint": "probe_entry:handle",
+                                  "request_body": '{"message": "<user turn>"}'}}
+        rc, report, proc = self.probe(self.write_adapter(adapter))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(report["response"]["answer"], "from function")
+        self.assertIn("noise", proc.stderr)
+
+
 class TestBearerAndUrlSecrets(ProbeCase):
     @staticmethod
     def responder(path, body, headers):
