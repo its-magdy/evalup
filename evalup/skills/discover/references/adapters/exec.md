@@ -33,11 +33,14 @@ invocation:
 - `argv` holds no `${REF}`: argv is visible to every process on the machine.
   A secret goes in `env` by name, or as a `${REF}` in `request_body`.
 - The command gets only the `env` names plus `PATH`, `HOME`, `LANG`,
-  `TMPDIR` and the like, never the runner's whole environment. List every
-  variable the app reads at start-up, or it starts without it.
+  `TMPDIR` and the like (on Windows also `USERPROFILE`, `APPDATA`,
+  `SYSTEMROOT` ...), never the runner's whole environment. List every
+  other variable the app reads at start-up in `env`, or it starts without
+  it — a runtime's own (`NODE_OPTIONS`, `PYTHONPATH`, `JAVA_HOME`) too.
 - `argv[0]` with a `/` is relative to `cwd`; a bare name is found on `PATH`.
-- No `auth`, `headers`, `identity_map` or `health_check` (exit 3). Carry a
-  persona as `<persona>` in `request_body`.
+- No `auth`, `headers`, `identity_map` or `health_check` (exit 3). An
+  `auth: {type: bearer, token_env: APP_TOKEN}` becomes `env: [APP_TOKEN]`,
+  and the shim sends it. Carry a persona as `<persona>` in `request_body`.
 - Conversations: `client-id` and `server-id` with `session_from.body` work
   as in http; `cookie` and `session_from.header` do not.
 - Tool calls: print them in the stdout object (`{"text": ..., "tool_calls":
@@ -50,6 +53,16 @@ Read one JSON document from stdin (the rendered `request_body`). Write ONE
 JSON object to stdout and exit 0. Logs go to stderr: anything else on
 stdout makes the call `infra_error`. So does a non-zero exit, a timeout (the
 process group is killed) or more than 16 MiB on stdout.
+
+- **A refusal is an answer, not a failure.** Exit 0 with a JSON body that
+  says so (`{"text": ..., "route": "denied"}`) and declare
+  `route_from_response: route`. There is no status code: a non-zero exit is
+  always a crash, and a `status` field is just body data.
+- **The answer is recorded as printed.** A secret the shim echoes on
+  stdout lands in `response.json` and `answer.txt`, as with an http body.
+  Never print one.
+- Do not leave a process running that keeps stdout open: the call waits
+  2 s past the shim's exit for stdout to close, then fails.
 
 ```js
 // scripts/eval-shim.mjs -- a sketch; call the app's own chat function.

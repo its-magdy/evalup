@@ -1449,8 +1449,16 @@ reached through a command the runner starts once per call: the rendered
   `missing_env`) — never the runner's whole environment. `cwd` is relative
   to `app.repo`; `argv[0]` must resolve at pre-flight (exec's health check).
 - **One process per call**, in its own process group, killed at
-  `timeout_s` (enforced) and after it exits. stdout is capped at 16 MiB;
-  stderr's last 64 KiB are kept and a scrubbed tail is quoted in errors.
+  `timeout_s` (enforced) and after it exits. A process that left the group
+  (`setsid`) may outlive the call but cannot hang it: a call takes at most
+  `timeout_s` + 2 s, and a stdout still held open then is no answer. No
+  group kill on Windows (untested there). stdout is capped at 16 MiB;
+  stderr's last 64 KiB are kept and a tail is quoted in errors, scrubbed
+  of passed env values in plain, JSON and `repr` form. The answer itself
+  is recorded as printed, as an http body is.
+- **No status from a command**: a success is 200 and a non-zero exit is
+  always a crash, so a deliberate refusal is exit 0 with a JSON body read
+  through `route_from_response`.
 - **Failures are infra**, as http's transport failures are: a timeout; a
   non-zero exit (a crash, like a raising function entrypoint); a command
   that cannot start, or stdout that is empty, oversized, not JSON or not an
@@ -1459,7 +1467,8 @@ reached through a command the runner starts once per call: the rendered
   `--probe`, conversations (`client-id`, `server-id` with
   `session_from.body`) and `traces.source: response` (tool calls in the
   stdout object). `auth`, `headers`, `identity_map`, `health_check`,
-  `response_format: sse` and the `cookie` style are refused in exec mode.
+  `response_format: sse` and the `cookie` style are refused in exec mode;
+  a `token_env` credential goes in `exec.env` by name instead.
 - **`cli` stays reserved** (exit 3), now pointing at `exec`: it was never
   specified, so there was no `cli` adapter to keep, and an alias would give
   one shape two names.

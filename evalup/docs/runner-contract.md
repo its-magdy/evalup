@@ -326,8 +326,9 @@ beyond the health check.
      health check, as the import is function mode's.
    - The child's environment is an **allowlist**: `PATH`, `HOME`, `USER`,
      `LOGNAME`, `SHELL`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TZ`, `TMPDIR`/`TMP`/
-     `TEMP` (and Windows' `SYSTEMROOT`, `COMSPEC`, `PATHEXT`) when set, plus
-     the names in `exec.env`. A listed name unset or empty is exit 3 with
+     `TEMP` (and Windows' `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE`,
+     `APPDATA`, `LOCALAPPDATA`, `SYSTEMDRIVE`, `WINDIR`, `PROGRAMDATA`) when
+     set, plus the names in `exec.env`. A listed name unset or empty is exit 3 with
      the others in `missing_env` (§3). A secret goes by name in `exec.env`
      or as a `${REF}` in `request_body` (recorded as `${NAME}`, §3), never
      in argv.
@@ -336,19 +337,41 @@ beyond the health check.
      JSON **object**; `response_body` marks its `<answer>` (and optionally
      `<trace id>`), and from there it is read as an http JSON body —
      `session_from.body`, `traces.source: response`, `result_from_response`.
-     A success has `status` 200; an exec command has no status to report.
+     A success has `status` 200; an exec command has no status to report,
+     and a `status` field in its stdout is body data, never read as one. A
+     deliberate refusal is therefore exit 0 with a JSON body, observed
+     through `route_from_response` (or `clarify_from_response`); a non-zero
+     exit is always a crash.
+   - The answer is recorded as the command printed it: a secret the command
+     echoes on stdout lands in `response.json` and `answer.txt`, as a secret
+     an http app echoes in its body does. Only what the runner quotes
+     itself (stderr, a bad stdout's start) is scrubbed; scrubbing the
+     answer would change the scorers' input.
    - `execution.timeout_s` is enforced (`timeout_enforced: true`): the call
-     runs in its own process group, and the group is killed (SIGKILL) at the
-     timeout — and after the command exits, so nothing a call started
-     outlives it. stdout over 16 MiB is a failed call; stderr's last 64 KiB
-     are kept and only its last 2,000 characters, scrubbed of every passed
-     env value and resolved `request_body` ref, are quoted in an error.
+     runs in its own process group (session), and the group is killed
+     (SIGKILL) at the timeout and after the command exits. What a call
+     started **inside its group** does not outlive it; a process that left
+     the group (`setsid`, a daemon) is out of reach and may. It cannot hang
+     the call: each pipe is drained by a thread that owns its descriptor,
+     and the runner gives the pipes 2 s past the command's exit (or the
+     kill) to close, so a call takes at most `timeout_s` + 2 s. A stdout
+     still open then is a failed call (what arrived may be half an object);
+     a held stderr is ignored. `latency_s` is measured at the command's
+     exit. On Windows there is no group kill: only the command itself is
+     killed, and what it started may live on (untested there).
+   - stdout over 16 MiB is a failed call; stderr's last 64 KiB are kept and
+     only its last 2,000 characters are quoted in an error, scrubbed — in
+     plain, JSON-escaped and `repr` form — of every `exec.env` value
+     (whatever its length) and every resolved `request_body` ref of 4
+     characters or more.
    - Failures are transport errors (§7's infra, retried like any): a timeout
      is `timeout`; a non-zero exit or a signal is a `connection` error — the
      app fell over, as a raising function entrypoint does, so it feeds
      `crash_rate`; a command that cannot start, or stdout that is empty,
      oversized, not JSON, or JSON but not an object, is `transport`.
-   - Refused in exec mode (exit 3): `auth` other than `none`, `identity_map`,
+   - Refused in exec mode (exit 3): `auth` other than `none` (a `token_env`
+     or `cookie_env` credential goes in `exec.env` by name; the message
+     says which), `identity_map`,
      `headers`, `health_check`, `response_format: sse`, and
      `conversation.style: cookie` or `session_from.header`. `request.json`
      records `method: EXEC`, `url: exec:<argv, shell-quoted>` and no
