@@ -178,7 +178,7 @@ jobs:
   # Every CLI answers --help with rc=0.
   #
   # TRAP, and the reason this does not just loop over scripts/*.py: there are
-  # 22 files in scripts/ but only 21 CLIs. scripts/_common.py is a shared
+  # 22 files in scripts/ but only 20 CLIs. scripts/_common.py is a shared
   # module with no argparse and no __main__ block, so `python _common.py
   # --help` exits 0 having printed NOTHING -- a naive loop passes on it for
   # entirely the wrong reason, and would keep passing if a real CLI regressed
@@ -186,7 +186,7 @@ jobs:
   #
   # So two guards, not one: skip underscore-prefixed modules, and require
   # actual output. The count assertion is the third -- if someone adds a
-  # twenty-second CLI, this fails and forces a decision about which set it
+  # twenty-first CLI, this fails and forces a decision about which set it
   # joins rather than silently widening or narrowing the check.
   cli-help:
     runs-on: ubuntu-24.04
@@ -214,9 +214,10 @@ jobs:
             n=$((n + 1))
           done
           echo "checked $n CLIs"
-          # 21: wait_run.py joined on 2026-09-25 (field test fix C1).
-          [ "$n" -eq 21 ] || {
-            echo "expected 21 CLIs, found $n -- update this count and say why" >&2
+          # 20: wait_run.py joined on 2026-09-25 (field test fix C1);
+          # md_to_html.py left on 2026-11-21 (#21, report.html dropped).
+          [ "$n" -eq 20 ] || {
+            echo "expected 20 CLIs, found $n -- update this count and say why" >&2
             exit 1
           }
 
