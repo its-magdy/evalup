@@ -760,6 +760,9 @@ class TestDemo(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("PASS", proc.stdout)
         self.assertIn("6 pass, 0 fail", proc.stdout)
+        # The validator runs first, as in the CI recipe (ci-gate.md).
+        self.assertIn("validate_cases.py: 0 errors, 0 warnings; gaps: rule "
+                      "dispute-window has no case", proc.stdout)
 
     def test_the_judge_pass_shows_a_provisional_pass_and_moves_no_gate(self):
         """docs/judge-run.md SS14: the committed fixture replies go through

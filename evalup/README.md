@@ -122,8 +122,8 @@ you do. Everything above is meant to be versioned with the app except
 `work/` (derived files, rebuilt every run) and `quotes.local.md`. That
 includes the business rules in `profile.yaml`, each with its source, date
 and status (`inferred` until a human confirms it): a fresh clone or a CI
-job then gates on the same confirmed rules you do, and confirming a rule is
-a reviewable diff. A rule read from outside the repo (a wiki, a shared
+job that runs the validator (below) then refuses the same unconfirmed
+rules you do, and confirming a rule is a reviewable diff. A rule read from outside the repo (a wiki, a shared
 drive, an MCP server, read only with your yes) keeps its distilled text,
 source, date and status in `profile.yaml`; its verbatim quote goes to
 `quotes.local.md`, which discover adds to `.evalup/.gitignore` before
@@ -270,17 +270,21 @@ you to rebuild). A first session is several sessions away from that;
 
 ### Without Claude (CI)
 
-Four scripts run a suite with no LLM involved. From the plugin directory:
+Five scripts run a suite with no LLM involved. From the plugin directory:
 
 ```bash
 python3 scripts/convert_suite.py your-app/.evalup -o converted.json
+python3 scripts/validate_cases.py --cases converted.json \
+  --capabilities converted.json --profile converted.json || exit
 python3 scripts/make_plan.py converted.json --mode regression \
   --state-dir your-app/.evalup -o plan.json    # prints the exact run command next
 python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/<run-id>
 python3 scripts/gate.py your-app/.evalup/reports --latest --mode regression
 ```
 
-`gate.py` exits `0` open, `1` closed, `2` bad input, and prints a one-screen
+`validate_cases.py` stops the job on an error, among them a gating case or
+canary covering a business rule no human confirmed. `gate.py` exits `0`
+open, `1` closed, `2` bad input, and prints a one-screen
 summary naming what failed. For a release pipeline add `--require-canaries`:
 the gate then also closes when a canary did not pass or the run has none.
 For an app whose answers vary, add `--baseline your-app/.evalup/reports/baseline.json`:
@@ -288,7 +292,8 @@ the gate then closes on a regression (a case that passed every trial in the
 baseline now fails, a failing case the baseline never scored, or a failure
 on a layer the case never failed there) and lists
 the cases that were flaky or already failing there without gating on them.
-`--min-pass-rate 0.9` adds an absolute floor. The full headless recipe, including a
+`--min-pass-rate 0.9` adds an absolute floor; it counts `gating: false`
+cases too, those on an unconfirmed rule included. The full headless recipe, including a
 Claude-driven run with a tokenless gate step, is in
 `skills/run/references/ci-gate.md`.
 
@@ -426,8 +431,9 @@ versions. Diffs between incomparable runs are refused.
   becomes a rubric criterion. What exists is bookkeeping: discover records
   each rule with its quote, source, date and status, every case names the
   rules and risks it `covers`, `validate_cases.py --profile` reports a rule
-  with no case as a gap, and a case gating on a rule no human confirmed is
-  a validator error.
+  with no case as a gap, and a gating case or canary on a rule no human
+  confirmed is a validator error (`gate.py --min-pass-rate` still counts a
+  `gating: false` case on one).
 - **Tool expectations are whole-app.** In a multi-agent app, a call made by the
   wrong sub-agent still satisfies `expect.tools`.
 - **No retrieval/RAG scoring.**
