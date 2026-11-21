@@ -1030,6 +1030,31 @@ class TestDryRunCountsTurns(ConversationCase):
         convo = next(c for c in payload["cases"] if c["id"] == "c-convo-01")
         self.assertEqual(convo["turns"], 3)
 
+    def floor_for(self, traces):
+        """wait_floor_s of one 3-turn conversation, k=1, turn_delay_s=2."""
+        case = licence_case()
+        case["input"]["turns"].append({"user": "and the active ones?"})
+        plan = self.plan_for(self.app, [case], style="client-id",
+                             turn_delay_s=2)
+        plan["k"] = 1
+        plan["adapter"]["traces"] = traces
+        rc, payload, proc = self.invoke(plan, extra_argv=["--dry-run"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertTrue(payload["traces"]["collected"])
+        return payload["wait_floor_s"]
+
+    def test_floor_by_trace_source(self):
+        """#48: a store's quiescence window is waited after every turn; a
+        response-borne trace has none -- but turn_delay_s stays either way."""
+        spans = self.tmp / "spans.json"
+        spans.write_text("[]", encoding="utf-8")
+        store = {"source": "otlp-file", "convention": "gen_ai",
+                 "correlation": "response-field:traceId",
+                 "location": str(spans),
+                 "completeness": {"quiescence_ms": 500, "max_wait_s": 2}}
+        self.assertEqual(self.floor_for(store), 3 * 0.5 + 2 * 2)
+        self.assertEqual(self.floor_for({"source": "response"}), 2 * 2)
+
 
 class TestCostOfAConversation(unittest.TestCase):
     """SS4/SS5 in score_cost.py: a conversation is priced as one case, the

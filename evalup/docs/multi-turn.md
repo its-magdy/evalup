@@ -285,10 +285,12 @@ under a cluster-robust correction, §12). So:
   so a conversation is priced as one case. The per-turn token growth curve is
   later (§9).
 - **Run time.** 20 conversations × 5 turns × (model latency + at least 3 s
-  quiescence) at `k=3` is about an hour. The dry run's `app_calls_planned`
-  (`run_cases.py` `dry_run_report`) counts turns, not cases, and adds the
-  quiescence floor; `app_calls_max` counts every retry; `generate` defaults to 10–20 conversations; the README says a
-  headless run will need several `wait_run.py` waits (540 s each).
+  quiescence, when traces come from a store) at `k=3` is about an hour. The
+  dry run (`run_cases.py` `dry_run_report`) counts turns, not cases, in
+  `app_calls_planned`, every retry in `app_calls_max`, and the quiescence
+  floor (none for `traces.source: response`) plus `turn_delay_s` in
+  `wait_floor_s`; `generate` defaults to 10–20 conversations; the README
+  says a headless run will need several `wait_run.py` waits (540 s each).
 
 ## 6. Memory that outlives the session
 

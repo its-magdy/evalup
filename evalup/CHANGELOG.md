@@ -896,8 +896,9 @@ minutes: the estimate was wrong in both directions.
   app-side rate limit.
 - **`wait_floor_s` counted a wait that never happens.** It added the 3 s
   trace-quiescence window per call for `traces.source: response`, which the
-  runner never waits for; a 12-case run printed a 36 s floor. It is 0 for
-  that source now. No verdict changes.
+  runner never waits for; a 12-case run printed a 36 s floor. That source
+  now adds no quiescence, only a conversation's `turn_delay_s`. No verdict
+  changes.
 
 ### Fixed — the 2026-09-21 shape audit
 

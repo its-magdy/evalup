@@ -905,7 +905,8 @@ key** rather than sending `null`. Turn 1 without the id makes the case
 a `Cookie` for `auth: {type: cookie}`); it is redacted in `request.json`.
 
 **Traces per turn.** Each turn's trace is collected after its own quiescence
-wait and read only by that turn's layers. When two turns of one attempt
+wait (none for `traces.source: response`, which is read off the turn's own
+response) and read only by that turn's layers. When two turns of one attempt
 return the **same trace id**, no span can be attributed to one turn: every
 trace-dependent layer of the case (`TRAJECTORY_LAYERS`, `loops` included) is
 `unscorable` with that reason, and the turn read with the shared id reads no
