@@ -144,7 +144,10 @@ class TestAgUi(unittest.TestCase):
         body = _sse.decode(stream(
             STARTED, FINISHED,
             dict(FINISHED, usage=[{"inputTokens": "9", "outputTokens": True,
-                                   "cachedInputTokens": 1.5}, "junk"])),
+                                   "cachedInputTokens": 1.5}, "junk"]),
+            # A cache count is part of inputTokens: alone, it is no model
+            # call with zero tokens.
+            dict(FINISHED, usage=[{"cachedInputTokens": 80}])),
             AG_UI)
         self.assertIsNone(body["usage"])
         self.assertEqual(body["run_usage"], [])

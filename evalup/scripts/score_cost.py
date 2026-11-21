@@ -73,18 +73,20 @@ run (SS10), so every run gets the latency half, priced or not.
 WHAT IS NOT MEASURED, stated in the payload and not only here, because a number
 copied into a report loses its docstring:
   - CACHED TOKENS. `normalize_trace.py` reads `gen_ai.usage.input_tokens` and
-    `gen_ai.usage.output_tokens` and nothing else, and the convention version
-    it supports carries no attribute for a cache count. (An AG-UI stream's
-    cache counts are kept in `response.json` and on the response-built chat
-    spans (#46), but nothing here reads them.) So an app using prompt caching is
-    priced at the full input rate for tokens it was billed a fraction of, and
-    the error is LARGE -- a cached read is commonly a tenth of the input price,
-    a cache write more than the input price. The direction is not even reliably
-    one-sided: whether it over- or under-counts depends on whether the
-    exporter counts cached tokens inside `input_tokens` or beside it, which the
-    convention does not fix. This is a DECLARED LIMIT, not a build: the field
-    does not exist to read, so a price table with cache tiers would be a
-    declaration with no reader. `cache_accounting: "none"` rides in the output.
+    `gen_ai.usage.output_tokens` and nothing else. Cache counts do exist in
+    two places -- an AG-UI stream's in `response.json`, and on the chat spans
+    `traces.source: response` writes (`gen_ai.usage.cache_read.input_tokens`,
+    `.cache_creation.input_tokens`, #46) -- but `normalize_trace.py` drops
+    them, so the trajectory this scorer reads has none. So an app using
+    prompt caching is priced at the full input rate for tokens it was billed
+    a fraction of, and the error is LARGE -- a cached read is commonly a
+    tenth of the input price, a cache write more than the input price. The
+    direction is not even reliably one-sided: whether it over- or
+    under-counts depends on whether the exporter counts cached tokens inside
+    `input_tokens` or beside it, which the convention does not fix. This is
+    a DECLARED LIMIT, not a build: the trajectory carries no cache field, so
+    a price table with cache tiers would be a declaration with no reader.
+    `cache_accounting: "none"` rides in the output.
   - TTFT. Nothing measures it. `latency_s` (`run_cases.py`) is whole-request
     wall clock, spans carry `duration_ms` and no first-token timestamp, and
     Step 10 already deleted the adapter's inert `streaming:` declaration. It is
@@ -974,14 +976,16 @@ def declared_limits(runs):
     return {
         "cache_accounting": (
             "NONE. normalize_trace.py records gen_ai.usage.input_tokens and "
-            "gen_ai.usage.output_tokens and no cache-read or cache-write "
-            "count, and the convention it supports carries no attribute for "
-            "one (an AG-UI stream's cache counts stay in response.json, "
-            "unread here). An app using prompt caching is priced at the full input "
-            "rate for tokens it was billed a fraction of, and the sign of the "
-            "error depends on whether the exporter counts cached tokens "
-            "inside input_tokens or beside it. RESERVED: the field does not "
-            "exist to read."),
+            "gen_ai.usage.output_tokens and drops any cache-read or "
+            "cache-write count, so this scorer cannot price one. An AG-UI "
+            "stream's cache counts are kept in response.json and on the "
+            "response-built chat spans (gen_ai.usage.cache_read / "
+            "cache_creation .input_tokens), unread here. An app using prompt "
+            "caching is priced at the full input rate for tokens it was "
+            "billed a fraction of, and the sign of the error depends on "
+            "whether the exporter counts cached tokens inside input_tokens "
+            "or beside it. RESERVED: the trajectory has no cache field to "
+            "read."),
         "ttft": (
             "NOT MEASURED. latency_s is whole-request wall clock; spans carry "
             "duration_ms and no first-token timestamp. Step 10 removed the "

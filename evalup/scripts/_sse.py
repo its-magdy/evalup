@@ -16,7 +16,10 @@ Two protocols, declared in `invocation.sse.protocol`, never guessed:
   RUN_FINISHED closes the run and may carry token usage, RUN_ERROR fails it.
   A server running an agent loop may emit one RUN_FINISHED per model call;
   usage is then summed over every RUN_FINISHED and RUN_ERROR, never the
-  last one's alone (#46), and kept per event as `run_usage`.
+  last one's alone (#46), and kept per event as `run_usage`. Summing across
+  runs is the protocol's own accounting too: each run reports only its own
+  calls (a subagent's run under parentRunId, a resumed run), never another
+  run's, so distinct runs add without double-counting.
 - `data-path` -- any other stream of JSON frames: the text delta is read at
   a declared dotted path in each frame (`choices.0.delta.content` for an
   OpenAI-style stream), and an optional `done` sentinel frame (`[DONE]`)
@@ -239,10 +242,12 @@ _CACHE_FIELDS = (("cachedInputTokens", "cached_input_tokens"),
 def _usage(entries):
     """AG-UI usage is a list (one entry per model); summed, or None.
 
-    input_tokens and output_tokens are always present once any count is (as
-    before); a cache count only when some entry reported it, so "not
-    reported" stays distinct from zero. Only a real int counts -- not a
-    bool, a float or a numeric string.
+    input_tokens and output_tokens are both present once either total is
+    (as before); a cache count only when some entry reported it, so "not
+    reported" stays distinct from zero. A cache count is a PART of
+    inputTokens, so an event reporting one with no total is not a usage
+    report: None, never a zero-token model call. Only a real int counts --
+    not a bool, a float or a numeric string.
     """
     if not isinstance(entries, list):
         return None
@@ -255,7 +260,7 @@ def _usage(entries):
             value = entry.get(src)
             if isinstance(value, int) and not isinstance(value, bool):
                 total[dst] = total.get(dst, 0) + value
-                seen = True
+                seen = seen or (src, dst) in _USAGE_FIELDS
     return total if seen else None
 
 
