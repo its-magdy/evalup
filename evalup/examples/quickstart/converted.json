@@ -1,10 +1,11 @@
 {
   "//": [
     "The YAML->JSON conversion the `run` skill performs before it calls",
-    "run_cases.py, which takes JSON and nothing else. Four sources, one",
+    "run_cases.py, which takes JSON and nothing else. Five sources, one",
     "file: adapter.yaml verbatim, profile.yaml's capability_matrix",
-    "verbatim, every case file under datasets/, and each rubric under",
-    "rubrics/ (its frontmatter and the sha256 of its bytes).",
+    "verbatim, the profile keys the linter reads (schema_version,",
+    "business_rules, risks), every case file under datasets/, and each",
+    "rubric under rubrics/ (its frontmatter and the sha256 of its bytes).",
     "",
     "It is committed because it is the exact input validate_cases.py and",
     "run_cases.py read -- `--cases converted.json` works directly, since",
@@ -92,6 +93,64 @@
       "blocked_by": "no trace store, so no token counts; latency alone is still recorded in results.json"
     }
   },
+  "profile": {
+    "schema_version": 1,
+    "business_rules": [
+      {
+        "id": "read-only",
+        "rule": "Never claim to have created, edited or deleted anything; say the assistant is read-only.",
+        "quote": "You answer questions about invoices and shifts, and you are read-only.",
+        "source": "tests/test_example.py:80",
+        "date": "2026-11-21",
+        "status": "confirmed",
+        "confirmed_by": "app-owner"
+      },
+      {
+        "id": "grounded-only",
+        "rule": "Never state a figure not present in a tool result.",
+        "quote": "Never state a figure that is not in a tool result.",
+        "source": "tests/test_example.py:81",
+        "date": "2026-11-21",
+        "status": "confirmed",
+        "confirmed_by": "app-owner"
+      },
+      {
+        "id": "plain-text",
+        "rule": "Reply in plain text: no Markdown, no bullet or numbered lines.",
+        "quote": "Reply in plain text: no Markdown, and no line starting with a bullet or a number.",
+        "source": "tests/test_example.py:82",
+        "date": "2026-11-21",
+        "status": "confirmed",
+        "confirmed_by": "app-owner"
+      },
+      {
+        "id": "dispute-window",
+        "rule": "An invoice can be disputed up to 30 days after its invoice date.",
+        "quote": "An invoice may be disputed within 30 days of its invoice date.",
+        "source": "examples/quickstart/docs/billing-policy.md §Disputes",
+        "date": "2026-11-01",
+        "status": "inferred",
+        "contradiction": "the prompt fragment at tests/test_example.py:83 says 14 days (findings.md F1)"
+      }
+    ],
+    "risks": [
+      {
+        "id": "risk-oos-answered",
+        "risk": "a question outside both domains is answered instead of refused with HTTP 400",
+        "source": "adapter.yaml: the app's out-of-scope answer is a 400"
+      },
+      {
+        "id": "risk-real-zero",
+        "risk": "a real zero is read as missing data, or a stub's empty result is answered as 0",
+        "source": "tests/test_example.py ANSWERS: the surgeon count is a real 0"
+      },
+      {
+        "id": "risk-paraphrase-reroutes",
+        "risk": "a paraphrase moves the route or the answer",
+        "source": "routing_contract below: two domains told apart by wording"
+      }
+    ]
+  },
   "cases": [
     {
       "schema_version": 1,
@@ -143,6 +202,10 @@
           ]
         }
       },
+      "covers": [
+        "plain-text",
+        "risk-paraphrase-reroutes"
+      ],
       "gating": true
     },
     {
@@ -195,6 +258,10 @@
           ]
         }
       },
+      "covers": [
+        "plain-text",
+        "risk-real-zero"
+      ],
       "gating": true
     },
     {
@@ -249,6 +316,10 @@
           "rubric": "grounded-answer-v1"
         }
       },
+      "covers": [
+        "plain-text",
+        "grounded-only"
+      ],
       "gating": true
     },
     {
@@ -296,6 +367,10 @@
           ]
         }
       },
+      "covers": [
+        "plain-text",
+        "read-only"
+      ],
       "gating": true
     },
     {
@@ -349,6 +424,9 @@
           ]
         }
       },
+      "covers": [
+        "plain-text"
+      ],
       "gating": true
     },
     {
@@ -396,6 +474,10 @@
           ]
         }
       },
+      "covers": [
+        "plain-text",
+        "risk-oos-answered"
+      ],
       "gating": true
     }
   ],

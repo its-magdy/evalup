@@ -66,9 +66,9 @@ challenged or a case falls outside it),
 `${CLAUDE_PLUGIN_ROOT}/agents/test-generator.md` (per-case authoring).
 
 ## 0. Prefer a different model family than the app under test
-Generate cases — and drive user-simulator personas — with a different model
-family than the app under test, whenever one is available. Record the
-generator's model and family in the dataset metadata either way.
+Generate cases, and drive user-simulator personas, with a model family other
+than the app's when one is available. Record the generator's model and family
+in the dataset metadata either way.
 
 With none, **generate anyway and mitigate**: human review (§3), expectations
 grounded in state or an oracle (§2), the caveat in the metadata. Why this is
@@ -117,7 +117,10 @@ from existing checks — plain-text-only, a `must_not_contain` regex such as
 `'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'` on every case; a reply
 language, `must_contain` on its words; one answer per ambiguous candidate,
 `must_contain` on each; "call X before saying not found", `expect.tools`; a
-stated count, `expect.result`. `coverage_grid.rules` lists every rule with
+stated count, `expect.result`. Every case names its rule and risk ids in
+`covers`; an unconfirmed rule backs no gating case or canary, a
+contradicted one none until the owner decides. Hand over the validator's
+`summary.traceability.gaps`. `coverage_grid.rules` lists every rule with
 its case ids, or why none (judge-only, layer disabled). Spread cases over
 every tool, never mostly the one record a probe grounded.
 
@@ -263,9 +266,8 @@ says why, and how a reviewed label is fixed.
 
 ### Validate before handing the dataset over
 Convert, then validate, exactly as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
-§1 spells the two commands — never transcribe a suite by hand. Validation
-fails this step on structural errors and warns on the vacuity patterns
-(case-format.md has the field rules and the error/warning line). One warning
+§1 spells the two commands — never transcribe a suite by hand. Errors fail
+this step (case-format.md has the error/warning line). One warning
 needs a decision here: `route_not_observable` — on a trace-less app whose
 adapter maps the HTTP status, the observed route is the map's value,
 `<answered>` or `__oos__`, so expect that label and keep the domain in
@@ -290,6 +292,6 @@ coverage_grid:
 ```
 
 ## 5. Suite adequacy (periodic, not per-generate)
-Offer mutation testing: inject 3–5 bugs into a COPY of a prompt (drop a
-constraint, invert a condition, swap a tool name) and run the suite on each.
-Under 80% caught, generate cases where the mutations lived.
+Offer mutation testing: 3–5 bugs in a COPY of a prompt (drop a constraint,
+invert a condition, swap a tool name), the suite run on each. Under 80%
+caught, add cases where they lived.

@@ -107,13 +107,28 @@ app:
 ```
 your-app/.evalup/
 ├── adapter.yaml          # how to call your app
-├── profile.yaml          # what discover learned about it
+├── profile.yaml          # what discover learned about it, business rules included
+├── findings.md           # design findings, docs-vs-code contradictions among them
+├── quotes.local.md       # only for rules from outside sources; git-ignored
 ├── datasets/             # test cases
 └── reports/
     ├── baseline.json     # points at the pinned baseline run
     └── <run-id>/         # manifest, per-case raw material, results.json,
                           # review page; report.md from /evalup:run
 ```
+
+**What is versioned, and who commits it.** evalup never commits anything;
+you do. Everything above is meant to be versioned with the app except
+`work/` (derived files, rebuilt every run) and `quotes.local.md`. That
+includes the business rules in `profile.yaml`, each with its source, date
+and status (`inferred` until a human confirms it): a fresh clone or a CI
+job that runs the validator (below) then refuses the same unconfirmed
+rules you do, and confirming a rule is a reviewable diff. A rule read from outside the repo (a wiki, a shared
+drive, an MCP server, read only with your yes) keeps its distilled text,
+source, date and status in `profile.yaml`; its verbatim quote goes to
+`quotes.local.md`, which discover adds to `.evalup/.gitignore` before
+writing it, unless you ask for the quote to be versioned too. To keep all
+of it out of the app's repo, point `state_location` outside it.
 
 ### Permissions
 
@@ -255,17 +270,26 @@ you to rebuild). A first session is several sessions away from that;
 
 ### Without Claude (CI)
 
-Four scripts run a suite with no LLM involved. From the plugin directory:
+Five scripts run a suite with no LLM involved: a script, run from the
+plugin directory (`bash ci.sh`, not pasted into a terminal, which `set -e`
+would close on the first failure):
 
 ```bash
+#!/usr/bin/env bash
+set -e   # stop at the first command that fails
 python3 scripts/convert_suite.py your-app/.evalup -o converted.json
-python3 scripts/make_plan.py converted.json --mode regression \
-  --state-dir your-app/.evalup -o plan.json    # prints the exact run command next
-python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/<run-id>
+python3 scripts/validate_cases.py --cases converted.json \
+  --capabilities converted.json --profile converted.json
+run_id="regression-$(date -u +%Y%m%dT%H%M%SZ)"
+python3 scripts/make_plan.py converted.json --mode regression --run-id "$run_id" \
+  --state-dir your-app/.evalup -o plan.json
+python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/"$run_id"
 python3 scripts/gate.py your-app/.evalup/reports --latest --mode regression
 ```
 
-`gate.py` exits `0` open, `1` closed, `2` bad input, and prints a one-screen
+`validate_cases.py` stops the job on an error, among them a gating case or
+canary covering a business rule no human confirmed. `gate.py` exits `0`
+open, `1` closed, `2` bad input, and prints a one-screen
 summary naming what failed. For a release pipeline add `--require-canaries`:
 the gate then also closes when a canary did not pass or the run has none.
 For an app whose answers vary, add `--baseline your-app/.evalup/reports/baseline.json`:
@@ -273,13 +297,14 @@ the gate then closes on a regression (a case that passed every trial in the
 baseline now fails, a failing case the baseline never scored, or a failure
 on a layer the case never failed there) and lists
 the cases that were flaky or already failing there without gating on them.
-`--min-pass-rate 0.9` adds an absolute floor. The full headless recipe, including a
+`--min-pass-rate 0.9` adds an absolute floor; it counts `gating: false`
+cases too, those on an unconfirmed rule included. The full headless recipe, including a
 Claude-driven run with a tokenless gate step, is in
 `skills/run/references/ci-gate.md`.
 
 #### CI workflow template (GitHub Actions)
 
-[`ci/github-actions.yml`](ci/github-actions.yml) is those four commands as a
+[`ci/github-actions.yml`](ci/github-actions.yml) is those five commands as a
 workflow. Copy it to `.github/workflows/evalup.yml` in your app's repository
 and edit the lines marked `EDIT`:
 
@@ -296,14 +321,14 @@ and edit the lines marked `EDIT`:
 It checks out your app, fetches the plugin at **`EVALUP_REF`**, a commit
 SHA (evalup has no release tag yet; a tag replaces the SHA when one exists),
 installs PyYAML for `convert_suite.py` alone (everything else is stdlib, on
-Python 3.9 or later), runs a `regression` run at `EVALUP_K` (default 3),
+Python 3.9 or later), validates the suite, runs a `regression` run at `EVALUP_K` (default 3),
 gates it, and uploads the run directory as the `evalup-run` artifact. Under
 `data.may_contain_pii` that artifact holds raw prompts and answers: shorten
 its retention or drop the step.
 
-A run that aborts (a canary failed, an infra abort, an incomplete run, a
-scorer error) already fails the `run the suite` step with the runner's
-exit code, and the gate does not run. Otherwise the `gate` step fails the job on exit `1` (closed, every reason listed in
+A validator error, or a run that aborts (a canary failed, an infra abort,
+an incomplete run, a scorer error), already fails the `run the suite` step
+with that script's exit code, and the gate does not run. Otherwise the `gate` step fails the job on exit `1` (closed, every reason listed in
 the job log and summary) or `2` (bad input). It closes on any gating
 failure, a run that scored nothing or fails `--verify`, an infra rate above
 `EVALUP_MAX_INFRA_RATE` (default 0.05), a pass rate below
@@ -339,7 +364,7 @@ The steps `start` runs for you, callable directly:
 
 | Command | Description |
 |---|---|
-| `/evalup:discover [path-or-url] [--diff]` | Profiles the app; writes the adapter and profile; patches instrumentation; `--diff` after a refactor |
+| `/evalup:discover [path-or-url] [--diff]` | Profiles the app; writes the adapter and profile, business rules (from the prompts and in-repo docs, with sources) included; patches instrumentation; `--diff` after a refactor |
 | `/evalup:generate [--layer routing\|tools\|answer] [--count N]` | Builds or extends the dataset: coverage grid, targeted review, splits |
 | `/evalup:run` | Executes and scores every applicable layer; diffs against the baseline |
 | `/evalup:help` | Explains any of this |
@@ -408,7 +433,12 @@ versions. Diffs between incomparable runs are refused.
   but none of them is in a pass rate, `gate.py` or an optimize objective
   until a live calibration has been measured (#27). Business rules
   (`expect.answer.rules`) still have no scorer; one that needs a judge
-  becomes a rubric criterion.
+  becomes a rubric criterion. What exists is bookkeeping: discover records
+  each rule with its quote, source, date and status, every case names the
+  rules and risks it `covers`, `validate_cases.py --profile` reports a rule
+  with no case as a gap, and a gating case or canary on a rule no human
+  confirmed is a validator error (`gate.py --min-pass-rate` still counts a
+  `gating: false` case on one).
 - **Tool expectations are whole-app.** In a multi-agent app, a call made by the
   wrong sub-agent still satisfies `expect.tools`.
 - **No retrieval/RAG scoring.**
@@ -430,13 +460,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 1026 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 1229 tests, ~4 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-1016 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
+1209 passed and 20 skipped; add `--with pyyaml` to run the skipped twenty.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.

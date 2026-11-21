@@ -78,12 +78,30 @@ then gate: pass several `--baseline` runs to see it as flaky. `--min-pass-rate R
 closes below an absolute floor, in either mode. `--baseline` refuses a
 holdout run (exit 2: its cases have no per-case row). `--json` prints the
 same facts for a dashboard. Deterministic-only CI needs no
-`claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
-`gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
-pipeline, runnable, and `${CLAUDE_PLUGIN_ROOT}/ci/github-actions.yml` is it as a
+`claude -p` at all: `convert_suite.py` → `validate_cases.py` →
+`make_plan.py` → `run_cases.py` → `gate.py` is five plain commands
+(`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that pipeline,
+runnable, and `${CLAUDE_PLUGIN_ROOT}/ci/github-actions.yml` is it as a
 GitHub Actions workflow to copy into the app's repository, plugin pinned by
 commit SHA, `--baseline` used when `reports/baseline.json` is committed with
-its run directory; README "CI workflow template" lists what to edit). A pipeline may want `make_plan.py`'s overrides:
+its run directory; README "CI workflow template" lists what to edit). The
+validate step stops the job on a non-zero exit; it is what
+refuses a gating case or canary covering a business rule no human
+confirmed (`unconfirmed_rule_gates`), so skipping it lets an inferred rule
+decide the gate. The combined document serves every flag, in a CI step
+or script (not pasted into a terminal, which `set -e` would close):
+
+```bash
+set -e   # stop at the first command that fails
+python3 "$EVALUP_ROOT/scripts/convert_suite.py" .evalup -o converted.json
+python3 "$EVALUP_ROOT/scripts/validate_cases.py" --cases converted.json \
+  --capabilities converted.json --profile converted.json
+```
+
+`gate.py --min-pass-rate` counts every scored non-canary case, `gating:
+false` ones included, so a capability case on an unconfirmed rule moves
+that floor; the validator lists those cases under
+`summary.traceability.unconfirmed_non_gating`. A pipeline may want `make_plan.py`'s overrides:
 `--run-id <mode>-<YYYYMMDDTHHMMSSZ>` names the run directory (default: the mode
 and UTC now; any other shape is refused), `--dataset-version N` labels the run
 (default: `dataset.yaml`'s), and `--holdout-ledger` / `--judge-calibration`,

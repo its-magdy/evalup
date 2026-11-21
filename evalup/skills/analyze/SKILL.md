@@ -162,7 +162,8 @@ stop a sitting after ~20 that add nothing. `--label` runs on that same rule.
 
 Zero gating failures → produce insight, not silence:
 - what the passing suite CANNOT detect: unjudged dimensions, layers skipped
-  this run, coverage gaps named in the dataset metadata;
+  this run, coverage gaps named in the dataset metadata, and every rule or
+  risk with no case (below);
 - the capability-suite (`gating: false`) results worth a look, and any
   ready to graduate (below);
 - the next investment: labeling, cases in a named gap, or a skipped layer;
@@ -227,6 +228,21 @@ A **trace-less app cannot be priced at all** — `cases/<id>/trajectory.json` is
 the only token source — and its latency block is still complete. Quote
 `declared_limits` with any figure: cached tokens are not accounted for, TTFT is
 not measured, and at `k > 1` the cost is one representative repeat's.
+
+### Rules and risks with no case — report them every time
+Every case names the profile's rule and risk ids it is for in `covers`
+(case-format.md). After every `--cluster`, convert and validate with
+`--profile` as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1 spells them,
+even when no case was edited (the run's own `work/` copy may predate a
+profile edit). It prints `summary.traceability`: each rule's status and
+cases, each risk's cases, `gaps` ("rule refund-cap has no case"),
+`unconfirmed`, `unconfirmed_non_gating` and `contradictions`. Report the
+gaps, and name a risk with only one case as thin. A cluster that violates
+a rule nobody has confirmed is a finding to put to the owner, not a
+regression: an inferred rule never gates (only `gate.py --min-pass-rate`
+counts its `gating: false` cases), and nothing here may flip a rule to
+`confirmed` — only the discover interview does, with a human's name. A label fix that drops a
+case's last link reopens a gap; say so.
 
 ## `--label` — judge calibration, 15 minutes at a time
 The 15 minutes is the **sitting**, not the total: labeling runs as repeated

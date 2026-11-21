@@ -70,11 +70,19 @@ TREE_FILE = EXAMPLE / "expected-run-tree.txt"
 
 # The app's system prompt, as discover would find it. The fixture is
 # rule-based, so nothing reads it: it is the cited source of profile.yaml's
-# `plain-text` rule, the way a real prompt's rule is cited (issue #52), and
-# every answer below obeys it.
-SYSTEM_PROMPT = ("You answer questions about invoices and shifts, and you are "
-                 "read-only. Reply in plain text: no Markdown, and never start "
-                 "a line with -, *, a bullet or a number.")
+# rules, the way a real prompt's rule is cited (issue #52), and every answer
+# below obeys it. It is assembled from fragments, one per line, the way real
+# apps build theirs (#25): a rule's `source:` is its fragment's file:line,
+# never "the prompt", and TestBusinessRules checks each quote is on it. The
+# last fragment disagrees with examples/quickstart/docs/billing-policy.md
+# (14 days against 30) on purpose: that is the planted contradiction.
+SYSTEM_PROMPT_FRAGMENTS = (
+    "You answer questions about invoices and shifts, and you are read-only.",
+    "Never state a figure that is not in a tool result.",
+    "Reply in plain text: no Markdown, and no line starting with a bullet or a number.",
+    "Invoices can be disputed within 14 days of the invoice date.",
+)
+SYSTEM_PROMPT = " ".join(SYSTEM_PROMPT_FRAGMENTS)
 
 ANSWERS = [
     # (matcher, status, domain, answer, data)
@@ -286,6 +294,10 @@ class TestCommittedInputsConform(unittest.TestCase):
             [sys.executable, str(VALIDATOR),
              "--cases", str(EXAMPLE / "converted.json"),
              "--capabilities", str(caps), "--strict",
+             # The profile's rules and risks (#25): the combined document
+             # itself, as the CI recipe and demo.py pass it -- its `profile`
+             # key is unwrapped, so the traceability check really runs.
+             "--profile", str(EXAMPLE / "converted.json"),
              # converted.json carries the rubric too (docs/judge-run.md
              # SS14), so the criteria form and the case's pin are linted.
              "--rubrics", str(EXAMPLE / "converted.json")],
@@ -297,6 +309,8 @@ class TestCommittedInputsConform(unittest.TestCase):
             "\n".join("{severity} {code} {case_id}: {message}".format(**f)
                       for f in payload["findings"]))
         self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(payload["summary"]["traceability"]["gaps"],
+                         ["rule dispute-window has no case"])
 
     def tmp_caps(self):
         tmp = pathlib.Path(tempfile.mkdtemp())
@@ -352,6 +366,141 @@ class TestCommittedInputsConform(unittest.TestCase):
                                 r"(?i)^(generate|test-generator|auto|machine)")
 
 
+class TestBusinessRules(unittest.TestCase):
+    """#25's acceptance, on the example: rules recorded with quotes and
+    sources, every case linked to a rule or a risk, a rule with no case
+    reported as a gap, a docs-vs-code contradiction reported, and an
+    unconfirmed rule unable to gate. Rules are linked, never scored."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.converted = load_converted()
+        self.rules = {r["id"]: r for r in
+                      self.converted["profile"]["business_rules"]}
+
+    def lint(self, cases=None, *extra):
+        suite = self.tmp / "suite.json"
+        suite.write_text(json.dumps(cases if cases is not None
+                                    else self.converted["cases"]),
+                         encoding="utf-8")
+        caps = self.tmp / "caps.json"
+        caps.write_text(json.dumps(self.converted["capability_matrix"]),
+                        encoding="utf-8")
+        profile = self.tmp / "profile.json"
+        profile.write_text(json.dumps(self.converted["profile"]),
+                           encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(VALIDATOR), "--cases", str(suite),
+             "--capabilities", str(caps), "--profile", str(profile),
+             *extra], capture_output=True, text=True)
+        return proc.returncode, json.loads(proc.stdout)
+
+    def quoted_text(self, source):
+        """The text a rule's source points at: one line for `path:line`,
+        the section's body for `path §Section`. Paths are from the plugin
+        root, as profile.yaml says."""
+        if " §" in source:
+            path, section = source.split(" §", 1)
+            text = (ROOT / path).read_text(encoding="utf-8")
+            body = text.split("## " + section + "\n", 1)
+            self.assertEqual(len(body), 2, f"{path} has no ## {section}")
+            return body[1].split("\n## ", 1)[0]
+        path, line = source.rsplit(":", 1)
+        return (ROOT / path).read_text(encoding="utf-8").splitlines()[
+            int(line) - 1]
+
+    def test_every_rule_is_recorded_with_its_quote_source_date_status(self):
+        self.assertEqual(sorted(self.rules), ["dispute-window",
+                                              "grounded-only", "plain-text",
+                                              "read-only"])
+        for rid, rule in self.rules.items():
+            with self.subTest(rule=rid):
+                for key in ("rule", "quote", "source", "date", "status"):
+                    self.assertTrue(rule.get(key), key)
+                self.assertRegex(rule["date"], r"^\d{4}-\d{2}-\d{2}$")
+                self.assertIn(rule["status"], ("confirmed", "inferred"))
+                # The quote is VERBATIM at the source it names.
+                self.assertIn(rule["quote"],
+                              self.quoted_text(rule["source"]))
+
+    def test_a_code_rule_cites_its_prompt_fragment(self):
+        """A prompt built from fragments has no single "the prompt": each
+        code rule's source is its fragment's line."""
+        for rid in ("read-only", "grounded-only", "plain-text"):
+            source = self.rules[rid]["source"]
+            self.assertRegex(source, r"^tests/test_example\.py:\d+$")
+            self.assertIn(self.quoted_text(source).strip().strip('",'),
+                          SYSTEM_PROMPT_FRAGMENTS)
+
+    def test_every_case_covers_a_rule_or_a_risk(self):
+        known = set(self.rules) | {
+            r["id"] for r in self.converted["profile"]["risks"]}
+        for case in self.converted["cases"]:
+            with self.subTest(case=case["id"]):
+                self.assertTrue(case.get("covers"))
+                self.assertLessEqual(set(case["covers"]), known)
+        rc, out = self.lint()
+        self.assertEqual(rc, 0, out["findings"])
+        self.assertEqual(
+            out["summary"]["traceability"]["cases_covering_nothing"], [])
+
+    def test_a_rule_with_no_case_is_reported_as_a_gap(self):
+        rc, out = self.lint(None, "--strict")
+        self.assertEqual((rc, out["error_count"], out["warn_count"]),
+                         (0, 0, 0))
+        trace = out["summary"]["traceability"]
+        self.assertEqual(trace["gaps"], ["rule dispute-window has no case"])
+        self.assertEqual(trace["rules"]["dispute-window"]["cases"], [])
+        # A case dropped from the suite opens a gap on what it alone covered.
+        rest = [c for c in self.converted["cases"] if c["id"] != "c-6c1f82ab"]
+        rc, out = self.lint(rest)
+        self.assertIn("rule read-only has no case",
+                      out["summary"]["traceability"]["gaps"])
+
+    def test_the_planted_contradiction_is_reported(self):
+        """The policy says 30 days, the prompt's fragment says 14: the rule
+        carries the contradiction, findings.md reports both sides with their
+        sources, and the validator lists it."""
+        rule = self.rules["dispute-window"]
+        self.assertIn("30 days", self.quoted_text(rule["source"]))
+        code_side = re.search(r"tests/test_example\.py:\d+",
+                              rule["contradiction"]).group(0)
+        fragment = self.quoted_text(code_side)
+        self.assertIn("14 days", fragment)
+        self.assertIn(fragment.strip().strip('",'), SYSTEM_PROMPT_FRAGMENTS)
+        findings = (STATE / "findings.md").read_text(encoding="utf-8")
+        for needle in (rule["quote"], rule["source"].split(" §")[0],
+                       code_side, "Invoices can be disputed within 14 days"):
+            self.assertIn(needle, " ".join(findings.split()))
+        self.assertEqual(rule["status"], "inferred")
+        rc, out = self.lint()
+        self.assertEqual(out["summary"]["traceability"]["contradictions"],
+                         ["dispute-window"])
+
+    def test_an_unconfirmed_rule_never_gates(self):
+        self.assertEqual(
+            {rid for rid, r in self.rules.items()
+             if r["status"] != "confirmed"}, {"dispute-window"})
+        cases = json.loads(json.dumps(self.converted["cases"]))
+        case = next(c for c in cases if c["id"] == "c-4f2a91c7")
+        case["covers"].append("dispute-window")
+        self.assertIs(case["gating"], True)
+        rc, out = self.lint(cases)
+        self.assertEqual(rc, 1)
+        self.assertEqual([(f["case_id"], f["code"]) for f in out["findings"]
+                          if f["severity"] == "ERROR"],
+                         [("c-4f2a91c7", "unconfirmed_rule_gates")])
+        case["gating"] = False
+        rc, out = self.lint(cases)
+        self.assertEqual(rc, 0, out["findings"])
+        # Every shipped gating case covers confirmed rules (or risks) only.
+        for case in self.converted["cases"]:
+            for rid in case["covers"]:
+                if rid in self.rules:
+                    self.assertEqual(self.rules[rid]["status"], "confirmed")
+
+
 class TestConversionIsFaithful(unittest.TestCase):
     """The deep check, where a YAML parser exists. It is SKIPPED rather than
     required because the blessed commands install no PyYAML and the harness
@@ -385,6 +534,9 @@ class TestConversionIsFaithful(unittest.TestCase):
         cases = [self.normalize(self.load(p))
                  for p in sorted((STATE / "datasets").glob("c-*.yaml"))]
         self.assertEqual(cases, converted["cases"])
+        profile = self.normalize(self.load(STATE / "profile.yaml"))
+        for key in ("schema_version", "business_rules", "risks"):
+            self.assertEqual(profile[key], converted["profile"][key], key)
 
 
 class TestPlanTemplate(ExampleCase):
@@ -608,6 +760,9 @@ class TestDemo(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("PASS", proc.stdout)
         self.assertIn("6 pass, 0 fail", proc.stdout)
+        # The validator runs first, as in the CI recipe (ci-gate.md).
+        self.assertIn("validate_cases.py: 0 errors, 0 warnings; gaps: rule "
+                      "dispute-window has no case", proc.stdout)
 
     def test_the_judge_pass_shows_a_provisional_pass_and_moves_no_gate(self):
         """docs/judge-run.md SS14: the committed fixture replies go through

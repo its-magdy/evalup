@@ -101,11 +101,8 @@ oracle:                           # ground-truth capability for the execution la
   db: { engine: "<engine>", orm: "<detected ORM>" }   # detected during code
                                  # archaeology; free-text, stack-neutral (e.g.
                                  # postgres/"EF Core", or postgres/"SQLAlchemy").
-  # Connection/seed/reset/snapshot mechanics (SELECT-only role, read replica,
-  # ephemeral-container, transaction-rollback) are the adapter's contract, not
-  # repeated here — see oracle.md's `oracle:` block for the actual
-  # wiring. This block only records WHETHER discover set one up, of what
-  # provenance, and is what capability_matrix.execution checks as its precondition.
+  # Connection, seed and reset mechanics are oracle.md's. This block records
+  # only WHETHER one exists, and of what provenance (capability_matrix.execution).
   verified: true | false
 
 capability_matrix:               # which eval layers apply and what blocks them
@@ -145,17 +142,24 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # Scored from the tool-call log + returned record
                                        # IDs, never prose. Off only like trajectory.
 
+business_rules:                  # versioned like the cases; no run scores these (#26)
+  - id: plain-text               # a case's `covers` names it
+    rule: "plain text only: no Markdown, no bullet lines"   # distilled
+    quote: "Reply in plain text, never in Markdown."   # verbatim, one sentence
+    source: "prompts/router.md:4"   # code: the FRAGMENT's file:line; doc: path or URL + §section
+    date: 2026-11-21             # the source's own date, else the day it was read
+    status: inferred             # inferred | confirmed. Only a human confirms, by name in
+    confirmed_by: null           # confirmed_by (the interview); unconfirmed: `gating: false`, no canary
+    # contradiction: "<the other side, with its source>"   when docs and code disagree
+    # outside: true + quote_in: local   a source outside the app repo (interview.md)
+risks:                           # ranked, costliest first; cases `covers` them too
+  - id: risk-refund-overpromise
+    risk: "promises a refund above the order total"
+    source: "findings.md F3"
+
 confirmed_by_human:              # from the discover interview — the app's SHOULD
   domain_boundaries:
     - "cancel subscription → billing (not support)"
-  business_rules:                # no run scores these yet (run SKILL.md §5)
-    - id: no-uncatalogued-prices
-      rule: "never state a price not present in a tool result"
-    - id: plain-text             # one the app's prompt states, found in step 3
-      rule: "plain text only: no Markdown, no bullet lines"
-      source: "prompts/router.md:4"
-    - id: refund-cap
-      rule: "never promise a refund exceeding order total"
   answer_expectations:
     billing: "cites the invoice id it used; no speculation about amounts"
 
@@ -165,21 +169,12 @@ roles:
 
 judge:
   status: uncalibrated | calibrated
-                                 # DERIVED, not set by hand: `calibrated` only when
-                                 # EVERY active rubric is individually calibrated. Each
-                                 # rubric carries its own status.calibrated + tpr/tnr/kappa
-                                 # in its rubric file (see ${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md); a
-                                 # harness can hold several rubrics at different maturity,
-                                 # and one uncalibrated active rubric keeps this global
-                                 # status `uncalibrated` (the optimizer refuses judged
-                                 # objectives until it flips).
+                                 # DERIVED, never set by hand: `calibrated` only when
+                                 # EVERY active rubric is (its own status, in its file:
+                                 # ${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md).
   calibration: { labelled_pairs: 0, tpr: null, tnr: null, kappa: null, last_checked: null }
-                                 # WHAT derives it: ${CLAUDE_PLUGIN_ROOT}/scripts/
-                                 # score_agreement.py, over the calibration lines of an
-                                 # annotation JSONL. Its --write sidecar (paths.
-                                 # judge_calibration) is what run_cases.py checks; this
-                                 # block is the human-readable copy, and on its own it
-                                 # opens nothing.
+                                 # a human-readable copy: score_agreement.py --write's
+                                 # sidecar is what run_cases.py checks; this opens nothing.
   model: ""                      # must differ from app's model family, or
   same_family_accepted: false    # ...user consciously accepted the bias risk
                                  # model overrides the judge agent's, launched by the

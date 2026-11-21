@@ -7,13 +7,15 @@
 Until this file the only way to execute the example was `python3 -m unittest
 tests.test_example`, which proves it works and shows a reader a row of dots.
 Reproducing one run by hand meant lifting the fixture app out of the test file
-(2026-09 audit). This does the four things `/evalup:run` does, with the same
-scripts and nothing else:
+(2026-09 audit). This does what `/evalup:run` does, with the same scripts
+and nothing else:
 
   1. start the app under test on a real local port
-  2. build plan.json from plan.template.json + converted.json
-  3. run_cases.py  -> reports/<run-id>/   (pre-flight, 6 app calls, every scorer)
-  4. gate.py       -> the pass/fail line and exit code CI would see
+  2. validate_cases.py on converted.json -- stops on any ERROR, such as a
+     gating case covering a business rule no human confirmed (#25)
+  3. build plan.json from plan.template.json + converted.json
+  4. run_cases.py  -> reports/<run-id>/   (pre-flight, 6 app calls, every scorer)
+  5. gate.py       -> the pass/fail line and exit code CI would see
      build_review_viewer.py -> viewer.html, the page a human reviews
 
 The app is imported from tests/test_example.py rather than copied here, so the
@@ -35,7 +37,8 @@ until SIGTERM or Ctrl-C: the app a CI job starts before its eval steps. The
 repository's own CI runs the workflow template (ci/github-actions.yml)
 against it.
 
-Exit code is gate.py's: 0 on the shipped example, 1 under --break.
+Exit code is gate.py's: 0 on the shipped example, 1 under --break; the
+validator's when it finds an error.
 """
 import argparse
 import datetime
@@ -144,6 +147,21 @@ def main():
     (state / "reports").mkdir(parents=True)
     app = HelpdeskApp()
     try:
+        # The combined document serves every flag (#25). Not --strict: a
+        # WARN is the author's to read, an ERROR makes the run untrue.
+        combined = str(HERE / "converted.json")
+        lint = script("validate_cases.py", "--cases", combined,
+                      "--capabilities", combined, "--profile", combined,
+                      "--rubrics", combined, capture_output=True)
+        if lint.returncode != 0:
+            print(f"validate_cases.py exited {lint.returncode}:\n"
+                  f"{lint.stdout}{lint.stderr}")
+            return lint.returncode
+        report = json.loads(lint.stdout)
+        print(f"validate_cases.py: {report['error_count']} errors, "
+              f"{report['warn_count']} warnings; gaps: "
+              + ("; ".join(report["summary"]["traceability"]["gaps"])
+                 or "none"))
         converted = json.loads((HERE / "converted.json").read_text("utf-8"))
         cases = converted["cases"]
         if a.broken:

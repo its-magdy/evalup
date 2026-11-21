@@ -1,7 +1,8 @@
 # evalup in CI: run your app's eval suite on every pull request and fail the
 # job when the gate closes. Deterministic layers only -- no Claude, no model
-# key for evalup itself: convert_suite.py -> make_plan.py -> run_cases.py ->
-# gate.py, the four commands of README "Without Claude (CI)".
+# key for evalup itself: convert_suite.py -> validate_cases.py ->
+# make_plan.py -> run_cases.py -> gate.py, the five commands of README
+# "Without Claude (CI)".
 #
 # Copy this file to .github/workflows/evalup.yml in YOUR APP's repository and
 # edit the lines marked EDIT. README "CI workflow template" walks through them.
@@ -136,6 +137,14 @@ jobs:
           run_dir="$EVALUP_STATE_DIR/reports/$run_id"
           python "$EVALUP_SCRIPTS/convert_suite.py" "$EVALUP_STATE_DIR" \
             -o "$RUNNER_TEMP/converted.json"
+          # Its JSON report goes to the log. Exit 1 on any ERROR stops this
+          # step before a run: among them a gating case or canary covering
+          # a business rule no human confirmed. The combined document
+          # serves every flag.
+          python "$EVALUP_SCRIPTS/validate_cases.py" \
+            --cases "$RUNNER_TEMP/converted.json" \
+            --capabilities "$RUNNER_TEMP/converted.json" \
+            --profile "$RUNNER_TEMP/converted.json"
           python "$EVALUP_SCRIPTS/make_plan.py" "$RUNNER_TEMP/converted.json" \
             --mode regression --k "$EVALUP_K" --state-dir "$EVALUP_STATE_DIR" \
             --run-id "$run_id" -o "$RUNNER_TEMP/plan.json"

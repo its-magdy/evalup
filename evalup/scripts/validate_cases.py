@@ -111,6 +111,29 @@ plan applies too), and a case pinning a rubric with no file, or an older
 version than the file's, WARNs: the first is never judged, the second is
 judged on the file's version and can never be `calibrated`.
 
+BUSINESS RULES AND TRACEABILITY (--profile, #25). A case names the rule and
+risk ids it is for in `covers`; --profile resolves them against
+profile.yaml's `business_rules` and `risks`. An id that resolves to nothing
+is an ERROR (dangling_cover: the coverage report would credit a rule that
+does not exist), and so is a GATING case covering a rule no human confirmed
+(unconfirmed_rule_gates): an inferred rule may be misread or invented and
+must never decide a gate. A rule is confirmed only with `status: confirmed`
+AND a human's name in `confirmed_by`. The rules' own shape (quote, source,
+date, status) WARNs, as do a case covering a rule that still carries a
+`contradiction:` (covers_contradicted_rule) and rules left under
+confirmed_by_human.business_rules (legacy_rules_location), which nothing
+reads. `summary.traceability` lists each rule's and risk's
+cases, the GAPS (an id with no case), the unconfirmed rules and the
+contradicted ones, and the `gating: false` cases covering an unconfirmed
+rule (unconfirmed_non_gating: they close no gate, but gate.py
+--min-pass-rate counts every scored non-canary case). A canary covering an
+unconfirmed rule is the same ERROR as a gating case: its fail aborts the
+run. A gap is a report line, not a finding: a rule with no
+case makes no number untrue -- nothing scores rules (#26) -- and an inferred
+or contradicted rule is meant to wait for its case, which a --strict
+failure would push generate to write. `covers` reaches no scorer and no
+verdict.
+
 Usage: validate_cases.py --cases <file.json|->
                          (--capabilities <file.json> | --no-capabilities)
                          [--strict] [--manifest <file.json>]
@@ -1180,6 +1203,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
                  "exception")
 
     check_review(rep, label, case)
+    check_covers_shape(rep, label, case)
 
     if "filter" in case:
         # A `filter:` block reads as provenance from the SS2b mechanical
@@ -1572,6 +1596,238 @@ def check_adapter(rep, cases, records, adapter):
                      "or declare a route_from_response path")
 
 
+RULE_STATUSES = ("confirmed", "inferred")
+# An in-repo source names the file a rule was read from: `path:line` for a
+# code fragment, `path §section` for a doc. "the system prompt" names none --
+# and a prompt assembled from per-domain fragments has several (#25).
+# The stem is two characters or more, so "e.g" and "i.e" name no file.
+PATH_SHAPED = re.compile(
+    r"[\w.-]+/[\w./-]+|[\w-]{2,}\.[A-Za-z][A-Za-z0-9]{0,4}\b")
+
+
+def case_covers(case):
+    """The ids a case's `covers` names, when it is a list of strings."""
+    covers = case.get("covers") if isinstance(case, dict) else None
+    if not isinstance(covers, list):
+        return []
+    return [c.strip() for c in covers if is_nonempty_str(c)]
+
+
+def check_covers_shape(rep, label, case):
+    if "covers" not in case:
+        return
+    covers = case.get("covers")
+    if not isinstance(covers, list) or not covers \
+            or not all(is_nonempty_str(c) for c in covers):
+        rep.error(label, "bad_covers",
+                  f"covers must be a non-empty list of rule or risk ids from "
+                  f"profile.yaml, got {covers!r}; a malformed link counts in "
+                  "no coverage report and hides the case from the "
+                  "unconfirmed-rule gating check")
+
+
+URL_SOURCE = re.compile(r"https?://", re.I)
+# Who may confirm a business rule: a person, by name. Stricter than
+# MACHINE_REVIEWER, which only knows the generator's stamps: a rule is
+# confirmed in discover's interview, so an agent's own names are refused
+# too, as whole words of the name ("claude-code", "gpt-4o", "evalup bot").
+# A person who shares one writes a handle that does not.
+MACHINE_CONFIRMER = re.compile(
+    r"(?<![a-z0-9])(claude|anthropic|discover|evalup|assistant|agent|ai|llm|"
+    r"model|gpt|chatgpt|openai|gemini|copilot|bot|generated?|"
+    r"test-generator|auto|automatic|machine|system)(?![a-z0-9])", re.I)
+
+
+def rule_status(rule):
+    """The status a rule is READ as. Only `confirmed` with a human's name in
+    `confirmed_by` counts as confirmed; everything else -- no status, a typo,
+    a confirmation nobody signed -- is inferred, so it can never gate."""
+    by = rule.get("confirmed_by")
+    if rule.get("status") == "confirmed" and is_nonempty_str(by) \
+            and not MACHINE_REVIEWER.match(by.strip()) \
+            and not MACHINE_CONFIRMER.search(by):
+        return "confirmed"
+    return "inferred"
+
+
+def check_rule_entry(rep, rule, where):
+    """The shape #25 asks of every rule: a verbatim quote, a source, a date
+    and a status. WARN, not ERROR: an incomplete rule is read as inferred, so
+    it already cannot gate, and nothing scores it."""
+    rid = rule.get("id")
+    name = f"business_rules {rid!r}" if is_nonempty_str(rid) else where
+    source = rule.get("source")
+    # A URL is outside the app repo whether or not `outside:` says so.
+    outside = rule.get("outside") is True or (
+        is_nonempty_str(source) and bool(URL_SOURCE.search(source)))
+    missing = [key for key in ("rule", "source", "date")
+               if not is_nonempty_str(str(rule.get(key) or ""))]
+    has_quote = is_nonempty_str(rule.get("quote"))
+    if not has_quote and not (outside and rule.get("quote_in") == "local"):
+        missing.append("quote" + (" (or quote_in: local)" if outside else ""))
+    if "status" not in rule:
+        missing.append("status")
+    if missing:
+        rep.warn(None, "rule_incomplete",
+                 f"profile.yaml {name} has no {', '.join(missing)}: every "
+                 "rule carries a verbatim quote, its source, a date and a "
+                 "status (discover SKILL.md step 3), or nobody can check it "
+                 "against what it was read from"
+                 + ("; it is read as inferred" if "status" in missing else ""))
+    status = rule.get("status")
+    if "status" in rule and status not in RULE_STATUSES:
+        rep.warn(None, "rule_bad_status",
+                 f"profile.yaml {name}: status {status!r} is not one of "
+                 f"{', '.join(RULE_STATUSES)}; it is read as inferred")
+    if status == "confirmed" and rule_status(rule) != "confirmed":
+        rep.warn(None, "rule_confirmed_unattributed",
+                 f"profile.yaml {name} is `confirmed` but confirmed_by is "
+                 f"{rule.get('confirmed_by')!r}; only a human confirms a "
+                 "rule, by name (not a model, an agent or evalup), so it "
+                 "is read as inferred and cannot gate")
+    if not outside and is_nonempty_str(source) \
+            and not PATH_SHAPED.search(source):
+        rep.warn(None, "rule_source_vague",
+                 f"profile.yaml {name}: source {source!r} names no file; "
+                 "cite the fragment's file:line for code, or the doc's "
+                 "path and section -- a prompt built from several fragments "
+                 "has no single 'the prompt'")
+    if outside and has_quote and rule.get("quote_versioned") is not True:
+        rep.warn(None, "outside_quote_versioned",
+                 f"profile.yaml {name} quotes a source outside the app repo "
+                 "in a file meant to be versioned: everyone with the repo "
+                 "would get access-controlled text. Move the quote to "
+                 "quotes.local.md (git-ignored) and write `quote_in: local`, "
+                 "or set `quote_versioned: true` if the user opted in")
+
+
+def check_traceability(rep, cases, profile):
+    """#25: link each case to the rules and risks it covers, refuse a gate
+    decided by an unconfirmed rule, and report the gaps.
+
+    Nothing here scores a rule. The links are bookkeeping on the suite; the
+    runner never reads `covers`, and no verdict changes with it."""
+    rules = profile.get("business_rules")
+    risks = profile.get("risks")
+    for kind, value in (("business_rules", rules), ("risks", risks)):
+        if value is not None and not isinstance(value, list):
+            rep.warn(None, "rules_not_a_list",
+                     f"profile.yaml {kind} is a {type(value).__name__}, not "
+                     "a list of entries, so none of it was read and no case "
+                     "can cover it")
+    legacy = mapping(profile.get("confirmed_by_human")).get("business_rules")
+    if legacy:
+        rep.warn(None, "legacy_rules_location",
+                 "profile.yaml still has confirmed_by_human.business_rules, "
+                 "which nothing reads any more: move each rule to the "
+                 "top-level business_rules list, status: inferred until the "
+                 "interview re-confirms it (discover rerun.md)")
+    rules = rules if isinstance(rules, list) else []
+    risks = risks if isinstance(risks, list) else []
+    known, statuses, contradicted = {}, {}, set()
+    for kind, entries in (("business_rules", rules), ("risks", risks)):
+        for i, entry in enumerate(entries):
+            where = f"{kind}[{i}]"
+            rid = entry.get("id") if isinstance(entry, dict) else None
+            if rid is not None and not isinstance(rid, str):
+                rep.warn(None, "rule_incomplete",
+                         f"profile.yaml {where}: id must be a string, got "
+                         f"{rid!r}, so no case can name it in `covers`")
+                continue
+            if not is_nonempty_str(rid):
+                rep.warn(None, "rule_incomplete",
+                         f"profile.yaml {where} has no id, so no case can "
+                         "name it in `covers`")
+                continue
+            rid = entry["id"].strip()
+            if rid in known:
+                rep.error(None, "duplicate_rule_id",
+                          f"profile.yaml id {rid!r} is in {known[rid]} and "
+                          f"{where}; a case's `covers` cannot say which one "
+                          "it means, so the coverage report would be untrue")
+                continue
+            known[rid] = where
+            if kind == "business_rules":
+                check_rule_entry(rep, entry, where)
+                statuses[rid] = rule_status(entry)
+                if is_nonempty_str(entry.get("contradiction")):
+                    contradicted.add(rid)
+    by_id = {rid: [] for rid in known}
+    non_gating = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        label = case.get("id") if is_nonempty_str(case.get("id")) else None
+        covers = case_covers(case)
+        for rid in covers:
+            if rid in by_id:
+                if label is not None and label not in by_id[rid]:
+                    by_id[rid].append(label)
+            else:
+                rep.error(label, "dangling_cover",
+                          f"covers names {rid!r}, which is no id in "
+                          "profile.yaml's business_rules or risks; the "
+                          "coverage report would credit a rule that does "
+                          "not exist")
+        if known and not covers and "covers" not in case:
+            rep.warn(label, "case_covers_nothing",
+                     "case names no rule or risk in `covers`; every case "
+                     "says which business rule or risk it is for, or the "
+                     "gap report cannot tell what is untested")
+        unconfirmed = [rid for rid in covers
+                       if statuses.get(rid) == "inferred"]
+        canary = "canary" in (case.get("split") or [])
+        if unconfirmed and (gates(case) or canary):
+            # A canary closes no gate, but its `fail` aborts the whole run
+            # (EXIT_CANARY): an inferred rule would decide the run instead.
+            what = ("case is a canary, whose fail aborts the run," if canary
+                    else "case gates (gating is not false)")
+            rep.error(label, "unconfirmed_rule_gates",
+                      f"{what} and covers "
+                      f"{', '.join(repr(r) for r in unconfirmed)}, which no "
+                      "human has confirmed (status is not `confirmed` with "
+                      "a confirmed_by); an inferred rule may be misread or "
+                      "invented, and it must never decide a gate. "
+                      + ("Cover only confirmed rules in a canary" if canary
+                         else "Set `gating: false` until the owner "
+                              "confirms the rule"))
+        elif unconfirmed and label is not None:
+            non_gating.append(label)
+        stale = [rid for rid in covers if rid in contradicted]
+        if stale:
+            rep.warn(label, "covers_contradicted_rule",
+                     f"covers {', '.join(repr(r) for r in stale)}, which "
+                     "still carries a `contradiction:`: docs and code "
+                     "disagree, so the case's expectation picks a side the "
+                     "owner has not chosen. Ask the owner (discover "
+                     "interview), then clear the contradiction")
+    rule_rows, risk_rows = {}, {}
+    for rid, where in known.items():
+        if where.startswith("business_rules"):
+            rule_rows[rid] = {"status": statuses[rid], "cases": by_id[rid]}
+        else:
+            risk_rows[rid] = {"cases": by_id[rid]}
+    return {
+        "rules": rule_rows,
+        "risks": risk_rows,
+        "gaps": [f"{'rule' if rid in rule_rows else 'risk'} {rid} has no case"
+                 for rid in known if not by_id[rid]],
+        "unconfirmed": [rid for rid, row in rule_rows.items()
+                        if row["status"] != "confirmed"],
+        # `gating: false` cases on an unconfirmed rule: they close no gate,
+        # but gate.py --min-pass-rate counts every scored non-canary case.
+        "unconfirmed_non_gating": sorted(non_gating),
+        "contradictions": [
+            e["id"].strip() for e in rules
+            if isinstance(e, dict) and is_nonempty_str(e.get("id"))
+            and is_nonempty_str(e.get("contradiction"))
+            and known.get(e["id"].strip(), "").startswith("business_rules")],
+        "cases_covering_nothing": sorted(
+            c["id"] for c in cases if isinstance(c, dict)
+            and is_nonempty_str(c.get("id")) and not case_covers(c)),
+    }
+
+
 def check_rubrics(rep, cases, path):
     """--rubrics: lint every rubric file, then each case's pin against it."""
     text = sys.stdin.read() if path == "-" else load_text(path)
@@ -1646,9 +1902,11 @@ def main():
                          "would skip")
     ap.add_argument("--profile",
                     help="JSON profile (convert_suite.py --split-dir writes "
-                         "profile.json); checked for its schema_version, and "
+                         "profile.json); checked for its schema_version, "
                          "its stage refuses expect.tools.order before "
-                         "stage: stable")
+                         "stage: stable, and its business_rules and risks "
+                         "resolve each case's `covers` (summary."
+                         "traceability)")
     ap.add_argument("--manifest",
                     help="JSON with dataset.yaml's cases/splits/coverage_grid "
                          "fields (caller extracts them with its own YAML "
@@ -1698,10 +1956,23 @@ def main():
     for case in cases:
         if isinstance(case, dict):
             check_schema_version(rep, case, "case", case.get("id"))
+    traceability = None
     if a.profile:
         profile = load_json_object(a.profile, "the profile")
+        if "cases" in profile and isinstance(profile.get("profile"), dict):
+            # convert_suite.py's combined document carries the profile's
+            # keys under `profile`, as it carries the rubrics under
+            # `rubrics`: the one file serves --cases, --profile, --rubrics.
+            profile = profile["profile"]
         check_schema_version(rep, profile, "profile")
         check_order_stage(rep, cases, profile.get("stage"))
+        traceability = check_traceability(rep, cases, profile)
+    elif any(isinstance(c, dict) and "covers" in c for c in cases):
+        rep.warn(None, "covers_unchecked",
+                 "cases carry `covers` but no --profile was given, so no "
+                 "link was resolved and nothing checked that an unconfirmed "
+                 "rule does not gate; pass the profile (convert_suite.py "
+                 "--split-dir writes profile.json)")
     if a.adapter:
         adapter = load_json_object(a.adapter, "the adapter")
         check_schema_version(rep, adapter, "adapter")
@@ -1760,6 +2031,10 @@ def main():
         # Listed even when empty, so "none waiting" is a statement, not a
         # missing key. Absent only when no --manifest was given.
         summary["label_fixes_open"] = open_fixes
+    if traceability is not None:
+        # Absent without --profile, like label_fixes_open without
+        # --manifest: an empty report would read as "no gaps".
+        summary["traceability"] = traceability
     errors = sum(1 for f in rep.findings if f["severity"] == "ERROR")
     print(json.dumps({
         "harness_version": HARNESS_VERSION,

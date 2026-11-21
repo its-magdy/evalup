@@ -76,6 +76,21 @@ class TestTemplateLoads(unittest.TestCase):
         self.assertTrue(any("gate.py" in r and "--baseline" in r
                             for r in runs))
 
+    def test_the_suite_is_validated_before_it_is_planned(self):
+        """#25: validate_cases.py is what refuses a gating case on a rule
+        no human confirmed; a step that plans first lets it gate. It runs
+        under `bash -e`, so its exit 1 stops the step."""
+        _, steps = run_template.load(TEMPLATE.read_text(encoding="utf-8"))
+        run = next(s["run"] for s in steps if "make_plan.py" in s.get("run", ""))
+        order = [run.find(name) for name in
+                 ("convert_suite.py", "validate_cases.py", "make_plan.py")]
+        self.assertTrue(all(i >= 0 for i in order), order)
+        self.assertEqual(order, sorted(order))
+        call = run[order[1]:order[2]]
+        for flag in ("--cases", "--capabilities", "--profile"):
+            self.assertIn(f'{flag} "$RUNNER_TEMP/converted.json"', call)
+        self.assertNotIn("||", call)
+
     def test_ci_yml_parses_and_ci_template_is_a_job(self):
         doc = yaml.safe_load(CI.read_text(encoding="utf-8"))
         self.assertIn("ci-template", doc["jobs"])

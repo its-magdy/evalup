@@ -42,6 +42,8 @@ Reads, under <state-dir>:
 Writes one JSON document (stdout, or -o <file>):
   {"adapter", "capability_matrix", "scoring", "profile", "manifest", "cases",
    "sources"}
+`profile` holds profile.yaml's schema_version, stage, judge, business_rules
+and risks -- enough to pass as validate_cases.py --profile on its own.
 `sources` maps each case id to the file it came from, so a finding about
 c-3f9a2c1d names a file to open. With --split-dir <dir> it ALSO writes the
 files the other CLIs take as separate flags: suite.json (--cases),
@@ -93,6 +95,11 @@ from _common import add_version_flag, die, load_text, write_output
 
 NOT_A_CASE = "dataset.yaml"
 SCORING_FIELDS = ("oos_handling", "record_id_pattern")
+# The profile keys the combined document carries under "profile": what
+# make_plan.py and validate_cases.py --profile read. business_rules and risks
+# are bookkeeping (#25) -- no scorer reads them.
+PROFILE_FIELDS = ("schema_version", "stage", "judge", "business_rules",
+                  "risks")
 
 
 def yaml_module():
@@ -315,9 +322,11 @@ def main():
     doc = {"adapter": adapter, "capability_matrix": matrix,
            "scoring": {key: profile[key] for key in SCORING_FIELDS
                        if key in profile},
-           # make_plan.py copies this into manifest_extra; the judged gate
-           # is still DERIVED from the calibration sidecar, never this word.
-           "profile": {key: profile[key] for key in ("stage", "judge")
+           # make_plan.py copies `judge` into manifest_extra; the judged
+           # gate is still DERIVED from the calibration sidecar, never this
+           # word. The rest is what validate_cases.py --profile reads, so
+           # the combined document alone can lint traceability (#25).
+           "profile": {key: profile[key] for key in PROFILE_FIELDS
                        if key in profile},
            "manifest": manifest, "cases": cases, "sources": sources}
     # Only when the folder exists, so a conversion of a state dir with no

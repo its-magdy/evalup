@@ -29,7 +29,10 @@ The scenario, three passes, each on a fresh RUNNER_TEMP:
      cloned fresh -- so only committed files reach the run -- and gated
      --baseline: opens, and the gate names the baseline;
   3. one case's expectation broken in that clone: the gate closes on a
-     regression and the job fails.
+     regression and the job fails;
+  4. a gating case made to cover the quickstart's inferred rule
+     (dispute-window): validate_cases.py refuses it, so the job fails
+     before any run and the gate never writes its summary.
 
 Steps call `python`, which setup-python provides; here it is this
 interpreter, whose directory leads PATH. The template's own step pip-installs
@@ -204,7 +207,7 @@ def main():
     print(f"plugin under test: {repo} at {head}\nworking in {tmp}")
     failures = []
 
-    def run_pass(n, workdir, want_rc, want_text):
+    def run_pass(n, workdir, want_rc, want_text, unwanted_text=()):
         runner_temp = tmp / f"runner-{n}"
         runner_temp.mkdir()
         print(f"\n=== pass {n}: {workdir.name}, expecting exit {want_rc}")
@@ -220,6 +223,9 @@ def main():
         for want in want_text:
             if want not in text:
                 failures.append(f"pass {n}: the gate summary lacks {want!r}")
+        for unwanted in unwanted_text:
+            if unwanted in text:
+                failures.append(f"pass {n}: the summary has {unwanted!r}")
 
     try:
         dev = tmp / "app-dev"
@@ -252,6 +258,17 @@ def main():
         case.write_text(text.replace('must_contain: ["412.50"]',
                                      'must_contain: ["999.99"]'), "utf-8")
         run_pass(3, app, 1, [f"baseline {baseline}: 1 regression(s)"])
+
+        case = app / ".evalup" / "datasets" / "c-6c1f82ab.yaml"
+        text = case.read_text("utf-8")
+        covers = "covers: [plain-text, read-only]"
+        if covers not in text:
+            failures.append(f"pass 4: {case.name} lacks {covers!r}")
+            return 1
+        case.write_text(text.replace(
+            covers, "covers: [plain-text, read-only, dispute-window]"),
+            "utf-8")
+        run_pass(4, app, 1, [], ["evalup gate"])
     finally:
         if a.keep:
             print(f"\nkept: {tmp}")
@@ -259,7 +276,8 @@ def main():
             shutil.rmtree(tmp, ignore_errors=True)
         print("\n" + ("\n".join(failures) if failures
                       else "the template ran: no baseline -> open, "
-                           "baseline -> open, regression -> closed"))
+                           "baseline -> open, regression -> closed, "
+                           "unconfirmed rule gating -> refused"))
     return 1 if failures else 0
 
 
