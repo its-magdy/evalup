@@ -705,6 +705,18 @@ class TestCookieStyle(ConversationCase):
         self.assertNotIn("sid=s1", tree)
         self.assertNotIn("secret-auth", tree)
 
+    def test_a_required_header_rides_every_turn(self):
+        """#50: invocation.headers beside the cookie jar, turn by turn."""
+        app = self.cookie_app()
+        plan = self.cookie_plan(app)
+        plan["adapter"]["invocation"]["headers"] = {"Origin": "http://app.test"}
+        self.invoke_cookie(plan)
+        asks = self.asks(app)
+        self.assertEqual(len(asks), 2)
+        self.assertEqual([a["headers"].get("Origin") for a in asks],
+                         ["http://app.test"] * 2)
+        self.assertIn("sid=s1", asks[1]["headers"]["Cookie"])
+
     def test_a_restart_gets_a_fresh_jar(self):
         app = self.cookie_app(fail_turn_two_once=True)
         self.invoke_cookie(self.cookie_plan(app))

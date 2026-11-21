@@ -246,6 +246,7 @@ def evaluate(results, max_infra_rate, require_canaries=False):
         "skipped": count(summary, "skipped"),
         "infra_errors": count(summary, "infra_errors"),
         "repeated_5xx": count(summary, "repeated_5xx"),
+        "uniform_4xx": uniform_4xx_fact(summary),
         "infra_rate": infra_rate, "crash_rate": summary.get("crash_rate"),
         "scorer_errors": count(summary, "scorer_errors"),
         "unscorable_layers": summary.get("unscorable_layers") or [],
@@ -256,6 +257,16 @@ def evaluate(results, max_infra_rate, require_canaries=False):
         "memory": results.get("memory"),
     }
     return reasons, facts
+
+
+def uniform_4xx_fact(summary):
+    """summary.uniform_4xx when it is {status, cases} counts, else None.
+    Printed, never a reason: it changes no verdict (#50)."""
+    found = summary.get("uniform_4xx")
+    if isinstance(found, dict) and is_count(found.get("status")) \
+            and is_count(found.get("cases")):
+        return found
+    return None
 
 
 def percent(value):
@@ -326,6 +337,19 @@ def render(facts, reasons):
             f"  {facts['repeated_5xx']} infra case(s) got the same 5xx on "
             "every attempt: possibly the app's own error, not the provider "
             f"-- {where}")
+    if facts["uniform_4xx"]:
+        # Every sent case got one 4xx on every request. Each verdict stands
+        # as scored, and under route_from_status {403: denied} they can all
+        # read as correct refusals -- but a guard refusing the harness (a
+        # same-origin or CSRF check, a lapsed credential) looks exactly like
+        # this (#50). Say so beside the counts it would otherwise explain.
+        found = facts["uniform_4xx"]
+        lines.append(
+            f"  all {found['cases']} answered case(s), canaries included, "
+            f"got HTTP {found['status']} on every request: likely the "
+            "harness refused (same-origin/CSRF guard, auth) or misaddressed, "
+            "not the app's answer -- check invocation.headers, auth, "
+            "endpoint and request_body before reading these verdicts")
     lines.extend(conversation_lines(facts))
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):

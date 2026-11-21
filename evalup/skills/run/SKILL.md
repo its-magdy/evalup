@@ -193,7 +193,9 @@ guard that throws looks exactly like this — which a re-run or a raised
 threshold would hide. Open its `response.json` (never on a holdout run: those
 directories are sealed) and report a possible app defect, still counted as
 infra. Never lower the abort, and never read a partial pass rate as the
-app's score.
+app's score. A **"got HTTP <status> on every request"** line
+(`summary.uniform_4xx`) likely means a guard refused the harness or a wrong
+endpoint: fix `invocation.headers`, auth or endpoint, re-run before quoting.
 
 ## 4. Baseline and the holdout ledger
 

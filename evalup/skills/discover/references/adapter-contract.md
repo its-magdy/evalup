@@ -40,6 +40,11 @@ invocation:
   #                    X-User-Permissions: ${TEST_PERMS} } }
   # auth: { type: cookie, cookie_env: APP_TEST_COOKIE }
   # auth: { type: none }
+  headers: { Origin: "${APP_ORIGIN}" }  # optional: sent on EVERY request (and
+                                # the health check) beside auth -- the Origin
+                                # (scheme://host[:port], no path) or CSRF header
+                                # a guard checks. A secret as ${REF}; never a
+                                # name auth or identity_map sets.
 
   # --- http mode: how a request is BUILT and a response is READ ---
   # These are TEMPLATES the runner substitutes into, not examples. The runner
@@ -255,14 +260,11 @@ data:
 
 ## Capability table — the language-agnostic seam
 
-This is the actual contract boundary. Every row is a **capability** the harness
-needs; every cell in the "adapter provides" column is a **normalized value**
-core code (scorers, judge, stats, skills) is allowed to touch. Core code reads
-these normalized values and NEVER the language/framework that produced them —
-there is no `if language == "dotnet"` anywhere outside an adapter file. A
-second adapter (Python, Go, ...) fills the same table with different mechanics
-and every scorer/skill keeps working unmodified. See
-`adapters/dotnet.md` for the first concrete filling of this table.
+The contract boundary. Each row is a **capability** the harness needs; the
+"adapter provides" column is the **normalized value** core code (scorers,
+judge, stats, skills) reads — never the language or framework behind it, so
+there is no `if language == "dotnet"` outside an adapter file, and a second
+adapter fills the same table. `adapters/dotnet.md` is the first filling.
 
 | Capability | Adapter provides to core | adapter.yaml field(s) |
 |---|---|---|
@@ -308,13 +310,7 @@ instruction or inferred from context:
    classes — belt-and-suspenders for the case where a `needs-mock`
    classification turns out to be wrong.
 
-When the app does build a per-call wrapper, put it in one place (not
-scattered checks): before dispatching a call, look up the tool's
-`side_effects` class and the environment's `kind`/`safe_to_attack`, and
-either pass the call through, substitute the mock, or raise — and log that
-decision so a blocked call is visible, not silently swallowed. The classes
-above are identical for every adapter; only *how* a wrapper intercepts a call
-(middleware, decorator, DI interceptor) differs, and that mechanics detail
-belongs in the per-adapter doc (see `adapters/dotnet.md` for the .NET instance: static analysis of
-`SaveChangesAsync`/`ExecuteUpdate`/`ExecuteDelete` or a `[SideEffect]`
-attribute convention feeding the same wrapper contract).
+An app that builds a per-call wrapper puts it in one place: look up the
+tool's `side_effects` and the environment's `kind`/`safe_to_attack`, then
+pass, mock or raise, and log the decision. How it intercepts (middleware,
+decorator, DI) is the per-adapter doc's (`adapters/dotnet.md` for .NET).

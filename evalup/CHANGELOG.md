@@ -1111,6 +1111,34 @@ Three of #29's borrowed ideas, all skill text; no script changed.
 - **No scoring semantics changed** (`SCORING_VERSION` stays 1): each item
   reads numbers the scripts already write and changes no verdict.
 
+### Added — reach: required headers, and a run on one 4xx is flagged (2026-11-21)
+
+#50. On a live TypeScript/Cloudflare app the first live check got `403
+Cross-origin request refused`: the adapter had no way to send an `Origin`
+except by misusing `auth: {type: headers}`, and under `route_from_status:
+{403: denied}` a run would have scored every case as a correct refusal.
+
+- **`invocation.headers`**: `{name: value}` sent on every request beside the
+  auth — each case, each turn, the health check and `--probe`. Pre-flight
+  (exit 3) refuses a non-token name, an empty value, function mode, a name
+  the runner, `auth` or `identity_map` already sets, and a credential-like
+  name (`token`, `csrf`, `key`, …) with an inline value instead of a
+  `${REF}`, or two names equal but for case. A `${REF}` value is redacted
+  in `request.json`, like auth. A run's pre-flight now also refuses an env
+  var feeding a header or the URL that holds a control character, as the
+  probe did: `http.client` printed the value in a traceback.
+- **Discover** looks for same-origin, Origin or CSRF middleware on the chat
+  route and writes the header it checks (§3).
+- **`--probe`** names a 4xx whose body says origin, CSRF or cross-site as a
+  guard, and points at `invocation.headers` instead of "check auth".
+- **A run where every sent case got the same 4xx on every request** is
+  flagged, the `repeated_5xx` (F-165) way: `verdict.json` carries
+  `same_4xx`, `summary.uniform_4xx` is `{status, cases}` (≥ 2 answered
+  cases, canaries included; `infra_error` ones left out), `--verify`
+  recounts it, the runner's closing line and `gate.py` print it, and a
+  failing canary's abort message names its 4xx. Print-only in the gate: no verdict, reason
+  or exit code changes, so `SCORING_VERSION` stays 1.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
