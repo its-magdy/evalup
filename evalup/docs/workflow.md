@@ -13,7 +13,8 @@ matter because they fail differently when skipped.
 
 The domain arbiter is the role teams skip — and the reason judge numbers stay
 watermarked PROVISIONAL until the labeling happens. QA and the arbiter never
-need Claude Code: datasets are YAML, reports are HTML/Markdown.
+need Claude Code: datasets are YAML, reports are Markdown, the review page is
+HTML.
 
 ## Day 1 — first contact (a result in the first sitting)
 

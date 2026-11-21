@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1069 tests, ~2.5 min (136–174 s measured 2026-11-19 to 2026-11-21), the blessed command.
+1026 tests, ~2.5 min (136–190 s measured 2026-11-19 to 2026-11-21), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,16 +43,16 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1057 passed, 12 skipped, 484 subtests.
+whatever `python3` happens to be. Expect 1014 passed, 12 skipped, 462 subtests.
 All twelve skips need PyYAML (nine are `convert_suite.py`'s, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check); add
-`--with pyyaml` and they run (1069 passed, none
+`--with pyyaml` and they run (1026 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
-There are **21** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **20** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`
 is a shared module, not a CLI: it has no argparse, so `python _common.py --help`
 exits 0 having printed nothing, which is why the check tests for output and not
@@ -142,8 +142,6 @@ it is Linux-only.
 - **JSON in is strict** (`_common.loads_strict`): `NaN`/`Infinity`, recursion
   blow-ups and the int-digit limit are all exit 2. Only the review viewer loads
   leniently, because its job is to show whatever a run holds.
-- **`md_to_html.py` allowlists URL schemes.** Never go back to a denylist: the
-  one it replaced was bypassed by a leading control byte.
 - **The first session's plugin text has a budget: 25,000 tokens**, counted
   as words × 1.33 by `tests/test_context_budget.py` over the four SKILL.md
   files on the start → discover → generate → run path and the references

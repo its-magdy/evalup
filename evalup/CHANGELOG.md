@@ -1035,6 +1035,17 @@ Nothing is built: every judged layer is still `unjudged`.
   `rubric-format.md`. **No scoring semantics changed** (`SCORING_VERSION`
   stays 1).
 
+### Removed — report.html (2026-11-21)
+
+- **`scripts/md_to_html.py` and its tests are gone** (#21, decided in #32).
+  `run` no longer renders `report.html` beside `report.md`: two independent
+  reviews recommended dropping it, the converter had already needed two XSS
+  fixes (above), and the review viewer (`build_review_viewer.py`) remains
+  the shareable HTML page. `report.md` is the run's written report. 20 CLIs
+  remain in `scripts/`.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1): the runner
+  never produced or required `report.html`.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

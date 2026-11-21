@@ -228,10 +228,7 @@ subset, exactly what `stats.py` pairs), and, when they apply,
 `routing_report.json` (a non-canary case's routing was scored),
 `reliability.json` (k > 1, so never under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
 number you quote comes from those. You add `report.md`
-beside them, then `report.html` via
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/md_to_html.py reports/<run-id>/report.md
-reports/<run-id>/report.html` — self-contained, shareable with people who never
-open Claude Code. Never hand-write HTML.
+beside them.
 
 - **What a run does not score today.** `run_cases.py` has no scorer for the
   **judged** layer (`expect.answer.rubric`) or for **business rules**
@@ -284,7 +281,7 @@ open Claude Code. Never hand-write HTML.
   print the `unscored`/`skipped`/`unscorable` counts. Report the gating count
   apart ("0 gating failures" when every failure is `gating: false`, as on a
   first session) — never as a reason to skip clusters.
-- **Holdout cases stay aggregate-only** in `report.md`/`.html`, whichever mode
+- **Holdout cases stay aggregate-only** in `report.md`, whichever mode
   selected them (`results.json` already enforces it).
 
 ## 6. Headless / CI gate

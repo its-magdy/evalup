@@ -644,7 +644,7 @@ class TestPreflight(RunnerCase):
 
     def test_base_url_must_be_http_or_https(self):
         # urlopen also reads file://, so a base_url could put a local file in
-        # every response.json. An allowlist, as in md_to_html.py.
+        # every response.json. An allowlist, not a denylist.
         secret = self.state / "local-secret.txt"
         secret.write_text("LOCAL-FILE-CONTENT", encoding="utf-8")
         for base in (secret.as_uri(), "ftp://127.0.0.1/x", "127.0.0.1:8080"):
@@ -1637,7 +1637,7 @@ class TestCompleteness(RunnerCase):
         self.assertEqual(run_cases.REQUIRED_PER_CASE,
                          declared["REQUIRED_PER_CASE"])
         self.assertEqual(run_cases.REQUIRED_IF, declared["REQUIRED_IF"])
-        # report.md/.html are deliberately NOT required: the skill writes them
+        # report.md is deliberately NOT required: the skill writes it
         # (SS13), and a required file the runner does not produce would fail
         # every run.
         self.assertNotIn("report.md", run_cases.REQUIRED_ALWAYS)

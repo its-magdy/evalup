@@ -1583,7 +1583,7 @@ class Runner:
         if not isinstance(base, str) or not base:
             preflight_fail("adapter.invocation.base_url is required for "
                            "invocation.mode: http")
-        # An ALLOWLIST, like md_to_html.py's: urlopen also speaks file:// and
+        # An ALLOWLIST, not a denylist: urlopen also speaks file:// and
         # ftp://, so `base_url: file:///etc/...` read a local file into every
         # response.json (2026-09-21 audit). Only the scheme is quoted back --
         # by now the value is resolved and may hold a credential.
