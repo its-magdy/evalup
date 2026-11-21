@@ -174,6 +174,8 @@ invocation:
   timeout_s: 60
   max_concurrency: 1           # serial. > 1 is REFUSED (exit 2), never
                                # silently serialized.
+  # rate_limit: {requests: 20, window_s: 600}  # and/or min_interval_s;
+  # paces every call (runner-contract.md §7)
 
 traces:
   source: otlp-file | response | view-only | none   # jaeger | tempo | clickhouse are reserved:

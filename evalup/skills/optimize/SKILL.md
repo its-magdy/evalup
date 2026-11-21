@@ -124,8 +124,11 @@ With R, P and H their `app_calls_planned`:
   times).
 - time = messages × discover §4's per-request latency + every run's
   `wait_floor_s` (the holdout plan's three times on a first iteration).
-- A rate limit recorded in `findings.md` or the adapter (L messages per W
-  minutes) is one the runner does not pace to: it sends one call at a time
+- A rate limit declared as the adapter's `invocation.rate_limit` is paced
+  to: time ≥ each run's dry-run `pace_floor_s` (`pace_max_s` worst case),
+  and the outpacing test below does not apply. A rate limit only recorded in
+  `findings.md` (L messages per W minutes) is one the runner does not pace
+  to: it sends one call at a time
   as fast as the app answers, and retries a 429 at most `max_attempts`
   times with each wait capped at 60 s — never a whole window. A run that
   can outpace the limit (`app_calls_planned` > L, and W ÷ the per-request
