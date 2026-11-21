@@ -1115,8 +1115,9 @@ is a pass after the run, in the run skill's turn.
   `judge/` (no test runs them against one).
 - **The self-test's two answers are anonymous**: each gets a random label
   in its directory and `case_id`, and the good/bad mapping lives only in
-  `plan.json`, so a judge cannot pass it by reading a name. Quotes need
-  three characters per piece and a redaction spans at most 200.
+  `plan.json`, so a judge cannot pass it by reading a name. A quote needs
+  two letters or digits, a redaction stands for at most 4000 characters,
+  and the match is linear in the file.
 - **The criteria form** of a rubric (`rubric-format.md`): a flat list of
   yes/no questions plus `self_test`, parsed by `convert_suite.py`
   (`--rubrics-dir`, `rubrics.json`) and linted by `validate_cases.py

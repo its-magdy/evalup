@@ -803,28 +803,78 @@ class TestRubricLint(JudgeRunTest):
 class TestReviewFixes(JudgeRunTest):
     """What the Opus review of the build found, each pinned."""
 
-    def test_an_object_nested_in_a_broken_one_is_not_picked(self):
-        inner = self.reply("c-1").split("\n\n", 1)[1].strip()
-        case = self.one_case('{"wrapper": ' + inner + ', "x": NaN}\n')
-        self.assertEqual((case["state"], case["reason"]),
-                         ("unjudged", "no structured output"))
+    def test_prose_quoting_broken_json_keeps_the_real_reply(self):
+        """The second review: an odd quote mark in prose must not swallow
+        the reply that follows."""
+        prose = ('The answer is truncated JSON: {"total": 42, "currency": '
+                 '"EUR -- never closes.\n')
+        text = self.reply("c-1").replace('"reasoning": "r"',
+                                          '"reasoning": "a } brace"', 1)
+        case = self.one_case(prose + text)
+        self.assertEqual((case["state"], case["verdict"]),
+                         ("provisional", "pass"))
 
-    def test_a_one_letter_or_stitched_quote_is_not_evidence(self):
-        for quote in ("e", "You spent [REDACTED x] 4"):
+    def test_a_one_letter_quote_is_not_evidence(self):
+        case = self.one_case(self.reply("c-1", evidence={
+            "states_a_period": [{"source": "answer.txt", "quote": "e"}]}))
+        self.assertEqual(case["state"], "unjudged")
+
+    def test_short_and_punctuated_real_quotes_match(self):
+        answer = ANSWER + " 42. Contact me at me@example.com. Thanks"
+        for quote in ("42", "Contact me at [REDACTED email]."):
             with self.subTest(quote=quote):
                 self.setUp()
                 case = self.one_case(self.reply("c-1", evidence={
                     "states_a_period": [{"source": "answer.txt",
-                                         "quote": quote}]}))
-                self.assertEqual(case["state"], "unjudged")
+                                         "quote": quote}]}), answer=answer)
+                self.assertEqual(case["state"], "provisional")
 
     def test_a_redaction_spans_a_secret_not_the_file(self):
-        far = ANSWER + " " + "x" * 300 + " the end."
+        far = ANSWER + " " + "x" * 5000 + " the end."
         case = self.one_case(self.reply("c-1", evidence={
             "states_a_period": [{"source": "answer.txt",
                                  "quote": "You spent [REDACTED t] the end."}]
             }), answer=far)
         self.assertEqual(case["state"], "unjudged")
+
+    def test_a_long_rule_does_not_make_the_match_explode(self):
+        import time
+        sys.path.insert(0, str(SCRIPTS))
+        import judge_run
+        hay = [judge_run.normalise("-" * 3000)]
+        quote = " [REDACTED x] ".join(["--9"] * 6) + " [REDACTED x] zzz"
+        hay = [judge_run.normalise("--9" * 1000)]
+        t0 = time.monotonic()
+        self.assertFalse(judge_run.quote_found(quote, hay))
+        self.assertLess(time.monotonic() - t0, 5)
+
+    def test_self_test_labels_are_not_ordered_by_side(self):
+        orders = set()
+        for _ in range(12):
+            self.setUp()
+            self.case("c-1")
+            self.plan()
+            good, bad = self.st_key("good"), self.st_key("bad")
+            orders.add(good < bad)
+            self.assertNotIn("bad", good + bad)
+        self.assertEqual(orders, {True, False})
+
+    def test_a_fresh_plan_leaves_no_old_self_test(self):
+        self.case("c-1")
+        self.plan()
+        self.plan()
+        d = self.run_dir / "judge" / "selftest" / RID
+        self.assertEqual(len(list(d.iterdir())), 2)
+
+    def test_restart_checks_its_arguments_before_deleting(self):
+        self.case("c-1")
+        self.plan()
+        self.self_test()
+        rc, _, _ = script("judge_run.py", "plan", self.run_dir, "--rubrics",
+                          self.tmp / "rubrics.json", "--restart",
+                          "--max-calls", "0")
+        self.assertEqual(rc, 2)
+        self.assertTrue((self.run_dir / "judge" / "replies").is_dir())
 
     def test_a_float_rubric_version_does_not_match(self):
         case = self.one_case(self.reply("c-1", rubric_version=1.0))

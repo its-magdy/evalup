@@ -46,6 +46,7 @@ Exit 0 done; 2 bad input or a refused step ({"error": ...} on stdout,
 _common.die).
 """
 import argparse
+import bisect
 import contextlib
 import datetime
 import hashlib
@@ -90,10 +91,10 @@ BLOCKING_ROWS = ("error", "infra_error", "infra_incomplete")
 VERDICTS = ("pass", "fail", "unknown")
 SIDES = ("good", "bad")
 REDACTED = re.compile(r"\[REDACTED[^\]]*\]")
-# A quote's every unredacted piece is at least this long, and one redaction
-# stands for at most this many characters of the file (quote_found).
-MIN_QUOTE_PIECE = 3
-MAX_REDACTED_SPAN = 200
+# A quote's unredacted text holds at least this many letters or digits, and
+# one redaction stands for at most this many characters (quote_found).
+MIN_QUOTE_CHARS = 2
+MAX_REDACTED_SPAN = 4000
 SAME_FAMILY_NOTE = (
     "the app and its judge are both Claude: a judge passes its own family's "
     "failing outputs more often (Panickssery et al. 2024, arXiv 2508.06709, "
@@ -419,17 +420,18 @@ def cmd_plan(a):
         die(f"{jdir} already holds a judge pass with replies: --resume "
             "continues it (judging only what has no reply), --restart "
             "discards it and plans a new one")
-    if a.restart:
-        for name in ("replies", "inbox", "selftest"):
-            shutil.rmtree(os.path.join(jdir, name), ignore_errors=True)
-        for name in ("launches.jsonl", "judged.json", "plan.json"):
-            path = os.path.join(jdir, name)
-            if os.path.isfile(path):
-                os.remove(path)
     if a.max_calls < 1:
         die("--max-calls must be at least 1")
-
     rubrics = index_rubrics(load_rubrics(a.rubrics))
+    # A new pass, checked arguments first: nothing of an earlier one stays
+    # (with no replies, that is unrecorded inbox files and old self-test
+    # directories under other labels).
+    for name in ("replies", "inbox", "selftest"):
+        shutil.rmtree(os.path.join(jdir, name), ignore_errors=True)
+    for name in ("launches.jsonl", "judged.json", "plan.json"):
+        path = os.path.join(jdir, name)
+        if os.path.isfile(path):
+            os.remove(path)
     mode = manifest.get("mode")
     sealed = mode in ("holdout", "full") \
         or manifest.get("selecting_split") == "holdout"
@@ -497,10 +499,15 @@ def cmd_plan(a):
     launches = []
     for rid in used_rubrics:
         snap = rubrics[rid]
-        labels = set()
+        # Drawn in order, never sorted (a sort made `good` the smaller
+        # label), and never spelling a word a judge could read as a hint.
+        labels = []
         while len(labels) < len(SIDES):
-            labels.add(secrets.token_hex(3))
-        snap["self_test_labels"] = dict(zip(SIDES, sorted(labels)))
+            label = secrets.token_hex(3)
+            if label not in labels and not any(
+                    w in label for w in ("bad", "good", "a11", "f00")):
+                labels.append(label)
+        snap["self_test_labels"] = dict(zip(SIDES, labels))
         for side in SIDES:
             d = materialise_self_test(jdir, rid, snap, side)
             key = self_test_key(rid, snap, side)
@@ -576,16 +583,13 @@ def print_plan(plan, run_dir):
         if not c["selected"]:
             key = c["reason"].split(":")[0].split(" (")[0]
             reasons[key] = reasons.get(key, 0) + 1
-    if plan["holdout_not_judged"]:
-        reasons["sealed holdout"] = plan["holdout_not_judged"]
     est = plan["estimate"]
     done = replied(run_dir)
     pending = [x for x in plan["launches"] if x["key"] not in done]
     lines = []
     if cases:
         n = len(cases)
-        why = ", ".join(f"{v} {k}" for k, v in sorted(reasons.items())
-                        if k != "sealed holdout")
+        why = ", ".join(f"{v} {k}" for k, v in sorted(reasons.items()))
         lines.append(f"judge pass: {n} case(s) pin a rubric; "
                      f"{len(selected)} selected"
                      + (f" ({n - len(selected)} not: {why})" if why else "")
@@ -639,13 +643,13 @@ def replied(run_dir):
 def last_json_object(text):
     """The last top-level `{...}` in a message that parses strictly, or None.
 
-    Top-level: once an object parses, the scan resumes after it, so an object
-    nested inside a parsed one is never a candidate. A `{` that does not
-    parse (prose, a NaN, trailing junk) is skipped together with its
-    balanced, string-aware extent, so an object nested inside a BROKEN
-    outer one is never a candidate either (SS4). Only an opener that never
-    closes -- a stray `{` in prose, or a truncated reply -- is skipped by one
-    character."""
+    Once an object parses, the scan resumes after it, so an object nested
+    inside a parsed one is never a candidate. A `{` that does not parse
+    (prose, a NaN, a truncated reply) is skipped by one character. That
+    means a whole reply wrapped in a broken outer object is still found --
+    the judge's own reply, which must then pass every check of SS4. A
+    balanced-extent skip was tried and lost real replies whose prose held an
+    odd quote mark (the second review of #23's build), so it is not used."""
     decoder = json.JSONDecoder(parse_constant=_reject)
     found, i = None, 0
     while True:
@@ -655,36 +659,11 @@ def last_json_object(text):
         try:
             obj, end = decoder.raw_decode(text, i)
         except (ValueError, RecursionError):
-            close = balanced_end(text, i)
-            i = close if close is not None else i + 1
+            i += 1
             continue
         if isinstance(obj, dict):
             found = obj
         i = end
-
-
-def balanced_end(text, start):
-    """Index after the `}` closing the `{` at `start`, strings respected, or
-    None when it never closes."""
-    depth, in_string, escaped = 0, False, False
-    for j in range(start, len(text)):
-        ch = text[j]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
-        elif ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return j + 1
-    return None
 
 
 def _reject(name):
@@ -712,31 +691,39 @@ def haystacks(path):
 def quote_found(quote, stacks):
     """Whitespace-collapsed, NFC, and a `[REDACTED <kind>]` piece (judge rule
     3) matches when the pieces around it appear in order, each redaction
-    spanning at most MAX_REDACTED_SPAN characters -- a secret, not a stretch
-    of file. Every piece is at least MIN_QUOTE_PIECE characters, so a quote
-    of `e` or stitched from fragments is not evidence."""
+    standing for at most MAX_REDACTED_SPAN characters of the file -- a
+    secret (a PEM key included), not a stretch of it. The quote's unredacted
+    text holds at least MIN_QUOTE_CHARS letters or digits, so `e` is not
+    evidence; a piece with none (the `.` after a redaction) is not matched.
+
+    Linear in the file per piece: the reachable end positions are carried
+    forward as a sorted list, never by backtracking (a quote over a long
+    `-----` rule took minutes that way)."""
     pieces = [p for p in (normalise(x) for x in REDACTED.split(quote)) if p]
-    if not pieces or any(len(p) < MIN_QUOTE_PIECE for p in pieces):
+    if sum(ch.isalnum() for p in pieces for ch in p) < MIN_QUOTE_CHARS:
         return False
+    pieces = [p for p in pieces if any(ch.isalnum() for ch in p)]
     for hay in stacks:
-        at = hay.find(pieces[0])
-        while at >= 0:
-            if _rest_follows(hay, at + len(pieces[0]), pieces[1:]):
-                return True
-            at = hay.find(pieces[0], at + 1)
-    return False
-
-
-def _rest_follows(hay, pos, pieces):
-    if not pieces:
-        return True
-    window = hay[pos:pos + MAX_REDACTED_SPAN + len(pieces[0])]
-    at = window.find(pieces[0])
-    while at >= 0:
-        if _rest_follows(hay, pos + at + len(pieces[0]), pieces[1:]):
+        ends = sorted(m + len(pieces[0]) for m in occurrences(hay, pieces[0]))
+        for piece in pieces[1:]:
+            if not ends:
+                break
+            nxt = []
+            for start in occurrences(hay, piece):
+                k = bisect.bisect_right(ends, start)
+                if k and start - ends[k - 1] <= MAX_REDACTED_SPAN:
+                    nxt.append(start + len(piece))
+            ends = nxt
+        if ends:
             return True
-        at = window.find(pieces[0], at + 1)
     return False
+
+
+def occurrences(hay, piece):
+    at = hay.find(piece)
+    while at >= 0:
+        yield at
+        at = hay.find(piece, at + 1)
 
 
 def check_criterion(crit, case_dir, allowed):

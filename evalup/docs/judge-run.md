@@ -672,8 +672,15 @@ unless the owner says otherwise.
   (`selftest-<rubric_id>-<6 hex>`), never `good` or `bad`; the mapping
   lives only in `plan.json`, which no assignment names (rule 0 is what keeps
   the judge out of it). `record --self-test RUBRIC:good|bad` and `pending`'s
-  `side` are for the skill. A quote's unredacted pieces are at least three
-  characters each, and one redaction spans at most 200 characters.
+  `side` are for the skill; the labels are drawn in order, never sorted.
+  A quote's unredacted text holds at least two letters or digits, and one
+  redaction stands for at most 4000 characters of the file (a PEM key,
+  not a stretch of it); the match is linear, never backtracking.
+- **The reply scan is §4's, with one consequence stated:** a `{` that does
+  not parse is skipped by one character, so a whole reply wrapped in a
+  broken outer object is still found, and must pass every check. Skipping a
+  broken object's balanced extent instead lost real replies whose prose
+  held an odd quote mark.
 - **Flags §5 did not name:** `plan --resume` (keep the plan and its
   budget, list launches with no reply; a different `--max-calls` is exit 2) and `--restart` (discard an earlier pass; a plain `plan`
   over existing replies is exit 2), `record --tokens N`, `merge

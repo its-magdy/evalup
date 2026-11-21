@@ -40,8 +40,9 @@ Per line, on top of that doc's fields:
                  from judged.json by the label flow. Both join the dedupe key
                  AND the group key, so one rubric labelled on two models is
                  two groups, and a later label on a new model never replaces
-                 the earlier pair. A group without both is counted exactly as
-                 before and calibrates nothing at run time.
+                 the earlier pair. A row without either is counted exactly
+                 as before and calibrates nothing at run time; a row with
+                 only one of the two is exit 2.
 
 `judge_label` is not a field the viewer exports today. The runner NEVER
 writes a judge verdict -- `run_cases.py`'s judged layer is always
@@ -363,6 +364,10 @@ def load_pairs(path):
         # only its own (version, model) and an earlier unversioned line.
         # So a new model's label never replaces another model's pair, and
         # a plain re-annotation still drops them all.
+        if (key[3] is None) != (key[4] is None):
+            die(f"{path}:{lineno}: rubric_version and judge_model_id come "
+                "together (both copied from judged.json) or not at all -- "
+                "a row with one of them backs no group")
         base = key[:3]
         if key[3] is None and key[4] is None:
             for old in [k for k in latest if k[:3] == base]:

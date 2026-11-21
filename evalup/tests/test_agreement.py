@@ -445,6 +445,13 @@ class TestSidecarV2(ScorerCase):
             out["rubrics"]["billing_answer v1 on claude-opus-5-5"]
             ["labelled_pairs"], 119)
 
+    def test_a_half_versioned_row_is_exit_2(self):
+        rows = calibrated_rows()
+        rows[0]["rubric_version"] = 1
+        rc, out, _ = self.score(rows)
+        self.assertEqual(rc, 2)
+        self.assertIn("come together", out["error"])
+
     def test_a_bad_version_or_model_is_exit_2(self):
         for field, value in (("rubric_version", "1"),
                              ("rubric_version", True),
