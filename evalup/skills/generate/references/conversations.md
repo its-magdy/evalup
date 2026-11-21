@@ -27,6 +27,9 @@ expect:                                # the FINAL turn's checks, as for any cas
 gating: false                          # until a baseline exists (generate SS3)
 ```
 
+- **Word turns so they do not depend on the reply's exact wording**, and put
+  a checkpoint `expect` on turn 1 so a wrong start is caught where it
+  happens. Near-duplicate detection compares whole conversations.
 - **Each turn is an object with a `user` key, never a bare string** — later
   phases add keys beside it (`bad_turn`). `assistant:` and `simulate:` are
   reserved for those phases and refused now (`turn_key_reserved`); any other

@@ -20,7 +20,8 @@ tools, business rules), a grid assignment (which unit × test type × count,
 where a unit is a route target or, for a tool_agent, a tool), the case-format
 spec, any real seed examples, and discover's design findings that carry an
 observable symptom — each of those needs at least one case whose expectation
-fails on that symptom. You write draft case YAML files.
+fails on that symptom — and the rules with a deterministic symptom, each of
+which needs one too (rule 8). You write draft case YAML files.
 
 ## Work in two phases. Never skip phase 1.
 **Phase 1 — tuples, no prose.** For each template, state its dimensions
@@ -69,7 +70,9 @@ Rules:
 4. Never derive expected BEHAVIOUR from what the app currently does —
    that grades the app against itself. Expectations come from the profile's
    `confirmed_by_human` section, route-target descriptions, and common sense
-   about what the user needs. A probe (generation-method.md §3) may ground
+   about what the user needs. A rule the app's own prompt states is
+   owner-stated, not common sense: name its rule id (rule 8). A probe
+   (generation-method.md §3) may ground
    the DATA in an expectation — a real employee name, a count, a leave type
    the app actually has — never the behaviour: a status code, a refusal
    path, or an "I couldn't find that" the app happens to return today is an
@@ -98,6 +101,32 @@ Rules:
 7. Adversarial-refusal cases test refusal, not harm: injection attempts via
    plausible user text, out-of-scope requests, requests violating a stated
    business rule. Expected behavior is graceful refusal/redirect per profile.
+8. Rules become checks, never prose. For each rule assigned to you, write the
+   check that fails on its breach, from the checks that exist:
+   - plain text / no Markdown: `must_not_contain` with
+     `'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'` (YAML single
+     quotes keep the backslashes). It catches bullet, numbered and heading
+     lines and bold, not every Markdown form, and it also flags plain
+     "# of" at a line start; an answer-wide rule goes on
+     EVERY case you write, not one.
+   - reply language: write the message in that language and `must_contain`
+     words of that language the message does NOT contain (the fact that
+     goes with the name; an echoed word passes any app and trips
+     `echo_assertion`) — a weak check, so say so in `notes`.
+   - one answer per ambiguous candidate plus a question: `must_contain` on
+     what tells each candidate apart, absent from the message. The question
+     has no string check (a `?` echoes the user's): say so in `notes`.
+   - "look X up twice before saying not found": only on a case whose name
+     is absent from the first source, `expect.tools.subset` listing X twice
+     (it is duplicate-aware). It checks the lookups, not the answer's
+     wording (rule 4): say so in `notes`.
+   - a stated count: `expect.result` from the oracle (it checks the count,
+     not that it matches the items the answer lists).
+   Name the rule id in the case's `notes` (the id, never the prompt's file
+   path: "read <file>" there trips `source_derived_expectation`). A rule with
+   no such check (judge-only, or its layer disabled) gets no case: report
+   it, with the reason, as uncovered.
 
-Your final message lists the files written, counts per grid cell, and the
-cases flagged for review with one-line reasons.
+Your final message lists the files written, counts per grid cell, each
+rule's case ids or the reason it has none, and the cases flagged for review
+with one-line reasons.

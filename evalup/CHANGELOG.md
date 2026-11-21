@@ -900,6 +900,39 @@ minutes: the estimate was wrong in both directions.
   now adds no quiescence, only a conversation's `turn_delay_s`. No verdict
   changes.
 
+### Added — generate: the prompt's checkable rules become cases (2026-11-21)
+
+From the same live-proof run (#27): the app's prompt said "plain text only",
+discover recorded that as a business rule with its source line, and one
+case's answer started lines with `- ` in two of three regression runs and
+passed, because no case checked the rule. Its other checkable rules got no
+case either, while most cases asked about the one record a probe had
+grounded (#52).
+
+- **A rules row in the coverage grid** (`generate` §1). Every
+  `business_rules` entry, and every rule the app's prompt states, whose
+  breach is deterministic gets a case that fails on it, built from checks
+  that already score: a `must_not_contain` regex for a formatting rule (on
+  every case when it binds every answer), `must_contain` for a reply
+  language or one answer per ambiguous candidate, `expect.tools.subset`
+  (duplicate-aware) for a lookup that must run twice before "not found",
+  `expect.result` for a stated count. `coverage_grid.rules` in
+  `dataset.yaml` lists each rule's case ids or why it has none. A rule the
+  prompt states is owner-stated, never "common sense", and the grid's cases
+  spread over every tool rather than the one record a probe grounded.
+- **Discover records the prompt's rules** under `business_rules`, each with
+  `source:` its file:line. The test-generator's rule 8 writes the checks
+  and reports the uncovered rules with their reason.
+- **The quickstart plants one**: its fixture's `SYSTEM_PROMPT` says plain
+  text only, `profile.yaml` records `plain-text`, and every case carries the
+  regex. `tests/test_example.py` runs the example against the same app
+  answering as a bulleted list: all six cases fail, on that check alone.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1);
+  `expect.answer.rules` stays unscored (#26). The first-session text stays
+  inside its 25k-token budget: generate's SKILL.md paid for the row by
+  trimming restatements, and the conversation authoring tips moved into
+  `conversations.md`, which is read only when an app keeps conversations.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

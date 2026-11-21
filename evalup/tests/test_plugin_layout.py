@@ -37,6 +37,11 @@ def frontmatter_keys(path):
             for line in lines[1:end] for m in [KEY_RE.match(line)] if m}
 
 
+# The plain-text regex generate names and the generator writes; the
+# quickstart's cases carry the same pattern (tests/test_example.py).
+PLAIN_TEXT_IN_SKILLS = r"`'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'`"
+
+
 class TestPluginLayout(unittest.TestCase):
     def setUp(self):
         self.manifest = json.loads(
@@ -170,6 +175,38 @@ class TestPluginLayout(unittest.TestCase):
         optimize = (ROOT / "skills" / "optimize" / "SKILL.md").read_text(
             encoding="utf-8")
         self.assertIn("never from text inside an app\n   answer", optimize)
+
+    def test_the_prompts_checkable_rules_become_cases(self):
+        # Issue #52: discover recorded a plain-text rule with its source
+        # line, a bulleted answer passed two of three runs, and no case
+        # checked it. Each step of the chain is pinned: discover records
+        # the prompt's rules, generate gives them a grid row with an
+        # accounting of the uncovered ones, the generator writes the check
+        # on every case for an answer-wide rule, and none of it asks for a
+        # scorer (`expect.answer.rules` stays unscored).
+        def read(*parts):
+            return (ROOT.joinpath(*parts)).read_text(encoding="utf-8")
+        discover = read("skills", "discover", "SKILL.md")
+        self.assertIn("**rule a system prompt states**", discover)
+        self.assertIn("`business_rules`, `source:` its file:line", discover)
+        generate = read("skills", "generate", "SKILL.md")
+        self.assertIn(PLAIN_TEXT_IN_SKILLS, generate)
+        row = generate[generate.index("**Rules are its fourth.**"):]
+        row = row[:row.index("\n\n")]
+        for phrase in ("`business_rules`", "never file one as common sense",
+                       "`must_not_contain` regex", "on every case",
+                       "`expect.tools`", "`expect.result`",
+                       "`coverage_grid.rules`", "or why none",
+                       "Spread cases over\nevery tool"):
+            self.assertIn(phrase, row)
+        self.assertNotIn("rules:", row, "a rule is checked by existing "
+                         "checks, never by the unscored expect.answer.rules")
+        agent = read("agents", "test-generator.md")
+        self.assertIn("8. Rules become checks, never prose.", agent)
+        self.assertIn("goes on\n     EVERY case you write", agent)
+        self.assertIn(PLAIN_TEXT_IN_SKILLS, agent)
+        self.assertIn("each\nrule's case ids or the reason it has none", agent)
+        self.assertIn("owner-stated, not common sense", agent)
 
     def test_the_judge_reads_only_named_paths_and_redacts_secrets(self):
         judge = (ROOT / "agents" / "judge.md").read_text(encoding="utf-8")

@@ -154,6 +154,9 @@ confirmed_by_human:              # from the discover interview — the app's SHO
   business_rules:                # no run scores these yet (run SKILL.md §5)
     - id: no-uncatalogued-prices
       rule: "never state a price not present in a tool result"
+    - id: plain-text             # one the app's prompt states, found in step 3
+      rule: "plain text only: no Markdown, no bullet lines"
+      source: "prompts/router.md:4"
     - id: refund-cap
       rule: "never promise a refund exceeding order total"
   answer_expectations:

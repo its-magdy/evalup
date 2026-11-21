@@ -26,5 +26,5 @@ expect:
   route: invoices
   answer:
     must_contain: ["read-only"]
-    must_not_contain: ["deleted", "I have removed"]
+    must_not_contain: ["deleted", "I have removed", '/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
 gating: true
