@@ -138,11 +138,11 @@ def entry_matches(entry, text):
     if FLAG_SUFFIX_RE.match(entry):
         # /pattern/i (Perl/JS-style trailing flags) is not this convention:
         # /.../ with no suffix is the whole marker, so /pattern/i falls
-        # through unmatched above and — before this check existed — was
+        # through unmatched above and — without this check — would be
         # silently read as a literal substring of the ENTIRE string
         # (backslashes and all), which can never occur in real answer text.
-        # A must_contain entry written this way always failed; a
-        # must_not_contain entry always vacuously passed, catching nothing.
+        # A must_contain entry written this way would always fail; a
+        # must_not_contain entry would always vacuously pass, catching nothing.
         # Refuse to guess and say so, rather than repeat either silently.
         return "bad_flag_suffix"
     return nfc(entry) in text
@@ -180,8 +180,9 @@ def validate_schema(value, schema, path="$"):
             for v in schema["enum"]):
         errors.append(f"{path}: {value!r} not in enum")
     if isinstance(value, dict):
-        # Key names are text too, and a key that IS present reported "required
-        # key missing" when the case spelled it in the other Unicode form.
+        # Key names are text too: without NFC a key that IS present would
+        # report "required key missing" when the case spelled it in the other
+        # Unicode form.
         for key in schema.get("required", []):
             if nfc(key) not in value:
                 errors.append(f"{path}.{key}: required key missing")
@@ -201,12 +202,12 @@ def check_schema_shape(schema, field="expect.format.json_schema"):
     an input error -- the rule require_list/require_mapping apply one level up,
     applied recursively.
 
-    Each slip below used to produce a verdict instead of an error (2026-09-21
-    audit). `properties: {age: string}` -- the natural YAML slip for
-    `{age: {type: string}}` -- was skipped and PASSED an integer age with
-    unscorable: 0; `required: email` was iterated by character and FAILED a
-    correct answer on "$.e: required key missing"; `type: str` failed every
-    answer forever; `properties: name` was a traceback and exit 1.
+    Without these checks each slip below would produce a verdict instead of an
+    error. `properties: {age: string}` -- the natural YAML slip for
+    `{age: {type: string}}` -- would be skipped and PASS an integer age with
+    unscorable: 0; `required: email` would be iterated by character and FAIL a
+    correct answer on "$.e: required key missing"; `type: str` would fail every
+    answer forever; `properties: name` would be a traceback and exit 1.
     """
     require_mapping(field, schema)
     declared = schema.get("type")
@@ -310,11 +311,12 @@ def main():
     # failure rather than a cosmetic one.
     answer = nfc(load_text(a.answer))
     expect = load_object(a.expect)
-    # `is not None`, not truthiness: the truthy test conflated "key absent"
+    # `is not None`, not truthiness: a truthy test would conflate "key absent"
     # (nothing to score, correct) with "key present but off-shape AND falsy" —
-    # `answer: []` was silently dropped and the case reported "unscored", so an
-    # expectation the author wrote was never evaluated and nothing said so. Only
-    # absence may default; a present value must be the right shape.
+    # `answer: []` would be silently dropped and the case would report
+    # "unscored", so an expectation the author wrote would never be evaluated
+    # and nothing would say so. Only absence may default; a present value must
+    # be the right shape.
     answer_expect = optional_mapping("expect.answer", expect.get("answer"))
     fmt = optional_mapping("expect.format", expect.get("format"))
     json_schema = fmt.get("json_schema")
@@ -332,9 +334,9 @@ def main():
         # rule (hence of_strings=False — an unquoted number legitimately
         # coerces, a bool is legitimately unscorable). The container is the
         # level the YAML slip actually happens at, and both directions of it
-        # produced a wrong verdict rather than an error: a bare-string
-        # must_contain PASSED an answer lacking the phrase, and a bare-string
-        # must_not_contain FAILED an answer that was correct. See
+        # would produce a wrong verdict rather than an error: a bare-string
+        # must_contain would PASS an answer lacking the phrase, and a
+        # bare-string must_not_contain would FAIL an answer that was correct. See
         # _common.require_list.
         for entry in require_list(f"expect.answer.{kind}", entries,
                                   item="entry", plural="entries",
@@ -373,9 +375,9 @@ def main():
     print(json.dumps({
         "layer": "answer",
         # A "pass" carrying unscorable checks is a pass on the checks that
-        # RAN, and the count beside it has always said so — but every
-        # consumer reads the verdict, and a case whose one real assertion was
-        # an invalid regex read identically to a case that passed everything.
+        # RAN, and the count beside it says so — but every consumer reads the
+        # verdict, and a case whose one real assertion was an invalid regex
+        # would read identically to a case that passed everything.
         # Flagged rather than downgraded: consumers key on the verdict string,
         # so turning such a case into "unscored" would re-score every existing
         # dataset. The flag is the honest middle.
