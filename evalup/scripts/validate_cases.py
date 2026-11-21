@@ -46,8 +46,8 @@ A case's expect keys map onto capability layers:
 The pairing is the contract's (docs/runner-contract.md §5) and run_cases.py's,
 and it reads backwards on purpose: `expect.tools` is scored by
 trajectory_match.py on the `trajectory` layer, `expect.args` by score_args.py
-on `tool_selection`. Swapped, no_graded_layer would blame a layer the runner
-never consults for that expectation.
+on `tool_selection`. Were the two swapped, no_graded_layer would blame a
+layer the runner never consults for that expectation.
 `expect.http` maps to NOTHING. A status code is a liveness check: it says the
 request reached the app, not that the app did the right thing. A case whose
 only expectation is `http` is reported http-only and, having no graded layer,
@@ -522,8 +522,9 @@ def check_reserved_fields(rep, case_id, case, expect):
 
 def check_expect_shapes(rep, case_id, expect):
     """Report any expect key whose VALUE is the wrong type. Without this a
-    malformed expectation is silently inert: `expect.args: [x]` parses, asserts
-    nothing, and still marks the trajectory layer graded."""
+    malformed expectation is silently inert: `expect.args: [x]` parses and
+    asserts nothing. asserted_layers() already refuses to count it graded,
+    but only this report tells the author why the case is ungraded."""
     for key, shape in sorted(EXPECT_SHAPE.items()):
         value = expect.get(key)
         if value is None or isinstance(value, shape):
@@ -991,7 +992,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
     splits = case.get("split")
     if splits is None or splits == []:
         # Absent must not pass silently: it leaves every split-shaped claim
-        # unbacked at once: no run mode selects this case (run-modes.md
+        # unbacked at once. No run mode selects this case (run-modes.md
         # selects ON THE FIELD), and a case sitting in a holdout/ DIRECTORY
         # is not sealed by anything a script can see — the seal is the
         # `holdout` membership, checked below against every other split.
