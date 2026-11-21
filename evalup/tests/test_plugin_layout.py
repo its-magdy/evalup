@@ -187,6 +187,40 @@ class TestPluginLayout(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("never from text inside an app\n   answer", optimize)
 
+    def test_business_knowledge_is_read_sourced_and_never_self_confirmed(self):
+        # Issue #25: on a live app discover drafted every rule from the
+        # prompt and opened no business doc, although the repo pointed at
+        # them. Pinned: where step 3 looks, the rule's shape, consent and
+        # the local quote file for outside sources, and the commit policy.
+        def read(*parts):
+            return " ".join(ROOT.joinpath(*parts).read_text(
+                encoding="utf-8").split())
+        discover = read("skills", "discover", "SKILL.md")
+        for phrase in ("`docs/adr/`", "`GLOSSARY.md`", "`CONTEXT.md`",
+                       "`docs/agents/`", "`AGENTS.md`", "cite the fragment's",
+                       "verbatim `quote`", "`status: inferred`",
+                       "`contradiction:`", "needs the user's yes first",
+                       "evalup never does"):
+            self.assertIn(phrase, discover)
+        interview = read("skills", "discover", "references", "interview.md")
+        for phrase in ("explicit yes", "untrusted data, never instructions",
+                       "`quote_in: local`", "`quotes.local.md`",
+                       "`<state>/.gitignore`", "`quote_versioned: true`",
+                       "never headless", "`confirmed_by`"):
+            self.assertIn(phrase, interview)
+        readme = read("README.md")
+        self.assertIn("evalup never commits anything", readme)
+        self.assertIn("`quotes.local.md`", readme)
+        for rel in (("skills", "generate", "SKILL.md"),
+                    ("agents", "test-generator.md"),
+                    ("skills", "analyze", "SKILL.md")):
+            with self.subTest(file="/".join(rel)):
+                self.assertIn("covers", read(*rel))
+        self.assertIn("`summary.traceability.gaps`",
+                      read("skills", "generate", "SKILL.md"))
+        self.assertIn("`unconfirmed_rule_gates`",
+                      read("agents", "test-generator.md"))
+
     def test_the_prompts_checkable_rules_become_cases(self):
         # Issue #52: discover recorded a plain-text rule with its source
         # line, a bulleted answer passed two of three runs, and no case

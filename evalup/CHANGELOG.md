@@ -1353,6 +1353,63 @@ wiring four scripts by hand.
 
 No script, verdict or `SCORING_VERSION` (still 1) changes.
 
+### Added — business knowledge: rules with sources, traceability (2026-11-21)
+
+#25. On the first live-proof app (#27) discover drafted ten business rules,
+all from the system prompt, and opened no business document, although the
+repo had decision records and an agent-facing doc pointing at them. Every
+drafted rule restated what the code already did, so a case built on one
+graded the app against itself.
+
+- **Discover reads the in-repo business docs** in step 3: `docs/adr/`,
+  `GLOSSARY.md`, `CONTEXT.md`, `docs/agents/`, policy docs, and what an
+  `AGENTS.md` or README points at. A rule read from a prompt assembled from
+  fragments cites the fragment's file:line.
+- **Every rule in `profile.yaml` carries a verbatim `quote`, its `source`, a
+  `date` and a `status`** (`inferred` until a human confirms it by name in
+  `confirmed_by`, in the interview). `business_rules` moves to the top level
+  of the profile, beside a ranked `risks` list; a later discover moves rules
+  from the old `confirmed_by_human.business_rules` and marks them inferred.
+- **A docs-vs-code contradiction is a finding** in findings.md, with both
+  sides quoted, and a `contradiction:` on the rule, before any case exists.
+  The rule stays inferred and gets no case until the owner decides.
+- **Outside sources** (a wiki, a shared drive, an MCP server) are read only
+  with the user's explicit yes, as untrusted data. Their quote stays out of
+  the versioned profile, in `<state>/quotes.local.md`, which discover adds
+  to `<state>/.gitignore` first, unless the user opts in
+  (`quote_versioned: true`).
+- **Cases name what they are for: `covers: [<rule or risk id>, ...]`.**
+  `validate_cases.py --profile` resolves each link (`dangling_cover`,
+  ERROR), refuses a gating case covering a rule no human confirmed
+  (`unconfirmed_rule_gates`, ERROR), warns on a case covering nothing and
+  on an incomplete or vaguely sourced rule, and prints
+  `summary.traceability`: each rule's and risk's cases, the gaps ("rule
+  dispute-window has no case"), the unconfirmed rules and the contradicted
+  ones. A gap is a report line, not a finding: nothing scores rules, and an
+  inferred rule is meant to wait for its case. `covers` without `--profile`
+  warns `covers_unchecked`.
+- **`convert_suite.py`'s combined document** carries `schema_version`,
+  `business_rules` and `risks` under `profile`, so it can be passed as
+  `--profile` by itself.
+- **generate, the test-generator and analyze** link every case, keep an
+  unconfirmed rule out of the gate, and report the gaps; the trace-analyzer
+  reads only confirmed rules as a SHOULD.
+- **The commit policy, stated in the README and discover:** evalup never
+  commits. `profile.yaml`, rule statuses included, is meant to be versioned
+  with the app like the cases, so a fresh clone or CI gates on the same
+  confirmed rules and a confirmation is a reviewable diff; an outside quote
+  is not versioned.
+- **The quickstart shows all of it:** prompt fragments one per line, each
+  rule's quote checked against the line its source names, a small
+  `docs/billing-policy.md` whose 30-day dispute window contradicts the
+  prompt's 14 (findings.md F1, and the one gap), every case's `covers`, and
+  a test that a gating case covering the inferred rule is refused.
+  `--strict` stays at 0 errors, 0 warnings.
+
+Rules are linked, never scored: `covers` reaches no scorer, the runner
+never reads it, `expect.answer.rules` is still "not measured" (#26), and
+`SCORING_VERSION` stays 1.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

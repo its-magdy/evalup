@@ -42,7 +42,7 @@ allowed-tools: >-
 
 Arguments, when the user typed any: `$ARGUMENTS`. The app path is the one in
 there (or the one `start` passed): **read and list only under it, its state
-location and the plugin.** An outside source (a wiki, an MCP server)
+location and the plugin.** An outside source (wiki, MCP server)
 needs the user's yes first (step 7). Files the user did not name — the parent
 directory, sibling folders, notes and logs beside the app — are out of scope
 even when they look relevant; a file the user names in the request is in
@@ -131,7 +131,7 @@ conversation/session handling, OTel setup. Record as you go:
   You cannot offer a fixture in step 5 without knowing what there is to seed.
 - The **app's own turn log** — where it persists what a turn did (route,
   tool calls and arguments, tokens, a trace id). Record in findings.md where
-  it lives and how a response joins to it (which id, which key). The runner
+  it lives and how a response joins to it. The runner
   cannot read it, but on a trace-less app it is how a person checks per-route
   or per-tool behaviour, and the capability statement should say it is one
   join away.
@@ -249,7 +249,7 @@ answers where it says.
 ### 8. Report findings
 `findings.md`: design gaps (no OOS route, overlapping route targets, vague tool
 descriptions, missing confirmation on destructive tools), each with evidence and
-a suggested fix. Present the top 3 in chat, and list the probe's `env_vars`:
+a suggested fix; each ranked risk also goes in `risks:`. Present the top 3 in chat, and list the probe's `env_vars`:
 every one must be exported wherever generate and run will run.
 
 **Tag every claim about what the app does** — the IS half of a finding — with

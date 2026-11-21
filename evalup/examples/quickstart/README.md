@@ -100,12 +100,12 @@ The app's prompt (the fixture's `SYSTEM_PROMPT`, built from one fragment per
 line) says *reply in plain text: no Markdown, and no line starting with a
 bullet or a number*, and `profile.yaml` records it as the business rule
 `plain-text`, with the fragment's verbatim quote, its `file:line`, a date and
-`status: confirmed` (with `confirmed_by`, the human who confirmed it). It is the kind of rule generate
-turns into a check rather than leaves to a judge: its breach is a pattern in
+`status: confirmed` (with `confirmed_by`, the human who confirmed it). It is
+the kind of rule generate turns into a check rather than leaves to a judge: its breach is a pattern in
 the text. Because it binds every answer, **every case** carries the same
 `must_not_contain` regex for bullet, numbered and heading lines and for bold.
 The same app answering as a bulleted list fails all six cases, on that check
-alone (`tests/test_example.py`). The other two rules:
+alone (`tests/test_example.py`). The other rules:
 
 | Rule | Covered by | Why |
 |---|---|---|
@@ -120,6 +120,12 @@ paraphrase that reroutes). `validate_cases.py --profile` resolves each link
 and prints `summary.traceability`: every rule's and risk's cases, and the
 gaps.
 
+Ids are `c-<hash8>` and **opaque**: they encode neither unit nor category, both
+of which are mutable classifications. Splits are a **field**, never a
+directory. Both rules exist because the field-test suite broke them, and both
+are checked here by a test — the id rule has no validator code, so this
+example is where it is enforced.
+
 ### A rule the docs and the code disagree on
 
 `docs/billing-policy.md` says *an invoice may be disputed within 30 days*;
@@ -131,12 +137,6 @@ validator lists it under `gaps` and `contradictions`. And it cannot gate:
 a case with `gating: true` that covers a rule no human confirmed is a
 validator ERROR (`unconfirmed_rule_gates`). Nothing scores a rule yet; the
 links are bookkeeping, and no verdict depends on them.
-
-Ids are `c-<hash8>` and **opaque**: they encode neither unit nor category, both
-of which are mutable classifications. Splits are a **field**, never a
-directory. Both rules exist because the field-test suite broke them, and both
-are checked here by a test — the id rule has no validator code, so this
-example is where it is enforced.
 
 ### Four layers score; the rest say why they cannot
 
