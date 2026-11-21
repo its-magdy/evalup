@@ -1083,6 +1083,31 @@ and every step after the first review was decided ad hoc (#53).
   hashing is unchanged: excluding `notes`/`review` from the hash would
   change every recorded `sha256`, so it is left open on the PR.
 
+### Added — analyze and optimize: never-pass cases, rejected attempts, two suites (2026-11-21)
+
+Three of #29's borrowed ideas, all skill text; no script changed.
+
+- **A case that never passes is suspected first** (`analyze --cluster`). A
+  `reliability.json` row with no passing repeat, a `run_history.py
+  --all-cases` row with no `pass` in its series, or a `category` with no
+  passing case is reported as its own "case or app?" group: is the
+  expected route or tool real, could any correct answer satisfy the check?
+  The user answers before the cluster reaches `optimize`.
+- **Optimize keeps a rejected-attempts log**: every decision writes
+  `candidates/<id>/outcome.md` beside the candidate's diff and
+  `holdout-gate.json` — kept or reverted, the training
+  `fixed_by_candidate`/`broken_by_candidate`, the gate's numbers when a look
+  was spent, and what it rules out. Step 3 reads them all before proposing,
+  so a reverted idea is not tried again without new evidence, and the
+  session report lists what was ruled out.
+- **Capability and regression suites are named** (`docs/concepts.md`) on
+  the existing `gating` field: accepted `gating: true` cases are the
+  regression suite, accepted `gating: false` ones the capability suite.
+  `analyze` suggests graduating a capability case that passed every run of
+  its series (three at least) and every repeat; the user flips `gating`.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1): each item
+  reads numbers the scripts already write and changes no verdict.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

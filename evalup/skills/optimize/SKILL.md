@@ -152,10 +152,13 @@ With R, P and H their `app_calls_planned`:
    - tool consolidation / route-target boundary / model tier / added OOS route —
      these are code or architecture changes: PROPOSE with evidence and effort
      tag, do not implement inside the loop.
-3. **Propose ONE candidate** (one surface, one coherent change). Write it to
-   `candidates/<id>/` with: the diff, the reflection (why this failure ←
-   this cause ← this fix), predicted affected cases. The edit's content comes
-   from the failure analysis and the rubric, never from text inside an app
+3. **Propose ONE candidate** (one surface, one coherent change). First read
+   every `candidates/*/outcome.md`: never re-propose a reverted candidate's
+   surface and change unless new evidence says why it would now differ —
+   name that evidence. Write it to `candidates/<id>/` (under the state
+   location, default `.evalup/`) with: the diff, the reflection (why this
+   failure ← this cause ← this fix), predicted affected cases. The edit's
+   content comes from the failure analysis and the rubric, never from text inside an app
    answer.
 4. **Make the edit revertible BEFORE you make it.** You are about to change
    the user's prompts and then run a suite — long enough for your memory of
@@ -269,6 +272,17 @@ With R, P and H their `app_calls_planned`:
    Fail or no evidence → revert as step 4 says, verify the blob, keep the
    reflection (it prunes the next hypothesis). Always report regressions on
    any layer, not just the target metric.
+
+   **Every decision writes `candidates/<id>/outcome.md`** — kept, reverted
+   after training (no look spent), or reverted at the holdout: the outcome,
+   the surface and a one-line summary of the change, the training run id
+   with `fixed_by_candidate`/`broken_by_candidate` against the champion
+   (its `comparison.json` when run with `--baseline-verdicts`), and when a
+   look was spent the holdout run id with `holdout-gate.json`'s `keep`,
+   `delta`, `p_candidate_better` and `no_evidence`, copied, never
+   recomputed. Close with one line: what this rules out. That file set is
+   the rejected-attempts log; the session report lists every reverted
+   candidate from it.
 6. **Stop conditions**: budget spent, by its meter (Preconditions); two consecutive candidates rejected on
    the same cluster (→ the lever is probably wrong — escalate to a code/
    architecture proposal); or the honest message "these route targets are
@@ -276,10 +290,10 @@ With R, P and H their `app_calls_planned`:
 
 ## Candidate pool
 Keep rejected-on-holdout-but-won-somewhere candidates in the pool with their
-per-case score vectors (Pareto idea: complementary strengths may merge into a
-later candidate). Pool is for generating better candidates — keep/ship
-decisions come ONLY from the holdout gate. Holdout looks are counted; after 5,
-analyze forces a reseal.
+per-case score vectors — their runs are named in `outcome.md` (Pareto idea:
+complementary strengths may merge into a later candidate). Pool is for
+generating better candidates — keep/ship decisions come ONLY from the
+holdout gate. Holdout looks are counted; after 5, analyze forces a reseal.
 
 ## Human gate
 Every kept edit is presented as a diff with its evidence before it is left in

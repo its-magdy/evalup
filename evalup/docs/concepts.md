@@ -59,6 +59,18 @@ Judge calibration (`analyze --label`) is not a stage: it has no stage
 prerequisite and can start whenever a rubric exists. Judged layers are not
 scored at run time yet.
 
+## Capability and regression suites
+
+Two kinds of case, told apart by the existing `gating` field, not by a new
+one. The **regression suite** is the human-accepted cases with `gating: true`:
+the app should pass them every time, and one failing closes the gate. The
+**capability suite** is the accepted cases with `gating: false`: what the app
+cannot yet do reliably, tracked and reported, never gating, so a low pass rate
+there is expected. Cases still `pending` (or `quarantined`) are `gating:
+false` too but belong to neither: nobody has accepted them. A capability case
+that passes reliably **graduates**: `analyze` suggests it, and the user flips
+`gating` to true. Nothing graduates a case automatically.
+
 ## Ground truth — how correctness is actually graded
 
 You cannot judge your way to factual correctness; ground truth is

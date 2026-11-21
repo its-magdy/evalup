@@ -114,6 +114,19 @@ where the response text needs reading. A pure status mismatch (expected 200,
 got 400) is already diagnosed by its verdict row; two agent launches to
 re-read it is what the first field test spent.
 
+**Never passed → suspect the case first.** A case that fails every trial is
+more often a broken case than a broken app. Find them before clustering,
+never in a holdout run (its files name sealed cases): a
+`reliability.json` `per_case` row with `c: 0` (k > 1), a
+`run_history.py --all-cases` journal row whose `verdicts` hold no `pass`, or
+a whole `category` in `verdicts.jsonl` with no `pass` row. One fail at k = 1
+is not "never". For each, check the case against `adapter.yaml`,
+`profile.yaml` and `findings.md`: does the expected route or tool exist under
+that name, could any correct answer satisfy the check, does the answer read
+right while the check fails? Report them as their own group, "case or app?",
+ask the user which, and keep them out of what `optimize` gets until answered.
+This flags a question; no verdict changes.
+
 Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
 the plugin is installed) per failed case, on its normalized trajectory
 (raw spans when that view is insufficient) and its violated expectations.
@@ -149,11 +162,22 @@ stop a sitting after ~20 that add nothing. `--label` runs on that same rule.
 Zero gating failures → produce insight, not silence:
 - what the passing suite CANNOT detect: unjudged dimensions, layers skipped
   this run, coverage gaps named in the dataset metadata;
-- the non-gating / tracked-only results worth a look;
+- the capability-suite (`gating: false`) results worth a look, and any
+  ready to graduate (below);
 - the next investment: labeling, cases in a named gap, or a skipped layer;
 - an offer to open-code a sample of PASSING traces in the viewer. A passing
   suite is not the same as a good one. That is how the issues a green suite
   cannot see get caught.
+
+**Graduating a capability case.** Accepted `gating: false` cases are the
+capability suite; gating ones are the regression suite
+(`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Capability and regression suites).
+After any run, name each accepted, non-canary `gating: false` case that
+passed every run of its `run_history.py --all-cases` series (three runs at
+least) and, at k > 1, every repeat (a regression run's `reliability.json`,
+`c` = `n`).
+Suggest flipping it to `gating: true`; the user decides. A flip edits the case, so batch them into
+one `dataset_version` bump and pin a new baseline after (run/SKILL.md §4).
 
 ### Conversations — "failed at turn N" is its own diagnosis
 A multi-turn `verdict.json` carries `failed_turn` and `stop_reason`; read them
