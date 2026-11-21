@@ -3,13 +3,13 @@
 
 run_cases.py exits 0 on a red suite, deliberately: its exit code reports
 whether the RUN completed, and "gating failures do not affect the exit code"
-(runner-contract.md SS11). That is the right split, and until this script it was
-half of one. The other half -- the step that turns results.json into pass/fail
--- existed only as a bash snippet in run-modes.md that needed `jq` and `yq` and
-picked the run by mtime, the method analyze/SKILL.md forbids. So at the shell a
-run where every case failed was byte-identical to a clean one: rc 0, nothing
-printed (2026-09 audit). docs/workflow.md promised "a plain script (no Claude
-needed)"; this is that script.
+(runner-contract.md SS11). That is the right split, and this script is its
+other half: the step that turns results.json into pass/fail. Without it, at
+the shell a run where every case failed is byte-identical to a clean one: rc
+0, nothing printed. It is a plain Python script -- no `jq`/`yq` to install,
+and it picks a run by its id's timestamp, never by mtime (the method
+analyze/SKILL.md forbids) -- so CI can run it with no Claude in the loop
+(docs/workflow.md).
 
 No LLM is in this path and none may be added: it is the gate.
 
@@ -28,10 +28,10 @@ The gate closes when any of these holds:
   - no case was scored pass or fail. `skipped` and `unscored` are never a
     failure (runner-contract.md SS5), and that is exactly why a suite made only
     of them must not open the gate: "0 gating failures" over zero measurements
-    is not a pass, it is an absence (2026-09-21 audit: an all-multi-turn suite
-    gated green forever);
+    is not a pass, it is an absence (an all-multi-turn suite would otherwise
+    gate green forever);
   - a count the gate reads is missing or is not an integer. Reading
-    `"gating_failures": "10"` as 0 opened the gate over ten failures;
+    `"gating_failures": "10"` as 0 would open the gate over ten failures;
   - the run directory fails run_cases.py --verify. results.json is the file
     being audited, so its own `missing_artifacts: []` is not evidence: the
     verdicts are recounted from cases/*/verdict.json. --no-verify skips this
@@ -188,8 +188,8 @@ def evaluate(results, max_infra_rate, require_canaries=False):
     holdout_gating = count(holdout, "gating_failures") \
         if isinstance(holdout, dict) else 0
     # SS10: holdout cases are inside summary's counts, and `holdout` is their
-    # aggregate so a reader can take them OUT. Adding it back counted every
-    # sealed failure twice -- "1 fail (2 gating)" (2026-09-30 review).
+    # aggregate so a reader can take them OUT. Adding it back would count
+    # every sealed failure twice -- "1 fail (2 gating)".
     if gating:
         rows = gating_rows(results)
         reasons.append(f"{gating} gating failure(s)"
@@ -301,9 +301,9 @@ def render(facts, reasons):
     if isinstance(failures, int) and isinstance(gating, int) \
             and failures > gating:
         # A suite where nothing gates yet (every case still `pending`)
-        # opens the gate on 2 of 4 failing; the field test (2026-09-25)
-        # read the first word and stopped. Say on the same line what the
-        # verdict is not counting.
+        # opens the gate on 2 of 4 failing, and a reader who stops at the
+        # first word misses that. Say on the same line what the verdict is
+        # not counting.
         verdict += (f" ({failures - gating} failure(s) on non-gating cases,"
                     " not counted)")
     lines = [f"{facts['run_id']}: {verdict}",
@@ -316,9 +316,10 @@ def render(facts, reasons):
     if facts["repeated_5xx"]:
         # An exhausted 5xx is infra, never a fail -- but a case that got the
         # SAME 5xx on every attempt of every repeat may be the app's own
-        # error (the 2026-09-26 user test's guard-blocked injection read as
-        # provider noise, F-165). Re-running or raising --max-infra-rate
-        # would hide it; say so where the infra number is read.
+        # error (F-165: a guard that blocks an injection with a 5xx reads
+        # exactly like provider noise). Re-running or raising
+        # --max-infra-rate would hide it; say so where the infra number is
+        # read.
         # A holdout run's case directories are sealed: say what, not where.
         where = ("the cases are sealed; do not open them" if facts["holdout"]
                  else "read their response.json before re-running")
@@ -333,7 +334,7 @@ def render(facts, reasons):
         line = f"  canaries {passed}/{total} pass"
         if facts["status"] == "ok" and facts["verify_clean"] \
                 and is_count(passed) and is_count(total) and passed < total:
-            # A bare "0/1" read as a failed canary, and in a run that
+            # A bare "0/1" reads as a failed canary, and in a run that
             # finished it never is one: a canary `fail` aborts, and --verify
             # refuses `ok` beside one. That second half is why the claim is
             # made only over a run directory that just verified -- under
