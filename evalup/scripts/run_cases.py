@@ -864,6 +864,11 @@ def check_static_headers(invocation):
     if isinstance(identity_map, dict):
         taken.update({str(n).lower(): "identity_map sets it"
                       for n in identity_map.values()})
+    lowered = [str(name).lower() for name in block]
+    twice = sorted({n for n in lowered if lowered.count(n) > 1})
+    if twice:
+        preflight_fail(f"{where} names {', '.join(twice)} twice (header "
+                       "names are case-insensitive); keep one")
     for name, value in block.items():
         if not HEADER_NAME_RE.match(name):
             preflight_fail(f"{where}: {name!r} is not a valid header name")
@@ -1410,10 +1415,13 @@ def same_4xx(attempts):
 
 
 def uniform_4xx(verdicts):
-    """{status, cases} when every SENT case of the run, canaries included,
+    """{status, cases} when every case the app ANSWERED, canaries included,
     got the same 4xx on every request; None otherwise or under two cases.
-    Flagged, never rescored -- like repeated_5xx (F-165)."""
-    sent = [v for v in verdicts if v.get("verdict") != SKIPPED]
+    Skipped and infra_error cases are left out: one timeout on a free-tier
+    provider must not hide 49 guard 403s. Flagged, never rescored -- like
+    repeated_5xx (F-165)."""
+    sent = [v for v in verdicts
+            if v.get("verdict") not in (SKIPPED, INFRA_ERROR)]
     statuses = {v.get("same_4xx") for v in sent}
     if len(sent) < 2 or len(statuses) != 1:
         return None
@@ -1646,6 +1654,16 @@ class Runner:
         invocation = self.adapter.get("invocation", {})
         self.identity_map = invocation.get("identity_map") or {}
         check_static_headers(adapter.get("invocation") or {})
+        # A control character in a header or URL value (a cookie pasted from
+        # a Windows file, a token read with its newline) is refused by
+        # http.client with the VALUE in its message, which reached stderr
+        # as a traceback. Named here, not sent -- for a run and the probe.
+        broken = [name for name in header_env_names(adapter)
+                  if PROBE_CONTROL_RE.search(os.environ.get(name, ""))]
+        if broken:
+            preflight_fail("env var(s) holding a control character (CR, LF, "
+                           "tab ...), which no header or URL may carry: "
+                           + ", ".join(broken))
 
         mode = invocation.get("mode")
         if mode == "http":
@@ -3755,10 +3773,18 @@ class Runner:
         """
         if verdict["canary"] and verdict["verdict"] == FAIL:
             self.log("abort", reason="canary", case_id=case["id"])
+            # Canaries run first, so behind a same-origin guard the first
+            # one is where its 403 shows -- name it here, or #50's flag is
+            # never printed on the run it was written for.
+            status = verdict.get("same_4xx")
+            hint = "" if status is None else (
+                f" (HTTP {status} on every request: possibly a guard "
+                "refusing the harness -- check invocation.headers, auth, "
+                "endpoint and request_body)")
             return ("aborted_canary", EXIT_CANARY,
-                    "canary {} scored {}; harness/judge drift, nothing else "
-                    "from this run is trustworthy".format(
-                        case["id"], verdict["verdict"]))
+                    "canary {} scored {}{}; harness/judge drift, nothing "
+                    "else from this run is trustworthy".format(
+                        case["id"], verdict["verdict"], hint))
         if self.attempted >= INFRA_ABORT_MIN_CASES:
             infra = sum(1 for v in self.verdicts
                         if v["verdict"] in (INFRA_ERROR, INFRA_INCOMPLETE))
@@ -3922,10 +3948,11 @@ class Runner:
         flagged = uniform_4xx(self.verdicts)
         if flagged:
             sys.stderr.write(
-                "WARNING: all {cases} case(s) got HTTP {status} on every "
-                "request -- likely a guard (same-origin, CSRF, auth) "
-                "refusing the harness, not the app's answer; check "
-                "invocation.headers and auth before reading any verdict\n"
+                "WARNING: all {cases} answered case(s), canaries included, "
+                "got HTTP {status} on every request -- likely the harness "
+                "refused (a same-origin/CSRF guard, auth) or misaddressed, "
+                "not the app's answer; check invocation.headers, auth, "
+                "endpoint and request_body before reading any verdict\n"
                 .format(**flagged))
         sys.stderr.write(
             "run {} complete: {} case(s) in {} -- exit 0 means the RUN "
@@ -4252,7 +4279,8 @@ def check_results_json(results, cases, sealed=None):
     if "uniform_4xx" in summary:
         # Present on runs written since #50. Counted from verdict.json's
         # same_4xx by this function's own code, as every recount here is.
-        sent = [v for v in cases.values() if v.get("verdict") != SKIPPED]
+        sent = [v for v in cases.values()
+                if v.get("verdict") not in (SKIPPED, INFRA_ERROR)]
         statuses = {v.get("same_4xx") for v in sent}
         status = statuses.pop() if len(statuses) == 1 else None
         recounted["uniform_4xx"] = {"status": status, "cases": len(sent)} \
@@ -4527,9 +4555,11 @@ PROBE_BODY_PREVIEW_CHARS = 4000
 # "42" in the app's answer. Auth values are scrubbed whatever their length.
 PROBE_SCRUB_MIN_LEN = 4
 PROBE_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
-# A 403 body a same-origin or CSRF guard writes (#50): said by name, since
-# "check auth" sends the reader after the wrong header.
-GUARD_403_RE = re.compile(r"origin|csrf|xsrf|cross[- ]?site", re.IGNORECASE)
+# A 4xx body a same-origin or CSRF guard writes (#50; Laravel's is a 419,
+# Rails' a 422): said by name, since "check auth" sends the reader after the
+# wrong header.
+GUARD_4XX_RE = re.compile(r"\borigin\b|csrf|xsrf|cross[- ]?(site|origin)|"
+                          r"authenticity.?token", re.IGNORECASE)
 
 
 class ProbeRunner(Runner):
@@ -4686,12 +4716,14 @@ def probe_problems(response, tool_calls_error, sse):
         problems.append(f"no usable response: {response['error']}")
         return problems
     status = response["status"]
-    if status == 403 and GUARD_403_RE.search(body_key(response["body"])):
+    if 400 <= status < 500 and GUARD_4XX_RE.search(
+            body_key(response["body"])):
         problems.append(
-            "HTTP 403 naming origin/CSRF/cross-site: a same-origin or CSRF "
-            "guard refused the request. Declare the header it checks in "
-            "invocation.headers (e.g. Origin: ${APP_BASE_URL}); a run "
-            "without it scores every case as this 403")
+            f"HTTP {status} naming origin/CSRF/cross-site: a same-origin or "
+            "CSRF guard refused the request. Declare the header it checks "
+            "in invocation.headers (an Origin is scheme://host[:port], no "
+            "path); a run without it scores every case as this "
+            f"{status}")
     elif not 200 <= status < 300:
         problems.append(f"HTTP {status}: the app did not accept the request "
                         "(check auth, endpoint and request_body)")
@@ -4787,15 +4819,6 @@ def probe_send(adapter, adapter_path, message, insecure_tls, timeout_s):
     # prints goes to stderr, so stdout stays the one JSON report.
     with contextlib.redirect_stdout(sys.stderr):
         runner.preflight()
-    # A control character in a header or URL value (a cookie pasted from a
-    # Windows file, a tab) is refused by http.client with the value in its
-    # message. Named here, not sent.
-    broken = [name for name in header_env_names(adapter)
-              if PROBE_CONTROL_RE.search(os.environ.get(name, ""))]
-    if broken:
-        preflight_fail("env var(s) holding a control character (CR, LF, "
-                       "tab ...), which no header or URL may carry: "
-                       + ", ".join(broken))
     case = {"id": PROBE_CASE_ID,
             "input": {"messages": [{"role": "user", "content": message}]}}
     with contextlib.redirect_stdout(sys.stderr):

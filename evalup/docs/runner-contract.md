@@ -306,7 +306,10 @@ beyond the health check.
    runner, `auth` or `identity_map` already sets (`Content-Type`,
    `Authorization`, `Cookie`, an `auth.headers` or `identity_map` name), or a
    credential-like name (`token`, `csrf`, `key`, …) with an inline value
-   instead of a `${REF}` is exit 3: refused, never merged or dropped.
+   instead of a `${REF}`, or two names equal but for case, is exit 3:
+   refused, never merged or dropped. So is an env var feeding a header or
+   the URL that holds a control character (CR, LF, tab): `http.client`
+   would refuse it with the value in its message.
 3. **Health check**: one trivial request through the adapter. With no declared
    `invocation.health_check`, this is a `GET` of `base_url` and **any** response
    counts as reachable — including a 404. The question here is "is the host
@@ -916,7 +919,7 @@ Exit 2 makes the gap loud at the one moment someone can act on it.
 | Condition | Handling |
 |---|---|
 | connection error, timeout, HTTP 429, HTTP 5xx | retry up to `max_attempts` with `backoff_s` (a 429/503 `Retry-After: <seconds>` longer than the declared wait is honored, capped at 60s); on exhaustion → `infra_error`, `retry_count` recorded in `response.json` — whatever `expect.http.status` says. When every attempt of every repeat got the same 5xx and body (≥ 2 attempts in all), `verdict.json` carries `repeated_5xx: {status, attempts}` and `summary.repeated_5xx` counts the case: still infra, but possibly the app's own error rather than the provider's. The two cannot be told apart from the response (an app that wraps provider errors returns the same envelope for both), so the runner flags and never rescores |
-| HTTP 4xx other than 429 | **not** retried — it is a response, and often the expected one (the field test asserts a deliberate 400 on OOS). When every request of every repeat (every turn, for a conversation) got the same 4xx, `verdict.json` carries `same_4xx: <status>`; when every sent case of the run, canaries included, carries the same one (≥ 2 cases), `summary.uniform_4xx` is `{status, cases}` and the runner's closing line and `gate.py` say so. A guard refusing the harness (same-origin, CSRF, a lapsed credential) looks exactly like this, and `route_from_status: {403: denied}` would read it as a suite of correct refusals (#50). Flagged, never rescored, like `repeated_5xx` |
+| HTTP 4xx other than 429 | **not** retried — it is a response, and often the expected one (the field test asserts a deliberate 400 on OOS). When every request of every repeat (every turn, for a conversation) got the same 4xx, `verdict.json` carries `same_4xx: <status>`; when every case the app answered (not `skipped` or `infra_error`), canaries included, carries the same one (≥ 2 cases), `summary.uniform_4xx` is `{status, cases}` and the runner's closing line and `gate.py` say so; a failing canary's abort message names its `same_4xx`. A guard refusing the harness (same-origin, CSRF, a lapsed credential) looks exactly like this, and `route_from_status: {403: denied}` would read it as a suite of correct refusals (#50). Flagged, never rescored, like `repeated_5xx` |
 | app crash / connection reset on a `noise` or `adversarial-refusal` case | `infra_error` **and** increments `summary.crash_rate`'s numerator — a first-class number, not just an excluded row |
 | trace requested, quiescence not reached by `max_wait_s` | `infra_incomplete`; the case's non-trace layers still score |
 | `normalize_trace.py` reports missing spans / orphans | `infra_incomplete` for trace-dependent layers only |

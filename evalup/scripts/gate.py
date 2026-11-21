@@ -345,10 +345,11 @@ def render(facts, reasons):
         # this (#50). Say so beside the counts it would otherwise explain.
         found = facts["uniform_4xx"]
         lines.append(
-            f"  all {found['cases']} sent case(s) got HTTP {found['status']} "
-            "on every request: likely a guard refusing the harness "
-            "(same-origin, CSRF, auth), not the app's answer -- check "
-            "invocation.headers and auth before reading these verdicts")
+            f"  all {found['cases']} answered case(s), canaries included, "
+            f"got HTTP {found['status']} on every request: likely the "
+            "harness refused (same-origin/CSRF guard, auth) or misaddressed, "
+            "not the app's answer -- check invocation.headers, auth, "
+            "endpoint and request_body before reading these verdicts")
     lines.extend(conversation_lines(facts))
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):

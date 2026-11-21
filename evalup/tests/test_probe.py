@@ -374,6 +374,16 @@ class TestRequiredHeaders(ProbeCase):
         self.assertEqual(report["request"]["headers"]["Origin"], "<redacted>")
         self.assertIn("APP_ORIGIN", report["env_vars"])
 
+    def test_laravels_419_is_named_as_a_guard_too(self):
+        def laravel(path, body, headers):
+            return 419, {"message": "CSRF token mismatch."}, {}
+
+        self.app.server.responder = laravel
+        rc, report, _ = self.probe(self.write_adapter(
+            cookie_adapter(self.app.base_url)))
+        self.assertEqual(rc, 3)
+        self.assertIn("HTTP 419 naming origin/CSRF", report["problems"][0])
+
     def test_a_plain_403_still_says_check_auth(self):
         def plain(path, body, headers):
             return 403, {"message": "forbidden"}, {}

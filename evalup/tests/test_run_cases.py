@@ -1122,8 +1122,8 @@ class TestRequiredHeaders(RunnerCase):
         summary = self.read("results.json")["summary"]
         self.assertEqual(summary["uniform_4xx"], {"status": 403, "cases": 2})
         self.assertEqual(summary["passes"], 2)
-        self.assertIn("all 2 case(s) got HTTP 403 on every request",
-                      proc.stderr)
+        self.assertIn("all 2 answered case(s), canaries included, got HTTP "
+                      "403 on every request", proc.stderr)
         verify = subprocess.run(
             [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
             capture_output=True, text=True)
@@ -1132,8 +1132,8 @@ class TestRequiredHeaders(RunnerCase):
             [sys.executable, str(SCRIPTS / "gate.py"), str(self.out_dir())],
             capture_output=True, text=True)
         self.assertEqual(gate.returncode, 0, gate.stdout)   # flag, not gate
-        self.assertIn("all 2 sent case(s) got HTTP 403 on every request",
-                      gate.stdout)
+        self.assertIn("all 2 answered case(s), canaries included, got HTTP "
+                      "403 on every request", gate.stdout)
         # --verify recounts it from verdict.json, like every summary count.
         results = self.read("results.json")
         results["summary"]["uniform_4xx"] = None
@@ -1144,6 +1144,61 @@ class TestRequiredHeaders(RunnerCase):
             capture_output=True, text=True)
         self.assertNotEqual(verify.returncode, 0)
         self.assertIn("uniform_4xx", verify.stdout)
+
+    def guarded_plan(self, cases, **invocation):
+        adapter = make_adapter(self.app.base_url)
+        adapter["invocation"].update(invocation)
+        return make_plan(self.state, self.app.base_url, cases=cases,
+                         adapter=adapter)
+
+    def test_a_failing_canary_names_the_4xx_in_its_abort(self):
+        """Canaries run first: behind the guard the run aborts on the first
+        one, so its message is where the 403 has to be named."""
+        self.app.server.responder = health_only(origin_guard)
+        plan = self.guarded_plan([
+            make_case("c-canary", split=["smoke", "canary"]),
+            make_case("c-0001")])
+        rc, payload, proc = self.invoke(plan)
+        self.assertEqual(rc, 4, proc.stdout + proc.stderr)
+        self.assertIn("HTTP 403 on every request", payload["error"])
+        self.assertIn("invocation.headers", payload["error"])
+
+    def test_an_infra_case_does_not_hide_the_flag(self):
+        def guard_or_timeout(path, body, headers):
+            if path == "/":
+                return 200, {"ok": True}, {}
+            if body.get("message") == "boom":
+                return 500, {"error": "boom"}, {}
+            return 403, {"message": "Cross-origin request refused"}, {}
+
+        self.app.server.responder = guard_or_timeout
+        boom = {"messages": [{"role": "user", "content": "boom"}]}
+        plan = self.guarded_plan([make_case("c-0001"), make_case("c-0002"),
+                                  make_case("c-0003", input=boom)])
+        plan["execution"]["infra_rate_abort"] = 1.0
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0003", "verdict.json")
+                         ["verdict"], "infra_error")
+        self.assertEqual(self.read("results.json")["summary"]["uniform_4xx"],
+                         {"status": 403, "cases": 2})
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(verify.returncode, 0, verify.stdout)
+
+    def test_a_control_character_in_a_header_env_var_is_exit_3(self):
+        """http.client refuses it with the VALUE in its traceback; the run's
+        pre-flight names the variable instead, as the probe does."""
+        adapter = cookie_origin_adapter(self.app.base_url,
+                                        **{"X-CSRF-Token": "${APP_CSRF}"})
+        plan = make_plan(self.state, self.app.base_url, adapter=adapter)
+        rc, payload, proc = self.invoke(
+            plan, env=dict(self.env, APP_CSRF="csrf-secret-9\n"))
+        self.assertEqual(rc, 3, proc.stdout + proc.stderr)
+        self.assertIn("APP_CSRF", payload["error"])
+        self.assertNotIn("csrf-secret-9", proc.stdout + proc.stderr)
+        self.assertEqual(self.app.calls, [])
 
     def test_one_case_answered_is_not_flagged(self):
         def mixed(path, body, headers):
@@ -1202,6 +1257,7 @@ class TestRequiredHeaders(RunnerCase):
             ({"Authorization": "Bearer x"}, {}, "auth: {type: bearer}"),
             ({"x-user-id": "2"}, {}, "auth.headers sets it"),
             ({"X-CSRF-Token": "abc123"}, {}, "looks like a credential"),
+            ({"Origin": "http://a", "origin": "http://b"}, {}, "twice"),
         ]
         for headers, auth, needle in cases:
             with self.subTest(headers=headers):

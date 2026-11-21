@@ -133,8 +133,8 @@ conversation/session handling, OTel setup. Record as you go:
   AG-UI helper) → `invocation.response_format: sse` + `sse.protocol`; tool
   calls in the stream or body → `traces.source: response` (adapter-contract.md).
 - **Same-origin, Origin or CSRF middleware** on the chat route → the header
-  it checks in `invocation.headers` (e.g. `Origin: ${APP_BASE_URL}`); without
-  it every request is a 403.
+  it checks in `invocation.headers` (an Origin is `scheme://host[:port]`, no
+  path); without it every request is a 403.
 - **How the app keeps a conversation** → `invocation.conversation` (not the
   legacy `session:` block; adapter-contract.md has the shape). Record the
   `style` (`client-id`, `server-id` or `cookie`); for `server-id`, where turn 1's

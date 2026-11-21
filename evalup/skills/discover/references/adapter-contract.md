@@ -40,10 +40,11 @@ invocation:
   #                    X-User-Permissions: ${TEST_PERMS} } }
   # auth: { type: cookie, cookie_env: APP_TEST_COOKIE }
   # auth: { type: none }
-  headers: { Origin: ${APP_BASE_URL} }   # optional: sent on EVERY request (and
-                                # the health check) beside auth -- the Origin or
-                                # CSRF header a guard checks. A secret as ${REF};
-                                # never a name auth or identity_map sets.
+  headers: { Origin: "${APP_ORIGIN}" }  # optional: sent on EVERY request (and
+                                # the health check) beside auth -- the Origin
+                                # (scheme://host[:port], no path) or CSRF header
+                                # a guard checks. A secret as ${REF}; never a
+                                # name auth or identity_map sets.
 
   # --- http mode: how a request is BUILT and a response is READ ---
   # These are TEMPLATES the runner substitutes into, not examples. The runner
