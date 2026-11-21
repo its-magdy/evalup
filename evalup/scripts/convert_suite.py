@@ -67,15 +67,26 @@ or exits 2 with the same install hint a conversion would hit. It exists so
 /evalup:start and the README's install check find a missing PyYAML in minute
 one instead of at generate's conversion, about fifteen minutes in.
 
+--rubrics-dir <dir> converts the rubric files there (`*.md`, docs/rubric-
+format.md): each one's YAML frontmatter, the sha256 of its bytes and its path,
+as {"rubrics": [{"file", "sha256", "frontmatter"}]}. A body without a
+frontmatter block is exit 2. judge_run.py plan runs this, so the judge pass
+parses no YAML either. A state directory with a rubrics/ folder adds the same
+list to the combined document as `rubrics`, and --split-dir writes it as
+rubrics.json (validate_cases.py --rubrics); without one, both stay absent.
+
 Usage:
   convert_suite.py <state-dir> [-o converted.json] [--split-dir <dir>]
+  convert_suite.py --rubrics-dir <state-dir>/rubrics [-o rubrics.json]
   convert_suite.py --adapter-file <state-dir>/adapter.yaml [-o adapter.json]
   convert_suite.py --self-check
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
+import pathlib
 import sys
 
 from _common import add_version_flag, die, load_text, write_output
@@ -151,6 +162,45 @@ def case_files(datasets_dir):
     return found
 
 
+def rubric_entries(yaml, loader, rubrics_dir):
+    """Every rubric file under `rubrics_dir`, sorted by name: its path
+    relative to the state dir, the sha256 of its bytes, and its frontmatter.
+
+    The frontmatter is the block between a first line `---` and the next
+    line that is exactly `---`; the Markdown body below it is prose and is
+    not read."""
+    base = os.path.dirname(os.path.abspath(rubrics_dir))
+    entries = []
+    for name in sorted(os.listdir(rubrics_dir)):
+        path = os.path.join(rubrics_dir, name)
+        if not name.endswith(".md") or not os.path.isfile(path):
+            continue
+        try:
+            raw = pathlib.Path(path).read_bytes()
+            text = raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            die(f"bad input: {path}: {exc}")
+        lines = text.splitlines()
+        if not lines or lines[0].strip() != "---":
+            die(f"bad input: {path}: no frontmatter -- a rubric file starts "
+                "with a `---` line (docs/rubric-format.md SS'File shape')")
+        try:
+            end = next(i for i in range(1, len(lines))
+                       if lines[i].strip() == "---")
+        except StopIteration:
+            die(f"bad input: {path}: the frontmatter has no closing `---`")
+        try:
+            front = yaml.load("\n".join(lines[1:end]), Loader=loader)  # noqa: S506 - a SafeLoader subclass
+        except yaml.YAMLError as exc:
+            die(f"bad input: {path}: {' '.join(str(exc).split())}")
+        if not isinstance(front, dict):
+            die(f"bad input: {path}: the frontmatter is not a YAML mapping")
+        entries.append({"file": os.path.relpath(path, base),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "frontmatter": front})
+    return entries
+
+
 def jsonable(value):
     if isinstance(value, (datetime.date, datetime.datetime)):
         return value.isoformat()
@@ -181,6 +231,10 @@ def main():
     ap.add_argument("--adapter-file", metavar="PATH",
                     help="convert only this adapter.yaml (no profile, no "
                          "datasets) -- what run_cases.py --probe reads")
+    ap.add_argument("--rubrics-dir", metavar="DIR",
+                    help="convert only the rubric files in DIR (their "
+                         "frontmatter and sha256) -- what judge_run.py plan "
+                         "reads")
     ap.add_argument("-o", "--output", help="write the combined document here "
                                            "(default: stdout)")
     ap.add_argument("--split-dir", help="also write suite.json, "
@@ -203,6 +257,16 @@ def main():
         yaml = yaml_module()
         dump(load_mapping(yaml, strict_loader(yaml), a.adapter_file),
              a.output)
+        return
+    if a.rubrics_dir is not None:
+        if a.state_dir is not None or a.split_dir or a.adapter_file:
+            ap.error("--rubrics-dir converts one directory: it takes no "
+                     "state_dir, --adapter-file or --split-dir")
+        if not os.path.isdir(a.rubrics_dir):
+            die(f"bad input: {a.rubrics_dir}: not a directory")
+        yaml = yaml_module()
+        dump({"rubrics": rubric_entries(yaml, strict_loader(yaml),
+                                        a.rubrics_dir)}, a.output)
         return
     if a.state_dir is None:
         ap.error("the state_dir argument is required (or pass --self-check)")
@@ -256,6 +320,12 @@ def main():
            "profile": {key: profile[key] for key in ("stage", "judge")
                        if key in profile},
            "manifest": manifest, "cases": cases, "sources": sources}
+    # Only when the folder exists, so a conversion of a state dir with no
+    # rubrics is byte-identical to what it was before the judge pass.
+    rubrics = rubric_entries(yaml, loader, at("rubrics")) \
+        if os.path.isdir(at("rubrics")) else None
+    if rubrics is not None:
+        doc["rubrics"] = rubrics
     if a.output and os.path.dirname(a.output):
         # Like --split-dir below: a missing parent is created, not an exit 2.
         try:
@@ -269,6 +339,8 @@ def main():
                  "adapter.json": adapter, "profile.json": profile}
         if manifest is not None:
             parts["manifest.json"] = manifest
+        if rubrics is not None:
+            parts["rubrics.json"] = {"rubrics": rubrics}
         for name, part in parts.items():
             dump(part, os.path.join(a.split_dir, name))
 

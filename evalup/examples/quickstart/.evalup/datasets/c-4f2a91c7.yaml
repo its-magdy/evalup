@@ -1,6 +1,8 @@
 # happy path, invoices. Four layers score on this one case: http (declared
 # status), routing (route_from_response), execution (result_from_response) and
-# answer (string assertions). No trace is needed for any of them.
+# answer (string assertions). No trace is needed for any of them. It also pins
+# the grounded-answer rubric: the runner's judged row reads `unjudged (mode:
+# smoke)`, and the judge pass after the run grades it, provisionally.
 schema_version: 1
 id: c-4f2a91c7
 unit: invoices
@@ -27,4 +29,5 @@ expect:
   answer:
     must_contain: ["412.50"]
     must_not_contain: ["I don't know", '/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
+    rubric: grounded-answer-v1     # grounded-only, judged after the run
 gating: true

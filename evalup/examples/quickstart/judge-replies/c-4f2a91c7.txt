@@ -1,0 +1,22 @@
+The user asked what they spent on invoices in May 2026. The answer states
+$412.50, matching the reference scalar 412.5; it names May 2026, the month
+asked about; and both of its figures are in the response data: the value
+412.5 and the invoice count 4.
+
+{"schema": "evalup/judge-reply/1", "model_id": "claude-opus-5-5",
+ "case_id": "c-4f2a91c7", "rubric_id": "grounded-answer", "rubric_version": 1,
+ "criteria": [
+  {"id": "states_the_amount", "verdict": "pass",
+   "reasoning": "The reference scalar is 412.5; the answer states $412.50.",
+   "evidence": [{"source": "answer.txt", "quote": "You spent $412.50"}]},
+  {"id": "states_a_period", "verdict": "pass",
+   "reasoning": "The answer names the month the amount covers.",
+   "evidence": [{"source": "answer.txt", "quote": "on invoices in May 2026"}]},
+  {"id": "period_is_asked_one", "verdict": "pass",
+   "reasoning": "The request asks about May 2026; the answer names May 2026.",
+   "evidence": [{"source": "request.json", "quote": "what did I spend on invoices in May 2026?"},
+                {"source": "answer.txt", "quote": "in May 2026"}]},
+  {"id": "no_unsupported_claim", "verdict": "pass",
+   "reasoning": "Both figures are in the response body: value 412.5 and invoices 4.",
+   "evidence": [{"source": "response.json", "quote": "\"value\": 412.5"},
+                {"source": "response.json", "quote": "\"invoices\": 4"}]}]}

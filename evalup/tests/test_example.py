@@ -83,7 +83,9 @@ ANSWERS = [
      "INV-1200 up for you instead.", {}),
     (re.compile(r"invoice|spend|billing", re.I), 200, "invoices",
      "You spent $412.50 on invoices in May 2026, across 4 invoices.",
-     {"value": 412.5}),
+     # `invoices` grounds the answer's "4": the rubric's no_unsupported_claim
+     # asks that every figure in it be in the response data.
+     {"value": 412.5, "invoices": 4}),
     (re.compile(r"surgeon", re.I), 200, "shifts",
      "There are no surgeons on the night shift.", {"value": 0}),
     (re.compile(r"nurse|shift|roster|headcount", re.I), 200, "shifts",
