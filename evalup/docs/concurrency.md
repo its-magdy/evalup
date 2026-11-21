@@ -4,7 +4,7 @@
 It follows the decision recorded on #30 that day: concurrency comes after
 pacing (#76, PR #79), applies to **response-sourced or trace-less runs behind
 a declared rate budget**, and reverses decision D5, so it is specified before
-any code. #17 item 2 (PR #77) has landed; #17 item 1 stays on hold (§1.3).
+any code. #17 item 2 (PR #77) has landed; #17 item 1 stays on hold (§1.2, §8 question 8).
 
 **What does not change.** No scorer, verdict rule, fold, denominator or
 `SCORING_VERSION`. With `max_concurrency` absent or 1, nothing sent or
@@ -22,7 +22,7 @@ is named.
 every condition below holds. Each failing one is **exit 2 at plan
 validation**, in `validate_adapter_block` (L535), where D5 refuses today
 (L545-555). Refused, never silently serialized: D5's reason still holds for
-every case Phase 1 does not cover.
+every configuration Phase 1 does not cover.
 
 | Refused when | Why |
 |---|---|
@@ -72,7 +72,7 @@ time. Cases stay serial.**
 | Verdict aggregation | `fold_repeats` (L1450) and `repeated_5xx`/`same_4xx` (L1479-1528) read the attempts as a set; `chosen` (L2898) needs the list in repeat order, which a gather by index keeps | the same, plus an order-dependent infra-abort point |
 | Conversations | k independent conversations, each serial within | the same |
 | Resume unit | the case, unchanged (§3 rule 9) | the case, but completed cases past an abort must be discarded |
-| #17 item 1 | not affected (Phase 1 has no quiescence wait) | not affected |
+| #17 item 1 | nothing to replace yet: Phase 1 has no quiescence wait. The same design on store-traced runs replaces it (§1.2) | does not replace it |
 
 Repeats are already independent by contract: "Each repeat is a full
 independent invoke + score" (`runner-contract.md` §5.5), each with a fresh
@@ -115,8 +115,9 @@ live evidence (§7) shows the shared pacer holding.
 ### 2.2 When the budget binds, concurrency buys nothing
 
 Throughput is `min(w / c, requests / window_s)` calls per second, where `c`
-is one repeat's cycle (latency plus scoring). Serial is `1 / c`. The speedup
-is `min(w, c · requests / window_s)`, and **1 whenever `c · requests /
+is one repeat's cycle (latency plus scoring) and no budget means
+`requests / window_s = ∞`. Serial is `w = 1`. The speedup is
+`min(w, c · requests / window_s)`, and **1 whenever `c · requests /
 window_s ≤ 1`**: the budget already binds the serial run.
 
 Live evidence: a real app rate-limited to 20 messages per 10 minutes, with
