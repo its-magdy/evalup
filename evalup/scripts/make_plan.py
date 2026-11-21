@@ -2,14 +2,11 @@
 """Build run_cases.py's plan.json from convert_suite.py's output -- mechanically,
 so the model never assembles a plan by hand.
 
-The plan was the last big artifact still hand-built on every run. run/SKILL.md
-described nine of its keys in prose, left six required ones to a 1,000-line
-contract, and told the model to write the file "with python3 -c or jq". In the
-first live session (2026-09-21) roughly half of 75 tool calls went to exactly
-that: an ad-hoc script per attempt, five failed runner starts, six
-re-conversions. Everything the plan needs is already in convert_suite.py's
-document or is a fixed function of the mode, so it is a script's job --
-the same finding that produced convert_suite.py and gate.py, one step later.
+Hand-building the plan is costly: its required keys are spread across
+runner-contract.md SS2, and a model assembling it with ad-hoc scripts burns
+calls on failed runner starts and re-conversions. Everything the plan needs is
+already in convert_suite.py's document or is a fixed function of the mode, so
+it is a script's job -- the same reasoning as convert_suite.py and gate.py.
 
 This script SELECTS and ASSEMBLES. It does not lint (validate_cases.py), does
 not resolve `${VAR}` refs (the runner does, runner-contract.md SS3 -- so no
@@ -82,8 +79,8 @@ MODES = {
     "smoke": ("smoke", 1, "soft"),
     "regression": ("full", 3, "hard"),
     "targeted": ("full", 1, "soft"),
-    # k=3 since #36: the keep/revert call reads this run's per-case pass^k
-    # verdicts, and a k=1 holdout let one flaky retry decide a keep.
+    # k=3 (#36): the keep/revert call reads this run's per-case pass^k
+    # verdicts, and at k=1 one flaky retry could decide a keep.
     "holdout": ("holdout", 3, "decision"),
 }
 DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
@@ -153,11 +150,12 @@ PROTECTED_EXTRA = ("dataset_version", "app.git_sha", "app.git_tree")
 
 def merge_extra(computed, caller, notes):
     """--manifest-extra merged over the computed manifest_extra, one level
-    deep. The field test (2026-09-25) passed `app: {model: ...}` -- the shape
-    runner-contract.md SS2 shows -- and a top-level dict.update replaced the
-    whole computed `app` block, so the pinned baseline recorded no git SHA.
-    Dict values merge key by key; anything else replaces; the protected
-    keys keep the computed value and say so."""
+    deep, so a caller passing `app: {model: ...}` -- the shape
+    runner-contract.md SS2 shows -- keeps the computed `app` block: a
+    top-level dict.update would replace it whole and the pinned baseline would
+    record no git SHA. Dict values merge key by key (a non-dict over a
+    computed dict is an error); anything else replaces; the protected keys
+    keep the computed value and say so."""
     merged = dict(computed)
     for key, value in caller.items():
         if isinstance(merged.get(key), dict):

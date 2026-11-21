@@ -156,13 +156,14 @@ def span_error(span, at):
     enum name or its integer), which every exporter sets whether or not it
     populates the GenAI attribute.
 
-    Without this, a tool call that returned HTTP 500 was indistinguishable from
-    a successful one: the spec records `gen_ai.tool.call.result` only "if
-    execution was successful", so the failure showed up solely as a MISSING
-    result — the same signal the opt-in content-capture flags use. The failure
-    was then laundered into "content capture is off", which pointed every
-    downstream diagnosis at exporter config instead of the broken tool, and a
-    trajectory whose only tool call errored still scored a clean pass."""
+    Without this, a tool call that returned HTTP 500 would be
+    indistinguishable from a successful one: the spec records
+    `gen_ai.tool.call.result` only "if execution was successful", so the
+    failure would show up solely as a MISSING result — the same signal the
+    opt-in content-capture flags use. The failure would then be laundered into
+    "content capture is off", pointing every downstream diagnosis at exporter
+    config instead of the broken tool, and a trajectory whose only tool call
+    errored would still score a clean pass."""
     error_type = at.get("error.type")
     if isinstance(error_type, str) and error_type.strip():
         return error_type
@@ -188,11 +189,10 @@ def load_spans_file(path, fail):
 
     The OpenTelemetry Collector's file exporter (`format: json`), the one
     producer the README and adapter-contract name for `traces.source:
-    otlp-file`, writes one ExportTraceServiceRequest PER LINE, and this
-    reader took a single document only: every such store failed with "Extra
-    data: line 2" (found writing docs/traces-jaeger.md, 2026-09-26). The
-    docstring of flatten_otlp always named "a list of TracesData (JSONL
-    pre-parsed)" as an accepted shape; this is the parse it assumed. Each
+    otlp-file`, writes one ExportTraceServiceRequest PER LINE, so a reader
+    that accepts only a single document would fail every such store with
+    "Extra data: line 2". flatten_otlp's docstring names "a list of TracesData (JSONL
+    pre-parsed)" as an accepted shape; this is the parse it assumes. Each
     line goes through the same strict reader as a whole file (CONTRIBUTING:
     JSON in is strict), so a NaN on line 3 is still a data error."""
     text = load_text(path, on_error=fail)
@@ -326,16 +326,16 @@ def main():
                 parent = by_id[parent].get("parentSpanId")
 
     # An errored call is NOT an uncaptured one. The spec records a tool result
-    # only on success, so lumping the two together reported a broken tool as
-    # "content capture off" — a true statement about the wrong subsystem, and
+    # only on success, so lumping the two together would report a broken tool
+    # as "content capture off" — a true statement about the wrong subsystem, and
     # the reason a failing tool could look like a tracing misconfiguration.
     errored = [{"call_id": t["call_id"], "tool": t["name"],
                 "error": t["error"]}
                for t in tool_calls if t["error"] is not None]
     # Identified positionally when the exporter set no gen_ai.tool.call.id.
-    # Filtering on a truthy call_id dropped exactly the traces where NO call
-    # carries an id, so the list came back empty and the run read
-    # "every tool result was captured" — the most confident possible report of
+    # Filtering on a truthy call_id would drop exactly the traces where NO
+    # call carries an id, so the list would come back empty and the run would
+    # read "every tool result was captured" — the most confident possible report of
     # the least instrumented possible trace, on the check whose job is to say
     # that content capture is off.
     missing_results = [t["call_id"] or f"index:{i}"
@@ -345,16 +345,16 @@ def main():
         "spans_for_trace": len(spans),
         # Beside it, so the two ways to get zero stay distinguishable: a trace
         # that produced nothing, and a --trace-id that matched nothing in a
-        # file full of spans (a typo, or the wrong run). Both used to report
-        # exactly `spans_for_trace: 0` and score every case INFRA_INCOMPLETE,
-        # which reads as "the app's tracing is broken" for what is a mistyped
-        # argument.
+        # file full of spans (a typo, or the wrong run). Alone,
+        # `spans_for_trace: 0` reports both the same way and scores every case
+        # INFRA_INCOMPLETE, which reads as "the app's tracing is broken" for
+        # what is a mistyped argument.
         "spans_in_file": len(all_spans),
         "orphaned_parents": orphans,
         # Tool calls the app itself reported as failed (error.type / span
         # status). Informational here — whether a failed call fails the CASE is
         # the scoring layers' decision, not the normalizer's — but it must
-        # never again be silently indistinguishable from success.
+        # never be silently indistinguishable from success.
         "tool_calls_errored": errored,
         # Informational: gates content-dependent scoring only (args
         # from_tool_result, faithfulness), never completeness. The two
@@ -382,9 +382,9 @@ def main():
             "like an empty trace here)")
     # An execute_tool span with no gen_ai.tool.name is a tool call the scorers
     # cannot name, and a nameless call matches no forbidden-tool entry: left
-    # "ok" it scored authz and trajectory as PASS over the call itself
-    # (2026-09-21 audit). The trace cannot support the tool layers, which is
-    # what "incomplete" means -- infra_incomplete for them, never a verdict.
+    # "ok" it would score authz and trajectory as PASS over the call itself.
+    # The trace cannot support the tool layers, which is what "incomplete"
+    # means -- infra_incomplete for them, never a verdict.
     unnamed = [i for i, call in enumerate(tool_calls)
                if not isinstance(call["name"], str) or not call["name"].strip()]
     if unnamed:
