@@ -17,13 +17,14 @@ after its review, or when `reports/baseline.json` must change. Review
   a different hash inside one `dataset_version` is reported as
   `content_changed_at`.
 
-**The bump rule.** Bump `dataset_version` by one for any edit that changes
-what a case sends, expects, or where it counts: `input`, `expect`, `split`,
-`gating`, `tags`, adding or deleting a case. A case moved to `gating: true`
-(accepted) counts. An edit to **`notes` or `review` alone** (recording an
-owner's confirmation, a reviewer's name) does not bump: the verdict means
-the same thing. `run_history.py` will still flag that case's
-`content_changed_at` once; say it was a note.
+**The bump rule.** Bump `dataset_version` by one for an edit to any case
+field except `notes` and `review` (`input`, `expect`, `split`, `gating`,
+`unit`, …), and for adding or deleting a case. Accepting a case flips
+`gating`, so it bumps. An edit to **`notes` or `review` alone** (recording
+an owner's confirmation, a reviewer's name) does not bump: the verdict means
+the same thing. `run_history.py` still reports that case once, as
+`content_changed_at` with a `content_changed_warning` that says to bump.
+For a note-only edit that warning does not apply: say it was a note.
 
 ## A proposed fix waits in `label_fixes:`
 
@@ -67,10 +68,14 @@ Several fixes from one review sitting go in **one** bump, not one each.
 `baseline.json` is written by
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pin_baseline.py reports/<run-id>`,
 never by hand. It copies `run_id`, `dataset_version`, `scoring_version` and
-`k` from the run's manifest and refuses (exit 2, nothing written) a run
-whose status is not `ok` (`running` included), that fails `--verify`, that
-selected `holdout`, or in which no case gates (`--allow-ungated` only on the
-user's word). Quote every line of its `notes`.
+`k` from the run's manifest into `baseline.json` beside the run, and refuses
+(exit 2, nothing written) a run whose status is not `ok` (`running`
+included), that has scorer errors, fails `--verify`, is not a `regression`
+run, or in which no case gates (`--allow-ungated` only on the user's word).
+A gating case is not proof of review, since the run does not record
+`review.status`, so check for an accepted case yourself. Quote every line of
+its `notes`. It cannot see `dataset.yaml`: pin a run made on the current
+`dataset_version`.
 
 - **After a bump**: run `regression` *without* `--baseline-verdicts` (a diff
   across versions is refused), then pin that run. It replaces the old pointer,

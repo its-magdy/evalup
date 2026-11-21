@@ -1055,13 +1055,15 @@ and every step after the first review was decided ad hoc (#53).
 - **`scripts/pin_baseline.py <reports/<run-id>>`** writes
   `reports/baseline.json` from the run's manifest (`run_id`,
   `dataset_version`, `scoring_version`, `k`, `mode`, `pinned_at`),
-  temp-then-rename. It refuses, exit 2 and nothing written, a run whose
-  status is not `ok` (`running` included), one that fails `run_cases.py
-  --verify`, a holdout run, and one where no case gates (`--allow-ungated`
-  overrides that on the user's word). Its `notes` say when the gate is
-  closed (gate.py's reasons), when the run used k=1 (every later diff needs
-  `--k 1`), and which pointer it replaced. `run`, `analyze` and `optimize`
-  no longer write the file by hand. 21 CLIs.
+  temp-then-rename, always beside the run so the pointer resolves. It
+  refuses, exit 2 and nothing written, a run whose status is not `ok`
+  (`running` included), one with scorer errors (exit 7), one that fails
+  `run_cases.py --verify`, any mode but `regression` (a smoke pin hides
+  every failure outside the smoke split from later diffs), and one where no
+  case gates (`--allow-ungated` overrides that on the user's word). Its
+  `notes` say when the gate is closed (gate.py's reasons), when the run used
+  k=1 (every later diff needs `--k 1`), and which pointer it replaced. `run`,
+  `analyze` and `optimize` no longer write the file by hand. 21 CLIs.
 - **`label_fixes:` in `datasets/dataset.yaml`**: a proposed label fix waits
   there for the owner (`pending`, `approved`, `applied`, `rejected`)
   instead of in a past session's chat. `validate_cases.py --manifest`

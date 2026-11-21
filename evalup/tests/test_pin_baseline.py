@@ -3,6 +3,7 @@ hand (#53). A live session pinned three times in forty minutes by copying
 manifest fields into a hand-written file; one wrong key breaks every later
 diff silently."""
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -43,8 +44,15 @@ class TestPinBaseline(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.reports = self.tmp / "reports"
         self.reports.mkdir()
-        self.run_dir = self.reports / self.demo_run.name
+        # The demo is a smoke run; the same tree relabelled `regression` at
+        # k=1 is a legal regression pin (an app whose rate limit cannot take
+        # k=3) and still passes --verify.
+        run_id = self.demo_run.name.replace("smoke-", "regression-")
+        self.run_dir = self.reports / run_id
         shutil.copytree(self.demo_run, self.run_dir)
+        for name in ("manifest.yaml", "results.json"):
+            self.edit(name, lambda d: d.update(run_id=run_id,
+                                               mode="regression"))
         self.pointer = self.reports / "baseline.json"
 
     def edit(self, name, change):
@@ -64,8 +72,62 @@ class TestPinBaseline(unittest.TestCase):
             self.assertEqual(doc[key], manifest[key], key)
         self.assertEqual(doc["schema_version"], 1)
         notes = " ".join(json.loads(out)["notes"])
-        # The demo is a smoke run: k=1, which every later diff must match.
         self.assertIn("--k 1", notes)
+        # The umask's mode, not mkstemp's 0600, and no temp file left over.
+        umask = os.umask(0)
+        os.umask(umask)
+        self.assertEqual(self.pointer.stat().st_mode & 0o777,
+                         0o666 & ~umask)
+        self.assertEqual(sorted(p.name for p in self.reports.iterdir()),
+                         ["baseline.json", self.run_dir.name])
+
+    def test_a_smoke_run_is_refused(self):
+        self.edit("manifest.yaml", lambda m: m.update(mode="smoke"))
+        rc, out, _ = pin(self.run_dir)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("mode is 'smoke'", json.loads(out)["error"])
+
+    def test_a_scorer_errored_run_is_refused(self):
+        def errored(results):
+            results["exit_code"] = 7
+            results["summary"]["scorer_errors"] = 1
+        self.edit("results.json", errored)
+        rc, out, _ = pin(self.run_dir)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("exit 7", json.loads(out)["error"])
+        self.assertFalse(self.pointer.exists())
+
+    def test_a_run_id_that_is_not_the_directory_is_refused(self):
+        self.edit("manifest.yaml",
+                  lambda m: m.update(run_id="regression-20260101T000000Z"))
+        rc, out, _ = pin(self.run_dir)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("does not match the directory",
+                      json.loads(out)["error"])
+
+    def test_a_non_integer_k_is_refused(self):
+        self.edit("manifest.yaml", lambda m: m.update(k="3"))
+        rc, out, _ = pin(self.run_dir)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("manifest k is '3'", json.loads(out)["error"])
+
+    def test_dot_from_inside_the_run_directory(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "pin_baseline.py"), "."],
+            capture_output=True, text=True, timeout=120, cwd=self.run_dir)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(self.pointer.exists())
+
+    def test_re_pinning_the_same_run_and_an_unreadable_pointer(self):
+        self.pointer.write_text("{not json", encoding="utf-8")
+        rc, out, err = pin(self.run_dir)
+        self.assertEqual(rc, 0, out + err)
+        report = json.loads(out)
+        self.assertIsNone(report["replaced"])
+        self.assertIn("unreadable", " ".join(report["notes"]))
+        rc, out, _ = pin(self.run_dir)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("already the baseline", " ".join(json.loads(out)["notes"]))
 
     def test_a_running_run_is_refused_and_nothing_is_written(self):
         self.edit("results.json",
@@ -104,6 +166,9 @@ class TestPinBaseline(unittest.TestCase):
         rc, out, _ = pin(self.run_dir)
         self.assertEqual(rc, 2, out)
         self.assertIn("no case in this run gates", json.loads(out)["error"])
+        rc, out, err = pin(self.run_dir, "--allow-ungated")
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("unreviewed labels", " ".join(json.loads(out)["notes"]))
 
     def test_a_previous_pointer_is_named_when_replaced(self):
         self.pointer.write_text(json.dumps(

@@ -203,8 +203,8 @@ app's score.
   `--baseline-verdicts` and its `k` to `--k`; the runner refuses a pair whose
   dataset version, scoring version or `k` differ, before any spend.
 - **Pin only with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pin_baseline.py reports/<run-id>`**:
-  it refuses (exit 2) a `running`, incomplete, holdout or ungated run. Quote
-  its `notes`. First run (no pointer): run without `--baseline-verdicts`,
+  it refuses (exit 2) a `running`, incomplete, non-`regression` or ungated
+  run. Quote its `notes`. First run (no pointer): run without `--baseline-verdicts`,
   pin, print "baseline established (run <id>); future runs diff against
   this." No selected case `accepted` (a first session's smoke): "not pinned:
   labels unreviewed; a `regression` run after the review pins the baseline."

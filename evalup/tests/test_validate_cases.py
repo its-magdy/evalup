@@ -934,6 +934,13 @@ class TestLabelFixes(ValidateTest):
                                   "--manifest",
                                   self.manifest(fixes, dataset_version=2))
 
+    def test_applied_in_is_bounded_by_the_older_version_key_too(self):
+        manifest = self.write_json("manifest.json", {
+            "cases": 1, "version": 2,
+            "label_fixes": [dict(self.FIX, status="applied", applied_in=5)]})
+        self.assert_finds("label_fix_invalid", [good_case()],
+                          "--manifest", manifest)
+
     def test_an_open_fix_for_an_unknown_case_is_an_error(self):
         self.assert_finds("label_fix_unknown_case", [good_case()],
                           "--manifest",

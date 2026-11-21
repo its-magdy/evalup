@@ -1210,7 +1210,8 @@ def check_label_fixes(rep, all_ids, manifest):
                   "dataset.yaml label_fixes must be a list of entries, got "
                   f"{type(fixes).__name__}")
         return []
-    version = manifest.get("dataset_version")
+    # make_plan.py's own reading: `version:` is the older name.
+    version = manifest.get("dataset_version", manifest.get("version"))
     open_fixes = []
     for i, fix in enumerate(fixes):
         where = f"dataset.yaml label_fixes[{i}]"

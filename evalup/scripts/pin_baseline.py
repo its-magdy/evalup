@@ -14,15 +14,20 @@ It refuses (exit 2, nothing written) a run that cannot be a baseline:
     progress, or one whose runner was killed: wait_run.py says which),
     aborted or incomplete. run_history.py and run/SKILL.md SS3 call such a
     run "not quotable, not a baseline";
+  - results.json's exit_code is not 0 or summary.scorer_errors is not 0
+    (runner-contract SS11 exit 7: complete artifacts, numbers not);
   - the run directory fails run_cases.py --verify (a missing or inconsistent
     artifact), or its manifest has no run_id matching the directory, or no
     integer dataset_version / scoring_version / k;
-  - a holdout run (mode or selecting_split `holdout`): the seal's runs never
-    become the baseline, which names a regression run;
-  - a run where no case gates (every case still `gating: false`, so no label
-    was accepted): run/SKILL.md SS4's "never pin a run with no selected case
-    accepted". `--allow-ungated` overrides it for a suite the user decided
-    to pin unreviewed; the output then says so.
+  - a run whose mode is not `regression`: the baseline names a regression
+    run. A smoke or targeted pin covers a subset, so a later regression diff
+    pairs only those cases and a failure outside them never shows; a holdout
+    run shares no case with a regression run at all;
+  - a run where no case gates (every case `gating: false`):
+    `--allow-ungated` overrides it on the user's word, and the output then
+    says so. This is a proxy only. A run directory does not record
+    `review.status`, so "never pin a run with no selected case accepted"
+    (run/SKILL.md SS4) stays the skill's check.
 
 It pins, and says so in `notes`, when:
   - the run's gate is closed (gate.py's reasons, at its defaults): a red run
@@ -30,25 +35,28 @@ It pins, and says so in `notes`, when:
     user should know which one they pinned;
   - the run used k=1: every later diff against it needs `--k 1`, because the
     runner refuses a pair whose k differs (runner-contract.md SS5.6, D7);
-  - the run's mode is not `regression`;
   - it replaces an earlier pointer (named, with its dataset version).
+
+It does not read datasets/dataset.yaml (no YAML here), so pinning a run made
+before the latest dataset_version bump is not caught: the next diff is
+refused instead, before any spend.
 
 baseline.json is {"schema_version", "run_id", "dataset_version",
 "scoring_version", "k", "mode", "pinned_at"}: the first four are what
 start/SKILL.md compares, `k` is what the next diff must pass. Written
-temp-then-rename, so a reader never sees half a pointer.
+temp-then-rename beside reports/<run-id>, so a reader never sees half a
+pointer and the pointer always resolves to the run it names.
 
   0  pinned; one JSON object on stdout (baseline, pointer, replaced, notes)
   2  refused, or bad input ({"error": ...} on stdout, like every script here)
 
 Usage:
-  pin_baseline.py <reports/<run-id>> [--reports <dir>] [--allow-ungated]
+  pin_baseline.py <reports/<run-id>> [--allow-ungated]
 """
 import argparse
 import json
 import os
 import sys
-import tempfile
 from datetime import datetime, timezone
 
 from _common import SCHEMA_VERSION, add_version_flag, die, load_object
@@ -79,18 +87,30 @@ def refusals(run_dir, manifest, results, allow_ungated):
     elif status != "ok":
         out.append(f"run status is {status!r}, not 'ok': not quotable, not a "
                    "baseline")
+    exit_code = results.get("exit_code")
+    scorer_errors = summary.get("scorer_errors") \
+        if isinstance(summary, dict) else None
+    if exit_code not in (0, None) or (scorer_errors not in (0, None)):
+        out.append(f"the runner exited {exit_code!r} with scorer_errors "
+                   f"{scorer_errors!r}: the artifacts are complete but the "
+                   "numbers are not (runner-contract SS11, exit 7)")
     out.extend(verify_reasons(run_dir))
     run_id = manifest.get("run_id")
-    if run_id != os.path.basename(os.path.normpath(run_dir)):
+    if run_id != os.path.basename(os.path.abspath(run_dir)):
         out.append(f"manifest run_id {run_id!r} does not match the directory "
                    "name, so the pointer would not resolve to this run")
     for key in ("dataset_version", "scoring_version", "k"):
         if not is_int(manifest.get(key)):
             out.append(f"manifest {key} is {manifest.get(key)!r}, not an "
-                       "integer; the diff's comparability check needs it")
+                       "integer (a run older than the field, or a doctored "
+                       "manifest): pin a fresh run")
     if "holdout" in (manifest.get("mode"), manifest.get("selecting_split")):
         out.append("a holdout run never becomes the baseline: it names a "
                    "regression run, which shares no case with the seal")
+    elif manifest.get("mode") != "regression":
+        out.append(f"mode is {manifest.get('mode')!r}: the baseline is a "
+                   "regression run (a subset pin hides every failure "
+                   "outside it from later diffs)")
     rows = results.get("cases")
     gating = [r for r in rows if isinstance(r, dict) and r.get("gating")] \
         if isinstance(rows, list) else []
@@ -115,17 +135,16 @@ def notes_for(manifest, results, previous, allow_ungated):
                      "mode's default k to diff at it")
     elif is_int(k):
         notes.append(f"later diffs against this baseline need k={k}")
-    if manifest.get("mode") != "regression":
-        notes.append(f"mode is {manifest.get('mode')!r}, not 'regression': "
-                     "a diff pairs case ids, so later runs must select the "
-                     "same cases")
     rows = results.get("cases")
     if allow_ungated and not any(isinstance(r, dict) and r.get("gating")
                                  for r in (rows if isinstance(rows, list)
                                            else [])):
         notes.append("--allow-ungated: no case in this run gates, so this "
                      "baseline rests on unreviewed labels")
-    if previous:
+    if previous is UNREADABLE:
+        notes.append("the previous baseline.json was unreadable and is "
+                     "replaced")
+    elif previous:
         was = (previous.get("run_id"), previous.get("dataset_version"))
         if was[0] == manifest.get("run_id"):
             notes.append("this run was already the baseline; the pointer is "
@@ -140,15 +159,23 @@ def notes_for(manifest, results, previous, allow_ungated):
     return notes
 
 
+UNREADABLE = {"unreadable": True}
+
+
 def write_atomic(path, doc):
-    directory = os.path.dirname(path) or "."
+    """run_cases.atomic_write's pattern: plain open() so the file gets the
+    umask's mode (mkstemp's 0600 would lock a CI reader out), the pid in the
+    temp name, and the temp file removed when the rename fails."""
+    tmp = f"{path}.tmp.{os.getpid()}"
     try:
-        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".baseline.",
-                                   suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             f.write(json.dumps(doc, indent=2) + "\n")
         os.replace(tmp, path)
     except OSError as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         die(f"cannot write {path}: {e}")
 
 
@@ -156,19 +183,16 @@ def main():
     ap = argparse.ArgumentParser(
         description="Pin a finished run as reports/baseline.json, copying the "
                     "pointer's fields from its manifest. Refuses a run that is "
-                    "running, incomplete, holdout or ungated (exit 2); says "
-                    "when the gate is closed or k=1.")
+                    "running, incomplete, scorer-errored, not regression or "
+                    "ungated (exit 2); says when the gate is closed or k=1.")
     add_version_flag(ap)
     ap.add_argument("run_dir", help="the run to pin, reports/<run-id>")
-    ap.add_argument("--reports", metavar="DIR",
-                    help="where baseline.json goes (default: the run "
-                         "directory's parent, i.e. reports/)")
     ap.add_argument("--allow-ungated", action="store_true",
                     help="pin even though no case in the run gates (the "
                          "user chose to pin unreviewed labels)")
     a = ap.parse_args()
 
-    run_dir = os.path.normpath(a.run_dir)
+    run_dir = os.path.abspath(a.run_dir)
     if not os.path.isdir(run_dir):
         die(f"bad input: {run_dir}: not a directory")
     manifest = read_manifest(run_dir)
@@ -181,9 +205,9 @@ def main():
     if problems:
         die("not pinned: " + " | ".join(problems))
 
-    reports = a.reports or os.path.dirname(os.path.abspath(run_dir))
-    if not os.path.isdir(reports):
-        die(f"bad input: --reports {reports}: not a directory")
+    # Always beside the run: start/SKILL.md resolves the pointer as
+    # reports/<run_id>, so a pointer written anywhere else names nothing.
+    reports = os.path.dirname(run_dir)
     pointer = os.path.join(reports, "baseline.json")
     previous = None
     if os.path.isfile(pointer):
@@ -193,7 +217,7 @@ def main():
         except (OSError, ValueError):
             previous = None
         if not isinstance(previous, dict):
-            previous = {"run_id": "(unreadable pointer)"}
+            previous = UNREADABLE
     doc = {"schema_version": SCHEMA_VERSION,
            "run_id": manifest["run_id"],
            "dataset_version": manifest["dataset_version"],
@@ -206,7 +230,8 @@ def main():
     write_atomic(pointer, doc)
     print(json.dumps({"pinned": doc["run_id"], "baseline": pointer,
                       "pointer": doc,
-                      "replaced": previous.get("run_id") if previous else None,
+                      "replaced": previous.get("run_id")
+                      if previous and previous is not UNREADABLE else None,
                       "notes": notes}, indent=2, ensure_ascii=False))
     sys.exit(0)
 
