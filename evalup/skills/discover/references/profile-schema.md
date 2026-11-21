@@ -15,7 +15,7 @@ generated: 2026-07-18            # updated by discover; --diff compares against 
 app_git_sha: abc1234             # code state this profile describes
 
 stage: pre-stability | stable | traffic | production
-# pre-stability: every layer but trajectory (see capability_matrix). stable: + trajectory.
+# pre-stability: every layer, but expect.tools.order is a validator ERROR. stable: + order.
 # traffic: + trace mining/real-seeded data. production: + online evals.
 
 architecture:
@@ -117,8 +117,8 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # SS5.2); per-target numbers need route_from_response
                                        # or traces.
   tool_selection:  { enabled: true }
-  trajectory:      { enabled: false, blocked_by: "stage: pre-stability" }
-                                       # also forced off outright when kind: single_llm
+  trajectory:      { enabled: true }   # every stage; off for single_llm or when
+                                       # no tool call is observable
   multi_turn:      { enabled: false, blocked_by: "adapter declares no invocation.conversation -- discover writes it once it finds how the app keeps a conversation; until then input.turns cases are skipped" }
                                        # enabled: true when the adapter declares
                                        # invocation.conversation. Informational, like
@@ -141,12 +141,9 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # Latency needs no trace and is always there.
                                        # TTFT and cached tokens are RESERVED.
   execution:       { enabled: false, blocked_by: "no oracle configured (see oracle: above) + no case carries expect.result (scalar/rows)" }
-  authz:           { enabled: false, blocked_by: "no identity/persona config; the id-leak checks additionally need tool-result capture and a matching record_id_pattern (forbidden_tools scores without either)" }
-                                       # expect.authz is scored against the tool-call
-                                       # log + returned record IDs, never a prose read.
-                                       # forbidden_tools is structural (which tools fired)
-                                       # and scores even without result-content capture;
-                                       # forbidden/allowed record-id checks need it.
+  authz:           { enabled: true, blocked_by: "partial: no identity/persona config; the id-leak checks need tool-result capture and a matching record_id_pattern (forbidden_tools needs neither)" }
+                                       # Scored from the tool-call log + returned record
+                                       # IDs, never prose. Off only like trajectory.
 
 confirmed_by_human:              # from the discover interview — the app's SHOULD
   domain_boundaries:

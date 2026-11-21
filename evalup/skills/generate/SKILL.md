@@ -84,7 +84,7 @@ included, or the branch below matches nothing.
 | `architecture.kind` | Rows the grid builds | Expectation / oracle handling |
 |---|---|---|
 | `single_llm` | out-of-scope + the answer-quality categories | answer layer only; the grid degrades to phrasing/persona variation. No routing or trajectory expectations to author. |
-| `tool_agent` | every tool (+ out-of-scope) | trajectory expectations apply (end-state + policy per §2c); no route label to author. |
+| `tool_agent` | every tool (+ out-of-scope) | `expect.tools` `subset`/`any_of` and `forbidden` at every stage; `order` only from `stage: stable`. No route label to author. |
 | `router_executor` | every domain × every tool (+ cross-domain + out-of-scope) | a route label per case *plus* executor expectations, kept separate. Hard-negative route labels are the least reliable — flag every one for review (§3). |
 | `multi_agent` | every sub-agent × its tools (+ cross-unit + out-of-scope) | name the sub-agent in `unit:`, but write the expectation trace-wide: **agent-scoped expectations are RESERVED** — tool calls carry no owning agent, so `expect.tools.subset` passes when the WRONG sub-agent made the call, and `forbidden` fails on any agent's. Cross-unit cases are still worth authoring; just read them as whole-app assertions. |
 | `workflow` | every node | per-node golden-behavior regression — pin each node's expected output rather than authoring open-ended trajectory coverage. |
