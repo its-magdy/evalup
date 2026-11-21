@@ -127,9 +127,9 @@ def match_any_of(observed_names, expect_tools):
                    for _ in range(max(0, need[t] - obs[t]))]
         scored.append((i, expected, missing))
     met = [s for s in scored if not s[2]]
-    # The first alternative met; when none is, the closest (fewest missing
-    # calls, first on a tie), so the P/R a failure reports are the most
-    # charitable reading rather than an arbitrary one.
+    # The first alternative met; when none is, the one missing the fewest
+    # calls (first on a tie), so a failure's P/R follow a fixed rule. Only
+    # those metrics depend on it, never the verdict.
     index, expected, missing = met[0] if met else \
         min(scored, key=lambda s: (len(s[2]), s[0]))
     detail = {"any_of": alternatives, "matched": index if met else None,

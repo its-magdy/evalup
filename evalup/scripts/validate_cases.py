@@ -950,6 +950,22 @@ def check_turns(rep, label, case, enabled):
                              else f"input.turns[{i}].expect")
                           + "; the turn's own value would win and the copy "
                           "would silently not apply there -- say it once")
+            # any_of and order are different keys, so they merge without a
+            # collision -- into the pair the scorer refuses (exit 2). Split
+            # across the two blocks, the per-block check cannot see it.
+            merged = mapping(mapping(overlay_expect(every_turn, own)[0])
+                             .get("tools"))
+            split = [mapping(mapping(b).get("tools"))
+                     for b in (every_turn, own)]
+            if "any_of" in merged and "order" in merged and not any(
+                    "any_of" in t and "order" in t for t in split):
+                rep.error(label, "any_of_with_order",
+                          "every_turn.tools and "
+                          + ("the final turn (the top-level expect)"
+                             if i == len(turns) - 1
+                             else f"input.turns[{i}].expect")
+                          + " merge into any_of beside order, which the "
+                          "scorer refuses (exit 2) -- write one or the other")
 
 
 def check_case(rep, case, all_ids, enabled, index=None):

@@ -322,7 +322,7 @@ Each layer isolates one part of the app, so a failure names the prompt to fix.
 | Layer | Checks | Scored by |
 |---|---|---|
 | **Routing** | Accuracy, per-target F1 (macro and micro), confusion matrix, out-of-scope leakage | Script |
-| **Tool use** | Selection precision/recall, argument correctness, trajectory subset/order match, forbidden tools, loop detection | Script (needs traces) |
+| **Tool use** | Selection precision/recall, argument correctness, trajectory subset/any-of/order match, forbidden tools, loop detection | Script (needs traces) |
 | **Answer** | Must-contain, regex, JSON format | Script |
 | **Execution accuracy** | Result-set comparison (order-insensitive, float-tolerant) and scalar quasi-exact match against a read-only oracle — catches the confident-but-wrong answer | Script |
 | **Authorization / scope** | Forbidden tools, out-of-scope record IDs, scoped refusal — read from the tool-call log, never the chat text | Script |

@@ -310,6 +310,16 @@ class TestErrorFindings(ValidateTest):
                     "tools": {"any_of": any_of}})])
         self.assert_finds("any_of_with_order", [good_case(expect={
             "tools": {"any_of": [["a"]], "order": ["a"]}})])
+        # Split across every_turn and a turn, they merge into the same pair.
+        f = self.assert_finds("any_of_with_order", [conversation(
+            every_turn={"tools": {"any_of": [["a"], ["b"]]}},
+            turns=[{"user": "x", "expect": {"tools": {"order": ["c"]}}},
+                   {"user": "y"}])])
+        self.assertIn("input.turns[0].expect", f["message"])
+        f = self.assert_finds("any_of_with_order", [conversation(
+            every_turn={"tools": {"order": ["c"]}},
+            expect={"tools": {"any_of": [["a"]]}})])
+        self.assertIn("final turn", f["message"])
         rc, out, err = self.validate([good_case(expect={"tools": {
             "subset": ["s"], "any_of": [["a"], ["b", "c"]],
             "forbidden": ["w"]}})])
