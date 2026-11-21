@@ -51,6 +51,30 @@ for a release gate: no verified canary, no pass. (Not for a holdout run:
 it selects the `holdout` split, which the linter keeps exclusive of `canary`,
 so the flag always closes that gate.)
 
+`--baseline` makes the gating-failure rule RELATIVE (#40). At k = 3 a case
+passes only if all three repeats pass (pass^k), so a non-deterministic app
+with a hundred gating cases almost always has one flaky case, and the rule
+above keeps its gate red most days. With `--baseline <run>` (repeatable: a
+run directory, or the reports/baseline.json pointer), a gating failure closes
+the gate only when the baseline gives no reason to excuse it:
+  - the case passed every pass/fail trial it had in the baseline runs
+    (reliable): a REGRESSION, closes;
+  - the case is not in the baseline, or never reached pass/fail there: no
+    evidence it is flaky, so it closes too -- the gate fails closed;
+  - the case passed some trials and failed others (flaky), or failed every
+    one (already failing): REPORTED, by name, and does not gate.
+A trial is one repeat (cases/<id>/verdict.json's `repeats`), so a k = 3
+baseline gives three per case, and two pinned k = 1 runs give two. Every
+other rule above still closes the gate. This is a gate POLICY over verdicts
+the runner already wrote: no verdict, no pass^k fold and no SCORING_VERSION
+changes. The baseline must be comparable (same scoring and dataset version,
+status ok, its directory verifies) and neither run may carry sealed holdout
+cases, which have no per-case row to compare -- each is exit 2.
+
+`--min-pass-rate R` is the optional absolute floor, in either mode: the gate
+closes when passes / (passes + failures) -- the summary's own counts, over
+the scored non-canary cases, gating or not -- is below R.
+
 `--latest` takes a reports/ directory and picks the newest run by the
 TIMESTAMP SEGMENT of its run id (<mode>-<YYYYMMDDTHHMMSSZ>), never by mtime,
 which drifts when a report is regenerated or a directory is copied. `--mode`
@@ -59,7 +83,7 @@ regression.
 
 Usage:
   gate.py <reports/<run-id>> [--max-infra-rate 0.05] [--require-canaries]
-          [--no-verify] [--json]
+          [--baseline <run>]... [--min-pass-rate R] [--no-verify] [--json]
   gate.py <reports/> --latest [--mode regression] [--json]
 """
 import argparse
@@ -74,7 +98,11 @@ from _common import (
     die,
     load_object,
     require_range,
+    scoring_comparison,
+    unsafe_case_id,
 )
+
+PASS, FAIL = "pass", "fail"
 
 
 def latest_run(reports_dir, mode):
@@ -147,6 +175,27 @@ def verify_reasons(run_dir):
     return [f"the run directory fails run_cases.py --verify: {detail}"]
 
 
+def describe(row):
+    """"<case id> (<failed layers>)", the form every named failure takes."""
+    layers = row.get("layers")
+    failed = sorted(name for name, verdict in layers.items()
+                    if verdict == FAIL) if isinstance(layers, dict) else []
+    return "{} ({})".format(row.get("case_id"),
+                            ", ".join(failed) or "no failed layer")
+
+
+def gating_fail_rows(results):
+    rows = results.get("cases")
+    return [row for row in (rows if isinstance(rows, list) else [])
+            if isinstance(row, dict) and row.get("verdict") == FAIL
+            and row.get("gating")]
+
+
+def capped(named, limit=5):
+    more = len(named) - limit
+    return named[:limit] + ([f"and {more} more"] if more > 0 else [])
+
+
 def gating_rows(results, limit=5):
     """The first few gating failures, as "<case id> (<failed layers>)".
 
@@ -154,23 +203,151 @@ def gating_rows(results, limit=5):
     results.json (the seal, runner-contract.md SS9), so nothing sealed can be
     named here.
     """
-    rows = results.get("cases")
-    named = []
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict) or row.get("verdict") != "fail" \
-                or not row.get("gating"):
-            continue
-        layers = row.get("layers")
-        failed = sorted(name for name, verdict in layers.items()
-                        if verdict == "fail") if isinstance(layers, dict) else []
-        named.append("{} ({})".format(row.get("case_id"),
-                                      ", ".join(failed) or "no failed layer"))
-    more = len(named) - limit
-    return named[:limit] + ([f"and {more} more"] if more > 0 else [])
+    return capped([describe(row) for row in gating_fail_rows(results)], limit)
 
 
-def evaluate(results, max_infra_rate, require_canaries=False):
-    """(reasons, facts). An empty `reasons` is an open gate."""
+# -- --baseline (#40): a gate policy over verdicts already written ----------
+
+def resolve_baseline(path):
+    """A run directory, or a baseline.json pointer (pin_baseline.py's), which
+    names a run directory beside it."""
+    if os.path.isdir(path):
+        return path
+    if os.path.isfile(path):
+        run_id = load_object(path).get("run_id")
+        if not isinstance(run_id, str) or not RUN_ID_RE.fullmatch(run_id):
+            die(f"bad input: --baseline {path}: run_id is {run_id!r}, not a "
+                "run id (<mode>-<YYYYMMDDTHHMMSSZ>)")
+        return os.path.join(os.path.dirname(os.path.abspath(path)), run_id)
+    die(f"bad input: --baseline {path}: not a run directory or a "
+        "baseline.json pointer")
+
+
+def case_trials(run_dir, row):
+    """The pass/fail trials one baseline run holds for one case: its repeats
+    (cases/<id>/verdict.json) when k > 1, else its one verdict. A repeat that
+    reached no verdict (infra, unscored) is no trial either way."""
+    case_id = row.get("case_id")
+    if isinstance(case_id, str) and unsafe_case_id(case_id) is None:
+        path = os.path.join(run_dir, "cases", case_id, "verdict.json")
+        if os.path.isfile(path):
+            repeats = load_object(path).get("repeats")
+            if isinstance(repeats, list) and repeats:
+                return [r.get("verdict") for r in repeats
+                        if isinstance(r, dict)
+                        and r.get("verdict") in (PASS, FAIL)]
+    return [row["verdict"]] if row.get("verdict") in (PASS, FAIL) else []
+
+
+def sealed(results):
+    holdout = (results.get("summary") or {}).get("holdout") \
+        if isinstance(results.get("summary"), dict) else None
+    return results.get("mode") == "holdout" or isinstance(holdout, dict)
+
+
+def load_baselines(paths, results, verify):
+    """{"runs": [run ids], "trials": {case id: [pass|fail, ...]},
+    "warnings": [...]}, or exit 2 on a baseline that cannot be one."""
+    if sealed(results):
+        die("bad input: --baseline cannot gate a run holding sealed holdout "
+            "cases: they have no per-case row in results.json to compare, "
+            "so a regression among them could not be seen")
+    runs, trials, warnings = [], {}, []
+    for path in paths:
+        run_dir = resolve_baseline(path)
+        results_path = os.path.join(run_dir, "results.json")
+        if not os.path.isfile(results_path):
+            die(f"bad input: --baseline {path}: {run_dir} holds no "
+                "results.json")
+        base = load_object(results_path)
+        run_id = base.get("run_id")
+        summary = base.get("summary")
+        status = summary.get("status") if isinstance(summary, dict) else None
+        if status != "ok" or base.get("exit_code") not in (0, None):
+            die(f"bad input: --baseline {run_id!r}: status {status!r}, exit "
+                f"code {base.get('exit_code')!r} -- a run that did not finish "
+                "clean is not quotable, so it is not a baseline")
+        if run_id == results.get("run_id") or run_id in runs:
+            die(f"bad input: --baseline {run_id!r} is the run being gated, "
+                "or was passed twice")
+        if sealed(base):
+            die(f"bad input: --baseline {run_id!r} holds sealed holdout "
+                "cases, which have no per-case row to compare")
+        comparable, mismatch, warning = scoring_comparison(base, results)
+        if not comparable:
+            die(f"bad input: --baseline {run_id!r} is not comparable to this "
+                f"run -- {mismatch}")
+        if base.get("dataset_version") != results.get("dataset_version"):
+            die(f"bad input: --baseline {run_id!r} is not comparable to this "
+                f"run -- dataset_version: baseline "
+                f"{base.get('dataset_version')!r}, this run "
+                f"{results.get('dataset_version')!r}")
+        if warning:
+            warnings.append(warning)
+        if verify:
+            problems = verify_reasons(run_dir)
+            if problems:
+                die(f"bad input: --baseline {run_id!r}: " + "; ".join(problems))
+        rows = base.get("cases")
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict) and isinstance(row.get("case_id"), str):
+                trials.setdefault(row["case_id"], []).extend(
+                    case_trials(run_dir, row))
+        runs.append(run_id)
+    return {"runs": runs, "trials": trials, "warnings": warnings}
+
+
+def standing(trials):
+    """A case's standing in the baseline, from its pass/fail trials."""
+    if not trials:
+        return "unknown"
+    if all(t == PASS for t in trials):
+        return "reliable"
+    return "failing" if all(t == FAIL for t in trials) else "flaky"
+
+
+def baseline_reasons(results, gating, baseline):
+    """(reasons, facts) for the relative rule: which of this run's gating
+    failures the baseline excuses, and which it does not."""
+    groups = {"reliable": [], "unknown": [], "flaky": [], "failing": []}
+    rows = gating_fail_rows(results)
+    for row in rows:
+        found = baseline["trials"].get(row.get("case_id"), [])
+        passed = sum(1 for t in found if t == PASS)
+        groups[standing(found)].append(
+            f"{describe(row)} [{passed}/{len(found)} baseline trials passed]")
+    reasons = []
+    if groups["reliable"]:
+        reasons.append("{} regression(s): passed every baseline trial, fail "
+                       "now: {}".format(len(groups["reliable"]),
+                                        "; ".join(capped(groups["reliable"]))))
+    if groups["unknown"]:
+        reasons.append(
+            "{} gating failure(s) with no pass/fail verdict in the baseline "
+            "(new, or never scored there -- not known to be flaky, so they "
+            "gate): {}".format(len(groups["unknown"]),
+                               "; ".join(capped(groups["unknown"]))))
+    if len(rows) != gating:
+        # The rows are what this rule reads; the count is what the default
+        # rule reads. A gap means one of them was not written by the runner.
+        reasons.append(f"results.json's case rows hold {len(rows)} gating "
+                       f"failure(s), summary.gating_failures says {gating}")
+    counts = [len(t) for t in baseline["trials"].values() if t]
+    facts = {"runs": baseline["runs"],
+             "regressions": groups["reliable"],
+             "no_baseline_verdict": groups["unknown"],
+             "flaky_excused": groups["flaky"],
+             "failing_excused": groups["failing"],
+             "min_trials": min(counts) if counts else 0,
+             "warnings": baseline["warnings"]}
+    return reasons, facts
+
+
+def evaluate(results, max_infra_rate, require_canaries=False, baseline=None,
+             min_pass_rate=None):
+    """(reasons, facts). An empty `reasons` is an open gate. `baseline` is
+    load_baselines()'s, and swaps the gating-failure rule for the relative
+    one; nothing else changes with it."""
     summary = results.get("summary")
     if not isinstance(summary, dict):
         die("bad input: results.json has no summary object")
@@ -190,7 +367,11 @@ def evaluate(results, max_infra_rate, require_canaries=False):
     # SS10: holdout cases are inside summary's counts, and `holdout` is their
     # aggregate so a reader can take them OUT. Adding it back would count
     # every sealed failure twice -- "1 fail (2 gating)".
-    if gating:
+    baseline_facts = None
+    if baseline is not None:
+        relative, baseline_facts = baseline_reasons(results, gating, baseline)
+        reasons.extend(relative)
+    elif gating:
         rows = gating_rows(results)
         reasons.append(f"{gating} gating failure(s)"
                        + (": " + "; ".join(rows) if rows else "")
@@ -217,6 +398,12 @@ def evaluate(results, max_infra_rate, require_canaries=False):
             "-- nothing was measured, so there is nothing to pass".format(
                 count(summary, "skipped"), count(summary, "unscored"),
                 count(summary, "n")))
+    pass_rate = count(summary, "passes") / scored if scored else None
+    if min_pass_rate is not None and pass_rate is not None \
+            and pass_rate < min_pass_rate:
+        reasons.append(f"pass rate {pass_rate:.1%} ({count(summary, 'passes')}"
+                       f"/{scored} scored) is below the --min-pass-rate floor "
+                       f"{min_pass_rate:.1%}")
 
     canaries = summary.get("canaries")
     if require_canaries:
@@ -255,6 +442,8 @@ def evaluate(results, max_infra_rate, require_canaries=False):
         "holdout": holdout,
         "multi_turn": summary.get("multi_turn"),
         "memory": results.get("memory"),
+        "pass_rate": pass_rate, "min_pass_rate": min_pass_rate,
+        "baseline": baseline_facts,
     }
     return reasons, facts
 
@@ -303,6 +492,38 @@ def conversation_lines(facts):
     return lines
 
 
+def baseline_lines(facts):
+    lines = []
+    if facts.get("min_pass_rate") is not None:
+        lines.append(f"  pass rate {percent(facts['pass_rate'])}, floor "
+                     f"{percent(facts['min_pass_rate'])}")
+    base = facts.get("baseline")
+    if not base:
+        return lines
+    lines.append("  baseline {}: {} regression(s), {} with no baseline "
+                 "verdict, {} flaky and {} already failing (excused)".format(
+                     ", ".join(map(str, base["runs"])),
+                     len(base["regressions"]),
+                     len(base["no_baseline_verdict"]),
+                     len(base["flaky_excused"]), len(base["failing_excused"])))
+    for label, key in (("flaky in the baseline, not gating",
+                        "flaky_excused"),
+                       ("already failing in the baseline, not gating",
+                        "failing_excused")):
+        if base[key]:
+            lines.append(f"  {label}: " + "; ".join(capped(base[key])))
+    if 0 < base["min_trials"] < 3:
+        # One lucky pass reads as "reliable". Said, not refused: a k = 1
+        # baseline is what most suites have.
+        lines.append(
+            f"  a baseline case can rest on {base['min_trials']} trial(s): a "
+            "flaky case that passed them counts as reliable -- pass more "
+            "--baseline runs, or pin a k >= 3 run, to tell flaky from lucky")
+    lines.extend(f"  baseline comparability warning: {w}"
+                 for w in base["warnings"])
+    return lines
+
+
 def render(facts, reasons):
     """One screen. A green suite says what it could NOT see, because "6/6
     pass" over three scored layers and six unscorable ones is a smaller claim
@@ -317,6 +538,13 @@ def render(facts, reasons):
         # not counting.
         verdict += (f" ({failures - gating} failure(s) on non-gating cases,"
                     " not counted)")
+    base = facts.get("baseline")
+    excused = len(base["flaky_excused"]) + len(base["failing_excused"]) \
+        if base else 0
+    if excused:
+        # Same reason as above: an excused failure is still a failure.
+        verdict += (f" ({excused} gating failure(s) excused by the baseline:"
+                    " flaky or already failing there)")
     lines = [f"{facts['run_id']}: {verdict}",
              f"  {facts['n']} cases: {facts['passes']} pass, "
              f"{facts['failures']} fail ({facts['gating_failures']} gating), "
@@ -352,6 +580,7 @@ def render(facts, reasons):
             "not the app's answer -- check invocation.headers, auth, "
             "endpoint and request_body before reading these verdicts")
     lines.extend(conversation_lines(facts))
+    lines.extend(baseline_lines(facts))
     canaries = facts["canaries"]
     if isinstance(canaries, dict) and canaries.get("n"):
         passed, total = canaries.get("passed"), canaries.get("n")
@@ -411,6 +640,16 @@ def main():
                          "verified: a canary did not pass, or the run has "
                          "none (for a release gate; not for a holdout run, "
                          "whose split holds no canary)")
+    ap.add_argument("--baseline", action="append", metavar="RUN",
+                    help="gate relative to this run (a reports/<run-id> "
+                         "directory or the reports/baseline.json pointer; "
+                         "repeatable): a gating failure closes only if the "
+                         "case passed every baseline trial or has none -- "
+                         "one flaky or already failing there is reported, "
+                         "not gating")
+    ap.add_argument("--min-pass-rate", type=float, metavar="R",
+                    help="also close the gate when passes / (passes + "
+                         "failures) is below R (0-1): the absolute floor")
     ap.add_argument("--no-verify", action="store_true",
                     help="skip run_cases.py --verify over the run directory "
                          "(for a results.json shipped without its cases/); "
@@ -420,6 +659,8 @@ def main():
                     help="print the summary as JSON instead of text")
     a = ap.parse_args()
     require_range("--max-infra-rate", a.max_infra_rate, lo=0, hi=1)
+    if a.min_pass_rate is not None:
+        require_range("--min-pass-rate", a.min_pass_rate, lo=0, hi=1)
     if a.mode and not a.latest:
         die("--mode only narrows --latest")
 
@@ -429,8 +670,11 @@ def main():
         die(f"bad input: {run_dir}: holds no results.json -- a run directory is "
             "reports/<run-id>; pass --latest to gate the newest run under a "
             "reports/ directory")
-    reasons, facts = evaluate(load_object(results_path), a.max_infra_rate,
-                              a.require_canaries)
+    results = load_object(results_path)
+    baseline = load_baselines(a.baseline, results, not a.no_verify) \
+        if a.baseline else None
+    reasons, facts = evaluate(results, a.max_infra_rate, a.require_canaries,
+                              baseline, a.min_pass_rate)
     problems = [] if a.no_verify else verify_reasons(run_dir)
     reasons.extend(problems)
     facts["verified"] = not a.no_verify
