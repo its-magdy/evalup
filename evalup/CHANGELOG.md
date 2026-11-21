@@ -1014,6 +1014,27 @@ value in an env var — so headless, no app needing auth got past step 1 (#49).
   scores nothing, and the shared helper returns exactly what
   `trace_from_response` computed before.
 
+### Added — the run-time judge's design (2026-11-21)
+
+`docs/judge-run.md`, the design half of #23, reviewed before any code.
+Nothing is built: every judged layer is still `unjudged`.
+
+- **Three states**: `unjudged`, `provisional` (shown with quoted evidence,
+  never in `stats.py`, `gate.py` or an optimize objective) and `calibrated`
+  (a calibration for the same rubric id, version and resolved model id). In
+  v1 not even `calibrated` gates, until #27 measures a live calibration.
+- **One judge call per case** over a flat list of yes/no criteria, behind a
+  printed token estimate and a call budget; a two-answer **self-test** per
+  rubric (#29 item 1); every quote checked against the file it names.
+- **The seams**: a `judge/` directory beside the run (the runner's files
+  are untouched), a new `judge_run.py`, calibration sidecar `/2` with the
+  rubric version and model id, a judged comparability key, the quickstart's
+  rubric case, the code PR's acceptance tests, and seven open questions
+  with a recommended answer each.
+- Pointers from `runner-contract.md` §5.4, `concepts.md` and
+  `rubric-format.md`. **No scoring semantics changed** (`SCORING_VERSION`
+  stays 1).
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

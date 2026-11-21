@@ -102,7 +102,8 @@ nothing else scores them either. The judge agent runs only inside `analyze
 --label`, where a human labels beside it; its verdicts live in the calibration
 record, never in a run's pass/fail. Calibration is therefore groundwork: it
 tells you whether the judge could be trusted, and the run-time judged layer it
-would unlock is not built.
+would unlock is not built (its design, reviewed before any code, is
+`docs/judge-run.md`, #23).
 
 - One strong judge, one rubric dimension per call, binary verdicts,
   reasoning first, "unknown" allowed.

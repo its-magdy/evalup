@@ -595,7 +595,9 @@ them `unscored`/`unjudged` with a reason and **never** attempts them. (A row
 whose matrix key is disabled is `unscorable` first, like any other: `rules` and
 `judged` under `answer_quality`, `state` under `state` — §5's decision order.) No skill
 fills those rows in afterward: the runner's artifacts stay as written, and
-`verdict.json` is never rewritten (a run-time judge is future work, #23). The
+`verdict.json` is never rewritten (a run-time judge is future work, #23;
+its design, `docs/judge-run.md`, keeps it that way: the judge pass writes its
+own `judge/` files beside the run and none of these). The
 runner's own output is deterministic and reproducible without a model.
 
 **State-diff is RESERVED, not pending an adapter field.** The runner calls
