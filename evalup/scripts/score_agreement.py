@@ -2,14 +2,14 @@
 """Judge/human agreement scorer for evalup — the calibration gate. Stdlib only.
 
 This is the script that makes `judge.status: calibrated` a DERIVED fact.
-`profile-schema.md` §`judge:` has always said the flag is "DERIVED, not set by
-hand", and `run_cases.py`'s judged layer, `optimize`'s precondition #1 and
-`case-format.md`'s judged dimensions all gate on it — but until this script
-existed nothing derived it, so the harness's central credibility gate could
-only be opened by a model typing the word into a YAML file. That is precisely
-what the deterministic-first split (LLM reasons, scripts score) exists to
-prevent. Here the LLM records what it OBSERVED per case; this script computes
-the numbers and the flag.
+`profile-schema.md` §`judge:` says the flag is "DERIVED, not set by hand", and
+`run_cases.py`'s judged layer, `optimize`'s precondition #1 and
+`case-format.md`'s judged dimensions all gate on it — so without a script to
+derive it, the harness's central credibility gate could only be opened by a
+model typing the word into a YAML file. That is precisely what the
+deterministic-first split (LLM reasons, scripts score) exists to prevent.
+Here the LLM records what it OBSERVED per case; this script computes the
+numbers and the flag.
 
 POSITIVE = `fail`, and getting that backwards inverts the whole point. TPR is
 the FAILURE-CATCH rate: P(judge says fail | human says fail). A 90%-pass app
@@ -92,9 +92,9 @@ THRESHOLDS (all overridable; the defaults are the house numbers, not invented):
     the DENOMINATOR, not a fix for thin evidence in general: 9 of 10 does clear
     0.90, and it is `tpr_ci_exact` -- reported, never gating -- that says how
     little that is worth.
-(rubric-format.md's §File shape example once showed `calibrated: true` at
-`labeled_cases: 34`, under this floor; the floor followed the prose and the
-example was corrected to match, not the other way round.)
+(rubric-format.md's §File shape example must stay at or above the
+`--min-labeled` floor: the floor follows the prose, and the example follows the
+floor, not the other way round.)
 
 OUTPUT: JSON on stdout. Per rubric: the 2x2 counts, tpr/tnr/kappa, exact CIs,
 and `calibrated` with the reasons it is not. Plus an aggregate `status`, which
