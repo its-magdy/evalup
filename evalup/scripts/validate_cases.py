@@ -1110,7 +1110,21 @@ def check_case(rep, case, all_ids, enabled, index=None):
     return {"id": case_id, "category": category, "test_type": test_type,
             "split": case.get("split"), "unit": case.get("unit"),
             "layers": layers, "graded": graded, "http_only": http_only,
-            "one_off": declared_one_off}
+            "one_off": declared_one_off, "usable": usable(case)}
+
+
+def usable(case):
+    """optimize/SKILL.md's "usable case": a human accepted it and it gates.
+
+    The precondition counts these and nothing wider. A pending case's label
+    is the generator's guess, so optimizing toward it fits a guess; a canary
+    measures the harness (gates() already excludes it); a machine-signed
+    acceptance is `machine_accepted`, not a review. Only a count: the
+    holdout gate (stats.py) still pairs every pass/fail case it is given."""
+    review = mapping(case.get("review"))
+    by = review.get("by")
+    return (gates(case) and review.get("status") == "accepted"
+            and is_nonempty_str(by) and not MACHINE_REVIEWER.match(by.strip()))
 
 
 def check_manifest(rep, cases, records, manifest):
@@ -1509,12 +1523,23 @@ def main():
         for name in splits:
             key = name if isinstance(name, str) else str(name)
             split_counts[key] = split_counts.get(key, 0) + 1
+    # optimize's precondition counts these per split (usable() says what
+    # counts); every split appears, a zero included, so "no usable holdout"
+    # reads as `"holdout": 0`, not as a missing key.
+    usable_counts = {name: 0 for name in split_counts}
+    for record in records:
+        splits = record["split"] if isinstance(record["split"], list) else []
+        for name in splits:
+            if record["usable"]:
+                key = name if isinstance(name, str) else str(name)
+                usable_counts[key] = usable_counts.get(key, 0) + 1
     summary = {
         "cases": len(cases),
         "by_category": categories,
         "by_test_type": tally(r["test_type"] for r in records
                               if r["test_type"] is not None),
         "by_split": dict(sorted(split_counts.items())),
+        "usable_by_split": dict(sorted(usable_counts.items())),
         "one_off": sum(1 for r in records if r["one_off"]),
         "by_graded_layer": layer_counts,
         "enabled_layers": sorted(enabled),

@@ -133,6 +133,29 @@ class TestCleanSuite(ValidateTest):
         # The http-only case is the ERROR; the other two are clean.
         self.assertEqual(self.codes(out), ["no_graded_layer"])
 
+    def test_usable_by_split_counts_only_accepted_gating_cases(self):
+        """optimize/SKILL.md precondition 2 reads this count: a human
+        accepted the case, it gates, and it is not a canary. Every split
+        is a key, zero included, so an unusable holdout reads 0."""
+        cases = [
+            good_case("a-ok-1", split=["full", "smoke"]),
+            good_case("b-pending-2", gating=False,
+                      review={"status": "pending"}),
+            good_case("c-not-gating-3", gating=False),
+            good_case("d-machine-4", review={"status": "accepted",
+                                             "by": "generate-review"}),
+            good_case("e-canary-5", split=["full", "smoke", "canary"],
+                      expect={"result": {"scalar": 7}}),
+            good_case("f-sealed-6", split=["holdout"], gating=False,
+                      review={"status": "pending"}),
+        ]
+        _, out, _ = self.validate(cases)
+        summary = out["summary"]
+        self.assertEqual(summary["by_split"],
+                         {"canary": 1, "full": 5, "holdout": 1, "smoke": 2})
+        self.assertEqual(summary["usable_by_split"],
+                         {"canary": 0, "full": 1, "holdout": 0, "smoke": 1})
+
     def test_accepts_jsonl_and_wrapper_and_stdin(self):
         case = good_case()
         caps = self.write_json("all-enabled.json", ALL_LAYERS_ENABLED)
