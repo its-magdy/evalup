@@ -1292,6 +1292,17 @@ than the baseline did, and `gate.py --baseline` closes on a case that now
 fails a layer it never failed there. Run a regression on the new profile
 and `pin_baseline.py` it before you gate against it.
 
+### Changed — `turn_delay_s` runs from the previous reply (2026-11-21)
+
+#17, item 2. The runner slept the whole `turn_delay_s` after the previous
+turn's quiescence wait and scoring, so a 2 s delay on a traced app cost 5 s
+or more per turn. It now sleeps only what is left of `turn_delay_s` since
+the previous turn's response arrived; the gap after the reply is never
+shorter than `turn_delay_s`, which is what the delay is for (async memory
+writes). The dry run's `wait_floor_s` follows: a gap between turns is the
+larger of the quiescence window and the delay, no longer their sum.
+Timing only: no verdict, and `SCORING_VERSION` (still 1), changes.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
