@@ -102,7 +102,9 @@ runner's:
   response` the same tool-call read. A trace store is neither checked nor
   joined (its file may not exist yet at discover time); a declared
   correlation's trace id is still read and shown.
-- **Output**, on stdout, always JSON: `ok`, `problems` (a list, empty when
+- **Output**, on stdout, always JSON in one shape once the adapter is read
+  — a pre-flight failure too, with `request`/`response` null and its own
+  keys (`missing_env`) added: `ok`, `problems` (a list, empty when
   verified), `env_vars` (every env var the adapter needs: its `${NAME}` refs
   plus the `token_env`/`cookie_env` names), the request as a run records it
   (headers redacted, refs put back), and `response`: `status`, `latency_s`,
@@ -113,7 +115,11 @@ runner's:
 - **Secrets.** Stricter than §3's record: the output is a chat transcript, and
   an app may echo a header back. Every resolved env value of four characters
   or more, and every auth value whatever its length, is put back as `${NAME}`
-  *everywhere* in the output, the app's answer and body included.
+  *everywhere* in the output, the app's answer and body included. The body
+  is scrubbed as a structure before it is dumped and cut, so JSON escaping
+  and the 4,000-character cut cannot leave part of a value. A value bound
+  for a header or the URL that holds a CR or LF is exit 3 naming the
+  variable, before any send (`http.client` quotes the value in its error).
 - **Exit.** 0 verified: a 2xx, a non-empty answer at the `<answer>` field, a
   whole stream when `response_format: sse`, a readable tool-call list when
   `traces.source: response`. 3 with the same report plus `error` when any of

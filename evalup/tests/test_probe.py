@@ -158,6 +158,69 @@ class TestCookieAuth(ProbeCase):
         self.assertEqual(rc, 3)
         self.assertEqual(report["missing_env"], ["APP_TEST_COOKIE"])
         self.assertEqual(self.app.calls, [])
+        # The same report shape as a sent probe: discover lists every var
+        # the adapter needs, not only the missing ones.
+        self.assertIs(report["ok"], False)
+        self.assertEqual(report["env_vars"],
+                         ["APP_BASE_URL", "APP_TEST_COOKIE"])
+        self.assertIn("unresolved env var", report["problems"][0])
+        self.assertIsNone(report["response"])
+
+
+class TestScrubEdges(ProbeCase):
+    """The review's three leaks (PR #60): each printed part of the secret."""
+
+    pad = 0
+
+    def responder(self, path, body, headers):
+        return 200, {"message": "ok", "pad": "x" * self.pad,
+                     "echo": headers.get("Cookie")}, {}
+
+    def setUp(self):
+        super().setUp()
+        self.app.server.responder = lambda p, b, h: (
+            self.app.calls.append({"path": p, "body": b, "headers": h})
+            or self.responder(p, b, h))
+
+    def leaked(self, proc, secret):
+        out = proc.stdout + proc.stderr
+        return secret in out or secret[4:12] in out
+
+    def test_a_secret_across_the_preview_cut_is_not_half_printed(self):
+        path = self.write_adapter(cookie_adapter(self.app.base_url))
+        for pad in range(3940, 3975, 3):
+            with self.subTest(pad=pad):
+                self.pad = pad
+                rc, report, proc = self.probe(path)
+                self.assertEqual(rc, 0, proc.stdout)
+                self.assertFalse(self.leaked(proc, COOKIE))
+
+    def test_a_value_json_escapes_is_still_scrubbed(self):
+        quoted = 'sid="quoted-secret-9876\\x"'
+        path = self.write_adapter(cookie_adapter(self.app.base_url))
+        rc, report, proc = self.probe(path, env={"APP_TEST_COOKIE": quoted})
+        self.assertNotIn("quoted-secret-9876", proc.stdout + proc.stderr)
+
+    def test_a_cr_in_the_cookie_is_exit_3_naming_only_the_var(self):
+        path = self.write_adapter(cookie_adapter(self.app.base_url))
+        rc, report, proc = self.probe(
+            path, env={"APP_TEST_COOKIE": "sid=crlf-secret-5555\r"})
+        self.assertEqual(rc, 3, proc.stdout)
+        self.assertIn("APP_TEST_COOKIE", report["error"])
+        self.assertNotIn("crlf-secret", proc.stdout + proc.stderr)
+        self.assertEqual(self.app.calls, [])
+
+    def test_a_short_auth_value_is_scrubbed_a_short_ref_is_not(self):
+        adapter = cookie_adapter(self.app.base_url)
+        adapter["invocation"]["request_body"] = \
+            '{"message": "<user turn>", "tenant": "${EVAL_TENANT}"}'
+        path = self.write_adapter(adapter)
+        rc, report, proc = self.probe(
+            path, message="say 42",
+            env={"APP_TEST_COOKIE": "s=1", "EVAL_TENANT": "42"})
+        self.assertEqual(rc, 0, proc.stdout)
+        self.assertNotIn('"s=1"', proc.stdout)
+        self.assertEqual(report["request"]["body"]["message"], "say 42")
 
 
 class TestBearerAndUrlSecrets(ProbeCase):
@@ -228,6 +291,27 @@ class TestVerdictOfTheProbe(ProbeCase):
         self.assertEqual(report["response"]["answer"], "wrong field")
 
 
+class TestJsonToolCalls(ProbeCase):
+    @staticmethod
+    def responder(path, body, headers):
+        return 200, {"message": "ok", "calls": [{"name": "lookup",
+                                                 "arguments": {}}]}, {}
+
+    def test_a_tool_call_list_in_a_json_body(self):
+        adapter = make_adapter(self.app.base_url, traces={
+            "source": "response", "tool_calls_path": "calls"})
+        rc, report, proc = self.probe(self.write_adapter(adapter))
+        self.assertEqual(rc, 0, proc.stdout)
+        self.assertEqual(report["response"]["tool_calls"][0]["name"], "lookup")
+
+    def test_a_wrong_tool_call_path_is_not_verified(self):
+        adapter = make_adapter(self.app.base_url, traces={
+            "source": "response", "tool_calls_path": "nope"})
+        rc, report, _ = self.probe(self.write_adapter(adapter))
+        self.assertEqual(rc, 3)
+        self.assertIn("tool_calls_path", report["error"])
+
+
 class TestStreams(unittest.TestCase):
     body = agent_run(text_message("m1", "hello ", "there"),
                      tool_call("c1", "lookup", '{"q": "x"}', result="{}"))
@@ -268,6 +352,7 @@ class TestStreams(unittest.TestCase):
         rc, report = self.probe()
         self.assertEqual(rc, 3)
         self.assertIn("terminal event", report["error"])
+        self.assertEqual(len(report["problems"]), 2)  # gap once, + no answer
         self.assertIsNone(report["response"]["tool_calls"])
 
 
@@ -299,11 +384,15 @@ class TestFlags(ProbeCase):
         self.assertEqual(self.app.calls, [])
 
     def test_probe_flags_need_probe(self):
-        proc = subprocess.run(
-            [sys.executable, str(RUNNER), "--plan", "p", "--out", "o",
-             "--message", "hi"], capture_output=True, text=True, check=False)
-        self.assertEqual(proc.returncode, 2)
-        self.assertIn("--probe flags", json.loads(proc.stdout)["error"])
+        for message in ("hi", ""):
+            with self.subTest(message=message):
+                proc = subprocess.run(
+                    [sys.executable, str(RUNNER), "--plan", "p", "--out",
+                     "o", "--message", message],
+                    capture_output=True, text=True, check=False)
+                self.assertEqual(proc.returncode, 2)
+                self.assertIn("--probe flags",
+                              json.loads(proc.stdout)["error"])
 
     def test_a_message_is_required(self):
         path = self.write_adapter(make_adapter(self.app.base_url))
@@ -372,7 +461,7 @@ class TestDiscoverUsesTheProbe(unittest.TestCase):
     def test_step_4_calls_the_runner_probe(self):
         step = self.step("### 4. Validate the profile")
         self.assertIn('scripts/run_cases.py" --probe --adapter', step)
-        self.assertIn("never `curl`", step)
+        self.assertIn("Never `curl`", step)
         self.assertNotIn("curl -", self.text)
         # No `$VAR` a permission check would have to expand.
         self.assertIsNone(re.search(r"\$[A-Z_]{2,}", step))

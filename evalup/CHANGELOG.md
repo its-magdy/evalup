@@ -985,9 +985,14 @@ value in an env var — so headless, no app needing auth got past step 1 (#49).
   response` the tool calls. No plan, no health-check call, no retries, no
   writes, no scoring. It prints JSON (`ok`, `problems`, the redacted
   request, status, answer, tool calls, a body preview, `env_vars`) and exits
-  0 when that verifies the adapter, 3 when it does not. Every resolved env
-  value, and every auth value, is put back as `${NAME}` everywhere in the
-  output — the app's own answer included, since an app may echo a header.
+  0 when that verifies the adapter, 3 when it does not, in the same shape
+  when pre-flight fails. Every resolved env value of four characters or
+  more, and every auth value, is put back as `${NAME}` everywhere in the
+  output — the app's own answer included, since an app may echo a header —
+  and the body is scrubbed before its preview is cut, so neither the cut
+  nor JSON escaping can leave part of a secret. An auth or URL value
+  holding a CR or LF is exit 3 naming the variable: `http.client` would
+  have quoted the value in an exit-1 error.
   The YAML goes through **`convert_suite.py --adapter-file`**, new, so the
   runner still parses no YAML. The tool-call read is now one helper
   (`response_tool_calls`) shared by a case's trace and the probe.
@@ -997,7 +1002,9 @@ value in an env var — so headless, no app needing auth got past step 1 (#49).
   The README's headless recipe drops `Bash(curl *)`.
 - **A denied optional read no longer ends a session.** Every skill's "a
   denial of any call is a stop" now reads: never retried in another form,
-  a stop only if the step needs it. A multi-file `grep` the session could do
+  a stop only if the step needs it (a denied optional `grep`: use Read or
+  Grep, or skip it); the earlier "if a call is denied, stop" is about
+  script calls. A multi-file `grep` the session could do
   without had ended a whole first session.
 - Discover's re-run prose (an existing profile, `--diff`) moved to
   `references/rerun.md`, read only then: the first session's 25k-token
