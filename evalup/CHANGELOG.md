@@ -1391,14 +1391,29 @@ graded the app against itself.
   `gate.py --min-pass-rate` counts them (gate.py is unchanged). A gap is a report line, not a finding: nothing scores rules, and an
   inferred rule is meant to wait for its case. `covers` without `--profile`
   warns `covers_unchecked`.
+- **`--strict` users will see new warnings, and a strict job fails on
+  them:** `legacy_rules_location` while rules still sit under
+  `confirmed_by_human.business_rules`, then, once a discover moves them,
+  `case_covers_nothing` on every case without a `covers`. Both clear by
+  re-running discover and generate (or adding `covers` by hand).
+- **Only a person confirms a rule:** a `confirmed_by` that is a model's,
+  an agent's or evalup's own name (`claude`, `discover`, `gpt-4o`, whole
+  words) is read as unconfirmed (`rule_confirmed_unattributed`), so a
+  case on it cannot gate. An `http(s)://` source counts as outside the
+  repo even without `outside: true`.
 - **`convert_suite.py`'s combined document** carries `schema_version`,
   `business_rules` and `risks` under `profile`, and `--profile` unwraps
   it, so the one file serves `--cases`, `--capabilities`, `--profile` and
   `--rubrics`.
 - **The deterministic CI pipeline validates before it plans:** README and
-  `ci-gate.md` give five commands (convert, validate, plan, run, gate) and
-  stop on the validator's non-zero exit; `demo.py` runs the same step and
-  prints the gaps.
+  `ci-gate.md` give five commands (convert, validate, plan, run, gate) as
+  a `set -e` script; `demo.py` runs the same step and prints the gaps; the
+  CI workflow template (#82) runs it in `run the suite` before the plan,
+  and `tests/run_template.py` adds a fourth pass, a gating case on the
+  quickstart's inferred rule, which must fail the job before any run.
+  The template's `EVALUP_REF` pin predates #25: there the validator
+  passes with a `schema_version_missing` warning and enforces nothing
+  until the pin moves past this merge.
 - **generate, the test-generator and analyze** link every case, keep an
   unconfirmed rule out of the gate, and report the gaps; the trace-analyzer
   reads only confirmed rules as a SHOULD.
