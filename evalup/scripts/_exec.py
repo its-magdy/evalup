@@ -112,11 +112,15 @@ def check_config(block):
                             "recorded in the manifest. Pass it by name in "
                             f"{where}.env, or in request_body")
     cwd = block.get("cwd")
-    if cwd is not None:
-        if not (isinstance(cwd, str) and cwd.strip()):
-            problems.append(f"{where}.cwd must be a non-empty path")
-        elif ENV_REF_RE.search(cwd):
-            problems.append(f"{where}.cwd holds a ${{REF}}; write the path")
+    if cwd is None:
+        problems.append(f"{where}.cwd is required: the directory the "
+                        "command runs in, relative to the state location "
+                        "(adapter.yaml's directory) -- `..` for the app "
+                        "root when state is <app>/.evalup/")
+    elif not (isinstance(cwd, str) and cwd.strip()):
+        problems.append(f"{where}.cwd must be a non-empty path")
+    elif ENV_REF_RE.search(cwd):
+        problems.append(f"{where}.cwd holds a ${{REF}}; write the path")
     names = block.get("env", [])
     if not (isinstance(names, list) and all(isinstance(n, str)
                                             for n in names)):
@@ -147,9 +151,9 @@ def child_env(names, environ=None):
 
 
 def resolve_cwd(cwd, base):
-    """exec.cwd against `base` (the app root, else the state location),
-    always ABSOLUTE: a relative state_dir would otherwise resolve against
-    whatever directory the runner happens to be started from."""
+    """exec.cwd against `base` (the state location), always ABSOLUTE: a
+    relative state_dir would otherwise resolve against whatever directory
+    the runner happens to be started from."""
     if cwd is None:
         return os.path.abspath(base)
     if os.path.isabs(cwd):
@@ -287,7 +291,8 @@ def _wait_unreaped(proc, deadline):
         if left <= 0:
             return False
         time.sleep(min(pause, left))
-        pause = min(pause * 2, 0.05)
+        # Capped at 10 ms, so latency_s overstates the exit by no more.
+        pause = min(pause * 2, 0.01)
 
 
 def _kill_group(proc):
@@ -407,6 +412,9 @@ def _run(argv, executable, cwd, env, body, timeout, secrets=()):
         # process that left the group (setsid) is out of reach; it cannot
         # hang the call (below), but it can outlive it.
         _kill_group(proc)
+        # ONE grace for the reap and the pipes together, so the worst
+        # case is timeout + DRAIN_GRACE_S, not twice the grace.
+        grace_end = time.monotonic() + DRAIN_GRACE_S
         try:
             proc.wait(timeout=DRAIN_GRACE_S)
             reaped = True
@@ -418,7 +426,6 @@ def _run(argv, executable, cwd, env, body, timeout, secrets=()):
         raise ExecFailure("timeout" if not exited else "transport",
                           f"the command did not exit within {DRAIN_GRACE_S}s "
                           "of SIGKILL; abandoned (pid {})".format(proc.pid))
-    grace_end = time.monotonic() + DRAIN_GRACE_S
     for thread in (out, err):
         thread.join(max(0.0, grace_end - time.monotonic()))
     if not exited:
@@ -447,7 +454,9 @@ def _run(argv, executable, cwd, env, body, timeout, secrets=()):
                           + _stderr_tail(err, secrets))
     try:
         parsed = json.loads(text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
+        # ValueError covers JSONDecodeError and, on 3.11+, an integer
+        # past the int-digit limit: either way no object.
         # Scrubbed whole, THEN cut: a cut first would leave half a secret
         # that straddles character 200 unrecognisable to the scrub.
         start = scrub(text.strip(), secrets)[:200]

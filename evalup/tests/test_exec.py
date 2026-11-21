@@ -69,7 +69,8 @@ class TestCheckConfig(unittest.TestCase):
         self.assertEqual(_exec.check_config(
             {"argv": ["node", "shim.js"], "cwd": "app", "env": ["API_KEY"]}),
             [])
-        self.assertEqual(_exec.check_config({"argv": ["./shim"]}), [])
+        self.assertEqual(_exec.check_config({"argv": ["./shim"],
+                                             "cwd": ".."}), [])
 
     def test_defects(self):
         cases = [
@@ -77,6 +78,7 @@ class TestCheckConfig(unittest.TestCase):
             ({"argv": "node shim.js"}, "never a shell string"),
             ({"argv": []}, "non-empty list"),
             ({"argv": [""]}, "non-empty list"),
+            ({"argv": ["node"]}, "cwd is required"),
             ({"argv": ["node", 3]}, "non-empty list"),
             ({"argv": ["node", "--key=${API_KEY}"]}, "holds a ${REF}"),
             ({"argv": ["node", "a\x00b"]}, "NUL"),
@@ -236,6 +238,15 @@ class TestRun(unittest.TestCase):
         self.assertIn("exited 1", message)
         self.assertNotIn(SECRET[-6:], message)
 
+    @unittest.skipUnless(hasattr(sys, "set_int_max_str_digits"),
+                         "the int-digit limit is 3.11+")
+    def test_an_integer_past_the_digit_limit_is_transport(self):
+        with self.assertRaises(_exec.ExecFailure) as caught:
+            run_shim("--misbehave", "raw", "--raw-stdout",
+                     '{"text": "x", "n": 1' + "0" * 5000 + "}")
+        self.assertEqual(caught.exception.kind, "transport")
+        self.assertIn("not one JSON document", caught.exception.message)
+
     def test_a_secret_in_stderr_is_scrubbed(self):
         env = dict(_exec.child_env([]), SHIM_SECRET=SECRET)
         with self.assertRaises(_exec.ExecFailure) as caught:
@@ -341,9 +352,11 @@ class ExecRunnerCase(RunnerCase):
         plan["adapter"]["app"] = {"name": "shim", "repo": str(self.app_root)}
         plan["adapter"]["invocation"] = dict({
             "mode": "exec",
+            # Relative to the state location (tmp/.evalup), as discover
+            # writes it: the app root is a sibling here, `..` in-tree.
             "exec": {"argv": [sys.executable, "exec_shim.py",
                               "--log", str(self.log), *flags],
-                     "env": env or []},
+                     "cwd": "../app", "env": env or []},
             "request_body": '{"message": "<user turn>", '
                             '"session_id": "<uuid>"}',
             "response_body": '{"text": "<answer>"}',
@@ -494,13 +507,15 @@ class TestPreflight(ExecRunnerCase):
     def test_refusals(self):
         argv = [sys.executable, "exec_shim.py"]
         cases = [
-            ({"exec": {"argv": " ".join(argv)}}, "never a shell string"),
-            ({"exec": {"argv": [*argv, "--k", "${SHIM_SECRET}"]}},
-             "holds a ${REF}"),
+            ({"exec": {"argv": " ".join(argv), "cwd": "../app"}},
+             "never a shell string"),
+            ({"exec": {"argv": [*argv, "--k", "${SHIM_SECRET}"],
+                       "cwd": "../app"}}, "holds a ${REF}"),
+            ({"exec": {"argv": argv}}, "exec.cwd is required"),
             ({"exec": {"argv": argv, "cwd": "missing"}}, "is not a directory"),
-            ({"exec": {"argv": ["./no-such-shim"]}},
+            ({"exec": {"argv": ["./no-such-shim"], "cwd": "../app"}},
              "is not an executable file"),
-            ({"exec": {"argv": ["no-such-command-39"]}},
+            ({"exec": {"argv": ["no-such-command-39"], "cwd": "../app"}},
              "is not an executable file"),
             ({"auth": {"type": "bearer", "token_env": "SHIM_SECRET"}},
              "list the credential's env var in exec.env (exec.env: "
@@ -533,12 +548,25 @@ class TestPreflight(ExecRunnerCase):
                                    "verdict.json")["verdict"], "pass")
         self.assertEqual(len(self.calls()), 1)
 
-    def test_cwd_is_relative_to_the_app_root(self):
+    def test_a_trace_store_is_refused_with_one_message(self):
+        plan = self.exec_plan()
+        plan["adapter"]["traces"] = {"source": "otlp-file",
+                                     "location": "x.jsonl",
+                                     "correlation": "traceparent-echo",
+                                     "convention": "gen_ai"}
+        payload = self.refused(plan, "traces.source 'otlp-file' cannot be "
+                                     "joined in invocation.mode: exec")
+        self.assertIn("traces.source: response", payload["error"])
+
+    def test_cwd_is_relative_to_the_state_location_not_app_repo(self):
+        # app.repo is `.` (the state dir) here, as the templates write it;
+        # exec.cwd still resolves against the state location alone.
         (self.app_root / "sub").mkdir()
         shutil.move(str(self.app_root / "exec_shim.py"),
                     str(self.app_root / "sub" / "exec_shim.py"))
         plan = self.exec_plan()
-        plan["adapter"]["invocation"]["exec"]["cwd"] = "sub"
+        plan["adapter"]["app"]["repo"] = "."
+        plan["adapter"]["invocation"]["exec"]["cwd"] = "../app/sub"
         rc, _, proc = self.invoke(plan)
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         body = self.read("cases", "c-0001", "response.json")["body"]
@@ -608,7 +636,9 @@ class TestPacingAndDryRun(ExecRunnerCase):
 
 class TestProbe(ExecRunnerCase):
     def probe(self, plan, env=None):
-        path = self.tmp / "adapter.json"
+        # In the state location, as discover writes it: exec.cwd is
+        # relative to this file's directory.
+        path = self.state / "adapter.json"
         path.write_text(json.dumps(plan["adapter"]), encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(RUNNER), "--probe", "--adapter", str(path),
@@ -629,6 +659,9 @@ class TestProbe(ExecRunnerCase):
                          "list_invoices")
         self.assertIn("SHIM_SECRET", report["env_vars"])
         self.assertEqual(report["request"]["method"], "EXEC")
+        # Where the command ran, resolved, so a wrong cwd is obvious.
+        self.assertEqual(os.path.realpath(report["request"]["cwd"]),
+                         os.path.realpath(self.app_root))
         self.assertNotIn(SECRET, proc.stdout + proc.stderr)
         self.assertEqual(len(self.calls()), 1)
         self.assertFalse((self.state / "reports" / "probe").exists())

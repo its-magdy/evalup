@@ -1970,6 +1970,13 @@ class Runner:
             (invocation.get("health_check") is not None,
              "health_check needs invocation.mode: http; exec's pre-flight "
              "check is that its cwd and command resolve"),
+            ((self.adapter.get("traces") or {}).get("source")
+             not in (RESPONSE_TRACE_SOURCE, *TRACELESS_TRACE_SOURCES, None),
+             "traces.source {!r} cannot be joined in invocation.mode: "
+             "exec (a store's join needs an http health check). Use "
+             "traces.source: response -- tool calls in the stdout object "
+             "-- or run trace-less (view-only | none)".format(
+                 (self.adapter.get("traces") or {}).get("source"))),
             (invocation.get("route_from_status") is not None,
              "route_from_status needs invocation.mode: http; an exec "
              "command reports no status (every answer is 200), so the "
@@ -1979,16 +1986,16 @@ class Runner:
         for bad, why in refused:
             if bad:
                 preflight_fail(f"adapter.invocation: {why}")
-        app_root = (self.adapter.get("app") or {}).get("repo")
-        base = self.state_dir
-        if app_root:
-            base = app_root if os.path.isabs(app_root) \
-                else os.path.join(self.state_dir, app_root)
-        cwd = _exec.resolve_cwd(block.get("cwd"), base)
+        # Relative to the state location (adapter.yaml's own directory),
+        # the root app.repo itself resolves against -- never to app.repo:
+        # the common `repo: .` with state in <app>/.evalup/ would put the
+        # command in .evalup/. Required (check_config), so it is written.
+        cwd = _exec.resolve_cwd(block["cwd"], self.state_dir)
         if not os.path.isdir(cwd):
-            preflight_fail(f"adapter.invocation.exec.cwd {cwd!r} is not a "
-                           "directory (relative to app.repo, else to the "
-                           "state location)")
+            preflight_fail(f"adapter.invocation.exec.cwd resolves to {cwd!r}, "
+                           "which is not a directory; it is relative to the "
+                           "state location (adapter.yaml's directory), so "
+                           "the app root of <app>/.evalup/ is `..`")
         names = _exec.env_names(block)
         env = _exec.child_env(names)
         executable = _exec.resolve_command(block["argv"][0], cwd, env)
@@ -2111,8 +2118,8 @@ class Runner:
         if mode == "function":
             return {"ok": True, "detail": "entrypoint imported"}
         if mode == "exec":
-            return {"ok": True, "detail": "command resolved: "
-                    + self.exec["executable"]}
+            return {"ok": True, "detail": "command resolved: {} (cwd {})"
+                    .format(self.exec["executable"], self.exec["cwd"])}
         declared = (self.adapter.get("invocation") or {}).get("health_check")
         if isinstance(declared, dict):
             method = str(declared.get("method", "GET")).upper()
@@ -5181,9 +5188,12 @@ def probe_send(adapter, adapter_path, message, insecure_tls, timeout_s):
     request = record["request"]
     probe_print(probe_report(
         adapter, problems,
-        request={"method": request["method"], "url": request["url"],
-                 "headers": request["headers_sent"],
-                 "body": request["body"]},
+        request=dict({"method": request["method"], "url": request["url"],
+                      "headers": request["headers_sent"],
+                      "body": request["body"]},
+                     # exec: where the command ran, resolved -- the first
+                     # thing to check when it cannot find its own files.
+                     **({"cwd": runner.exec["cwd"]} if runner.exec else {})),
         response={
             "status": response["status"],
             "latency_s": response["latency_s"],

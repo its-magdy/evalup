@@ -34,6 +34,13 @@ import sys
 import time
 
 
+def write_pid(path, pid):
+    """Atomically: a reader polling for the file never sees it empty."""
+    with open(path + ".tmp", "w", encoding="utf-8") as fh:
+        fh.write(str(pid))
+    os.replace(path + ".tmp", path)
+
+
 def expand(text):
     text = text.replace("{secret}", os.environ.get("SHIM_SECRET", ""))
     while "{pad:" in text:
@@ -67,8 +74,7 @@ def main():
             stdin=subprocess.DEVNULL, start_new_session=True,
             stdout=None if a.detach == "both" else subprocess.DEVNULL)
         if a.pidfile:
-            with open(a.pidfile, "w", encoding="utf-8") as fh:
-                fh.write(str(child.pid))
+            write_pid(a.pidfile, child.pid)
         if a.hang:
             time.sleep(60)
             return 0
@@ -92,8 +98,7 @@ def main():
         child = subprocess.Popen(
             [sys.executable, "-c", "import time; time.sleep(60)"])
         if a.pidfile:
-            with open(a.pidfile, "w", encoding="utf-8") as fh:
-                fh.write(str(child.pid))
+            write_pid(a.pidfile, child.pid)
         time.sleep(60)
         return 0
     if a.misbehave in ("stderr", "stderr-exit"):
