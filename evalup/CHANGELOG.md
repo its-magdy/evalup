@@ -1303,6 +1303,31 @@ writes). The dry run's `wait_floor_s` follows: a gap between turns is the
 larger of the quiescence window and the delay, no longer their sum.
 Timing only: no verdict, and `SCORING_VERSION` (still 1), changes.
 
+### Added — reach: a declared rate budget the runner paces to (2026-11-21)
+
+#76. An app that allows 20 messages per 10 minutes, and counts failed
+requests against that, turned a long suite into `infra_error`s: the
+runner's only defence was `Retry-After`, capped at 60 s, which cannot
+outlast a 10-minute window.
+
+- **`adapter.invocation.rate_limit`**: `min_interval_s`, `requests` with
+  `window_s`, or both. A malformed block is exit 2 before any call.
+- **The runner paces every app call to it**: the health check, every
+  retry, and every turn of a restarted conversation. Each interval runs
+  from when the earlier call finished, so the app never sees a shorter gap
+  whatever the latency. A wait is a `pace` event in `run.log`. The
+  manifest records the block under `invocation`.
+- **`--dry-run`** reports `pace_floor_s` and `pace_max_s`, the least time
+  the budget lets `app_calls_planned` / `app_calls_max` span; `run`'s
+  time estimate uses it.
+- **Per process:** a run started right after another, or a `--resume`,
+  does not know the last run's calls; wait a window between them.
+- **`discover`** fills the block in when it finds a limit; `optimize` no
+  longer refuses a run that outpaces a limit the adapter declares.
+
+With no block, nothing the runner sends or writes changes. Transport only:
+no verdict, retry rule or `SCORING_VERSION` (still 1) changes.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

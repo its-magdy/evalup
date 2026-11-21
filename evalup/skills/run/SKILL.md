@@ -136,8 +136,9 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan <work-dir>/plan.json -
 `--dry-run` validates the plan and pre-flight without calling the app; use it
 on anything unfamiliar. Then estimate, without calling the app by hand:
 time is its `app_calls_planned` × the per-request latency discover §4
-recorded in findings.md, plus its `wait_floor_s`; dollars are those calls ×
-tokens × price (+ judge calls) when a price is known. Under an app-side
+recorded in findings.md, plus the larger of its `wait_floor_s` and
+`pace_floor_s`; dollars are those calls × tokens × price (+ judge calls)
+when a price is known. Under an app-side
 rate limit (findings or adapter), also state `app_calls_max` (every retry)
 and fit `--max-attempts` to it. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and

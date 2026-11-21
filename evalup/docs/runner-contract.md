@@ -67,7 +67,7 @@ run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
 | `--out DIR` | the run directory to write. Must equal `<state>/reports/<run_id>` where `run_id` is the plan's. Required except with `--verify`. |
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
-| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1 — what an app-side rate limit has to absorb) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus whatever part of `turn_delay_s` that window has not already covered between turns, since the delay runs from the previous reply). |
+| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1 — what an app-side rate limit has to absorb) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus whatever part of `turn_delay_s` that window has not already covered between turns, since the delay runs from the previous reply). With `invocation.rate_limit` declared (§7), also `rate_limit`, `pace_floor_s` and `pace_max_s`: the least seconds that budget lets `app_calls_planned` and `app_calls_max` calls span, the health check aside. Not added to `wait_floor_s`: each interval runs from the earlier call's finish, so the app's latency adds to it, while those waits overlap it. With no budget the three keys are absent. |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
 | `--probe` | send **one** request through the adapter and print what came back; no plan, no scoring, no writes (§1.1). Runs alone, with `--adapter` and `--message`, plus optional `--insecure-tls` and `--timeout`, which are probe-only flags. |
 | `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
@@ -915,6 +915,27 @@ exit 2** (decision **D5**), not warned about and downgraded: a warning scrolls
 past and leaves the adapter field looking supported while every run is serial.
 Exit 2 makes the gap loud at the one moment someone can act on it.
 
+**Paced to a declared rate budget (#76).** `adapter.invocation.rate_limit`
+declares what the app's limiter allows: `min_interval_s` (the least gap
+between calls), `requests` with `window_s` (at most N calls in any window of
+that many seconds), or both, each up to a day. A malformed block is exit 2 at
+plan validation.
+Before **every** app call (the health check, each retry, and each turn of
+a restarted conversation), the runner waits until both forms hold. A limiter
+that counts failed requests sees all of them. Each interval runs from the
+moment the earlier call *finished* (response or transport error), so the app
+never sees a shorter gap whatever the latency. A wait is logged as a `pace`
+event in `run.log`, and the manifest records the block under `invocation`.
+A request's `sent_at` is stamped after the wait. A retry waits its
+`backoff_s`/`Retry-After` and then whatever of the pace is left, so the
+longer of the two. **The budget is per process:** a run started right
+after another one, or a `--resume` of a killed run, starts with no record
+of the last run's calls and can share its last window; wait a window
+between them. Pacing is transport only: no verdict, retry rule or
+`SCORING_VERSION` changes.
+Absent (or `null`), the runner sends each call as soon as the last finished,
+and the manifest and dry run carry no trace of it.
+
 **Verdict vocabulary**, unchanged from the rest of the harness:
 `pass | fail | unscored | skipped | infra_error | infra_incomplete`.
 
@@ -1201,7 +1222,8 @@ the shipped run already does. See Open decision **D1**.
   "temperature": "…",
   "identity_headers": {"names": ["X-User-Id", "X-Role-Id"], "source": "env"},  // names only, never values
   "invocation": {"mode": "http", "url": "https://…/api/chat/ask",
-                 "timeout_s": 120, "timeout_enforced": true},   // false in function mode (§4.2)
+                 "timeout_s": 120, "timeout_enforced": true,    // false in function mode (§4.2)
+                 "rate_limit": {"requests": 20, "window_s": 600}},  // only when declared (§7)
   "traces": {"source": "otlp-file", "correlation": "none", "collected": false,
              "disabled_layers": ["trajectory", "tool_selection", "loops", "cost_latency"]},
   "capability_matrix": { … },
@@ -1394,7 +1416,7 @@ A red suite exits **0**. That is deliberate (§7).
 
 Append-only JSONL, one object per line:
 `{"ts", "event", …}`, with events `preflight`, `case_start`, `case_done`,
-`retry`, `scorer`, `abort`, `finalize`. Written for post-hoc debugging of a run
+`retry`, `pace` (a wait for the rate budget, §7), `scorer`, `abort`, `finalize`. Written for post-hoc debugging of a run
 that went wrong; nothing reads it programmatically, and nothing in §9 requires
 it. Keeping it out of `REQUIRED_ALWAYS` is intentional — a required file nobody
 consumes is how required files rot.

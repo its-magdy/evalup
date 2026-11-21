@@ -50,6 +50,7 @@ Usage:
   run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
 """
 import argparse
+import collections
 import contextlib
 import email.message
 import hashlib
@@ -539,6 +540,8 @@ def validate_adapter_block(plan):
     if not isinstance(invocation, dict):
         bad_input("adapter.invocation is required and must be an object")
 
+    validate_rate_limit(invocation.get("rate_limit"))
+
     # Decision D5, confirmed 2026-09-08: REFUSE rather than warn-and-serialize.
     # A warning that scrolls past leaves the adapter field looking supported
     # while every run is serial; exit 2 makes the gap loud at the one moment
@@ -550,6 +553,102 @@ def validate_adapter_block(plan):
                   "but this runner "
                   "is serial-only; set it to 1 or wait for concurrent "
                   "execution")
+
+
+RATE_LIMIT_KEYS = ("min_interval_s", "requests", "window_s")
+RATE_LIMIT_MAX_S = 86400
+
+
+def validate_rate_limit(block):
+    """adapter.invocation.rate_limit (#76), checked before any spend.
+
+    Absent or null is no budget. Otherwise a minimum interval between
+    calls, N calls per window, or both; a window needs its count and a
+    count its window, since either alone paces nothing anyone wrote."""
+    if block is None:
+        return
+    where = "adapter.invocation.rate_limit"
+    if not isinstance(block, dict):
+        bad_input(f"{where} must be an object, got {type(block).__name__}")
+    unknown = sorted(set(block) - set(RATE_LIMIT_KEYS))
+    if unknown:
+        bad_input(f"unknown key(s) in {where}: {', '.join(unknown)}")
+    if not any(block.get(key) is not None for key in RATE_LIMIT_KEYS):
+        bad_input(f"{where} declares no budget: give min_interval_s, or "
+                  "requests with window_s, or both")
+    for key in ("min_interval_s", "window_s"):
+        value = block.get(key)
+        if value is not None and (not isinstance(value, (int, float))
+                                  or isinstance(value, bool)
+                                  or not math.isfinite(value) or value <= 0
+                                  or value > RATE_LIMIT_MAX_S):
+            # Capped at a day, so a typo cannot park a run for a year.
+            bad_input(f"{where}.{key} must be a number of seconds in (0, "
+                      f"{RATE_LIMIT_MAX_S}], got {value!r}")
+    requests, window = block.get("requests"), block.get("window_s")
+    if requests is not None and (not isinstance(requests, int)
+                                 or isinstance(requests, bool)
+                                 or requests < 1):
+        bad_input(f"{where}.requests must be an integer >= 1, got "
+                  f"{requests!r}")
+    if (requests is None) != (window is None):
+        bad_input(f"{where}: requests and window_s go together (N calls "
+                  "per window), got only one of them")
+
+
+class RateBudget:
+    """#76: the app's declared rate budget, paced against on EVERY app call
+    the runner makes -- retries, conversation restarts and the health check
+    included, since an app's limiter may count a failed request too.
+
+    Each interval is measured from the moment an earlier call FINISHED (its
+    response, or its transport error), never from when it was sent: the app
+    received that call no later than that, and receives the next no earlier
+    than it is sent, so the gap the app sees is never shorter than the one
+    declared, whatever the latency. The runner is serial, so no lock."""
+
+    def __init__(self, spec, clock=time.monotonic, sleep=time.sleep):
+        self.min_interval = spec.get("min_interval_s") or 0
+        self.requests = spec.get("requests")
+        self.window = spec.get("window_s") or 0
+        # The finish times of the last `requests` calls: a call may start
+        # only once the oldest of them is a whole window old.
+        self.finished = collections.deque(maxlen=self.requests or 1)
+        self.clock, self.sleep = clock, sleep
+
+    def wait_s(self):
+        if not self.finished:
+            return 0.0
+        now = self.clock()
+        wait = self.min_interval - (now - self.finished[-1])
+        if self.requests and len(self.finished) == self.requests:
+            wait = max(wait, self.window - (now - self.finished[0]))
+        return max(0.0, wait)
+
+    def call(self, send):
+        """send() once, after waiting out the budget; return its result.
+        send's exception propagates, and the call counts either way."""
+        wait = self.wait_s()
+        if wait > 0:
+            self.sleep(wait)
+        try:
+            return send()
+        finally:
+            self.finished.append(self.clock())
+
+    def floor_s(self, calls):
+        """The least time `calls` back-to-back calls span under this budget,
+        latency aside: what --dry-run reports beside app_calls_* (#48)."""
+        if calls < 2:
+            return 0.0
+        gaps = calls - 1
+        floor = gaps * self.min_interval
+        if self.requests:
+            # Whole windows, then min_interval between the calls of the
+            # last, partly filled one.
+            floor = max(floor, (gaps // self.requests) * self.window
+                        + (gaps % self.requests) * self.min_interval)
+        return float(floor)
 
 
 # --------------------------------------------------------------------------
@@ -1627,6 +1726,11 @@ class Runner:
         # invocation.conversation, checked at pre-flight; None = undeclared,
         # and every input.turns case is skipped (docs/multi-turn.md SS2).
         self.conversation = None
+        # invocation.rate_limit (#76): None = undeclared, and every call is
+        # sent as soon as the last one finished, exactly as before.
+        declared = (plan["adapter"].get("invocation") or {}).get("rate_limit")
+        self.rate_limit = dict(declared) if declared else None
+        self.budget = RateBudget(declared) if declared else None
 
         self.trace_state = {"source": None, "correlation": None,
                             "collected": False, "disabled_layers": []}
@@ -1642,6 +1746,23 @@ class Runner:
         # Set by run() from validate_baseline(): a pre-#38 baseline is keyed
         # on its release (_common.scoring_key), and comparison.json says so.
         self.baseline_warning = None
+
+    def pace(self):
+        """Wait out the rate budget now (#76), so a request's `sent_at`,
+        stamped after this, is when it left. No budget: return at once."""
+        if self.budget is None:
+            return
+        wait = self.budget.wait_s()
+        if wait > 0:
+            self.log("pace", wait_s=round(wait, 3))
+            self.budget.sleep(wait)
+
+    def paced(self, send):
+        """Every app call goes through here (#76). No budget: send() as is."""
+        if self.budget is None:
+            return send()
+        self.pace()
+        return self.budget.call(send)
 
     # -- logging (SS12) ---------------------------------------------------
     def log(self, event, **fields):
@@ -1884,9 +2005,9 @@ class Runner:
         # (2026-09-21 audit). SS3 covers a message as much as a file.
         shown = unresolve(url, self.sent_refs)
         try:
-            result = send_http(url, method, headers, None,
-                               self.timeout(), self.execution["insecure_tls"],
-                               self.sse)
+            result = self.paced(lambda: send_http(
+                url, method, headers, None, self.timeout(),
+                self.execution["insecure_tls"], self.sse))
         except TransportError as exc:
             preflight_fail(f"health check {method} {shown} failed: "
                            + unresolve(exc.message, self.sent_refs))
@@ -2117,7 +2238,11 @@ class Runner:
                            # _sse (with its protocol), or a JSON body.
                            "response_format":
                                "sse" if self.sse else "json",
-                           "sse": self.sse},
+                           "sse": self.sse,
+                           # #76: present only when declared, so a run with
+                           # no budget writes the manifest it always did.
+                           **({"rate_limit": self.rate_limit}
+                              if self.rate_limit else {})},
             "traces": traces,
             # docs/multi-turn.md SS2/SS6: how conversations were kept, and
             # whether memory outlives a session (`user`): then any case's
@@ -2369,6 +2494,7 @@ class Runner:
         body = render_template(self.request_template, values)
         headers = build_headers(self.adapter, case, self.identity_map,
                                 self.auth_values)
+        self.pace()
         request = {"case_id": case["id"], "repeat": repeat, "persona": persona,
                    "headers_sent": redact(headers, self.secret_names),
                    "url": self.record_url, "method": self.method,
@@ -2382,13 +2508,7 @@ class Runner:
         while attempts < max_attempts:
             attempts += 1
             try:
-                if self.entrypoint is not None:
-                    result = send_function(self.entrypoint, body)
-                else:
-                    result = send_http(self.url, self.method, headers, body,
-                                       self.timeout(),
-                                       self.execution["insecure_tls"],
-                                       self.sse)
+                result = self.send_one(body, headers)
             except TransportError as exc:
                 result, error = None, exc.message
                 crashed = crashed or exc.kind == "connection"
@@ -2435,11 +2555,13 @@ class Runner:
 
     # -- docs/multi-turn.md SS3. One conversation, turn by turn ------------
     def send_one(self, body, headers):
-        """One request, no retry: a conversation retries WHOLE (SS3)."""
+        """One request, no retry of its own, paced to the budget (#76).
+        A conversation retries WHOLE (SS3); invoke_once loops on this."""
         if self.entrypoint is not None:
-            return send_function(self.entrypoint, body)
-        return send_http(self.url, self.method, headers, body, self.timeout(),
-                         self.execution["insecure_tls"], self.sse)
+            return self.paced(lambda: send_function(self.entrypoint, body))
+        return self.paced(lambda: send_http(
+            self.url, self.method, headers, body, self.timeout(),
+            self.execution["insecure_tls"], self.sse))
 
     def read_session(self, result):
         """A server-id app's session id, off turn 1's response, or None.
@@ -2578,6 +2700,7 @@ class Runner:
                 cookie = merged_cookie_header(jar, self.url, static_cookie)
                 if cookie:
                     headers["Cookie"] = cookie
+            self.pace()
             request = {"case_id": case["id"], "repeat": repeat, "turn": index,
                        "attempt": attempt, "persona": persona,
                        # Cookie is redacted under the cookie style whatever
@@ -4392,7 +4515,7 @@ def dry_run_report(runner):
         planned.append((plan["k"] * n,
                         plan["k"] * (n * quiet_s
                                      + (n - 1) * max(0.0, delay_s - quiet_s))))
-    return {
+    report = {
         "dry_run": True,
         "run_id": plan["run_id"], "mode": plan["mode"], "k": plan["k"],
         "selecting_split": plan["selecting_split"],
@@ -4426,6 +4549,24 @@ def dry_run_report(runner):
             "A real run is slower"),
         "execution": runner.execution,
     }
+    if runner.budget is not None:
+        # #76: the same budget the run paces to. Not added to wait_floor_s:
+        # each interval runs from a call's FINISH, so the app's latency adds
+        # to the pace while the waits above overlap it.
+        calls = report["app_calls_planned"]
+        report["rate_limit"] = runner.rate_limit
+        report["pace_floor_s"] = round(runner.budget.floor_s(calls), 3)
+        report["pace_max_s"] = round(
+            runner.budget.floor_s(report["app_calls_max"]), 3)
+        report["pace_note"] = (
+            "least seconds invocation.rate_limit lets app_calls_planned "
+            "(pace_floor_s) or app_calls_max (pace_max_s) calls span, the "
+            "health check aside; every attempt, retries included, is paced. "
+            "Each interval runs from the earlier call's finish, so the app's "
+            "latency adds to this; wait_floor_s overlaps it. Paced within "
+            "one process: a run started right after another, or a --resume, "
+            "may share that run's last window")
+    return report
 
 
 def validate_baseline(plan, path):

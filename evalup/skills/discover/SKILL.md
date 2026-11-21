@@ -132,6 +132,7 @@ conversation/session handling, OTel setup. Record as you go:
 - **How the answer comes back.** A streaming route (`text/event-stream`, an
   AG-UI helper) → `invocation.response_format: sse` + `sse.protocol`; tool
   calls in the stream or body → `traces.source: response` (adapter-contract.md).
+- **A rate limit** → `invocation.rate_limit`.
 - **Same-origin, Origin or CSRF middleware** on the chat route → the header
   it checks in `invocation.headers` (an Origin is `scheme://host[:port]`, no
   path); without it every request is a 403.
