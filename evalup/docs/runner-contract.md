@@ -1391,8 +1391,8 @@ Named here so 5b does not grow them, and so 5c knows what stays in the skill:
   (§1.1).
 - **Cost estimation and the "Proceed?" prompt.**
 - **`report.md`.** The skill writes it. The runner produces every number it
-  quotes, but a failure-cluster narrative is a judgement call, which is the one thing the
-  LLM in this loop is actually for.
+  quotes, but a failure-cluster narrative is a judgement call, which is the
+  one thing the LLM in this loop is actually for.
 - **Choosing** the baseline. The skill reads `reports/baseline.json` and decides
   *which* run to diff against; running the diff itself moved into the runner
   with decision **D3** (§5.6), because the diff's rules — version equality, the

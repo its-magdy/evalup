@@ -127,7 +127,8 @@ This build takes **manual-edit**: the viewer is a single static HTML file
 that opens with no server, no port, no process to manage, and no dependency
 beyond a browser — matching the plugin's stdlib-only, zero-install posture
 (`${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` §Who does what: "QA and the arbiter
-never need Claude Code: datasets are YAML, reports are HTML/Markdown").
+never need Claude Code: datasets are YAML, reports are Markdown, the review
+page is HTML").
 Annotations made in a session live in the
 page's memory (and the reviewer name in `localStorage` only, for convenience
 across reloads); an **Export** panel at the bottom shows the full JSONL text
