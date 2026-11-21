@@ -87,13 +87,14 @@ def require_oos_route_present(rows, oos_route):
 
     The flag only RENAMES a route to the __oos__ sentinel, so a name that
     matches nothing renames nothing — and every downstream consequence of that
-    was silent. The OOS precision/recall block, a security-adjacent number,
-    reported precision/recall null with the note "0 OOS case(s) in this run"
-    over data holding two of them: not merely missing, but affirmatively wrong
-    about the run, at exit 0. The value is LLM-supplied (the run skill fills it
-    from the profile's oos_handling), so a typo or a stale profile is the
-    expected way to get here, and the report gives the reader no way to tell
-    this run from one that genuinely has no out-of-scope cases.
+    would be silent. The OOS precision/recall block, a security-adjacent
+    number, would report precision/recall null with the note "0 OOS case(s) in
+    this run" over data that does hold OOS cases: not merely missing, but
+    affirmatively wrong about the run, at exit 0. The value is LLM-supplied
+    (the run skill fills it from the profile's oos_handling), so a typo or a
+    stale profile is the expected way to get here, and the report gives the
+    reader no way to tell this run from one that genuinely has no out-of-scope
+    cases.
 
     Listing the labels PRESENT is most of the fix: with them in the message the
     correct value is usually obvious ("refuse" vs "refusal") and the second
@@ -122,16 +123,16 @@ def normalize_rows(rows, oos_route):
             die(f"row {i} (case_id {r.get('case_id')!r}): missing "
                 "'observed' key (null is allowed: no route produced)")
         # The bare-string slip (`route_acceptable: billing` instead of
-        # `[billing]`), and the one place in this harness it stayed silent:
-        # main() below builds `set(acceptable)`, so a string became a set of its
-        # CHARACTERS. No real route name is ever in that set, so a case whose
-        # observed route was a blessed alternate scored a mismatch — accuracy
-        # 0.0, a confusion-matrix entry, and exit 0. A manufactured failure, the
-        # one outcome this harness must never produce. The rule lives in
-        # _common.require_list, which every sibling scorer already shares; the
-        # field name is spelled as the case-format key the human actually wrote,
-        # and trails the row context so require_list's `[...]` hint still reads
-        # cleanly when a case_id itself contains a dot.
+        # `[billing]`): main() below builds `set(acceptable)`, so an unchecked
+        # string would become a set of its CHARACTERS. No real route name is
+        # ever in that set, so a case whose observed route is a blessed
+        # alternate would score a mismatch — accuracy 0.0, a confusion-matrix
+        # entry, and exit 0. A manufactured failure, the one outcome this
+        # harness must never produce. The rule lives in _common.require_list,
+        # which every sibling scorer shares; the field name is spelled as the
+        # case-format key the human actually wrote, and trails the row context
+        # so require_list's `[...]` hint still reads cleanly when a case_id
+        # itself contains a dot.
         if r.get("acceptable") is not None:
             require_list(
                 f"row {i} (case_id {r.get('case_id')!r}): "
@@ -154,9 +155,10 @@ def normalize_rows(rows, oos_route):
             # The acceptable set is label-bearing too, and canonicalizing only
             # SOME label fields is worse than canonicalizing none: a case whose
             # acceptable set blesses the OOS route (refusing is a fine answer
-            # for an ambiguous in-scope query) had its observed route rewritten
-            # to __oos__ while its acceptable list still said "refuse", so the
-            # membership test missed and a passing case was scored a mismatch.
+            # for an ambiguous in-scope query) would have its observed route
+            # rewritten to __oos__ while its acceptable list still said
+            # "refuse", so the membership test would miss and a passing case
+            # would score a mismatch.
             # --oos-route only RENAMES labels, so it must be verdict-invariant.
             if isinstance(r.get("acceptable"), list):
                 r["acceptable"] = ["__oos__" if v == oos_route else v
@@ -273,10 +275,11 @@ def main():
         },
     }
     # Emitted whenever --oos-route was passed, measurable or not. Keying this
-    # block on per_target alone hid a real distinction: per_target is built
-    # from matrix_rows, so OOS cases that passed via the acceptable set or the
-    # clarify path drop out of it, and the block silently vanished. "No OOS
-    # leakage" and "OOS leakage not measured" then read identically.
+    # block on per_target alone would hide a real distinction: per_target is
+    # built from matrix_rows, so OOS cases that passed via the acceptable set
+    # or the clarify path drop out of it, and the block would silently vanish.
+    # "No OOS leakage" and "OOS leakage not measured" would then read
+    # identically.
     if a.oos_route:
         oos_expected = sum(1 for r in rows if r["expected"] == "__oos__")
         if "__oos__" in per_target:
