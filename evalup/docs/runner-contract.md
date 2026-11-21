@@ -318,8 +318,11 @@ beyond the health check.
      it. A `${REF}` in `argv` or `cwd` is exit 3, checked *before* env
      resolution: argv is visible to every process on the machine and is
      recorded in the manifest.
-   - `cwd` resolves against `app.repo` (itself against the state location),
-     or the state location when there is no `app.repo`; default, that root.
+   - `cwd` is **required** and resolves against the state location
+     (adapter.yaml's directory) — the root `app.repo` itself resolves
+     against, never `app.repo`: with the common `repo: .` and state in
+     `<app>/.evalup/`, the app root is `cwd: ..`. It is made absolute; the
+     probe reports it as `request.cwd`, and the health detail names it.
      `argv[0]` with a path separator is a file relative to `cwd`; a bare name
      is looked up on the PATH the child gets. Either must resolve to an
      executable at pre-flight (exit 3, nothing started) — that is exec's
@@ -385,7 +388,10 @@ beyond the health check.
      oversized, not JSON, or JSON but not an object, is `transport`.
    - Refused in exec mode (exit 3): `auth` other than `none` (a `token_env`
      or `cookie_env` credential goes in `exec.env` by name; the message
-     says which), `route_from_status`, `identity_map`,
+     says which), `route_from_status`, a trace store as `traces.source`
+     (`otlp-file` or a reserved one: its join needs an http health check;
+     tool calls come from `traces.source: response`, or the run is
+     trace-less), `identity_map`,
      `headers`, `health_check`, `response_format: sse`, and
      `conversation.style: cookie` or `session_from.header`. `request.json`
      records `method: EXEC`, `url: exec:<argv, shell-quoted>` and no

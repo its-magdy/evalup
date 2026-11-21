@@ -23,7 +23,8 @@ invocation:
   mode: exec
   exec:
     argv: ["node", "scripts/eval-shim.mjs"]   # a LIST: no shell runs it
-    cwd: .                    # relative to app.repo (else the state location)
+    cwd: ..                   # REQUIRED; relative to THIS file's directory:
+                              # `..` is the app root for state in <app>/.evalup/
     env: [OPENAI_API_KEY, DATABASE_URL]       # NAMES passed through
   request_body: '{"message": "<user turn>", "session_id": "<uuid>"}'
   response_body: '{"text": "<answer>"}'
@@ -39,6 +40,9 @@ invocation:
   `SYSTEMROOT` ...), never the runner's whole environment. List every
   other variable the app reads at start-up in `env`, or it starts without
   it — a runtime's own (`NODE_OPTIONS`, `PYTHONPATH`, `JAVA_HOME`) too.
+- `cwd` is relative to the state location, not to `app.repo`. Check it in
+  the probe's `request.cwd`: the command's own relative paths
+  (`scripts/eval-shim.mjs`) resolve from there.
 - `argv[0]` with a `/` is relative to `cwd`; a bare name is found on `PATH`.
 - No `auth`, `headers`, `identity_map` or `health_check` (exit 3). An
   `auth: {type: bearer, token_env: APP_TOKEN}` becomes `env: [APP_TOKEN]`,
@@ -47,7 +51,8 @@ invocation:
   as in http; `cookie` and `session_from.header` do not.
 - Tool calls: print them in the stdout object (`{"text": ..., "tool_calls":
   [{"name": ..., "arguments": {...}}]}`) and declare `traces.source:
-  response`; a different path is `traces.tool_calls_path`.
+  response`; a different path is `traces.tool_calls_path`. A trace store
+  (`otlp-file`) is refused in exec mode.
 
 ## The shim's contract
 
@@ -59,7 +64,13 @@ process group is killed) or more than 16 MiB on stdout.
 - **A refusal is an answer, not a failure.** Exit 0 with a JSON body that
   says so (`{"text": ..., "route": "denied"}`) and declare
   `route_from_response: route`. There is no status code: a non-zero exit is
-  always a crash, and a `status` field is just body data. So
+  always a crash, and a `status` field is just body data.
+- **Do not exit non-zero because the backend is down.** A non-zero exit
+  that lasts through the retries is `infra_error` marked `crashed`, and on
+  `noise` and `adversarial-refusal` cases it counts toward `crash_rate`. For an
+  unreachable backend, exit 0 with an error object and no answer field
+  (the answer layer is then `unscored`, never a crash), or let the call
+  time out. So
   `route_from_status` is refused, and a case expecting any
   `expect.http.status` but 200 is skipped — generate asserts the route
   instead.

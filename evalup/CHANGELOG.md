@@ -1446,8 +1446,10 @@ reached through a command the runner starts once per call: the rendered
   list, never a shell string, and a `${REF}` in it or in `cwd` is exit 3:
   argv is visible to every process. The child gets an env **allowlist** —
   a few base variables plus the names in `exec.env` (unset → exit 3,
-  `missing_env`) — never the runner's whole environment. `cwd` is relative
-  to `app.repo`; `argv[0]` must resolve at pre-flight (exec's health check).
+  `missing_env`) — never the runner's whole environment. `cwd` is required
+  and relative to the state location (`..` for state in `<app>/.evalup/`);
+  `argv[0]` must resolve at pre-flight (exec's health check). Tool calls
+  come from `traces.source: response`; a trace store is refused.
 - **One process per call**, in its own process group, killed at
   `timeout_s` (enforced) and after it exits. A process that left the group
   (`setsid`) may outlive the call but cannot hang it: a call takes at most
