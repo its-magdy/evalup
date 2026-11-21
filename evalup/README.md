@@ -277,6 +277,52 @@ the cases that were flaky or already failing there without gating on them.
 Claude-driven run with a tokenless gate step, is in
 `skills/run/references/ci-gate.md`.
 
+#### CI workflow template (GitHub Actions)
+
+[`ci/github-actions.yml`](ci/github-actions.yml) is those four commands as a
+workflow. Copy it to `.github/workflows/evalup.yml` in your app's repository
+and edit the lines marked `EDIT`:
+
+- **`EVALUP_STATE_DIR`**: where `.evalup/` lives, relative to the repo root.
+- **The `start the app` step**: your app's setup and start command, run in
+  the background; add its toolchain steps before it. **`APP_HEALTH_URL`** is
+  what the next step polls until the app answers (`APP_READY_TIMEOUT_S`).
+- **The job's `env:`**: one line for every `${NAME}` in `adapter.yaml`, with
+  secrets from the repository's Actions secrets (`${{ secrets.NAME }}`).
+  `run_cases.py` resolves them from the environment and never writes a
+  resolved value to disk. evalup itself needs no model key: this runs the
+  deterministic layers only, and judged verdicts never gate.
+
+It checks out your app, fetches the plugin at **`EVALUP_REF`**, a commit
+SHA (evalup has no release tag yet; a tag replaces the SHA when one exists),
+installs PyYAML for `convert_suite.py` alone (everything else is stdlib, on
+Python 3.9 or later), runs a `regression` run at `EVALUP_K` (default 3),
+gates it, and uploads the run directory as the `evalup-run` artifact. Under
+`data.may_contain_pii` that artifact holds raw prompts and answers: shorten
+its retention or drop the step.
+
+A run that aborts (a canary failed, an infra abort, an incomplete run, a
+scorer error) already fails the `run the suite` step with the runner's
+exit code, and the gate does not run. Otherwise the `gate` step fails the job on exit `1` (closed, every reason listed in
+the job log and summary) or `2` (bad input). It closes on any gating
+failure, a run that scored nothing or fails `--verify`, an infra rate above
+`EVALUP_MAX_INFRA_RATE` (default 0.05), a pass rate below
+`EVALUP_MIN_PASS_RATE` (empty: no floor), and, with
+`EVALUP_REQUIRE_CANARIES: "true"`, a canary that did not pass. With
+`EVALUP_BASELINE: auto` and a `reports/baseline.json` in the repository it
+gates `--baseline`: only a regression closes, and flaky or already-failing
+cases are listed. That needs the pinned run on the runner, so commit
+`reports/baseline.json` **and** the run directory it names (`pin_baseline.py`
+writes the pointer). Without one, every gating failure closes (a notice
+says so). A baseline of another dataset or scoring version is exit 2:
+re-pin after bumping either. Under `data.may_contain_pii`, `reports/*/cases/`
+is git-ignored, so a committed baseline cannot verify: set
+`EVALUP_BASELINE: off`.
+
+This repository's CI runs the template's own steps against
+`examples/quickstart` on every push (`tests/run_template.py`): no baseline,
+then a pinned one, then a broken case that must close the gate.
+
 ---
 
 ## Commands

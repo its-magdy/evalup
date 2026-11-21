@@ -1,0 +1,183 @@
+# evalup in CI: run your app's eval suite on every pull request and fail the
+# job when the gate closes. Deterministic layers only -- no Claude, no model
+# key for evalup itself: convert_suite.py -> make_plan.py -> run_cases.py ->
+# gate.py, the four commands of README "Without Claude (CI)".
+#
+# Copy this file to .github/workflows/evalup.yml in YOUR APP's repository and
+# edit the lines marked EDIT. README "CI workflow template" walks through them.
+#
+# Your repository must hold the state evalup writes under .evalup/:
+# adapter.yaml, profile.yaml, datasets/, rubrics/. For a relative gate it
+# also holds reports/baseline.json AND the run directory it names,
+# reports/<run-id>/ (pin_baseline.py writes the pointer; commit both). Without
+# a baseline every gating failure closes the gate.
+#
+# This file is also the plugin repository's own acceptance test:
+# tests/run_template.py runs every `run:` step below verbatim (all but
+# start-app, which it swaps for the quickstart's server) against
+# examples/quickstart, in that repository's CI; the `uses:` steps it does not
+# run. So keep shell in `run:` steps
+# and read values from env, never `${{ }}` inside a `run:` (which is also
+# GitHub's advice against script injection).
+
+name: evalup
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evalup-${{ github.ref }}
+  # A newer push to a branch makes the older run moot -- except on main,
+  # where every commit keeps its own verdict.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+defaults:
+  run:
+    # Named explicitly: unnamed, Actions runs `bash -e` without pipefail.
+    shell: bash
+
+env:
+  # The plugin, at an immutable commit. evalup has no release tag yet; when
+  # one exists, a tag (e.g. v0.2.0) replaces the SHA here and nothing else
+  # changes. Bump it on purpose, and re-pin your baseline when the new
+  # version's scoring_version differs (gate.py --baseline refuses the pair).
+  EVALUP_REPO_URL: https://github.com/its-magdy/evalup.git
+  EVALUP_REF: 1e16839a2d7ea5a8bc44cd97edff83438fe67108
+
+  # EDIT: the state location, relative to the repository root.
+  EVALUP_STATE_DIR: .evalup
+  # Repeats per case for the regression run. A case passes only if all k
+  # pass (pass^k); 3 is the regression default.
+  EVALUP_K: "3"
+  # gate.py closes above this share of calls that never reached the app.
+  EVALUP_MAX_INFRA_RATE: "0.05"
+  # Optional absolute floor on passes / (passes + failures), e.g. "0.9".
+  EVALUP_MIN_PASS_RATE: ""
+  # "true": close unless a canary case passed (a release gate).
+  EVALUP_REQUIRE_CANARIES: "false"
+  # "auto": gate relative to reports/baseline.json when the repository holds
+  # one; "off": every gating failure closes. An adapter with
+  # data.may_contain_pii git-ignores reports/*/cases/, so its committed
+  # baseline cannot be verified here: use "off" there.
+  EVALUP_BASELINE: auto
+
+  # EDIT: how this job knows your app is up (any URL answering 2xx).
+  APP_HEALTH_URL: http://127.0.0.1:8000/healthz
+  APP_READY_TIMEOUT_S: "120"
+
+jobs:
+  evalup:
+    runs-on: ubuntu-24.04
+    # EDIT: cases x EVALUP_K x your app's latency, plus its start-up.
+    timeout-minutes: 30
+    env:
+      # EDIT: one line per ${NAME} in adapter.yaml. run_cases.py resolves
+      # them from the environment and never writes a resolved value to disk.
+      # Secrets come from the repository's Actions secrets.
+      APP_BASE_URL: http://127.0.0.1:8000
+      # APP_API_KEY: ${{ secrets.APP_API_KEY }}
+      # The app's own provider key too, if it reads one from env:
+      # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # evalup's scripts are stdlib-only on Python >= 3.9; this version is
+      # only what this job runs them on.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: fetch evalup at the pin
+        run: |
+          plugin="$RUNNER_TEMP/evalup"
+          git init -q "$plugin"
+          git -C "$plugin" fetch -q --depth 1 "$EVALUP_REPO_URL" "$EVALUP_REF"
+          git -C "$plugin" checkout -q --detach FETCH_HEAD
+          echo "evalup at $(git -C "$plugin" rev-parse HEAD)"
+          # The one place the plugin's path is spelled; every later step
+          # calls "$EVALUP_SCRIPTS/<name>.py".
+          echo "EVALUP_SCRIPTS=$plugin/evalup/scripts" >> "$GITHUB_ENV"
+          # PyYAML is for convert_suite.py alone (the YAML -> JSON step);
+          # the runner and the gate import nothing outside the stdlib.
+          python -m pip install -q --disable-pip-version-check "PyYAML==6.0.3"
+
+      # EDIT: set up and start your app (add its toolchain steps above this
+      # one). Start it in the background and log to $RUNNER_TEMP/app.log; it
+      # keeps running across steps until the job ends.
+      - name: start the app
+        id: start-app
+        run: |
+          nohup python -m your_app --port 8000 > "$RUNNER_TEMP/app.log" 2>&1 &
+
+      - name: wait until the app answers
+        run: |
+          for _ in $(seq "$APP_READY_TIMEOUT_S"); do
+            if curl -fs --max-time 5 -o /dev/null "$APP_HEALTH_URL"; then
+              echo "app ready: $APP_HEALTH_URL"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error title=evalup::$APP_HEALTH_URL did not answer within ${APP_READY_TIMEOUT_S}s"
+          cat "$RUNNER_TEMP/app.log" 2>/dev/null || true
+          exit 1
+
+      - name: run the suite
+        run: |
+          run_id="regression-$(date -u +%Y%m%dT%H%M%SZ)"
+          run_dir="$EVALUP_STATE_DIR/reports/$run_id"
+          python "$EVALUP_SCRIPTS/convert_suite.py" "$EVALUP_STATE_DIR" \
+            -o "$RUNNER_TEMP/converted.json"
+          python "$EVALUP_SCRIPTS/make_plan.py" "$RUNNER_TEMP/converted.json" \
+            --mode regression --k "$EVALUP_K" --state-dir "$EVALUP_STATE_DIR" \
+            --run-id "$run_id" -o "$RUNNER_TEMP/plan.json"
+          echo "EVALUP_RUN_DIR=$run_dir" >> "$GITHUB_ENV"
+          # Exit 0 on a suite that ran to the end, red or not: whether it may
+          # merge is the gate's call. A run that aborts (3 preflight, 4 a
+          # canary failed, 5 infra, 6 incomplete, 7 a scorer error) fails
+          # this step instead, and the gate step does not run.
+          python "$EVALUP_SCRIPTS/run_cases.py" --plan "$RUNNER_TEMP/plan.json" \
+            --out "$run_dir"
+
+      # 0 open, 1 closed (every reason listed), 2 bad input -- a baseline
+      # whose run directory is missing, or not comparable to this run.
+      - name: gate
+        run: |
+          args=("$EVALUP_RUN_DIR" --max-infra-rate "$EVALUP_MAX_INFRA_RATE")
+          pointer="$EVALUP_STATE_DIR/reports/baseline.json"
+          if [ "$EVALUP_BASELINE" = auto ] && [ -f "$pointer" ]; then
+            args+=(--baseline "$pointer")
+          elif [ "$EVALUP_BASELINE" = auto ]; then
+            echo "::notice title=evalup::no $pointer in the repository, so every gating failure closes the gate"
+          fi
+          if [ -n "$EVALUP_MIN_PASS_RATE" ]; then
+            args+=(--min-pass-rate "$EVALUP_MIN_PASS_RATE")
+          fi
+          if [ "$EVALUP_REQUIRE_CANARIES" = true ]; then
+            args+=(--require-canaries)
+          fi
+          rc=0
+          python "$EVALUP_SCRIPTS/gate.py" "${args[@]}" > "$RUNNER_TEMP/gate.txt" || rc=$?
+          cat "$RUNNER_TEMP/gate.txt"
+          { echo '### evalup gate'; echo '```'; cat "$RUNNER_TEMP/gate.txt"; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      # The run directory: results.json, per-case verdicts, viewer inputs.
+      # Under data.may_contain_pii it holds raw prompts and answers: shorten
+      # retention-days, or drop this step.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && env.EVALUP_RUN_DIR != ''
+        with:
+          name: evalup-run
+          path: ${{ env.EVALUP_RUN_DIR }}
+          include-hidden-files: true
+          retention-days: 14
