@@ -290,6 +290,12 @@ def run(argv, executable, cwd, env, body, timeout, secrets=()):
         how = f"killed by signal {-code}" if code < 0 else f"exited {code}"
         tail = _stderr_tail(err, secrets)
         raise ExecFailure("connection", f"the command {how}{tail}")
+    if out.is_alive():
+        # A process that left the group still holds stdout open: what was
+        # read so far may be half an object, and is never taken for one.
+        raise ExecFailure("transport", "stdout was still open "
+                          f"{DRAIN_GRACE_S}s after the command exited (a "
+                          "process it started outside its group holds it)")
     if out.total > STDOUT_CAP_BYTES:
         raise ExecFailure("transport", f"stdout exceeded {STDOUT_CAP_BYTES} "
                           f"bytes ({out.total} written)")
