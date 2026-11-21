@@ -341,7 +341,11 @@ beyond the health check.
      and a `status` field in its stdout is body data, never read as one. A
      deliberate refusal is therefore exit 0 with a JSON body, observed
      through `route_from_response` (or `clarify_from_response`); a non-zero
-     exit is always a crash.
+     exit is always a crash. So `route_from_status` is exit 3 in exec mode,
+     and a case whose `expect.http.status` (top-level or on any turn) is
+     anything but 200 is **skipped** with that reason, as a case with an
+     identity and no `identity_map` is: that status could never be
+     observed. A 200 check still runs — it means the command answered.
    - The answer is recorded as the command printed it: a secret the command
      echoes on stdout lands in `response.json` and `answer.txt`, as a secret
      an http app echoes in its body does. Only what the runner quotes
@@ -356,14 +360,24 @@ beyond the health check.
      and the runner gives the pipes 2 s past the command's exit (or the
      kill) to close, so a call takes at most `timeout_s` + 2 s. A stdout
      still open then is a failed call (what arrived may be half an object);
-     a held stderr is ignored. `latency_s` is measured at the command's
-     exit. On Windows there is no group kill: only the command itself is
-     killed, and what it started may live on (untested there).
+     a held stderr is ignored. The wait after SIGKILL is bounded by the same
+     grace; a process that still has not died is abandoned and the call
+     fails. `latency_s` is measured at the command's exit. On Windows there
+     is no group kill: only the command itself is killed, and what it
+     started may live on (untested there).
+   - A **SIGTERM** to the runner during a call unwinds through the same
+     cleanup (the group is killed), then is re-delivered, so the runner
+     still dies by SIGTERM; only when SIGTERM is at its default action. A
+     **SIGKILL** to the runner cannot be caught: the call's group, in its
+     own session, is orphaned and runs until it exits on its own
+     (`timeout_s` no longer applies) — kill it by hand.
    - stdout over 16 MiB is a failed call; stderr's last 64 KiB are kept and
      only its last 2,000 characters are quoted in an error, scrubbed — in
-     plain, JSON-escaped and `repr` form — of every `exec.env` value
-     (whatever its length) and every resolved `request_body` ref of 4
-     characters or more.
+     plain, JSON-escaped and `repr` form — of every `exec.env` value and
+     resolved `request_body` ref of 4 characters or more (`exec.env` also
+     carries settings like `DEBUG=1`; a secret is never that short). The
+     text is scrubbed before it is cut, and a stderr window that started
+     mid-secret first loses as many characters as the longest secret.
    - Failures are transport errors (§7's infra, retried like any): a timeout
      is `timeout`; a non-zero exit or a signal is a `connection` error — the
      app fell over, as a raising function entrypoint does, so it feeds
@@ -371,7 +385,7 @@ beyond the health check.
      oversized, not JSON, or JSON but not an object, is `transport`.
    - Refused in exec mode (exit 3): `auth` other than `none` (a `token_env`
      or `cookie_env` credential goes in `exec.env` by name; the message
-     says which), `identity_map`,
+     says which), `route_from_status`, `identity_map`,
      `headers`, `health_check`, `response_format: sse`, and
      `conversation.style: cookie` or `session_from.header`. `request.json`
      records `method: EXEC`, `url: exec:<argv, shell-quoted>` and no

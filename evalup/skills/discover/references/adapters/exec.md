@@ -32,6 +32,8 @@ invocation:
 
 - `argv` holds no `${REF}`: argv is visible to every process on the machine.
   A secret goes in `env` by name, or as a `${REF}` in `request_body`.
+- `env` values of 4+ characters are scrubbed from quoted errors; shorter
+  ones (a `DEBUG=1`) are settings and left alone.
 - The command gets only the `env` names plus `PATH`, `HOME`, `LANG`,
   `TMPDIR` and the like (on Windows also `USERPROFILE`, `APPDATA`,
   `SYSTEMROOT` ...), never the runner's whole environment. List every
@@ -57,7 +59,10 @@ process group is killed) or more than 16 MiB on stdout.
 - **A refusal is an answer, not a failure.** Exit 0 with a JSON body that
   says so (`{"text": ..., "route": "denied"}`) and declare
   `route_from_response: route`. There is no status code: a non-zero exit is
-  always a crash, and a `status` field is just body data.
+  always a crash, and a `status` field is just body data. So
+  `route_from_status` is refused, and a case expecting any
+  `expect.http.status` but 200 is skipped — generate asserts the route
+  instead.
 - **The answer is recorded as printed.** A secret the shim echoes on
   stdout lands in `response.json` and `answer.txt`, as with an http body.
   Never print one.
