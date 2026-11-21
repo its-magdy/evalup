@@ -362,6 +362,10 @@ friends:
 
 ## Cross-references
 
+- `${CLAUDE_PLUGIN_ROOT}/docs/judge-run.md` — the run-time judge's design
+  (#23, not built): a flat yes/no `criteria:` form with a self-test, graded
+  in one call per case, and the three states `unjudged` / `provisional` /
+  `calibrated`.
 - `${CLAUDE_PLUGIN_ROOT}/agents/judge.md` — executes one node at a time; owns
   the runtime contract (reasoning-before-verdict, evidence quoting, unknown,
   temperature 0).
