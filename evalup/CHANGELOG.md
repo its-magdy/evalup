@@ -1046,6 +1046,41 @@ Nothing is built: every judged layer is still `unjudged`.
 - **No scoring semantics changed** (`SCORING_VERSION` stays 1): the runner
   never produced or required `report.html`.
 
+### Added — the label lifecycle after review, and a pin script (2026-11-21)
+
+From the plugin-only live-proof run (#27): on a 12-case suite the dataset
+went from version 1 to 4, with three hand-written pins, in about 40 minutes,
+and every step after the first review was decided ad hoc (#53).
+
+- **`scripts/pin_baseline.py <reports/<run-id>>`** writes
+  `reports/baseline.json` from the run's manifest (`run_id`,
+  `dataset_version`, `scoring_version`, `k`, `mode`, `pinned_at`),
+  temp-then-rename. It refuses, exit 2 and nothing written, a run whose
+  status is not `ok` (`running` included), one that fails `run_cases.py
+  --verify`, a holdout run, and one where no case gates (`--allow-ungated`
+  overrides that on the user's word). Its `notes` say when the gate is
+  closed (gate.py's reasons), when the run used k=1 (every later diff needs
+  `--k 1`), and which pointer it replaced. `run`, `analyze` and `optimize`
+  no longer write the file by hand. 21 CLIs.
+- **`label_fixes:` in `datasets/dataset.yaml`**: a proposed label fix waits
+  there for the owner (`pending`, `approved`, `applied`, `rejected`)
+  instead of in a past session's chat. `validate_cases.py --manifest`
+  errors on a malformed entry, an open fix naming no case in the suite, and
+  an applied one without `applied_in`. It lists the open ones as
+  `summary.label_fixes_open`, a summary line rather than a WARN, so a
+  `--strict` job does not fail while the owner decides.
+- **`generate/references/label-lifecycle.md`**, read only after a review:
+  what the case hash covers (the whole case, `notes` and `review`
+  included) and that no script derives `dataset_version` from it; the bump
+  rule (any edit but one to `notes` or `review` alone); correcting an
+  accepted label (`review` stays accepted, a dated `notes` line, one bump
+  per sitting); re-pinning after a bump, pinning a red run, and how `k`
+  carries over. `run` §4 says each in one line and drops the `--baseline`
+  flag no script has.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1), and case
+  hashing is unchanged: excluding `notes`/`review` from the hash would
+  change every recorded `sha256`, so it is left open on the PR.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
