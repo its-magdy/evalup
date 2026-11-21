@@ -51,14 +51,14 @@ Usage: stats.py <baseline.jsonl> <candidate.jsonl> [--alpha 0.05]
 Rows: {"case_id": ..., "verdict": "pass"|"fail"}. Any other verdict is a hard
 error: infra verdicts must be excluded upstream, never counted as failures.
 
-THE DEFAULT BAR IS 0.95 (issue #36). It was 0.8, and at 0.8 with a k=1
-holdout an UNCHANGED app with 10-30% flaky cases was kept 6-20% of the time
-per look (simulated, holdouts of 20-200 cases) and 16-49% across the five
-looks the ledger allows. tests/test_scorers.py TestNoOpKeepRate is that
-simulation, over the functions below; it pins the old rule's n=20 cell (13.5%
-per look, 35% across five) and the new rule's bounds. 0.8 stays available
-as an explicit `--bayes-threshold 0.8` for an exploratory loop that is not
-spending the sealed holdout; never as the holdout's keep bar. What a keep
+THE DEFAULT BAR IS 0.95 (issue #36). At 0.8 with a k=1 holdout an UNCHANGED
+app with 10-30% flaky cases is kept 6-20% of the time per look (simulated,
+holdouts of 20-200 cases) and 16-49% across the five looks the ledger allows.
+tests/test_scorers.py TestNoOpKeepRate is that simulation, over the functions
+below; it pins the 0.8 rule's n=20 cell (13.5% per look, 35% across five) and
+the 0.95 rule's bounds. 0.8 stays available as an explicit
+`--bayes-threshold 0.8` for an exploratory loop that is not spending the
+sealed holdout; never as the holdout's keep bar. What a keep
 claims is "posterior probability >= the threshold", nothing stronger: only
 `sign_test_significant_at_alpha` licenses the word "significant".
 
@@ -137,7 +137,7 @@ VERDICTS = ("pass", "fail")
 MAX_REPORTED_IDS = 20
 # Attrition above this fraction of either side is called out in the output.
 ATTRITION_WARN_FRACTION = 0.1
-# The holdout keep bar. 0.8 kept no-op edits 6-20% of the time per look
+# The holdout keep bar. 0.8 keeps no-op edits 6-20% of the time per look
 # (issue #36); 0.8 remains an explicit flag for exploratory loops only.
 DEFAULT_BAYES_THRESHOLD = 0.95
 # Per-look false-keep rate for an UNCHANGED app at DEFAULT_BAYES_THRESHOLD or
@@ -219,8 +219,8 @@ def z_sum(alpha, power):
     """One-sided z budget, matching the one-sided sign test --alpha also
     parameterizes. Using the two-sided inv_cdf(1 - alpha/2) here would be the
     mirror image of the sidedness mistake binom_one_sided_p warns about: it
-    inflated the reported MDE by ~13% and the "cases you need" figure by
-    ~27%, telling users to grow a dataset that was already large enough."""
+    would inflate the reported MDE by ~13% and the "cases you need" figure by
+    ~27%, and tell users to grow a dataset that is already large enough."""
     nd = NormalDist()
     return nd.inv_cdf(1 - alpha) + nd.inv_cdf(power)
 
@@ -252,7 +252,7 @@ def keep_decision(prob, delta, threshold, changed=None, noise=None,
     the CLI does. Returns (keep, no_evidence_reason_or_None).
 
     keep = P(candidate better) >= threshold and delta > 0 -- the exact
-    posterior rule, unchanged -- and, when a noise floor is given, the noise
+    posterior rule -- and, when a noise floor is given, the noise
     runs must cover every case the candidate changed (`uncovered_changed` is
     how many they miss) and the candidate must have changed MORE cases
     (fixed + broken) than two runs of the unchanged champion disagree on.
@@ -327,9 +327,9 @@ def main():
     # candidate crashed on is filtered upstream as infra and simply vanishes
     # from the comparison, so the candidate is graded on the subset it survived.
     # A run that dropped a third of the dataset and one that dropped nothing
-    # used to print byte-identical output. The decision rule is unchanged — the
-    # gate still runs on the pairs it has — but the reader is told what is
-    # missing.
+    # would otherwise print byte-identical output. The decision rule ignores
+    # attrition — the gate runs on the pairs it has — but the reader is told
+    # what is missing.
     base_only = sorted(set(base) - set(cand))
     cand_only = sorted(set(cand) - set(base))
 
@@ -475,19 +475,19 @@ def main():
             f"{a.bayes_threshold}', never 'statistically significant'.")
 
     # The gate's own MDE text ends "treat a sub-MDE 'keep' as not proven, not
-    # as no effect" — and nothing used to tell the caller which runs those
-    # were. Both existing guards miss this shape: gate_note fires only when the
+    # as no effect" — and this tells the caller which runs those are. The
+    # other two guards miss this shape: gate_note fires only when the
     # sign test is NOT significant (a 5-for-0 discordant split is significant,
-    # p=0.031), and `advice` below is gated behind `not keep`. So the one
-    # decision where the reader most needs the caveat — keep, on an observed
-    # effect smaller than the smallest this dataset can resolve — was the one
-    # that printed no caveat at all, and optimize §5 pinned it as the new
+    # p=0.031), and `advice` below is gated behind `not keep`. So without
+    # this, the one decision where the reader most needs the caveat — keep, on
+    # an observed effect smaller than the smallest this dataset can resolve —
+    # would print no caveat at all, and optimize §5 would pin it as the new
     # baseline reporting a bare "kept".
     #
-    # Emitted BESIDE keep, never instead of it. The decision rule is unchanged
-    # (the posterior is exact and does not depend on the MDE, which is a
-    # normal-approximation planning figure); what changes is that the run says
-    # out loud that its evidence is thinner than its own resolution.
+    # Emitted BESIDE keep, never instead of it. The decision rule does not use
+    # it (the posterior is exact and does not depend on the MDE, which is a
+    # normal-approximation planning figure); it only makes the run say out
+    # loud that its evidence is thinner than its own resolution.
     if out["keep"] and abs(delta) < mde:
         out["sub_mde_keep"] = (
             f"KEPT BUT NOT PROVEN: the observed delta {delta:+.1%} is smaller "

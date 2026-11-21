@@ -7,15 +7,14 @@ refuse to carry a partial YAML parser, because one MISPARSES the constructs it
 does not implement instead of failing on them, and they conclude that "the
 calling skill converts YAML -> JSON with whatever parser it already uses". That
 reasoning is sound for a caller that HAS a parser. The caller here is a language
-model, and run/SKILL.md told it to convert "with your own parser" -- so the
-silent misparse the docstring refused was not removed, it was moved into an LLM
-re-typing ~1,900 lines of JSON for a 30-case suite (~6,300 at the 100 cases
-`optimize` requires), twice per run. And because the linter and the runner both
-read that one transcription, a drifted `scalar: 412.5` was undetectable by
-construction: validate_cases.py lints meaning, not fidelity to a file it never
-sees. run_cases.py's own header names the category -- work that "used to be
-hand-orchestrated by the LLM on every run: not reproducible, expensive, and it
-silently dropped required outputs" (2026-09 audit).
+model, and telling it to convert "with your own parser" does not remove the
+silent misparse the docstrings refuse; it moves it into an LLM re-typing ~1,900
+lines of JSON for a 30-case suite (~6,300 at the 100 cases `optimize`
+requires), twice per run. And because the linter and the runner both read that
+one transcription, a drifted `scalar: 412.5` is undetectable by construction:
+validate_cases.py lints meaning, not fidelity to a file it never sees. That is
+the category run_cases.py's own header names: LLM-orchestrated work is not
+reproducible, is expensive, and silently drops required outputs.
 
 THE ONE SCRIPT HERE THAT IMPORTS OUTSIDE THE STDLIB, and only this one may.
 PyYAML is a real, complete parser, which is the docstrings' own requirement;
@@ -258,8 +257,7 @@ def main():
                        if key in profile},
            "manifest": manifest, "cases": cases, "sources": sources}
     if a.output and os.path.dirname(a.output):
-        # Like --split-dir below: a missing parent is created, not an exit 2
-        # (F-161, the 2026-09-26 user test).
+        # Like --split-dir below: a missing parent is created, not an exit 2.
         try:
             os.makedirs(os.path.dirname(a.output), exist_ok=True)
         except OSError as exc:
