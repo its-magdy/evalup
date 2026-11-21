@@ -267,11 +267,12 @@ In order. Any failure here is exit 3 and **zero app calls have been billed**
 beyond the health check.
 
 1. Plan validation (§2) and env resolution (§3).
-2. `invocation.mode`: `http` and `function` are implemented (decision **D6** —
-   `adapter-contract.md` calls `function` the *preferred* mode when auth or
-   HTTP is in the way, so v1 honours the contract it advertises). `cli` exits 3
-   with `runner v1 implements invocation.mode: http and function only (got:
-   cli)`.
+2. `invocation.mode`: `http`, `function` and `exec` are implemented (decision
+   **D6** — `adapter-contract.md` calls `function` the *preferred* mode when
+   auth or HTTP is in the way, so v1 honours the contract it advertises;
+   `exec` per §4 item 2d). The reserved name `cli` exits 3 pointing at `exec`;
+   any other name exits 3 with `runner v1 implements invocation.mode: http,
+   function and exec only (got: …)`.
    **`function` mode does not enforce `execution.timeout_s`**: an in-process
    call cannot be interrupted from the stdlib without leaving the thread
    running behind it, and reporting "timeout" while the callable kept executing
@@ -311,6 +312,48 @@ beyond the health check.
    refused, never merged or dropped. So is an env var feeding a header or
    the URL that holds a control character (CR, LF, tab): `http.client`
    would refuse it with the value in its message.
+2d. **`invocation.mode: exec`** (#39): one process per app call, from
+   `scripts/_exec.py`. `invocation.exec` is `{argv, cwd, env}`:
+   - `argv` is a **list** of strings, never a shell string — no shell runs
+     it. A `${REF}` in `argv` or `cwd` is exit 3, checked *before* env
+     resolution: argv is visible to every process on the machine and is
+     recorded in the manifest.
+   - `cwd` resolves against `app.repo` (itself against the state location),
+     or the state location when there is no `app.repo`; default, that root.
+     `argv[0]` with a path separator is a file relative to `cwd`; a bare name
+     is looked up on the PATH the child gets. Either must resolve to an
+     executable at pre-flight (exit 3, nothing started) — that is exec's
+     health check, as the import is function mode's.
+   - The child's environment is an **allowlist**: `PATH`, `HOME`, `USER`,
+     `LOGNAME`, `SHELL`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TZ`, `TMPDIR`/`TMP`/
+     `TEMP` (and Windows' `SYSTEMROOT`, `COMSPEC`, `PATHEXT`) when set, plus
+     the names in `exec.env`. A listed name unset or empty is exit 3 with
+     the others in `missing_env` (§3). A secret goes by name in `exec.env`
+     or as a `${REF}` in `request_body` (recorded as `${NAME}`, §3), never
+     in argv.
+   - The request is `request_body`, rendered as for http, written as one JSON
+     document and a newline to stdin, then EOF. stdout must hold exactly one
+     JSON **object**; `response_body` marks its `<answer>` (and optionally
+     `<trace id>`), and from there it is read as an http JSON body —
+     `session_from.body`, `traces.source: response`, `result_from_response`.
+     A success has `status` 200; an exec command has no status to report.
+   - `execution.timeout_s` is enforced (`timeout_enforced: true`): the call
+     runs in its own process group, and the group is killed (SIGKILL) at the
+     timeout — and after the command exits, so nothing a call started
+     outlives it. stdout over 16 MiB is a failed call; stderr's last 64 KiB
+     are kept and only its last 2,000 characters, scrubbed of every passed
+     env value and resolved `request_body` ref, are quoted in an error.
+   - Failures are transport errors (§7's infra, retried like any): a timeout
+     is `timeout`; a non-zero exit or a signal is a `connection` error — the
+     app fell over, as a raising function entrypoint does, so it feeds
+     `crash_rate`; a command that cannot start, or stdout that is empty,
+     oversized, not JSON, or JSON but not an object, is `transport`.
+   - Refused in exec mode (exit 3): `auth` other than `none`, `identity_map`,
+     `headers`, `health_check`, `response_format: sse`, and
+     `conversation.style: cookie` or `session_from.header`. `request.json`
+     records `method: EXEC`, `url: exec:<argv, shell-quoted>` and no
+     headers; the manifest adds `invocation.exec: {argv, cwd, env}` (env
+     NAMES only).
 3. **Health check**: one trivial request through the adapter. With no declared
    `invocation.health_check`, this is a `GET` of `base_url` and **any** response
    counts as reachable — including a 404. The question here is "is the host
@@ -1222,7 +1265,7 @@ the shipped run already does. See Open decision **D1**.
   "temperature": "…",
   "identity_headers": {"names": ["X-User-Id", "X-Role-Id"], "source": "env"},  // names only, never values
   "invocation": {"mode": "http", "url": "https://…/api/chat/ask",
-                 "timeout_s": 120, "timeout_enforced": true,    // false in function mode (§4.2)
+                 "timeout_s": 120, "timeout_enforced": true,    // false in function mode (§4.2); exec adds "exec": {argv, cwd, env}
                  "rate_limit": {"requests": 20, "window_s": 600}},  // only when declared (§7)
   "traces": {"source": "otlp-file", "correlation": "none", "collected": false,
              "disabled_layers": ["trajectory", "tool_selection", "loops", "cost_latency"]},
@@ -1463,7 +1506,7 @@ trade-off in front of them.
 | **D3** | Does the runner run `stats.py`? | **Fold it in** as `--baseline-verdicts` (§5.6). The diff has real rules and they decide whether a change ships; leaving them in LLM hands is the category of thing this step exists to end. ~30 lines, and it closes the loop. |
 | **D4** | Seven exit codes, or collapse 4/5/7 into 1? | **Keep seven.** 6 is the one that makes the shipped run's failure mode nameable, and once 6 exists the rest cost nothing to distinguish. A CI script that only checks `!= 0` loses nothing. |
 | **D5** | `max_concurrency > 1`: warn and serialize, or refuse? | **Refuse, exit 2** (§7). A warning scrolls past and leaves the adapter field looking supported while every run is serial. |
-| **D6** | HTTP-only in v1, or HTTP + function? | **HTTP + function** (§4.2). `adapter-contract.md` calls `function` *preferred* when auth or HTTP is in the way, so shipping without it would mean v1 does not implement its own recommended path. `cli` still exits 3. |
+| **D6** | HTTP-only in v1, or HTTP + function? | **HTTP + function** (§4.2). `adapter-contract.md` calls `function` *preferred* when auth or HTTP is in the way, so shipping without it would mean v1 does not implement its own recommended path. `exec` joined on 2026-11-21 (#39, §4 item 2d) under its own name: the reserved `cli` was never specified, so no adapter holds a working `cli` block to keep, and an alias would give one shape two names forever. `cli` still exits 3, now pointing at `exec`. |
 | **D7** | `pass^k` rollup, and where does the k-mismatch check live? | **Keep `pass^k`; the check lives in the runner** (§5.6), alongside the rest of the comparison it guards. Recording `k` in the manifest is only useful if something reads it. |
 | **D8** | Who appends to the holdout ledger? | **The runner** (§6). It is the only component that knows for certain the selection touched sealed ids. The self-contained-run-directory property does take a dent; the ledger is now a `.jsonl` sidecar so the append is atomic and stdlib-safe. |
 | **D9** | Are `answer.txt` and `expect.json` required per-case artifacts? | **Yes.** Keeping the scorer inputs in the case directory is what lets a run be re-scored without re-invoking the app — which is also how a scorer bug fix reaches historical runs. `expect.json` can drift from an edited case file; `manifest.cases[].sha256` records what was actually run.

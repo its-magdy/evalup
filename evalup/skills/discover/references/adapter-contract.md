@@ -27,7 +27,7 @@ state_location: .evalup/   # where all eval state lives. Default: `.evalup/`
 access_level: white | gray | black
 
 invocation:
-  mode: http | function       # `cli` is reserved: runner v1 refuses it (exit 3)
+  mode: http | function | exec   # `cli` is refused (exit 3): use exec
   # http mode
   base_url: ${APP_BASE_URL}
   # No TLS field. An https base_url with a self-signed LOCAL dev certificate
@@ -135,6 +135,7 @@ invocation:
                                           # NOTE: timeout_s is NOT enforced in this mode
                                           # (an in-process call cannot be interrupted from
                                           # the stdlib) -- the callable owns its timeout.
+  # exec mode (a command per call): [adapters/exec.md](adapters/exec.md)
   conversation:                           # optional: how the app keeps a conversation
     style: client-id                      # (docs/multi-turn.md SS2). WITHOUT this block
                                           # every input.turns case is SKIPPED (hard rule 3).
@@ -240,9 +241,7 @@ data:
 ## Hard rules the runner enforces
 1. No heuristic trace correlation — `correlation` must be explicit or trajectory
    layers are disabled for the run (scored layers must never silently use the
-   wrong trace). `run_cases.py` v1 can query `traces.source: otlp-file`; the
-   other queryable stores exit 3 rather than being treated as trace-less, which
-   would downgrade a fully instrumented app without saying so.
+   wrong trace). Which stores are read: the `traces.source` comment above.
 2. `never-live` tools present + `environment.kind: live-*` → run refuses
    categories that could trigger them.
 3. **A conversation runs only through `invocation.conversation`.** A case

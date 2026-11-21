@@ -178,8 +178,8 @@ jobs:
   # Every CLI answers --help with rc=0.
   #
   # TRAP, and the reason this does not just loop over scripts/*.py: there are
-  # 23 files in scripts/ but only 21 CLIs. scripts/_common.py and _sse.py are
-  # shared modules with no argparse and no __main__ block, so `python _common.py
+  # 26 files in scripts/ but only 22 CLIs. scripts/_common.py, _rubric.py,
+  # _sse.py and _exec.py are shared modules with no argparse and no __main__ block, so `python _common.py
   # --help` exits 0 having printed NOTHING -- a naive loop passes on it for
   # entirely the wrong reason, and would keep passing if a real CLI regressed
   # into printing nothing too.

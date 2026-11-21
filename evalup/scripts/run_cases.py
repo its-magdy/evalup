@@ -2046,7 +2046,7 @@ class Runner:
                     f"got {source!r}")
             if "header" in source and mode != "http":
                 preflight_fail(f"{where}.session_from.header needs "
-                               "invocation.mode: http; a function returns "
+                               f"invocation.mode: http; a {mode} returns "
                                "no headers")
             if not template_mentions(self.request_template, SESSION_MARKER):
                 preflight_fail(
