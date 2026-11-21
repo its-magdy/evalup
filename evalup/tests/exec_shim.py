@@ -13,6 +13,8 @@ for one of the failures the runner must map:
   stderr-exit writes 1 MiB to stderr, then exits 1
   echo-secret writes $SHIM_SECRET to stderr, then exits 2
   leak        answers normally, with $SHIM_SECRET in the text
+  raw         writes --raw-stdout and --raw-stderr as given ({secret} is
+              $SHIM_SECRET, {pad:N} N x's), then exits --code
 
 --detach both|stderr first starts a grandchild in its OWN session
 (setsid: out of the call's process group) that holds stdout and stderr,
@@ -32,6 +34,15 @@ import sys
 import time
 
 
+def expand(text):
+    text = text.replace("{secret}", os.environ.get("SHIM_SECRET", ""))
+    while "{pad:" in text:
+        start = text.index("{pad:")
+        end = text.index("}", start)
+        text = text[:start] + "x" * int(text[start + 5:end]) + text[end + 1:]
+    return text
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--misbehave", default="none")
@@ -40,6 +51,9 @@ def main():
     ap.add_argument("--pidfile")
     ap.add_argument("--detach", choices=("both", "stderr"))
     ap.add_argument("--hang", action="store_true")
+    ap.add_argument("--raw-stdout", default="")
+    ap.add_argument("--raw-stderr", default="")
+    ap.add_argument("--code", type=int, default=0)
     a = ap.parse_args()
 
     request = json.loads(sys.stdin.read())
@@ -59,6 +73,10 @@ def main():
             time.sleep(60)
             return 0
 
+    if a.misbehave == "raw":
+        sys.stdout.write(expand(a.raw_stdout))
+        sys.stderr.write(expand(a.raw_stderr))
+        return a.code
     if a.misbehave == "exit":
         sys.stderr.write("Traceback: boom\n")
         return 3

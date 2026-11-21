@@ -1970,6 +1970,11 @@ class Runner:
             (invocation.get("health_check") is not None,
              "health_check needs invocation.mode: http; exec's pre-flight "
              "check is that its cwd and command resolve"),
+            (invocation.get("route_from_status") is not None,
+             "route_from_status needs invocation.mode: http; an exec "
+             "command reports no status (every answer is 200), so the "
+             "route would be made up. Print the route in the stdout object "
+             "and declare route_from_response"),
         ]
         for bad, why in refused:
             if bad:
@@ -1995,11 +2000,12 @@ class Runner:
                 "gets")
         # Scrubbed out of any stderr/stdout an error quotes: what the child
         # was handed by name, and what request_body resolved.
-        # exec.env values whatever their length (each is a credential by
-        # declaration, as an auth value is to the probe); request_body refs
-        # from PROBE_SCRUB_MIN_LEN up, so a tenant id "42" does not rewrite
-        # every 42 in a traceback.
-        secrets = [(os.environ[n], n) for n in names if os.environ.get(n)]
+        # From PROBE_SCRUB_MIN_LEN characters up, for exec.env values and
+        # request_body refs alike: exec.env also carries plain settings
+        # (DEBUG=1, a PYTHONPATH), and scrubbing a "1" would rewrite every
+        # 1 in a traceback. A secret is never that short.
+        secrets = [(os.environ[n], n) for n in names
+                   if len(os.environ.get(n) or "") >= PROBE_SCRUB_MIN_LEN]
         secrets += [(value, name) for name, value in self.sent_refs.items()
                     if len(value) >= PROBE_SCRUB_MIN_LEN]
         self.exec = {"argv": list(block["argv"]), "executable": executable,
@@ -2610,6 +2616,24 @@ class Runner:
             return ("case declares an identity but the adapter has no "
                     "invocation.identity_map; running it under the default "
                     "identity would score the wrong persona")
+        if self.exec is not None:
+            # An exec command has no status: 200 is "it answered" (exit 0,
+            # one JSON object), as function mode's default is. Any other
+            # expected status can never be observed, and scoring it would
+            # report a fail the app never had (#39 review).
+            expects = [e for _, e in turns] if turns is not None \
+                else [case.get("expect") or {}]
+            wanted = sorted({str((e.get("http") or {}).get("status"))
+                             for e in expects
+                             if isinstance(e, dict)
+                             and (e.get("http") or {}).get("status")
+                             not in (None, 200)})
+            if wanted:
+                return ("expect.http.status {} cannot be observed in "
+                        "invocation.mode: exec: a command reports no status "
+                        "(200 = it answered). Express a refusal as exit 0 "
+                        "with a JSON body and assert it through "
+                        "route_from_response".format(", ".join(wanted)))
         return None
 
     def invoke_once(self, case, repeat):
@@ -4978,11 +5002,11 @@ def probe_redactions(adapter):
     places a run records. Read from the environment directly, so a
     pre-flight failure is scrubbed too. Longest first, as in unresolve()."""
     pairs = {}
-    # An exec command's passthrough names count as auth names: each is
-    # handed to the app as a credential would be (#39).
-    auth_names = set(header_env_names(adapter, url=False)) | set(
-        _exec.env_names(_mapping(_mapping(adapter).get("invocation"))
-                        .get("exec")))
+    # An exec command's passthrough names are NOT auth names here: exec.env
+    # also carries plain settings (DEBUG=1), and a "1" scrubbed at any
+    # length would rewrite the report's own text. They are scrubbed from
+    # PROBE_SCRUB_MIN_LEN up, as every other env value is.
+    auth_names = set(header_env_names(adapter, url=False))
     for name in adapter_env_names(adapter):
         value = os.environ.get(name)
         if value and (name in auth_names

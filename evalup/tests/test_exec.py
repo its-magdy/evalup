@@ -101,12 +101,18 @@ class TestEnvAndCommand(unittest.TestCase):
                                          environ),
                          {"PATH": "/bin", "HOME": "/h", "API_KEY": "k"})
 
+    def test_cwd_is_absolute_even_from_a_relative_base(self):
+        self.assertEqual(_exec.resolve_cwd("sub", "rel/state"),
+                         os.path.abspath("rel/state/sub"))
+        self.assertEqual(_exec.resolve_cwd(None, "."), os.getcwd())
+
     def test_cwd_resolves_against_its_base(self):
-        self.assertEqual(_exec.resolve_cwd(None, "/app"), "/app")
+        self.assertEqual(_exec.resolve_cwd(None, "/app"),
+                         os.path.abspath("/app"))
         self.assertEqual(_exec.resolve_cwd("tools/../shim", "/app"),
-                         os.path.normpath("/app/shim"))
+                         os.path.abspath("/app/shim"))
         self.assertEqual(_exec.resolve_cwd("/elsewhere", "/app"),
-                         os.path.normpath("/elsewhere"))
+                         os.path.abspath("/elsewhere"))
 
     @unittest.skipUnless(POSIX, "executable bits and PATH lookup")
     def test_the_command_resolves_on_the_childs_path_or_cwd(self):
@@ -166,12 +172,14 @@ class TestRun(unittest.TestCase):
         with self.assertRaises(_exec.ExecFailure) as caught:
             run_shim("--misbehave", "sleep", "--pidfile", str(pidfile),
                      timeout=1.5)
-        self.assertLess(time.monotonic() - started, 10)
+        # Generous on purpose: a loaded CI runner is slow, and the hang
+        # this guards against was 60 s, not 2.
+        self.assertLess(time.monotonic() - started, 30)
         self.assertEqual(caught.exception.kind, "timeout")
         self.assertIn("timed out after 1.5s", caught.exception.message)
-        # The grandchild the shim started is dead too: nothing outlives a
-        # call, and nothing holds its pipes open.
-        self.assertTrue(gone(int(pidfile.read_text(encoding="utf-8"))))
+        # The grandchild the shim started in its group is dead too.
+        self.assertTrue(gone(int(pidfile.read_text(encoding="utf-8")),
+                             within_s=20))
 
     def test_huge_stderr_neither_blocks_nor_floods(self):
         result = run_shim("--misbehave", "stderr")
@@ -200,6 +208,33 @@ class TestRun(unittest.TestCase):
         self.assertNotIn("ab", out)
         self.assertEqual(out.count("${K}"), 4, out)
         self.assertIn("short ${TENANT}", out)
+
+    def test_a_bad_stdout_is_scrubbed_before_it_is_cut(self):
+        # The secret straddles character 200, where the quote is cut. No
+        # dictionary words in it, so no 5 characters of it occur by chance.
+        secret = "Q7zK9wX2vB8nM4pL5rT1"
+        env = dict(_exec.child_env([]), SHIM_SECRET=secret)
+        with self.assertRaises(_exec.ExecFailure) as caught:
+            run_shim("--misbehave", "raw", "--raw-stdout",
+                     "{pad:190}{secret} not json", env=env,
+                     secrets=[(secret, "SHIM_SECRET")])
+        message = caught.exception.message
+        self.assertIn("not one JSON document", message)
+        for i in range(len(secret) - 4):
+            self.assertNotIn(secret[i:i + 5], message)
+
+    def test_a_secret_cut_by_the_stderr_window_does_not_leak_its_tail(self):
+        env = dict(_exec.child_env([]), SHIM_SECRET=SECRET)
+        with mock.patch.object(_exec, "STDERR_KEEP_BYTES", 40), \
+                self.assertRaises(_exec.ExecFailure) as caught:
+            # The 40-byte window starts 10 characters before the
+            # secret's end.
+            run_shim("--misbehave", "raw", "--raw-stderr",
+                     "{pad:100}{secret}{pad:30}", "--code", "1", env=env,
+                     secrets=[(SECRET, "SHIM_SECRET")])
+        message = caught.exception.message
+        self.assertIn("exited 1", message)
+        self.assertNotIn(SECRET[-6:], message)
 
     def test_a_secret_in_stderr_is_scrubbed(self):
         env = dict(_exec.child_env([]), SHIM_SECRET=SECRET)
@@ -237,24 +272,56 @@ class TestDetachedGrandchild(unittest.TestCase):
 
     def test_exit_with_stdout_held_is_bounded_and_no_answer(self):
         outcome, wall = self.timed("--detach", "both")
-        self.assertLess(wall, _exec.DRAIN_GRACE_S + 3, wall)
+        # The grandchild holds the pipes for 30 s: anything well under
+        # that is the bound working, with room for a loaded runner.
+        self.assertLess(wall, _exec.DRAIN_GRACE_S + 12, wall)
         self.assertIsInstance(outcome, _exec.ExecFailure)
         self.assertEqual(outcome.kind, "transport")
         self.assertIn("stdout was still open", outcome.message)
 
     def test_timeout_with_pipes_held_is_bounded(self):
         outcome, wall = self.timed("--detach", "both", "--hang", timeout=1)
-        self.assertLess(wall, 1 + _exec.DRAIN_GRACE_S + 3, wall)
+        self.assertLess(wall, 1 + _exec.DRAIN_GRACE_S + 12, wall)
         self.assertIsInstance(outcome, _exec.ExecFailure)
         self.assertEqual(outcome.kind, "timeout")
 
     def test_stderr_held_still_answers_with_latency_at_exit(self):
         outcome, wall = self.timed("--detach", "stderr")
-        self.assertLess(wall, _exec.DRAIN_GRACE_S + 3, wall)
+        self.assertLess(wall, _exec.DRAIN_GRACE_S + 12, wall)
         self.assertIsInstance(outcome, dict, outcome)
         self.assertEqual(outcome["body"]["text"], "ok: hi")
         # Measured at exit, not after the grace the held stderr cost.
         self.assertLess(outcome["latency_s"], _exec.DRAIN_GRACE_S)
+
+
+@unittest.skipUnless(POSIX, "signals and process groups")
+class TestSigterm(unittest.TestCase):
+    """A SIGTERM to the runner mid-call kills the call's group first, then
+    still ends the runner by SIGTERM (#39 review)."""
+
+    def test_the_call_is_killed_and_the_runner_dies_by_sigterm(self):
+        pidfile = pathlib.Path(tempdir(self)) / "pid"
+        code = (
+            "import sys; sys.path.insert(0, {scripts!r}); import _exec; "
+            "_exec.run({argv!r}, sys.executable, {cwd!r}, "
+            "_exec.child_env([]), {{'message': 'hi'}}, 60)").format(
+                scripts=str(SCRIPTS),
+                argv=shim_argv("--misbehave", "sleep", "--pidfile",
+                               str(pidfile)),
+                cwd=str(SHIM.parent))
+        runner = subprocess.Popen([sys.executable, "-c", code])
+        self.addCleanup(runner.kill)
+        deadline = time.monotonic() + 30
+        while not pidfile.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(pidfile.exists(), "the shim never started")
+        grandchild = int(pidfile.read_text(encoding="utf-8"))
+        runner.send_signal(signal.SIGTERM)
+        self.assertEqual(runner.wait(timeout=30), -signal.SIGTERM)
+        # The shim's own child, in the call's group, went with it.
+        self.assertTrue(gone(grandchild, within_s=20))
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(grandchild, signal.SIGKILL)
 
 
 class ExecRunnerCase(RunnerCase):
@@ -441,6 +508,8 @@ class TestPreflight(ExecRunnerCase):
             ({"headers": {"Origin": "http://x"}}, "needs invocation.mode: http"),
             ({"identity_map": {"role": "X-Role"}}, "identity_map maps to"),
             ({"health_check": {"path": "/"}}, "health_check needs"),
+            ({"route_from_status": {"403": "denied"}},
+             "route_from_status needs invocation.mode: http"),
             ({"response_format": "sse", "sse": {"protocol": "ag-ui"}},
              "response_format applies to invocation.mode: http only"),
             ({"response_body": '{"text": "x"}'}, "must mark the answer"),
@@ -450,6 +519,19 @@ class TestPreflight(ExecRunnerCase):
             with self.subTest(fragment):
                 self.refused(self.exec_plan(**invocation), fragment,
                              env={"SHIM_SECRET": SECRET})
+
+    def test_a_status_exec_cannot_report_skips_the_case(self):
+        refused = make_case("c-0001", expect={"http": {"status": 403}})
+        answered = make_case("c-0002")      # expect.http.status 200
+        rc, _, proc = self.invoke(self.exec_plan(cases=[refused, answered]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        self.assertEqual(verdict["verdict"], "skipped")
+        self.assertIn("expect.http.status 403 cannot be observed",
+                      json.dumps(verdict))
+        self.assertEqual(self.read("cases", "c-0002",
+                                   "verdict.json")["verdict"], "pass")
+        self.assertEqual(len(self.calls()), 1)
 
     def test_cwd_is_relative_to_the_app_root(self):
         (self.app_root / "sub").mkdir()
@@ -550,6 +632,16 @@ class TestProbe(ExecRunnerCase):
         self.assertNotIn(SECRET, proc.stdout + proc.stderr)
         self.assertEqual(len(self.calls()), 1)
         self.assertFalse((self.state / "reports" / "probe").exists())
+
+    def test_a_short_plain_setting_is_not_scrubbed(self):
+        # exec.env carries settings too: a "1" scrubbed at any length would
+        # rewrite the report's own keys and numbers.
+        plan = self.exec_plan("--misbehave", "exit", env=["DEBUG"])
+        rc, report, proc = self.probe(plan, env={"DEBUG": "3"})
+        self.assertEqual(rc, 3, proc.stdout)
+        self.assertIn("ok", report)
+        self.assertIn("exited 3", report["error"])
+        self.assertIn("DEBUG", report["env_vars"])
 
     def test_a_failing_command_is_a_named_problem(self):
         rc, report, _ = self.probe(self.exec_plan("--misbehave", "exit"))

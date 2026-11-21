@@ -147,12 +147,14 @@ def child_env(names, environ=None):
 
 
 def resolve_cwd(cwd, base):
-    """exec.cwd against `base` (the app root, else the state location)."""
+    """exec.cwd against `base` (the app root, else the state location),
+    always ABSOLUTE: a relative state_dir would otherwise resolve against
+    whatever directory the runner happens to be started from."""
     if cwd is None:
-        return os.path.normpath(base)
+        return os.path.abspath(base)
     if os.path.isabs(cwd):
-        return os.path.normpath(cwd)
-    return os.path.normpath(os.path.join(base, cwd))
+        return os.path.abspath(cwd)
+    return os.path.abspath(os.path.join(base, cwd))
 
 
 def resolve_command(command, cwd, env):
@@ -302,19 +304,72 @@ def _kill_group(proc):
         proc.kill()
 
 
+def _longest_form(secrets):
+    return max((len(form) for value, _ in secrets if value
+                for form in secret_forms(value)), default=0)
+
+
 def _stderr_tail(drain, secrets):
-    data, _ = drain.snapshot()
-    text = data.decode("utf-8", errors="replace").strip()
+    data, total = drain.snapshot()
+    text = data.decode("utf-8", errors="replace")
+    if total > len(data):
+        # The kept window starts wherever the last STDERR_KEEP_BYTES began,
+        # possibly inside a secret, whose tail no scrub can recognise. Drop
+        # as many characters as the longest secret form, so whatever the
+        # window cut through is gone before anything is quoted.
+        text = text[_longest_form(secrets):]
+    text = text.strip()
     if not text:
         return ""
-    # Scrubbed before the cut, so a value is never split by it.
+    # Scrubbed before the quote is cut, so the cut never splits a value.
     text = scrub(text, secrets)
     if len(text) > QUOTE_CHARS:
         text = "..." + text[-QUOTE_CHARS:]
     return "; stderr: " + text
 
 
+class _Terminated(BaseException):
+    """SIGTERM arrived during a call: unwinds run() like a Ctrl-C does."""
+
+
+@contextlib.contextmanager
+def _sigterm_cleans_up():
+    """While a call runs, a SIGTERM to the runner unwinds through run()'s
+    `finally` -- which kills the call's process group -- and is then
+    re-delivered under its default action, so the runner still dies by
+    SIGTERM, as it would have. Without this the command, in its own
+    session, was orphaned. Only from the main thread, and only when
+    SIGTERM is at its default (an ignored or handled SIGTERM is someone
+    else's decision). SIGKILL cannot be caught: it orphans the command."""
+    sigterm = getattr(signal, "SIGTERM", None)
+    if sigterm is None or threading.current_thread() \
+            is not threading.main_thread() \
+            or signal.getsignal(sigterm) is not signal.SIG_DFL:
+        yield
+        return
+
+    def handler(signum, frame):
+        raise _Terminated()
+
+    signal.signal(sigterm, handler)
+    try:
+        yield
+    except _Terminated:
+        signal.signal(sigterm, signal.SIG_DFL)
+        os.kill(os.getpid(), sigterm)
+        raise KeyboardInterrupt from None
+    finally:
+        signal.signal(sigterm, signal.SIG_DFL)
+
+
 def run(argv, executable, cwd, env, body, timeout, secrets=()):
+    """One call; see _run. A SIGTERM during it kills the call's group
+    first (_sigterm_cleans_up)."""
+    with _sigterm_cleans_up():
+        return _run(argv, executable, cwd, env, body, timeout, secrets)
+
+
+def _run(argv, executable, cwd, env, body, timeout, secrets=()):
     """One call. Returns run_cases' result shape -- {status, body,
     latency_s, headers, set_cookies} -- with status 200, or raises
     ExecFailure. `secrets` are (value, NAME) pairs scrubbed out of every
@@ -352,7 +407,17 @@ def run(argv, executable, cwd, env, body, timeout, secrets=()):
         # process that left the group (setsid) is out of reach; it cannot
         # hang the call (below), but it can outlive it.
         _kill_group(proc)
-        proc.wait()
+        try:
+            proc.wait(timeout=DRAIN_GRACE_S)
+            reaped = True
+        except subprocess.TimeoutExpired:
+            # SIGKILLed and still not gone (an uninterruptible sleep, a
+            # stuck filesystem): abandoned, never waited on forever.
+            reaped = False
+    if not reaped:
+        raise ExecFailure("timeout" if not exited else "transport",
+                          f"the command did not exit within {DRAIN_GRACE_S}s "
+                          "of SIGKILL; abandoned (pid {})".format(proc.pid))
     grace_end = time.monotonic() + DRAIN_GRACE_S
     for thread in (out, err):
         thread.join(max(0.0, grace_end - time.monotonic()))
@@ -383,7 +448,9 @@ def run(argv, executable, cwd, env, body, timeout, secrets=()):
     try:
         parsed = json.loads(text)
     except (json.JSONDecodeError, RecursionError) as exc:
-        start = scrub(text.strip()[:200], secrets)
+        # Scrubbed whole, THEN cut: a cut first would leave half a secret
+        # that straddles character 200 unrecognisable to the scrub.
+        start = scrub(text.strip(), secrets)[:200]
         raise ExecFailure("transport", "stdout is not one JSON document "
                           f"({exc.__class__.__name__}: {exc}); it starts: "
                           f"{start!r}. Logs go to stderr") from exc
