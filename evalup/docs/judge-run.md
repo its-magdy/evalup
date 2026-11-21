@@ -5,8 +5,12 @@ before any code. Nothing below is built. The issue body's "Changes after two
 independent reviews" list is the brief, and every item on it is honoured
 here: three states, one judge call per case behind an estimate, a grader
 self-test, no Rogan–Gladen correction, no CI gating until a live calibration
-is measured, and yes/no criteria as the v1 rubric form. The proof on a live
-app is #27.
+is measured, and yes/no criteria as the v1 rubric form. One item of the
+issue's "keep" list is met differently: the resolved model id cannot go in
+`manifest.yaml`, which the runner writes before any judge runs and nobody
+rewrites, so it goes in the judge pass's own manifest (§7, open question 8).
+The runner's §5.6 comparability key stays judge-free on purpose. The proof on
+a live app is #27.
 
 Today every judged layer is `unjudged (<reason>)` and nothing reads a rubric
 at run time (`runner-contract.md` §5.4). This note is the shape of the pass
@@ -38,7 +42,9 @@ stratified ones (`rubric-format.md` §"Calibration workflow"). That is why it
 is shown at all, with its evidence, rather than hidden as `unjudged` — and
 why it is walled off from every decision (§8).
 
-The case's judged verdict is a fold over its criteria, first match wins:
+The case's judged verdict is a fold over its criteria, first match wins,
+applied only to a reply that matched its assignment (§4: a reply that did
+not is `unjudged` as a whole, before the fold):
 
 1. any criterion `fail` that passed §4's checks → `fail`;
 2. every criterion `pass`, each passing §4's checks → `pass`;
@@ -71,9 +77,10 @@ criteria:                          # each one a yes/no question; id = the
   - id: states_the_amount          # node_id calibration labels use
     question: "Does the answer state the amount in the reference result?"
     reference_guided: true         # the judge is handed expect.result
-  - id: names_the_period
-    question: "Does the answer say which period the amount covers, and is it
-               the period the user asked about?"
+  - id: states_a_period
+    question: "Does the answer say which period the amount covers?"
+  - id: period_is_asked_one
+    question: "Is the period the answer names the one the user asked about?"
   - id: no_unsupported_claim
     question: "Is every figure in the answer present in the app's response
                data (response.json body), with nothing added?"
@@ -89,7 +96,7 @@ self_test:                         # §3: graded before any case is
     answer: "You spent $412.50 on invoices in April 2026, and $90 on fees."
     response: { value: 412.5 }
     reference: { scalar: 412.5 }
-    fails: [names_the_period, no_unsupported_claim]
+    fails: [period_is_asked_one, no_unsupported_claim]
 ---
 ```
 
@@ -116,6 +123,14 @@ both would let the judge grade by contrast). The self-test passes when the
 good answer comes back `pass` on every criterion and the bad answer comes
 back `fail` on every criterion in `bad.fails`, each verdict passing §4's
 checks against the self-test's own inputs.
+
+**A missing or unchecked self-test reply is a failed self-test**, and the
+skill launches no case call on a rubric until both of its self-test replies
+are recorded and `judge_run.py record` has reported them passing, so a
+failed self-test spends no case calls. `plan` materialises each answer as
+`selftest/<rubric_id>/<good|bad>/` holding `request.json`, `answer.txt`,
+`response.json` and `expect.json` (reference only), the same file names a
+case has, so §4's checks apply to it unchanged.
 
 A rubric whose self-test fails sends every case on it to
 `unjudged ("self-test failed: <criterion> graded <verdict> on the <good|bad>
@@ -146,8 +161,14 @@ with an assignment that names files, not pasted text:
 
 `agents/judge.md` gains a v1 section for this form (the same rules 0–10,
 one verdict per criterion instead of one node) and the reply contract
-below. Its rule 0 already restricts it to the named paths. The reply is one
-JSON object, last in the message:
+below. Its rule 0 already restricts it to the named paths. Rule 1 keeps
+reasoning first, so the message is prose followed by one JSON object, and
+`record` extracts **the last JSON object in the message** (a top-level
+`{…}` that parses strictly with `_common.loads_strict`); a message with no
+such object is `unjudged ("no structured output")`. `model_id` is copied
+from the judge's own environment, the line Claude Code's system prompt
+gives a subagent stating its exact model id; a judge that has no such line
+writes `"unknown"` (§7).
 
 ```json
 {"schema": "evalup/judge-reply/1",
@@ -157,7 +178,7 @@ JSON object, last in the message:
    {"id": "states_the_amount", "verdict": "pass",
     "reasoning": "The reference scalar is 412.5; the answer states $412.50.",
     "evidence": [{"source": "answer.txt", "quote": "You spent $412.50"}]},
-   {"id": "names_the_period", "verdict": "unknown",
+   {"id": "states_a_period", "verdict": "unknown",
     "reasoning": "...", "evidence": []}]}
 ```
 
@@ -165,11 +186,12 @@ JSON object, last in the message:
 criterion verdict survives only if every check holds**, and a failed check
 turns that criterion into `unknown` with the check's name as its reason:
 
-- the object parses strictly (`_common.loads_strict`), `schema`, `case_id`,
-  `rubric_id` and `rubric_version` match the assignment, and every criterion
-  id is the rubric's, each exactly once;
-- `verdict` is `pass`, `fail` or `unknown`; a refusal or a reply with no
-  JSON object makes the whole case `unjudged ("no structured output")`;
+- **whole-reply checks, before the fold:** `schema`, `case_id`,
+  `rubric_id` and `rubric_version` match the assignment, and the criterion
+  ids are exactly the rubric's, each once. Any mismatch — a missing, extra
+  or duplicated id included — makes the whole case `unjudged ("reply did
+  not match the assignment")`, never a fold over the criteria that parsed;
+- `verdict` is `pass`, `fail` or `unknown`; any other value is `unknown`;
 - **every `pass` or `fail` quotes at least one span, and every quote is
   found in the file it names.** The source must be one of the assignment's
   app-side files (`answer.txt`, `response.json`, `trajectory.json`, a turn's
@@ -193,25 +215,36 @@ deterministic step; the skill does only the launches.
    selects the cases, snapshots each rubric (id, version, sha256 of the
    file bytes), checks the self-test blocks, prints the estimate (§11) and
    writes `judge/plan.json`. Exit 0 with nothing to judge is normal.
-2. The skill launches the self-test calls, then one call per selected case,
-   up to four in one message.
-3. **`judge_run.py record reports/<run-id> --case <id>|--self-test <rubric>:<good|bad>`**
-   reads one reply on stdin and writes it, checked, under `judge/replies/`.
-   A re-record of the same case replaces its file (last wins, as a resumed
-   pass needs).
+2. The skill launches the self-test calls, records them (step 3), and only
+   then one call per selected case on a rubric whose self-test passed, up to
+   four in one message.
+3. The skill writes each judge message, verbatim, to
+   `judge/inbox/<case-id>.txt` (a self-test's as
+   `selftest-<rubric_id>-<good|bad>.txt`) with the Write tool, then runs
+   **`judge_run.py record reports/<run-id> --case <id>|--self-test <rubric>:<good|bad> --reply-file <that path>`**,
+   which extracts and checks the reply (§4), stamps it with the plan's
+   rubric sha256, and writes it under `judge/replies/`. A re-record of the
+   same case replaces its file (last wins, as a resumed pass needs).
 4. **`judge_run.py merge reports/<run-id> [--calibration <sidecar>]`**
    applies §3, the fold in §1 and §6, and writes `judge/judged.json`.
    It is rerunnable and derived from `plan.json` + `replies/` only, like
-   `verdicts.jsonl` from the case dirs (contract §9(a)).
+   `verdicts.jsonl` from the case dirs (contract §9(a)). A reply whose
+   stamped sha256 differs from the plan's snapshot is `unjudged ("reply
+   judged a different rubric file")`, and `plan --resume` never rewrites a
+   snapshot that already has replies.
 
-**Default selection.** A case is judged when it pins a rubric and its runner
-verdict is `pass` or `unscored` — its scripted layers passed or could not
-check the answer, so a judge verdict is new information. A `fail` case is
-already failing; `infra_*` and `skipped` cases have no answer to judge. The
-others are listed in `plan.json` as `unjudged` with that reason.
+**Default selection, on the layers, not the rollup.** A case is judged when
+it pins a rubric, has an answer, and none of its layer rows is `fail`,
+`error`, `infra_error` or `infra_incomplete`: its scripted layers passed or
+could not check the answer, so a judge verdict is new information. Reading
+the rollup is not enough: a layer `error` rolls the case up `unscored` above
+a sibling `fail` (`run_cases.py`'s rollup), and a scorer error is a number
+nobody should quote. A `fail` case is already failing; `infra_*` and
+`skipped` cases have no answer to judge. The others are listed in
+`plan.json` as `unjudged` with that reason.
 `--include-failed` adds the `fail` cases (useful when labelling, since a
 calibration sample oversamples failures). Holdout cases are never selected
-(§9).
+(§9), `--include-failed` or not.
 
 The files, all under the run directory, none of them the runner's:
 
@@ -221,6 +254,7 @@ reports/<run-id>/
     plan.json                     # judge_run.py plan: selection, rubric snapshots, estimate
     selftest/<rubric_id>/good/    # the self-test's inputs, materialised as files
     selftest/<rubric_id>/bad/     #   so the judge reads paths and §4 can check quotes
+    inbox/<case-id>.txt           # the judge's message, verbatim, as the skill wrote it
     replies/<case-id>.json        # one checked reply per judged case
     replies/selftest-<rubric_id>-<good|bad>.json
     judged.json                   # judge_run.py merge: the pass's one result file
@@ -238,7 +272,8 @@ reports/<run-id>/
  "rubrics": {"grounded-answer": {"version": 1, "sha256": "…", "form": "criteria",
                                   "self_test": "pass"}},
  "calibration": {"sidecar": "judge/calibration.json", "sha256": "…"},   // or null
- "cases": [{"case_id": "c-4f2a91c7", "rubric": "grounded-answer-v1",
+ "cases": [{"case_id": "c-4f2a91c7", "rubric_id": "grounded-answer",
+            "pinned_version": 1, "graded_version": 1,
             "state": "provisional", "verdict": "pass",
             "not_calibrated_because": "no calibration for grounded-answer v1 on claude-opus-5-5",
             "criteria": [ /* the checked reply's criteria */ ]}],
@@ -264,20 +299,29 @@ that fails is written as `not_calibrated_because`:
    version or model id, so it backs nothing at run time;
 2. it holds a `calibrated` entry for this rubric id **and** this rubric's
    file `version` **and** `judged.json`'s `resolved_model_id`;
-3. the case's pin (`-v<N>`) equals the rubric file's `version` (a stale pin
-   is judged on the file's current version, but cannot be calibrated);
+3. the case's `pinned_version` (its `-v<N>`) equals its `graded_version`,
+   the file's `version` (a stale pin is judged on the file's current
+   version, but cannot be calibrated);
 4. the rubric's self-test passed in this pass;
-5. if `same_family` is `yes`, profile.yaml's `judge.same_family_accepted`
-   is `true`.
+5. `same_family` is `no`, or it is `yes` and profile.yaml's
+   `judge.same_family_accepted` is `true`. `unknown` fails this condition
+   with `app model undeclared`: a Claude app whose model never reached the
+   manifest must not skip the check.
 
 **The sidecar grows two keys** (`score_agreement.py --write`, schema `/2`):
-each rubric's entry is computed per `(rubric_version, judge_model_id)`
-group, and both come from the annotation rows, which gain `rubric_version`
-and `judge_model_id`. The label flow copies them from `judged.json` when it
-pairs a human label with a provisional verdict (§13). Rows without them are
-counted as today and calibrate nothing at run time. The runner's own
-`check_judge_calibration` reads `/1` and `/2` alike, since it only picks a
-reason string; it does not need the new keys.
+annotation rows gain `rubric_version` and `judge_model_id`, and both join
+**the dedupe key** (today `(rubric_id, node_id, case_id or trace_id)`,
+latest wins) **and the group key** (today `rubric_id` alone). Without the
+first, a later label on a new model would replace the earlier pair and the
+sidecar could never hold both. Each `(rubric_id, rubric_version,
+judge_model_id)` group is scored with the existing floors (TPR and TNR ≥
+0.90, κ ≥ 0.60, ≥ 100 pairs, ≥ 10 per class). The label flow copies both
+fields from `judged.json` — `graded_version`, never the pin — when it
+pairs a human label with a judged verdict (§13). Rows without them are
+counted as today and calibrate nothing at run time. `/2` keeps the
+top-level `status` and `rubrics_measured` the runner's
+`check_judge_calibration` already reads, so `/1` and `/2` both serve it; it
+only picks a reason string.
 
 No Rogan–Gladen correction in v1: at ~100 labels its interval is too wide
 to report. A `calibrated` verdict shows the sidecar's TPR/TNR beside the raw
@@ -292,8 +336,8 @@ because the runner writes the manifest at pre-flight, before any judge runs
 — so `manifest_extra.judge.model` carries the alias, and the resolved id
 lives in `judged.json`, the judge pass's own manifest.
 
-**Resolving it:** each reply carries `model_id`, the exact id the judge's
-environment states it runs on. `merge` requires every reply of the pass,
+**Resolving it:** each reply carries `model_id`, copied from the judge's
+system prompt (§4), never inferred from the alias. `merge` requires every reply of the pass,
 self-tests included, to report the same non-empty id matching
 `^claude-[a-z0-9.-]+$`. A missing id, or two ids in one pass, makes every
 case `unjudged ("judge model unresolved" | "judge model changed during the
@@ -348,17 +392,22 @@ live calibration and the owner has decided its bar. Nothing in v1 reads a
 ## 9. Conversations, repeats, canaries, holdout, modes
 
 - **Conversations.** The judge reads every sent turn's `request.json` and
-  `answer.txt` and judges the conversation's final answer, the same
-  `final_turn_certifies` reading the runner uses: criteria are about the
-  last answer unless a question says otherwise. A conversation that stopped
-  early is `fail` or `infra_*` and is not selected by default.
+  `answer.txt`. Criteria apply to the case-level `answer.txt`, which is the
+  deciding turn (contract §6) and for a selected conversation the last one,
+  unless a question names an earlier turn. The runner's
+  `final_turn_certifies` is a rollup rule and plays no part in the judge's
+  fold. A conversation that stopped early has a `fail` or `infra_*` row and
+  is not selected by default.
 - **Repeats (`k > 1`).** The case-level files are the representative
   repeat (contract §6), and that is what is judged: one call per case, not
   per repeat. Judge disagreement across repeats is not measured in v1.
 - **Canaries.** A canary that pins a rubric is judged like any case and
   counted apart. A canary judged `fail` sends every case on its rubric to
-  `unjudged ("judge canary failed")`, the judge-side mirror of exit 4. The
-  self-test is the canary that always runs.
+  `unjudged ("judge canary <case-id> failed")`, naming the canary so its
+  reply can be found. Unlike the runner's exit 4 it voids only that
+  rubric's judged verdicts: the runner's exit, `gate.py` and the scripted
+  counts stay as the runner wrote them. The self-test is the canary that
+  always runs.
 - **Holdout.** Never selected: `unjudged ("sealed holdout")`. Judging a
   sealed case would put its answer text and quotes into a report, and the
   seal's point is that nobody reads them (contract §10). A holdout run's
@@ -373,9 +422,12 @@ live calibration and the owner has decided its bar. Nothing in v1 reads a
 The run skill does the whole pass in the turn that ran the suite: run
 (or `wait_run.py`), `judge_run.py plan`, the launches, `record` per reply,
 `merge`, then the report. Every script call is a pre-approved
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*` command, and the reply goes to
-`record` on stdin, so no file write is needed outside the scripts. The one
-new grant is the subagent launch: run's `allowed-tools` gains
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*` command, one plain command per
+call: the run skill forbids a heredoc or a pipe, so the reply reaches
+`record` as `--reply-file`, a file the skill writes under
+`reports/<run-id>/judge/inbox/` — a write the README's headless recipe
+(`--permission-mode acceptEdits`) already covers, like `report.md`. The
+one new grant is the subagent launch: run's `allowed-tools` gains
 `Agent(evalup:judge)` (open question 3). A denied launch ends the pass, not
 the run: every case is `unjudged ("judge launch denied")`, `merge` still
 writes `judged.json`, and the report says so.
@@ -392,17 +444,20 @@ judged in the turn that sees it finish.
 judge pass: 6 cases pin a rubric; 4 selected (2 not: 1 fail, 1 sealed holdout)
   calls: 4 cases + 2 self-test (1 rubric) = 6
   tokens: ~120k–230k (17–35k per launch, measured in the 2026-09 user tests,
-          + 2k input + ~1k output per call)
+          + ~2k input (this run's named files, bytes ÷ 4) + ~1k output per call)
   time: not yet measured (the last pass's judged.json records it)
 ```
 
 The per-launch range is the user tests' measured subagent overhead; the
-input term is the named files' bytes ÷ 4. Once a pass has run, `plan`
+input term is the bytes ÷ 4 of every file each assignment names, turn
+files and `trajectory.json` included, summed per call — never a fixed
+figure, since a conversation or a long trace is most of it. Once a pass has run, `plan`
 reads the previous `judged.json` beside it and prints that pass's measured
 `wall_s` per call, and its tokens when the launches reported them.
 
 **A budget, not only an estimate.** `--max-calls` (default 25) caps the
-pass. Interactive, the skill shows the estimate and asks before going over
+pass, counting **every launch**: self-test calls (spent first) and every
+retry included. Past the cap nothing is retried. Interactive, the skill shows the estimate and asks before going over
 it. Headless, it judges the first selected cases in plan order up to the
 cap, and the rest are `unjudged ("over the judge budget: --max-calls 25")`.
 The default is open question 2. Launches go at most four to a message, so a
@@ -412,8 +467,9 @@ reply (`plan --resume`).
 
 ## 12. The same-family warning
 
-`same_family` is `yes` when the app's declared model (`manifest.yaml`'s
-`app.model`, any value) names a Claude model, `no` when every declared
+`same_family` is `yes` when any string leaf of the app's declared model
+(`manifest.yaml`'s `app.model`, a string or a dict of strings) contains
+`claude` after case-folding, `no` when every declared
 value names another family, and `unknown` when the app declares none. The
 report says it on the first judged line whenever it is not `no`: "the app
 and its judge are both Claude: a judge passes its own family's failing
@@ -432,9 +488,12 @@ scripted pass rate. Quotes pass the same `data.may_contain_pii` redaction
 as every other excerpt.
 
 **Every provisional verdict is a calibration label waiting to happen.**
-`analyze --label` can read `judged.json` and pre-fill each criterion's
+`analyze --label` reads `judged.json` and pre-fills each criterion's
 `judge_label`, with `rubric_id`, `node_id` (the criterion id),
-`rubric_version` and `judge_model_id`; the human's call fills `label`.
+`rubric_version` (the case's `graded_version`) and `judge_model_id`; the
+human's call fills `label`. **When a case has a recorded reply, `--label`
+copies it and launches no second judge**: another launch would cost
+17–35k tokens per criterion and would label a different judge's verdict.
 **Agreements are recorded too, not only disagreements**: a sample of only
 the cases a human contested would make TPR and TNR meaningless. How labels
 are reviewed and pinned over time is #53's; this note fixes only the fields
@@ -474,7 +533,9 @@ The quickstart's `profile.yaml` lists `grounded-only` as the rule that
   with the detail in a reference read only when a selected case pins a
   rubric (the first-session budget, `tests/test_context_budget.py`).
   `allowed-tools` gains `Agent(evalup:judge)`.
-- `skills/analyze/SKILL.md` `--label`: pre-fill from `judged.json` (§13).
+- `skills/analyze/SKILL.md` `--label`: pre-fill from `judged.json` (§13);
+  `skills/analyze/references/annotation-ux.md`, whose "no artifact holds a
+  judge verdict" stops being true.
 - `skills/optimize/SKILL.md`: §8's sentence.
 - The docs #8 corrected, now describing the real behaviour:
   `run-modes.md`, `concepts.md` §"The judge", `runner-contract.md` §5.4,
@@ -491,18 +552,26 @@ From #23, plus the ones this design's walls owe:
    one with a single `unknown` and the rest `pass`, a refusal (no JSON
    object), and a reply that fails strict JSON all leave the case
    `unjudged`, never `pass` or `fail`. A single `fail` with valid evidence
-   beside an `unknown` is `fail`.
-2. **Provisional never moves a decision.** The same run directory, with and
-   without a `judge/` holding a provisional `fail` on a `gating: true`
-   case: `gate.py`'s exit code and output, `verdicts_for_stats.jsonl`,
-   `results.json`, `--verify` and `stats.py`'s output on that file are
-   byte-identical.
+   beside an `unknown` is `fail`. A reply with a missing, an extra or a
+   duplicated criterion id, or a wrong `schema`, is `unjudged` even when
+   every criterion present is `pass`.
+1a. **A real message parses.** A fixture whose bytes are reasoning prose,
+   then the JSON object, then a trailing line, records; one with two
+   objects records the last.
+2. **No judged verdict moves a decision.** The same run directory, with and
+   without a `judge/` holding a `fail` on a `gating: true` case, run twice —
+   once with `state: "provisional"`, once with `state: "calibrated"`:
+   `gate.py`'s exit code and output, `verdicts_for_stats.jsonl`,
+   `results.json`, `--verify` and `stats.py`'s output on the runner's
+   `verdicts_for_stats.jsonl` are byte-identical. The same for a judge
+   canary `fail`.
 3. **A model-id change refuses the diff.** Two `judged.json` alike but for
    `resolved_model_id`: `judge_run.py diff` exits 2 naming
    `resolved_model_id`. The same for a rubric's `version` and its `sha256`.
 4. **The self-test blocks a judge that passes its known-bad answer.** A
    fixture reply grading `bad` `pass` on a `fails` criterion: every case on
    that rubric `unjudged ("self-test failed: …")`, and none provisional.
+   A **missing** self-test reply does the same.
 5. **Evidence is checked.** A `pass` whose quote is not in `answer.txt`, a
    quote citing `expect.json`, and a `pass` with no quote each make that
    criterion `unknown`. A quote with a `[REDACTED …]` piece matches.
@@ -511,10 +580,15 @@ From #23, plus the ones this design's walls owe:
    failing alone, each leaving the case `provisional` with that reason.
 8. **Holdout is never judged**, and no holdout case id appears in
    `judged.json` outside the count.
-9. **Selection:** `fail`, `infra_*` and `skipped` cases are not selected by
-   default; `--include-failed` adds `fail` only.
+9. **Selection:** cases with a `fail`, `error` or `infra_*` layer row, and
+   `skipped` cases, are not selected by default (an `unscored` rollup over
+   a layer `error` included); `--include-failed` adds `fail` only, and never
+   a holdout case.
+9a. **A stale reply.** A reply stamped with another rubric sha256 is
+   `unjudged`; a stale pin records `pinned_version` ≠ `graded_version` and
+   stays `provisional`.
 10. **`--max-calls`**: over the cap, the extra cases are `unjudged` with the
-    budget reason, in plan order.
+    budget reason, in plan order; self-test calls and retries count.
 11. **Quickstart end to end without Claude** (§14), plus the existing
     `validate_cases.py --strict` 0/0 over the example with the rubric file.
 12. **Plugin layout:** run's `allowed-tools` lists `Agent(evalup:judge)`;
@@ -544,11 +618,8 @@ unless the owner says otherwise.
    launch may be a silent denial; with it, a run skill can start a model
    call the user did not name. **Recommended: add it**, because the estimate
    prints first, `--no-judge` turns the pass off, and the budget bounds it.
-   Unproven beside it: whether `record`'s stdin form (a heredoc after the
-   pre-approved `python3 …/judge_run.py` command) matches that rule
-   headless. If it does not, `record --reply-file <path>` with the file
-   written under `acceptEdits` is the fallback; the live check in §16 test
-   13 settles which.
+   The reply file is written under `acceptEdits` (§10); §16 test 13 proves
+   the launch and the write headless.
 4. **Business rules (`expect.answer.rules`).** **Recommended: they stay
    `unscored` in v1.** A rule that needs a judge becomes a criterion in a
    rubric; a checkable one becomes `must_contain` / `must_not_contain`
@@ -565,6 +636,14 @@ unless the owner says otherwise.
    judge on the file's version, never `calibrated`, and say so** (§6
    condition 3), rather than `unjudged`: every rubric edit would otherwise
    blank the judged layer until every case is re-pinned.
+
+8. **Where the resolved model id lives.** #23 says "in the manifest". The
+   runner writes `manifest.yaml` at pre-flight and §5.4 says its artifacts
+   stay as written (resume compares its `plan_sha256`), so a later write
+   into it would make the runner's record depend on a model call.
+   **Recommended: `judged.json` is the judge pass's manifest and holds it;
+   `manifest.yaml` holds the alias**, and `judge_key` (§7), not the
+   runner's `scoring_key`, is the comparability key it enters.
 
 ## 18. Not in v1
 

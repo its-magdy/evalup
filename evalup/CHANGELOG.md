@@ -1029,7 +1029,7 @@ Nothing is built: every judged layer is still `unjudged`.
 - **The seams**: a `judge/` directory beside the run (the runner's files
   are untouched), a new `judge_run.py`, calibration sidecar `/2` with the
   rubric version and model id, a judged comparability key, the quickstart's
-  rubric case, the code PR's acceptance tests, and seven open questions
+  rubric case, the code PR's acceptance tests, and eight open questions
   with a recommended answer each.
 - Pointers from `runner-contract.md` §5.4, `concepts.md` and
   `rubric-format.md`. **No scoring semantics changed** (`SCORING_VERSION`
