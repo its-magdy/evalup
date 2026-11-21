@@ -14,6 +14,13 @@ from scratch. Before the first write, say which files will change — nothing
 else backs them up, so the user can copy them first — and list what changed
 at the end (headless: in the closing summary).
 
+A profile written before #25 keeps its rules under
+`confirmed_by_human.business_rules`: move them to the top-level
+`business_rules` list in profile-schema.md's shape, each `status: inferred`
+until the interview re-confirms it — a confirmation nobody can date is not
+one. Add the quote, source and date you can find; the validator names what
+is missing (`rule_incomplete`).
+
 ## `--diff` mode (after app changes)
 Re-run SKILL.md steps 2–4 against the current code, topology detection included: a
 refactor can move an app from `tool_agent` to `router_executor`, which flips

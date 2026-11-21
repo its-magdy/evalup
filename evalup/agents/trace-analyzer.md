@@ -29,7 +29,9 @@ body). In `profile.yaml`, `verified: true` means *observed live*, not
 and the app's current behaviour is never the standard it is graded against
 — that is the trap the generator is forbidden from, in reverse. The
 SHOULD comes from discover's `findings.md` (each design finding says what
-the app ought to do), the profile's `confirmed_by_human` entries, and the
+the app ought to do), the profile's `confirmed_by_human` entries and its
+`business_rules` marked `status: confirmed` (an `inferred` rule is a
+question for the owner, never a SHOULD), and the
 case's own label with its `notes`. A verdict of "the case label is wrong"
 must cite one of those SHOULD sources; "the profile says the app does
 this" is an IS source and supports no such verdict. When findings.md calls

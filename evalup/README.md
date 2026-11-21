@@ -107,13 +107,28 @@ app:
 ```
 your-app/.evalup/
 ├── adapter.yaml          # how to call your app
-├── profile.yaml          # what discover learned about it
+├── profile.yaml          # what discover learned about it, business rules included
+├── findings.md           # design findings, docs-vs-code contradictions among them
+├── quotes.local.md       # only for rules from outside sources; git-ignored
 ├── datasets/             # test cases
 └── reports/
     ├── baseline.json     # points at the pinned baseline run
     └── <run-id>/         # manifest, per-case raw material, results.json,
                           # review page; report.md from /evalup:run
 ```
+
+**What is versioned, and who commits it.** evalup never commits anything;
+you do. Everything above is meant to be versioned with the app except
+`work/` (derived files, rebuilt every run) and `quotes.local.md`. That
+includes the business rules in `profile.yaml`, each with its source, date
+and status (`inferred` until a human confirms it): a fresh clone or a CI
+job then gates on the same confirmed rules you do, and confirming a rule is
+a reviewable diff. A rule read from outside the repo (a wiki, a shared
+drive, an MCP server, read only with your yes) keeps its distilled text,
+source, date and status in `profile.yaml`; its verbatim quote goes to
+`quotes.local.md`, which discover adds to `.evalup/.gitignore` before
+writing it, unless you ask for the quote to be versioned too. To keep all
+of it out of the app's repo, point `state_location` outside it.
 
 ### Permissions
 
@@ -339,7 +354,7 @@ The steps `start` runs for you, callable directly:
 
 | Command | Description |
 |---|---|
-| `/evalup:discover [path-or-url] [--diff]` | Profiles the app; writes the adapter and profile; patches instrumentation; `--diff` after a refactor |
+| `/evalup:discover [path-or-url] [--diff]` | Profiles the app; writes the adapter and profile, business rules (from the prompts and in-repo docs, with sources) included; patches instrumentation; `--diff` after a refactor |
 | `/evalup:generate [--layer routing\|tools\|answer] [--count N]` | Builds or extends the dataset: coverage grid, targeted review, splits |
 | `/evalup:run` | Executes and scores every applicable layer; diffs against the baseline |
 | `/evalup:help` | Explains any of this |
@@ -408,7 +423,11 @@ versions. Diffs between incomparable runs are refused.
   but none of them is in a pass rate, `gate.py` or an optimize objective
   until a live calibration has been measured (#27). Business rules
   (`expect.answer.rules`) still have no scorer; one that needs a judge
-  becomes a rubric criterion.
+  becomes a rubric criterion. What exists is bookkeeping: discover records
+  each rule with its quote, source, date and status, every case names the
+  rules and risks it `covers`, `validate_cases.py --profile` reports a rule
+  with no case as a gap, and a case gating on a rule no human confirmed is
+  a validator error.
 - **Tool expectations are whole-app.** In a multi-agent app, a call made by the
   wrong sub-agent still satisfies `expect.tools`.
 - **No retrieval/RAG scoring.**

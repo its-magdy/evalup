@@ -277,6 +277,9 @@ no_op_justification: null            # Expected with `pass` (else WARN no_op_pas
                                      # on why this case is the exception. Writing it down is
                                      # the whole gate — the author notices the exemption.
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
+covers: [refund-cap, risk-oos]       # profile.yaml business_rules/risks ids. Absent: WARN.
+                                     # Unknown id, or a gating case covering a rule not
+                                     # `confirmed`: ERROR. Linked, never scored.
 gating: true                         # true = regression; false = never gates (capability)
 notes: ""                            # reviewer's one-liner: why this case exists
 ```
@@ -293,11 +296,9 @@ silent fallback" rules above (`order_mode`, args `calls` scope, empty
 `columns`), which the scorers would otherwise only hit at RUN time — long after
 a suite is authored and reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
 
-`--capabilities` is **required**. Without the profile's matrix every layer
-counts as enabled, which turns off the one check that catches a case asserting
-only DISABLED layers — it runs, it passes, it grades nothing. Pass
-`--no-capabilities` if you genuinely have no profile: it says so out loud,
-reports `capabilities_unchecked`, and is refused under `--strict`.
+`--capabilities` is **required**: without the matrix, a case asserting only
+DISABLED layers cannot be caught. `--no-capabilities` says so
+(`capabilities_unchecked`) and is refused under `--strict`.
 
 Which findings are ERRORS and which are WARNINGS, as one rule: an **error** is
 a claim the suite makes that nothing backs (no `split`, no `test_type`, no
@@ -314,11 +315,8 @@ job. A required field enforced by a
 warning is not required, so nothing in the first list warns.
 
 The check that matters most is `no_graded_layer`: a case must assert at least
-one layer that is ENABLED in the capability matrix. `expect.http` alone never
-counts — it is a liveness check, not a behavioral assertion. This is what
-prevents a suite of `gating: true` cases whose expectations all sit in disabled
-layers: such cases run, pass, and cannot fail, inflating the pass rate while
-measuring nothing.
+one ENABLED layer, and `expect.http` alone (a liveness check) never counts —
+else it runs, passes, and cannot fail.
 
 Scoring semantics:
 - Layers score independently; a case reports per-layer verdicts, not one blob.
@@ -332,8 +330,6 @@ Scoring semantics:
 - Judged dimensions are always reported as `unjudged`: the runner has no
   judge yet. The reason says why (mode, uncalibrated judge, or deferred) —
   never silently included.
-- A layer with zero failing checks but one or more `unscorable` ones reports
-  `verdict: pass` **plus** a top-level `partially_unscored: true`. The verdict stays
-  `pass` because consumers key on it, but a pass resting partly on checks that could
-  not be evaluated is not the same as a fully-evidenced one — report the flag rather
-  than letting the distinction vanish.
+- A layer with zero failing checks but some `unscorable` ones reports
+  `verdict: pass` **plus** `partially_unscored: true`: report the flag, since
+  such a pass is not fully evidenced.

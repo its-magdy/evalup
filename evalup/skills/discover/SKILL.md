@@ -42,7 +42,8 @@ allowed-tools: >-
 
 Arguments, when the user typed any: `$ARGUMENTS`. The app path is the one in
 there (or the one `start` passed): **read and list only under it, its state
-location and the plugin.** Files the user did not name — the parent
+location and the plugin.** An outside source (a wiki, an MCP server)
+needs the user's yes first (step 7). Files the user did not name — the parent
 directory, sibling folders, notes and logs beside the app — are out of scope
 even when they look relevant; a file the user names in the request is in
 scope.
@@ -113,6 +114,12 @@ conversation/session handling, OTel setup. Record as you go:
   beside the surface; optimize's precondition 6 reads it.
 - Every **rule a system prompt states** (format, reply language, a tool to
   call first) → `business_rules`, `source:` its file:line; generate tests it.
+  A prompt built from fragments: cite the fragment's line. Then the business
+  docs under the app path for what it SHOULD do: `docs/adr/`, `GLOSSARY.md`,
+  `CONTEXT.md`, `docs/agents/`, policy docs, what an `AGENTS.md` or README
+  points at. Each rule: a one-sentence verbatim `quote`, a `date`, `status:
+  inferred` (profile-schema.md). A doc and the code disagreeing is a
+  finding, both sides quoted, plus a `contradiction:` on the rule.
 - Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
   adapter-contract.md defines them. Confirm each with the human — except in
   lean mode: there, mark the `tools:` list `# side_effects inferred from code,
@@ -122,13 +129,12 @@ conversation/session handling, OTel setup. Record as you go:
 - The **data-access layer** → `oracle.db`: DB and ORM, where schema/migrations
   live, and whether a seeded staging environment or read replica already exists.
   You cannot offer a fixture in step 5 without knowing what there is to seed.
-- The **app's own turn log** — tables or files where it persists what a turn
-  did: the route or classification, tool calls with their arguments, token
-  counts, a trace id. Record in findings.md where it lives and how a response
-  joins to it (which id the response returns, which key the log uses). The
-  runner cannot read it — no adapter field declares one — but it is how a
-  person checks per-route or per-tool behaviour on a trace-less app, and it
-  changes what the capability statement should say is one join away.
+- The **app's own turn log** — where it persists what a turn did (route,
+  tool calls and arguments, tokens, a trace id). Record in findings.md where
+  it lives and how a response joins to it (which id, which key). The runner
+  cannot read it, but on a trace-less app it is how a person checks per-route
+  or per-tool behaviour, and the capability statement should say it is one
+  join away.
 - **How the answer comes back.** A streaming route (`text/event-stream`, an
   AG-UI helper) → `invocation.response_format: sse` + `sse.protocol`; tool
   calls in the stream or body → `traces.source: response` (adapter-contract.md).
@@ -180,7 +186,9 @@ edit:
   choice in `adapter.yaml`. Headless, take the default and say which it was.
 - Show the full diff and get a yes **per file**, not one yes for the step.
 - After editing, say exactly which files changed and that
-  `git -C <app> checkout -- <path>` undoes each. Commit nothing.
+  `git -C <app> checkout -- <path>` undoes each. Commit nothing (evalup
+  never does); the state, rule statuses included, is meant to be versioned
+  with the app.
 
 A "no" is fine — see Read-only mode below.
 - No GenAI spans → instrument their stack: a span per LLM call, `invoke_agent`

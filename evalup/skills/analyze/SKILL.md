@@ -162,7 +162,8 @@ stop a sitting after ~20 that add nothing. `--label` runs on that same rule.
 
 Zero gating failures → produce insight, not silence:
 - what the passing suite CANNOT detect: unjudged dimensions, layers skipped
-  this run, coverage gaps named in the dataset metadata;
+  this run, coverage gaps named in the dataset metadata, and every rule or
+  risk with no case (below);
 - the capability-suite (`gating: false`) results worth a look, and any
   ready to graduate (below);
 - the next investment: labeling, cases in a named gap, or a skipped layer;
@@ -322,6 +323,18 @@ owns why. N=5 counts **looks**, not unseals: `run --holdout` appends to
 this same file (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4). Take
 the running total by **counting its lines**, not the entries this skill wrote,
 or the optimizer's repeated holdout gates spend the seal invisibly.
+
+### Rules and risks with no case — report them every time
+Every case names the profile's rule and risk ids it is for in `covers`
+(case-format.md). The validator run below, with `--profile`, prints
+`summary.traceability`: each rule's status and cases, each risk's cases,
+`gaps` ("rule refund-cap has no case"), `unconfirmed` and
+`contradictions`. Report the gaps after every `--cluster`, and name a risk
+with only one case as thin. A cluster that violates a rule nobody has
+confirmed is a finding to put to the owner, not a regression: an inferred
+rule never gates, and nothing here may flip a rule to `confirmed` — only the
+discover interview does, with a human's name. A label fix that drops a
+case's last link reopens a gap; say so.
 
 ## Re-validate after any case edit
 All three branches edit case files. `--cluster` ends in label corrections,

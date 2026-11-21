@@ -86,7 +86,9 @@ CONDITIONAL = {
 
 # Names the skills mention that are the app's or the state location's own
 # files, never the plugin's.
-APP_FILES = {"findings.md", "report.md", "prompts/router.md"}
+APP_FILES = {"findings.md", "report.md", "prompts/router.md",
+             # the in-repo business docs discover step 3 reads (#25)
+             "GLOSSARY.md", "CONTEXT.md", "AGENTS.md"}
 
 MD_NAME = re.compile(r"(\$\{CLAUDE_PLUGIN_ROOT\}/)?([\w./-]*[\w-]\.md)\b")
 
