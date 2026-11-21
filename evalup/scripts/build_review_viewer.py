@@ -678,16 +678,17 @@ JS = r"""
   var log = initialAnnotations.slice();
 
   // Resolve a loaded annotation onto THIS page's records before keying it.
-  // A record whose trace_id collided was suffixed to "abc#3", and that suffix
-  // is the record's position under whatever --glob built the page — so an
-  // annotation exported from an earlier page stops matching the moment the
-  // record order shifts (one case added ahead of it is enough). It then reads
-  // as unannotated: no dot, back into the "unannotated only" filter, out of
-  // the taxonomy counts. annotation-ux.md already names the fix on the write
-  // side ("case_id is never suffixed — join on those, not on the #N id"); the
-  // export honored it and the load path did not. case_id is only usable as a
-  // key where it is unique on this page, and old lines may predate it, hence
-  // the fallback to trace_id rather than a straight re-key.
+  // Keyed by trace_id alone it would break: a record whose trace_id collided
+  // is suffixed to "abc#3", and that suffix is the record's position under
+  // whatever --glob built the page — so an annotation exported from an
+  // earlier page would stop matching the moment the record order shifts (one
+  // case added ahead of it is enough) and read as unannotated: no dot, back
+  // into the "unannotated only" filter, out of the taxonomy counts.
+  // annotation-ux.md names the rule on the write side ("case_id is never
+  // suffixed — join on those, not on the #N id"), and the load path joins the
+  // same way. case_id is only usable as a key where it is unique on this
+  // page, and old lines may predate it, hence the fallback to trace_id rather
+  // than a straight re-key.
   var byCase = Object.create(null);
   records.forEach(function (r) {
     byCase[r.case_id] =
@@ -712,10 +713,11 @@ JS = r"""
   var exportEl = document.getElementById('export-text');
   reviewerEl.value = reviewer;
 
-  // Memoized: one annotation keystroke used to re-run this filter three times
-  // over every record (save -> render -> renderList), each pass allocating a
-  // fresh array, on the hottest interaction in the tool. The only inputs are
-  // filterMode and latest, so the cache is dropped exactly where those change.
+  // Memoized: without it one annotation keystroke re-runs this filter three
+  // times over every record (save -> render -> renderList), each pass
+  // allocating a fresh array, on the hottest interaction in the tool. The only
+  // inputs are filterMode and latest, so the cache is dropped exactly where
+  // those change.
   var visCache = null;
   function invalidateVisible() { visCache = null; }
   function visible() {
@@ -751,7 +753,7 @@ JS = r"""
 
   function renderTaxonomy() {
     // Keyed by free text the reviewer typed, the least trustworthy key in the
-    // file: on a plain {} a category of "toString" made (counts[c] || 0) + 1
+    // file: on a plain {} a category of "toString" makes (counts[c] || 0) + 1
     // concatenate onto a native function and sort into the table as a string.
     var counts = Object.create(null);
     Object.keys(latest).forEach(function (tid) {
@@ -850,16 +852,16 @@ JS = r"""
     log.push(entry);
     invalidateVisible();  // the 'unannotated' filter reads latest
     // Appended, not re-serialized: the export box holds the whole loaded
-    // annotations file, so rebuilding it from `log` on every save (and, before,
-    // on every navigation) grew with the session for one new line of output.
+    // annotations file, so rebuilding it from `log` on every save would grow
+    // with the session for one new line of output.
     exportEl.value += (exportEl.value ? '\n' : '') + JSON.stringify(entry);
     // Under a filter that this annotation just excluded the record FROM
     // ("unannotated only"), the list has already shifted: cur now points at the
-    // next trace, so advancing again steps over it. That walked every other
-    // trace on the way down and picked up the missed ones in reverse off the
-    // end-of-list clamp (A,C,E,G,H,F,D,B for eight traces) — nothing was lost,
-    // but a time-boxed session ended up with a strided sample instead of a
-    // prefix, which is a poor base for error analysis. Only advance when the
+    // next trace, so advancing again steps over it. That would walk every
+    // other trace on the way down and pick up the missed ones in reverse off
+    // the end-of-list clamp (A,C,E,G,H,F,D,B for eight traces) — nothing is
+    // lost, but a time-boxed session ends up with a strided sample instead of
+    // a prefix, which is a poor base for error analysis. Only advance when the
     // record is still there.
     if (visible().indexOf(r) === -1) { render(); } else { goNext(); }
   }
@@ -1005,9 +1007,9 @@ build_review_viewer.py once the run has produced cases.</p>
 # trouble: "<!--" puts the tokenizer in script data escaped state and a following
 # "<script" in script data double escaped state, where "</script>" no longer
 # closes the element (html.spec.whatwg.org/multipage/parsing.html). A record
-# whose answer quotes "<!--<script>" therefore swallowed the annotation-data
-# block AND the viewer's own <script>, leaving an inert blank page — verified
-# with a spec-compliant parser, which saw no annotation-data element at all.
+# whose answer quotes "<!--<script>" therefore swallows the annotation-data
+# block AND the viewer's own <script>, leaving an inert blank page — confirmed
+# with a spec-compliant parser, which sees no annotation-data element at all.
 # Both routes start with "<", so escape the character itself. This is exactly
 # Django's _json_script_escapes, for the same <script type="application/json">
 # + textContent + JSON.parse pattern this page uses.
@@ -1020,9 +1022,9 @@ def _no_script_break(s):
     embedded JSON <script> block. The escapes are JSON string escapes, so the
     block still parses back to the original text."""
     # One pass, not one per character: the input is the whole run serialized to
-    # JSON (every record's pre-rendered detail_html included), so three chained
-    # str.replace calls meant three full scans and three full-size copies of a
-    # multi-megabyte string on the hottest line of the build.
+    # JSON (every record's pre-rendered detail_html included), so one
+    # str.replace per character would be three full scans and three full-size
+    # copies of a multi-megabyte string on the hottest line of the build.
     return s.translate(_JSON_SCRIPT_TABLE)
 
 
