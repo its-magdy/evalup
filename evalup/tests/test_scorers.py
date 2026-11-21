@@ -1412,11 +1412,10 @@ JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py", "score_agreement.py",
 
 # Every script with a CLI owes --version/--help — both non-scorers stamp the
 # harness version into artifacts that runs get compared against, so a silent
-# drift there is a comparability bug. md_to_html.py is only in THIS set: it
-# reads Markdown, not JSON, so malformed JSON is not malformed input to it
-# ("{not json" is valid Markdown and converting it is the correct behavior).
-# convert_suite.py likewise: its input is a directory of YAML.
-CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("md_to_html.py", "convert_suite.py")
+# drift there is a comparability bug. convert_suite.py is only in THIS set:
+# its input is a directory of YAML, not JSON, so malformed JSON is not
+# malformed input to it.
+CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("convert_suite.py",)
 
 
 class TestHarnessVersion(ScorerTest):
@@ -2251,7 +2250,6 @@ class TestEncodingContract(ScorerTest):
         rows = self.write_bytes(
             "v.jsonl", b'{"case_id":"a","verdict":"pass","x":"' + junk + b'"}\n')
         answer = self.write_bytes("a.txt", junk)
-        markdown = self.write_bytes("r.md", b"# T\n\n" + junk + b"\n")
         expect = self.write_json("e.json", {"answer": {"must_contain": ["x"]}})
         rundir = self.tmp / "run"
         rundir.mkdir()
@@ -2265,7 +2263,6 @@ class TestEncodingContract(ScorerTest):
                 ("stats.py", [rows, rows]),
                 ("reduce_repeats.py", [rows]),
                 ("score_routing.py", [rows]),
-                ("md_to_html.py", [markdown]),
                 ("build_review_viewer.py", [rundir]),
                 ("normalize_trace.py", [traj, "--trace-id", "t1"])):
             out = self.assert_clean_error(script, *argv)

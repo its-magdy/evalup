@@ -109,7 +109,7 @@ your-app/.evalup/
 └── reports/
     ├── baseline.json     # points at the pinned baseline run
     └── <run-id>/         # manifest, per-case raw material, results.json,
-                          # review page; report.md/.html from /evalup:run
+                          # review page; report.md from /evalup:run
 ```
 
 ### Permissions

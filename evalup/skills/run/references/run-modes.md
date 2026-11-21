@@ -121,7 +121,7 @@ No mode flag behaves as `regression` (full suite, hard gate).
   intentional behavior, not a gap. Per-case `cases/<case-id>/` folders still
   get written on disk (runner-contract §6 — that's what makes resume work), but
   their `request.json`/`response.json` content is never pulled into
-  `report.md`/`.html` or `results.json`'s per-case rows; only the aggregate
+  `report.md` or `results.json`'s per-case rows; only the aggregate
   stats cross the seal.
 - **Holdout-look budget**: running `--holdout` counts as one look toward the
   N=5 reseal trigger (`${CLAUDE_PLUGIN_ROOT}/skills/optimize/SKILL.md`

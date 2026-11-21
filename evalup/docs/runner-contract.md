@@ -1091,7 +1091,7 @@ REQUIRED_IF = {"routing_results.jsonl": "any non-canary single-turn case is rout
 A 5b test asserts this table matches §6 of this document — it execs the block
 above out of this file and diffs it against the module's constants, then parses
 §6's tree and diffs the `# only when:` strings against `REQUIRED_IF`'s values.
-`report.md`/`.html` are deliberately **not** here: the skill writes them (§13).
+`report.md` is deliberately **not** here: the skill writes it (§13).
 
 Three of these conditions are evaluated per case, and all three are read off the
 **case directory**, never off the plan — which is what lets `--verify` evaluate
@@ -1390,9 +1390,8 @@ Named here so 5b does not grow them, and so 5c knows what stays in the skill:
   `.yaml` adapter to `convert_suite.py --adapter-file` and reads its JSON
   (§1.1).
 - **Cost estimation and the "Proceed?" prompt.**
-- **`report.md` / `report.html`.** The skill writes the markdown and runs
-  `md_to_html.py`. The runner produces every number those documents quote, but
-  a failure-cluster narrative is a judgement call, which is the one thing the
+- **`report.md`.** The skill writes it. The runner produces every number it
+  quotes, but a failure-cluster narrative is a judgement call, which is the one thing the
   LLM in this loop is actually for.
 - **Choosing** the baseline. The skill reads `reports/baseline.json` and decides
   *which* run to diff against; running the diff itself moved into the runner
