@@ -63,8 +63,8 @@ def main():
     # Flailing is measured in DISTINCT argument sets, not raw call count, so
     # the two findings stay independent: N identical calls are a repeat loop
     # (one arg set, not flailing), while a tool that both repeats itself AND
-    # churns through many different args reports both — previously the repeat
-    # finding suppressed the flailing one and that second signal was lost.
+    # churns through many different args reports both — the repeat finding
+    # must not suppress the flailing one, or that second signal is lost.
     heavy_tools = [
         {"tool": name, "count": by_name[name],
          "distinct_arg_sets": len(hashes)}
