@@ -100,8 +100,8 @@ PLAN_VERSION = 1
 
 # SS11. Distinct codes rather than 0/1/2 because 6 is the one that makes the
 # failure mode this module exists for (a finished-looking run without its
-# required outputs) nameable, and once 6 exists the others cost
-# nothing to distinguish. A RED SUITE EXITS 0: gating is run/SKILL.md SS6's
+# required outputs) nameable, and once 6 exists the others cost nothing
+# to distinguish. A RED SUITE EXITS 0: gating is run/SKILL.md SS6's
 # separate tokenless shell step, and a runner that exited non-zero on failures
 # would quietly move the gate in here (contract SS7).
 EXIT_OK = 0
@@ -2268,8 +2268,8 @@ class Runner:
         trace is worse than a layer that reports it has none.
 
         A trace id is a string (W3C: 32 lowercase hex). A number or an object
-        at the declared field is not one, and passed as-is to `in` and
-        normalize_trace.py's argv it would be a TypeError, exit 1. Stringifying
+        at the declared field is not one: passed as-is to `in` or to
+        normalize_trace.py's argv, it raises a TypeError (exit 1). Stringifying
         it would be a guess (a numeric id has already lost any leading zero),
         so it is no trace id: infra_incomplete, like any other missing join.
         """
@@ -3693,8 +3693,8 @@ class Runner:
         """Is `judge.status: calibrated` backed by measurements? (SS5.4)
 
         `manifest_extra.judge.status` is copied from profile.yaml, which a
-        model edits -- and profile-schema.md says the flag is
-        DERIVED, "not set by hand", from each rubric's own tpr/tnr/kappa.
+        model edits -- and profile-schema.md says the flag is DERIVED,
+        "not set by hand", from each rubric's own tpr/tnr/kappa.
         Trusted on its own, the flag would open the harness's central
         credibility gate on a word an LLM typed. So the runner treats it as
         necessary and NOT sufficient; the sufficient part is a sidecar of
@@ -4122,9 +4122,9 @@ class Runner:
 #
 # Deliberately not a method: finalize and --verify must be the same check, or
 # "the run finished" and "this old run's outputs exist" become two different
-# statements -- which is the failure this whole contract is written
-# against. Everything below is read off the tree, so it works months later
-# with no plan, no adapter and no app.
+# statements -- which is the failure this whole contract is written against.
+# Everything below is read off the tree, so it works months later with no
+# plan, no adapter and no app.
 # --------------------------------------------------------------------------
 
 def read_jsonl(path):
@@ -4424,8 +4424,9 @@ def check_results_json(results, cases, sealed=None):
     if "repeated_5xx" in summary:
         # The key marks a run written under SS10's current infra_rate
         # definition (infra_errors over n - skipped, every term on disk).
-        # Older runs lack both it and that denominator, so a run without the
-        # key is not failed for the definition it was written under.
+        # Older runs lack the key and used a different denominator, so a run
+        # without the key is not failed for the definition it was written
+        # under.
         recounted["repeated_5xx"] = sum(1 for v in graded
                                         if v.get("repeated_5xx"))
         recounted["infra_rate"] = infra_rate(
