@@ -2106,6 +2106,11 @@ class Runner:
                            "is not an object")
         usage = body.get("usage") if isinstance(body.get("usage"), dict) \
             else None
+        if isinstance(body.get("sse"), dict) \
+                and isinstance(body.get("run_usage"), list):
+            # A decoded stream: one chat span per model call, not one for
+            # their sum, so llm_calls counts the calls (#46).
+            usage = body["run_usage"]
         atomic_write_json(os.path.join(case_dir, "trace.json"),
                           _sse.tool_calls_to_otlp(calls, trace_id, usage))
         return True, None

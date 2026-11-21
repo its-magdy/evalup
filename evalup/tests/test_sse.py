@@ -102,6 +102,56 @@ class TestAgUi(unittest.TestCase):
         self.assertFalse(body["interrupted"])
         self.assertIsNone(body["error"])
 
+    def test_usage_sums_over_every_terminal_event(self):
+        # #46: a server that emits one RUN_FINISHED per model call (an agent
+        # loop) reported only the last call's tokens. Every RUN_FINISHED and
+        # RUN_ERROR counts once; one without usage adds nothing, not zeros.
+        body = _sse.decode(stream(
+            STARTED,
+            *tool_call("c1", "lookup", "{}", result="x"),
+            dict(FINISHED, usage=[{"inputTokens": 100, "outputTokens": 10,
+                                   "cachedInputTokens": 80,
+                                   "cacheWriteInputTokens": 15}]),
+            STARTED,
+            *text_message("m1", "Done."),
+            dict(FINISHED, usage=[{"inputTokens": 200, "outputTokens": 20,
+                                   "cachedInputTokens": 190}]),
+            dict(FINISHED),
+            dict(FINISHED, usage=[{"inputTokens": 300, "outputTokens": 30}]),
+        ), AG_UI)
+        self.assertEqual(body["text"], "Done.")
+        self.assertEqual(body["usage"], {
+            "input_tokens": 600, "output_tokens": 60,
+            "cached_input_tokens": 270, "cache_write_input_tokens": 15})
+        self.assertEqual(body["run_usage"], [
+            {"input_tokens": 100, "output_tokens": 10,
+             "cached_input_tokens": 80, "cache_write_input_tokens": 15},
+            {"input_tokens": 200, "output_tokens": 20,
+             "cached_input_tokens": 190},
+            {"input_tokens": 300, "output_tokens": 30}])
+
+    def test_a_run_error_usage_is_added_to_the_finished_runs(self):
+        body = _sse.decode(stream(
+            STARTED,
+            dict(FINISHED, usage=[{"inputTokens": 7, "outputTokens": 1}]),
+            {"type": "RUN_ERROR", "message": "x",
+             "usage": [{"inputTokens": 3, "outputTokens": 2}]}), AG_UI)
+        self.assertEqual(body["usage"],
+                         {"input_tokens": 10, "output_tokens": 3})
+        self.assertEqual(len(body["run_usage"]), 2)
+
+    def test_no_usage_anywhere_is_none_not_zero(self):
+        body = _sse.decode(stream(
+            STARTED, FINISHED,
+            dict(FINISHED, usage=[{"inputTokens": "9", "outputTokens": True,
+                                   "cachedInputTokens": 1.5}, "junk"]),
+            # A cache count is part of inputTokens: alone, it is no model
+            # call with zero tokens.
+            dict(FINISHED, usage=[{"cachedInputTokens": 80}])),
+            AG_UI)
+        self.assertIsNone(body["usage"])
+        self.assertEqual(body["run_usage"], [])
+
     def test_a_run_error_leaves_no_answer_but_keeps_what_arrived(self):
         body = _sse.decode(agent_run(
             text_message("m1", "Half an ans"),
@@ -224,6 +274,49 @@ class TestSpans(unittest.TestCase):
         # No invented timing: every duration is unknown.
         self.assertIsNone(tools[0]["duration_ms"])
 
+    def test_one_llm_call_per_run_usage_entry(self):
+        # #46: three RUN_FINISHED frames with usage are three llm_calls whose
+        # tokens sum; cache counts ride on the chat span as attributes.
+        body = _sse.decode(stream(
+            STARTED,
+            *tool_call("c1", "lookup", "{}"),
+            dict(FINISHED, usage=[{"inputTokens": 100, "outputTokens": 10,
+                                   "cachedInputTokens": 80}]),
+            *tool_call("c2", "lookup", "{}"),
+            dict(FINISHED, usage=[{"inputTokens": 200, "outputTokens": 20}]),
+            *text_message("m1", "ok"),
+            dict(FINISHED, usage=[{"inputTokens": 300, "outputTokens": 30,
+                                   "cacheWriteInputTokens": 5}]),
+        ), AG_UI)
+        doc = _sse.tool_calls_to_otlp(body["tool_calls"], "ab" * 16,
+                                      body["run_usage"])
+        spans = doc["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        self.assertEqual(len({s["spanId"] for s in spans}), len(spans))
+        chat = [{a["key"]: a["value"]["intValue"]
+                 for a in s["attributes"] if "intValue" in a["value"]}
+                for s in spans if s["name"] == "chat"]
+        self.assertEqual(chat[0]["gen_ai.usage.cache_read.input_tokens"], 80)
+        self.assertEqual(chat[2]["gen_ai.usage.cache_creation.input_tokens"],
+                         5)
+        self.assertNotIn("gen_ai.usage.cache_read.input_tokens", chat[1])
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = tmp / "trace.json"
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "normalize_trace.py"), str(path),
+             "--trace-id", "ab" * 16], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout)["trajectory"]
+        self.assertEqual([c["usage"] for c in out["llm_calls"]], [
+            {"input_tokens": 100, "output_tokens": 10},
+            {"input_tokens": 200, "output_tokens": 20},
+            {"input_tokens": 300, "output_tokens": 30}])
+        self.assertEqual(out["usage"],
+                         {"input_tokens": 600, "output_tokens": 60})
+        self.assertEqual([t["name"] for t in out["tool_calls"]],
+                         ["lookup", "lookup"])
+
 
 # -- through the runner ---------------------------------------------------
 
@@ -300,6 +393,33 @@ class SSERunnerCase(RunnerCase):
                 "trajectory": {"enabled": True},
                 "tool_selection": {"enabled": True}}
         return plan
+
+
+class TestRunnerSumsEveryModelCall(SSERunnerCase):
+    """#46 through the runner: one RUN_FINISHED per model call."""
+
+    body = stream(
+        STARTED,
+        *tool_call("c1", "list_invoices", '{"unit_id": "U-1"}'),
+        dict(FINISHED, usage=[{"inputTokens": 100, "outputTokens": 10}]),
+        *tool_call("c2", "list_invoices", '{"unit_id": "U-2"}'),
+        dict(FINISHED, usage=[{"inputTokens": 200, "outputTokens": 20}]),
+        *text_message("m1", "ok, ", "done"),
+        dict(FINISHED, usage=[{"inputTokens": 300, "outputTokens": 30,
+                               "cachedInputTokens": 250}]))
+
+    def test_the_trajectory_has_every_call_and_their_sum(self):
+        rc, _, proc = self.invoke(self.sse_plan())
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        response = self.read("cases", "c-0001", "response.json")
+        self.assertEqual(response["body"]["usage"], {
+            "input_tokens": 600, "output_tokens": 60,
+            "cached_input_tokens": 250})
+        trajectory = self.read("cases", "c-0001",
+                               "trajectory.json")["trajectory"]
+        self.assertEqual(len(trajectory["llm_calls"]), 3)
+        self.assertEqual(trajectory["usage"],
+                         {"input_tokens": 600, "output_tokens": 60})
 
 
 class TestRunnerReadsStreams(SSERunnerCase):

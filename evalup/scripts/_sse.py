@@ -14,6 +14,12 @@ Two protocols, declared in `invocation.sse.protocol`, never guessed:
   TEXT_MESSAGE_CHUNK deltas join into the answer, TOOL_CALL_START / ARGS /
   END / RESULT (and TOOL_CALL_CHUNK) into tool calls with their arguments,
   RUN_FINISHED closes the run and may carry token usage, RUN_ERROR fails it.
+  A server running an agent loop may emit one RUN_FINISHED per model call;
+  usage is then summed over every RUN_FINISHED and RUN_ERROR, never the
+  last one's alone (#46), and kept per event as `run_usage`. Summing across
+  runs is the protocol's own accounting too: each run reports only its own
+  calls (a subagent's run under parentRunId, a resumed run), never another
+  run's, so distinct runs add without double-counting.
 - `data-path` -- any other stream of JSON frames: the text delta is read at
   a declared dotted path in each frame (`choices.0.delta.content` for an
   OpenAI-style stream), and an optional `done` sentinel frame (`[DONE]`)
@@ -149,7 +155,7 @@ def _data_path(payloads, text_path, done):
 def _ag_ui(payloads):
     messages, order = {}, []
     calls, call_order = {}, []
-    error, finished, interrupted, usage = None, False, False, None
+    error, finished, interrupted, run_usage = None, False, False, []
     types, bad = {}, 0
     last_message, last_call = None, None
     for payload in payloads:
@@ -201,11 +207,11 @@ def _ag_ui(payloads):
             outcome = event.get("outcome")
             interrupted = isinstance(outcome, dict) \
                 and outcome.get("type") == "interrupt"
-            usage = _usage(event.get("usage")) or usage
+            _add_usage(run_usage, event)
         elif kind == "RUN_ERROR":
             error = {"message": event.get("message"),
                      "code": event.get("code")}
-            usage = _usage(event.get("usage")) or usage
+            _add_usage(run_usage, event)
     pieces = ["".join(messages[mid]) for mid in order]
     joined = "\n\n".join(piece for piece in pieces if piece)
     complete = finished and error is None
@@ -219,13 +225,30 @@ def _ag_ui(payloads):
             "partial_text": None if complete else joined,
             "tool_calls": tool_calls, "error": error,
             "finished": finished, "interrupted": interrupted,
-            "usage": usage,
+            "usage": _sum_usage(run_usage), "run_usage": run_usage,
             "sse": {"protocol": "ag-ui", "frames": len(payloads),
                     "bad_frames": bad, "types": types}}
 
 
+# AG-UI TokenUsage field -> body key. In the protocol's accounting the two
+# cache counts are PARTS of inputTokens, never additions to it, so they are
+# carried beside input_tokens and never added into it.
+_USAGE_FIELDS = (("inputTokens", "input_tokens"),
+                 ("outputTokens", "output_tokens"))
+_CACHE_FIELDS = (("cachedInputTokens", "cached_input_tokens"),
+                 ("cacheWriteInputTokens", "cache_write_input_tokens"))
+
+
 def _usage(entries):
-    """AG-UI usage is a list (one entry per model); summed, or None."""
+    """AG-UI usage is a list (one entry per model); summed, or None.
+
+    input_tokens and output_tokens are both present once either total is
+    (as before); a cache count only when some entry reported it, so "not
+    reported" stays distinct from zero. A cache count is a PART of
+    inputTokens, so an event reporting one with no total is not a usage
+    report: None, never a zero-token model call. Only a real int counts --
+    not a bool, a float or a numeric string.
+    """
     if not isinstance(entries, list):
         return None
     total = {"input_tokens": 0, "output_tokens": 0}
@@ -233,13 +256,30 @@ def _usage(entries):
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        for src, dst in (("inputTokens", "input_tokens"),
-                         ("outputTokens", "output_tokens")):
+        for src, dst in _USAGE_FIELDS + _CACHE_FIELDS:
             value = entry.get(src)
             if isinstance(value, int) and not isinstance(value, bool):
-                total[dst] += value
-                seen = True
+                total[dst] = total.get(dst, 0) + value
+                seen = seen or (src, dst) in _USAGE_FIELDS
     return total if seen else None
+
+
+def _add_usage(run_usage, event):
+    """Append a terminal event's usage, when it reported any, to the list."""
+    usage = _usage(event.get("usage"))
+    if usage is not None:
+        run_usage.append(usage)
+
+
+def _sum_usage(run_usage):
+    """The response's usage: every terminal event's, summed; None if none."""
+    if not run_usage:
+        return None
+    total = {}
+    for usage in run_usage:
+        for key, value in usage.items():
+            total[key] = total.get(key, 0) + value
+    return total
 
 
 def tool_calls_to_otlp(calls, trace_id, usage=None, agent_name=None):
@@ -247,9 +287,14 @@ def tool_calls_to_otlp(calls, trace_id, usage=None, agent_name=None):
 
     What normalize_trace.py reads from a real exporter: one invoke_agent root,
     one execute_tool child per call (gen_ai.tool.name, .call.id,
-    .call.arguments, .call.result), and a chat span carrying the run's token
-    usage when the response reported any. No timestamps: the response gives
-    none per call, and an invented one would be a latency nobody measured.
+    .call.arguments, .call.result), and a chat span per model call carrying
+    its token usage when the response reported any. `usage` is one dict (a
+    JSON body's) or a list of them (a stream's `run_usage`, one per
+    RUN_FINISHED / RUN_ERROR), so normalize_trace.py sees one llm_calls entry
+    per call. Cache counts ride on the span as gen_ai.usage.cache_read /
+    cache_creation .input_tokens; normalize_trace.py does not read them.
+    No timestamps: the response gives none per call, and an invented one
+    would be a latency nobody measured.
     normalize_trace.py sorts stably, so the calls keep the response's order,
     and reports their durations as unknown.
     """
@@ -268,14 +313,22 @@ def tool_calls_to_otlp(calls, trace_id, usage=None, agent_name=None):
     spans = [{"traceId": trace_id, "spanId": root, "name": "invoke_agent",
               "attributes": attrs({"gen_ai.operation.name": "invoke_agent",
                                    "gen_ai.agent.name": agent_name})}]
-    if usage:
+    usages = usage if isinstance(usage, list) else [usage]
+    for index, call_usage in enumerate(u for u in usages
+                                       if isinstance(u, dict) and u):
+        # Chat span ids sit far above the tool spans' (index + 16), so any
+        # number of either stays unique.
         spans.append({
-            "traceId": trace_id, "spanId": f"{2:016x}",
+            "traceId": trace_id, "spanId": f"{(1 << 32) + index:016x}",
             "parentSpanId": root, "name": "chat",
             "attributes": attrs({
                 "gen_ai.operation.name": "chat",
-                "gen_ai.usage.input_tokens": usage.get("input_tokens"),
-                "gen_ai.usage.output_tokens": usage.get("output_tokens")})})
+                "gen_ai.usage.input_tokens": call_usage.get("input_tokens"),
+                "gen_ai.usage.output_tokens": call_usage.get("output_tokens"),
+                "gen_ai.usage.cache_read.input_tokens":
+                    call_usage.get("cached_input_tokens"),
+                "gen_ai.usage.cache_creation.input_tokens":
+                    call_usage.get("cache_write_input_tokens")})})
     for index, call in enumerate(calls):
         arguments = call.get("arguments")
         if arguments is not None and not isinstance(arguments, str):

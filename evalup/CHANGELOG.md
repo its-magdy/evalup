@@ -850,6 +850,25 @@ this, every answer from it was `unscored` and every tool layer dark (#39).
   already was: an incomplete tool list must never read as "called nothing".
   The manifest records `invocation.response_format` and `sse`.
 
+### Fixed — AG-UI usage over several model calls (2026-11-21)
+
+- **Tokens from a multi-call agent were undercounted** (#46). `_sse.py` kept
+  only the last `RUN_FINISHED`'s usage, but an AG-UI server running an agent
+  loop emits one per model call: on a real TypeScript/Cloudflare app with a
+  streaming tool agent, a stream with three of them recorded one `llm_calls`
+  entry and one call's tokens. Usage is now summed over every `RUN_FINISHED`
+  and `RUN_ERROR`, kept per event as the body's `run_usage`, and
+  `traces.source: response` writes one chat span per entry, so the
+  trajectory has one `llm_calls` entry per call. A terminal event without
+  usage adds nothing (absent stays distinct from zero); only real ints
+  count, as before.
+- **Cache counts are carried, not priced.** AG-UI's `cachedInputTokens` and
+  `cacheWriteInputTokens` (parts of `inputTokens`, never additions) ride
+  into `usage` / `run_usage` and onto the chat span when reported.
+  `score_cost.py` still does not read them; its `cache_accounting` limit now
+  says where they are. No scoring semantics changed (`SCORING_VERSION`
+  stays 1): the same counts are read, from every event instead of one.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
