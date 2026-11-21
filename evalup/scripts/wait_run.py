@@ -2,12 +2,12 @@
 """Block until a run directory is finalized, in bounded slices a skill can loop.
 
 Why this exists: under `claude -p` a Bash call is capped at ten minutes and a
-background shell is killed about five seconds after the turn ends. The 2026-09
-field test's `run` and `start` sessions launched run_cases.py with
-`run_in_background`, ended the turn, and the CLI's exit killed the runner
-mid-case -- twice -- leaving results.json at `summary.status: "running"`. No
-single wait the platform offers outlasts a thirty-minute run, so the skill
-needs a wait it can call repeatedly without ending the turn. This is that
+background shell is killed about five seconds after the turn ends. A session
+that launches run_cases.py with `run_in_background` and ends the turn has the
+runner killed mid-case by the CLI's exit, leaving results.json at
+`summary.status: "running"`. No single wait the platform offers outlasts a
+thirty-minute run, so the skill needs a wait it can call repeatedly without
+ending the turn. This is that
 call: it reads, it never writes, and it exits before the ten-minute cap so it
 is never backgrounded itself.
 
