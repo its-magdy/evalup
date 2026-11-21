@@ -142,8 +142,8 @@ go: a first session must not stop here), under a pre-approved budget, or
 under the headless gate (§6). Resume
 an interrupted run with `--resume` (same run id); re-check a finished one
 with `--verify reports/<run-id>`. Conversations are slow (20 five-turn
-ones at k=3 ≈ an hour; `app_calls_planned` counts turns); headless, expect
-several `wait_run.py` waits below.
+ones at k=3 with a trace store ≈ an hour; `app_calls_planned` counts
+turns); headless, expect several `wait_run.py` waits below.
 
 **Wait for the runner; never end the turn on a `running` run.** Launch
 `run_cases.py` in the **foreground** of one Bash call with `timeout` at its

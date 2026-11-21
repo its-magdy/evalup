@@ -4219,8 +4219,9 @@ def dry_run_report(runner):
         # and a retry replays it from turn 1 -- so this is the floor.
         "app_calls_planned": sum(calls for calls, _ in planned),
         # The worst case: every attempt retried to max_attempts (a 429 or
-        # a 5xx each time), a conversation's from its last turn. What an
-        # app-side rate limit has to absorb, since a 429 often counts too.
+        # a 5xx each time), a conversation failing on its last turn and so
+        # replaying every turn from turn 1. What an app-side rate limit has
+        # to absorb, since a 429 often counts too.
         "app_calls_max": sum(calls for calls, _ in planned)
         * runner.execution["max_attempts"],
         "wait_floor_s": round(sum(wait for _, wait in planned), 3),

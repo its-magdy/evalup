@@ -261,8 +261,9 @@ under a cluster-robust correction, §12). So:
 ## 5. Traces, timing and cost
 
 - **Traces per turn.** Each turn's trace id comes from that turn's response;
-  the existing quiescence wait (3 s quiet, up to 30 s, `run_cases.py:1645`)
-  runs per turn, and each turn's tool and trajectory checks read only that
+  the existing quiescence wait (3 s quiet, up to 30 s,
+  `run_cases.py` `wait_for_quiescence`) runs per turn when traces come from a
+  store (`traces.source: response` has none), and each turn's tool and trajectory checks read only that
   turn's trace. `collect_trace` copies the whole span store per turn, so each
   `turns/<t>/trace.json` holds the full store; acceptable, and stated.
 - **One trace for the whole conversation.** Some instrumentations reuse one
@@ -275,7 +276,7 @@ under a cluster-robust correction, §12). So:
   replying, so a turn sent too soon reads as "forgot the context". The
   optional `turn_delay_s` waits between turns; `discover` sets it when it
   sees async memory writes.
-- **Session expiry.** The per-turn quiescence wait plus `turn_delay_s` can
+- **Session expiry.** The per-turn quiescence wait (from a store) plus `turn_delay_s` can
   outlive a server-side session TTL, and the resulting "new conversation"
   reads as "forgot the context". Each turn's `request.json` keeps `sent_at`;
   `analyze` reads the gaps before calling a failure a memory bug.
