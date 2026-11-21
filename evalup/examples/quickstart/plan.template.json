@@ -60,7 +60,7 @@
     },
     "prompt_snapshot_hashes": {},
     "judge": {"model": null, "status": "uncalibrated"},
-    "rubric_versions": "n/a (no rubrics: the answer layer is string assertions only)",
+    "rubric_versions": {"grounded-answer": 1},
     "temperature": "n/a (deterministic fixture)",
     "environment_kind": "mocked",
     "cost_estimate": {"note": "zero: the app under test is a local fixture, and it emits no tokens to price"}

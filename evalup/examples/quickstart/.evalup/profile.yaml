@@ -27,8 +27,8 @@ capability_matrix:
 # `answer_quality.judged: uncalibrated` matters. The judged gate is DERIVED
 # (Step 9a): `calibrated` here is necessary but NOT sufficient -- run_cases.py
 # also demands paths.judge_calibration's sidecar, written by
-# score_agreement.py --write. This example ships no judge and no sidecar, so
-# every rubric-judged claim would stay shut. The answer layer below is scored
+# score_agreement.py --write. This example ships no sidecar, so its one
+# rubric-judged case stays provisional. The answer layer below is scored
 # by string assertions only (score_answer.py), which need no judge.
 
 confirmed_by_human:
@@ -54,8 +54,9 @@ business_rules:
     # It binds every answer, so every case carries its check: a
     # must_not_contain regex on bullet, numbered and heading lines and on
     # bold. read-only is checked by c-6c1f82ab's strings; grounded-only
-    # needs a judge (the figure must match a tool result), so no case
-    # checks it.
+    # needs a judge (the figure must match a tool result), so c-4f2a91c7
+    # pins rubrics/grounded-answer.md and the judge pass after the run
+    # grades it -- provisionally, never in the pass rate or the gate.
 
 routing_contract:
   - route: invoices

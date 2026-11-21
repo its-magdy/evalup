@@ -1083,6 +1083,65 @@ and every step after the first review was decided ad hoc (#53).
   hashing is unchanged: excluding `notes`/`review` from the hash would
   change every recorded `sha256`, so it is left open on the PR.
 
+### Added — the run-time judge: provisional verdicts after a run (2026-11-21)
+
+The build half of #23, per `docs/judge-run.md` (§19 lists the details the
+design left open). The runner is unchanged and still Claude-free; the judge
+is a pass after the run, in the run skill's turn.
+
+- **`scripts/judge_run.py`** (`plan`, `record`, `merge`, `diff`), so 22 CLIs.
+  `plan` selects the cases that pin a rubric and whose layer rows hold no
+  `fail`, `error` or `infra_*` (`--include-failed` adds `fail`; holdout is
+  never judged or named), snapshots each rubric's sha256, materialises its
+  self-test, prints a call and token estimate and caps the pass at
+  `--max-calls` (default 25, every launch counted). `record` takes the
+  judge's message verbatim, keeps the last JSON object, and turns any
+  criterion whose quote is not found in the file it names into `unknown`;
+  a reply that does not match its assignment is `unjudged` whole. `merge`
+  writes `judge/judged.json`: each case `unjudged`, `provisional` or
+  `calibrated`, the resolved model id (one id across the pass, or every
+  case `unjudged`), and the same-family warning. `diff` refuses two passes
+  whose judge key (`_common.judge_key`), scoring key or dataset version
+  differ.
+- **The grader self-test** (#29 item 1): each `form: criteria` rubric ships a
+  known-good and a known-bad answer, graded before any case; a judge that
+  gets either wrong judges no case on that rubric.
+- **The walls**: nothing the pass writes is read by `gate.py`, `stats.py`,
+  `--verify`, `run_history.py` or optimize, and a test runs the quickstart
+  with a judged `fail` on a gating case (provisional, calibrated, and as a
+  failed judge canary) and finds every decision output byte-identical.
+- **The criteria form** of a rubric (`rubric-format.md`): a flat list of
+  yes/no questions plus `self_test`, parsed by `convert_suite.py`
+  (`--rubrics-dir`, `rubrics.json`) and linted by `validate_cases.py
+  --rubrics`, which also warns on a case pin with no file or a stale version.
+- **Calibration sidecar `/2`**: `score_agreement.py` adds `rubric_version`
+  and `judge_model_id` to the dedupe and group keys and writes a `groups`
+  list; rows without them read as before. `run_cases.py` accepts `/1` and
+  `/2`, its only change.
+- **Skills and agent**: `run` gains `Agent(evalup:judge)` in
+  `allowed-tools`, `--no-judge`, and `references/judge-pass.md` (read only
+  when a case pins a rubric; the first-session budget went down by 38
+  tokens); `analyze --label` pre-fills from `judged.json` and launches no
+  second judge; `optimize` never reads it; `agents/judge.md` gains the
+  criteria form and its reply contract.
+- **The quickstart's `grounded-only` rule is judged**:
+  `.evalup/rubrics/grounded-answer.md`, pinned by `c-4f2a91c7`, and
+  `demo.py --judge-replies examples/quickstart/judge-replies` shows a
+  provisional `pass` with its quotes, without Claude. The fixture app now
+  returns the invoice count its answer states.
+- **Checked live once, in part (2026-11-21)**: three real Opus judge calls
+  (two self-test answers and `c-4f2a91c7`, each a subagent told to follow
+  `agents/judge.md`) on a fresh quickstart run. Every reply met the reply
+  contract and every quote was found; the self-test passed, the case came
+  out a provisional `pass`, the self-reported model id resolved to
+  `claude-opus-5-5`, and each launch cost ~29k tokens, inside the 17–35k
+  estimate. One judge flagged `no_unsupported_claim` as ambiguous on whether
+  a date counts as a figure: a v2 of the rubric should say. **Not checked**:
+  the run skill driving the pass headless in one turn, through
+  `Agent(evalup:judge)` (§16 test 13), which is #27's first step.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1;
+  `JUDGE_VERSION` 1 is the judge's own).
+
 ### Added — analyze and optimize: never-pass cases, rejected attempts, two suites (2026-11-21)
 
 Three of #29's borrowed ideas, all skill text; no script changed.

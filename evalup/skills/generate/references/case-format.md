@@ -252,12 +252,12 @@ expect:
                                      # the runner reports the layer `unscored`. Write a
                                      # rule you can state as must_contain /
                                      # must_not_contain / json_schema there instead.
-    rubric: billing-answer-v2        # judged dimensions — reported `unjudged` at run time
-                                     # today (no run-time judge); calibrate first. Format is
+    rubric: billing-answer-v2        # judged after the run by the judge pass: provisional
+                                     # until calibrated, never in a pass rate. Format is
                                      # <rubric_id>-v<version>, resolved against the rubric
-                                     # file's `rubric_id`/`version` fields (a version PIN, so
-                                     # a run records which rubric revision graded it). The
-                                     # rubric itself is a decomposed-binary DAG — see
+                                     # file's `rubric_id`/`version` fields (a version PIN; a
+                                     # stale one is judged on the file's version). The rubric
+                                     # is a `form: criteria` list of yes/no questions — see
                                      # ${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md.
   format: { json_schema: null }      # structured-output compliance — scored by
                                      # score_answer.py (minimal stdlib validator:

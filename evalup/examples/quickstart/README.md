@@ -32,6 +32,8 @@ layers can this app actually support?*
 | `.evalup/profile.yaml` | the app's capabilities and business rules | `discover` |
 | `.evalup/adapter.yaml` | the only thing the harness knows about the app | `discover` |
 | `.evalup/datasets/c-*.yaml` | six cases, one file each | `generate` |
+| `.evalup/rubrics/grounded-answer.md` | the one rubric, in the criteria form, with its self-test | `generate` / you |
+| `judge-replies/` | fixture judge replies for `demo.py --judge-replies` | committed by hand |
 | `converted.json` | those three, as the JSON the scripts read | `run`, mechanically |
 | `plan.template.json` | the plan the runner executes | `run` §1 |
 | `expected-run-tree.txt` | every file the run writes | `run_cases.py` |
@@ -60,6 +62,8 @@ the runner and scorers never do.
 python3 examples/quickstart/demo.py            # from evalup/ — six cases, a verdict each, the gate line
 python3 examples/quickstart/demo.py --break    # the same run with one wrong expectation: exit 1
 python3 examples/quickstart/demo.py --keep     # leave the run directory + viewer.html to open
+python3 examples/quickstart/demo.py --judge-replies examples/quickstart/judge-replies
+                                               # + the judge pass, on fixture replies: a PROVISIONAL pass with quotes
 python3 -m unittest tests.test_example         # the same example, as the suite checks it
 ```
 
@@ -99,7 +103,7 @@ alone (`tests/test_example.py`). The other two rules:
 |---|---|---|
 | `plain-text` | every case | a regex on the answer |
 | `read-only` | `c-6c1f82ab` | a string check on the refusal |
-| `grounded-only` | none | needs a judge: the figure must match a tool result |
+| `grounded-only` | `c-4f2a91c7`, judged | the `grounded-answer` rubric: a judge checks every figure against the response data. Provisional: shown with quotes, in no pass rate or gate |
 
 Ids are `c-<hash8>` and **opaque**: they encode neither unit nor category, both
 of which are mutable classifications. Splits are a **field**, never a

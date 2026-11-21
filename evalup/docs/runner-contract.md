@@ -608,9 +608,12 @@ them `unscored`/`unjudged` with a reason and **never** attempts them. (A row
 whose matrix key is disabled is `unscorable` first, like any other: `rules` and
 `judged` under `answer_quality`, `state` under `state` — §5's decision order.) No skill
 fills those rows in afterward: the runner's artifacts stay as written, and
-`verdict.json` is never rewritten (a run-time judge is future work, #23;
-its design, `docs/judge-run.md`, keeps it that way: the judge pass writes its
-own `judge/` files beside the run and none of these). The
+`verdict.json` is never rewritten. The run-time judge (`docs/judge-run.md`)
+is a pass AFTER the run, in the run skill: `scripts/judge_run.py` writes its
+own `judge/` directory beside these files (`judge/judged.json`, verdicts
+`unjudged` / `provisional` / `calibrated`) and none of the files below, and
+nothing on the decision path — `gate.py`, `stats.py`, `--verify`,
+`run_history.py`, optimize — reads it. The
 runner's own output is deterministic and reproducible without a model.
 
 **State-diff is RESERVED, not pending an adapter field.** The runner calls
@@ -631,7 +634,7 @@ copied out of `profile.yaml`, which a model edits — and `profile-schema.md`
 rubric's own tpr/tnr/kappa. So the flag is **necessary and not sufficient**:
 with `judge.status: calibrated` the runner also requires
 `paths.judge_calibration` to name a `score_agreement.py --write` sidecar
-(`schema: evalup/judge-calibration/1`) whose own `status` is `calibrated`
+(`schema: evalup/judge-calibration/2`, or a `/1` written before it) whose own `status` is `calibrated`
 and whose `rubrics_measured` covers every rubric a selected case pins in
 `expect.answer.rubric` (matched with or without the `-v<version>` pin). Any
 gap — path unset, file missing, wrong schema, uncalibrated, a rubric never

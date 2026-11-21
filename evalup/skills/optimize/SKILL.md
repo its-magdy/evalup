@@ -65,7 +65,9 @@ Two terms, used exactly:
   only when that row is `judged`. No run scores `judged` today (always
   `unjudged`, runner-contract §5), so the holdout gate cannot see a cluster
   that fails on `judged` alone: refuse it, and name the deterministic
-  assertion that would make it visible. Until a run scores `judged`, rows 1
+  assertion that would make it visible. A run's `judge/judged.json` is never
+  an objective, a keep signal or a reason to revert, `calibrated` verdicts
+  included (`docs/judge-run.md` §8). Until a run scores `judged`, rows 1
   and 2's ~100 bar therefore never apply; every objective is deterministic.
 - **Usable case count**: `summary.usable_by_split.full` +
   `summary.by_split.holdout`, both from what `validate_cases.py` prints

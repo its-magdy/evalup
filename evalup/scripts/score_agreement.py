@@ -43,12 +43,12 @@ Per line, on top of that doc's fields:
                  the earlier pair. A group without both is counted exactly as
                  before and calibrates nothing at run time.
 
-`judge_label` is not a field the viewer exports today, and it cannot be: the
-runner NEVER writes a judge verdict — `run_cases.py`'s judged layer is always
-`unjudged (<reason>)` and runner-contract.md §5.4 leaves filling it in to an
-LLM step. So there is no artifact on disk pairing a judge verdict with a case,
-and this script does not pretend to join one. The pairing is recorded at
-labeling time, when the flow has both sides in hand, on one line. Lines with no
+`judge_label` is not a field the viewer exports today. The runner NEVER
+writes a judge verdict -- `run_cases.py`'s judged layer is always
+`unjudged (<reason>)` -- and the one artifact that holds one is a run's
+`judge/judged.json` (judge_run.py, docs/judge-run.md). This script does not
+join it: the pairing is recorded at labeling time, when `analyze --label`
+has both sides in hand (pre-filled from judged.json), on one line. Lines with no
 `judge_label` are ordinary open-coding annotations; they are counted under
 `unpaired_annotations` and skipped, so one file can hold both kinds of pass.
 
@@ -520,10 +520,10 @@ def main():
         die(f"{a.annotations}: no annotation carries a 'judge_label', so there "
             f"is nothing to compare ({unpaired} human-only annotation(s) "
             "read). A viewer export holds the human side only; the judge's "
-            "verdict is written by no artifact in this harness "
-            "(run_cases.py's judged layer is always 'unjudged'), so the "
-            "labelling flow must record both sides on one line -- see this "
-            "script's docstring and annotation-ux.md.")
+            "verdict is in a run's judge/judged.json, never in the "
+            "runner's judged layer, so the labelling flow must record both "
+            "sides on one line -- see this script's docstring and "
+            "annotation-ux.md.")
 
     groups, keys = {}, {}
     for row in paired:

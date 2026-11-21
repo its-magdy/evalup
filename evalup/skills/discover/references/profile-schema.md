@@ -185,6 +185,6 @@ judge:
                                  # opens nothing.
   model: ""                      # must differ from app's model family, or
   same_family_accepted: false    # ...user consciously accepted the bias risk
-                                 # model overrides the judge agent's, which only
-                                 # analyze --label launches (no run judges)
+                                 # model overrides the judge agent's, launched by the
+                                 # run skill's judge pass and by analyze --label
 ```
