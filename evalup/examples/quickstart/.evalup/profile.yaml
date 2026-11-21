@@ -50,7 +50,7 @@ business_rules:
     source: "app fixture, answer templates"
   - id: plain-text
     rule: "Reply in plain text: no Markdown, no bullet or numbered lines."
-    source: "app fixture, SYSTEM_PROMPT"
+    source: "tests/test_example.py, SYSTEM_PROMPT"
     # It binds every answer, so every case carries its check: a
     # must_not_contain regex on bullet, numbered and heading lines and on
     # bold. read-only is checked by c-6c1f82ab's strings; grounded-only

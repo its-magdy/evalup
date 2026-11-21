@@ -251,6 +251,9 @@ class TestCommittedInputsConform(unittest.TestCase):
                      "intro:\n- a"):
             with self.subTest(caught=text):
                 self.assertIsNotNone(pattern.search(text))
+        # Known false positive, said in test-generator rule 8: "# of" at a
+        # line start reads as a heading.
+        self.assertIsNotNone(pattern.search("# of nurses: 7"))
         for text in ("-5 degrees tonight", "You spent $412.50.",
                      "seven nurses - all on nights", "#1 priority",
                      "2026 was busy", "a * b"):

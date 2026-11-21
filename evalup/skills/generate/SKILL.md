@@ -114,7 +114,7 @@ breach shows in the answer or the trace gets a case that fails on it, built
 from existing checks — plain-text-only, a `must_not_contain` regex such as
 `'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'` on every case; a reply
 language, `must_contain` on its words; one answer per ambiguous candidate,
-each name plus `'/\?/'`; "call X before saying not found", `expect.tools`; a
+`must_contain` on each; "call X before saying not found", `expect.tools`; a
 stated count, `expect.result`. `coverage_grid.rules` lists every rule with
 its case ids, or why none (judge-only, layer disabled). Spread cases over
 every tool, never mostly the one record a probe grounded.
@@ -154,9 +154,10 @@ generation-method.md.
 
 ### 2c. What to add to the agent's own rules
 test-generator.md carries the per-case rules and case-format.md the per-layer
-ones, RESERVED fields included. This skill adds two. **Real seeds first**: seed from real messages or traces
-where they exist, and record which cases are synthetic-only — a regression
-scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
+ones, RESERVED fields included. This skill adds two. **Real seeds first**:
+seed from real messages or traces where they exist, and record which cases
+are synthetic-only — a regression scaffold, not a measure of real-world
+quality. And INV/DIR cases are cheap but
 still spend suite slots, so hold them to §1's ratio and floor.
 
 **Conversations** (`input.turns`,
@@ -280,7 +281,7 @@ splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
     billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
-  rules: { plain-text: all, refund-cap: "judge-only" }   # no script reads this one
+  rules: { plain-text: all, refund-cap: "judge-only" }   # all = every case; no script reads it
 ```
 
 ## 5. Suite adequacy (periodic, not per-generate)

@@ -71,7 +71,8 @@ Rules:
    that grades the app against itself. Expectations come from the profile's
    `confirmed_by_human` section, route-target descriptions, and common sense
    about what the user needs. A rule the app's own prompt states is
-   owner-stated, not common sense: cite it as the profile does. A probe (generation-method.md §3) may ground
+   owner-stated, not common sense: name its rule id (rule 8). A probe
+   (generation-method.md §3) may ground
    the DATA in an expectation — a real employee name, a count, a leave type
    the app actually has — never the behaviour: a status code, a refusal
    path, or an "I couldn't find that" the app happens to return today is an
@@ -105,18 +106,22 @@ Rules:
    - plain text / no Markdown: `must_not_contain` with
      `'/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/'` (YAML single
      quotes keep the backslashes). It catches bullet, numbered and heading
-     lines and bold, not every Markdown form; an answer-wide rule goes on
+     lines and bold, not every Markdown form, and it also flags plain
+     "# of" at a line start; an answer-wide rule goes on
      EVERY case you write, not one.
    - reply language: write the message in that language and `must_contain`
-     words the answer cannot avoid (a name, a number in that script) — a
-     weak check, so say so in `notes`.
+     words of that language the message does NOT contain (the fact that
+     goes with the name; an echoed word passes any app and trips
+     `echo_assertion`) — a weak check, so say so in `notes`.
    - one answer per ambiguous candidate plus a question: `must_contain` on
-     each candidate and `'/\?/'`.
+     what tells each candidate apart, absent from the message. The question
+     has no string check (a `?` echoes the user's): say so in `notes`.
    - "look X up twice before saying not found": only on a case whose name
      is absent from the first source, `expect.tools.subset` listing X twice
      (it is duplicate-aware). It checks the lookups, not the answer's
      wording (rule 4): say so in `notes`.
-   - a stated count: `expect.result` from the oracle.
+   - a stated count: `expect.result` from the oracle (it checks the count,
+     not that it matches the items the answer lists).
    Name the rule id in the case's `notes` (the id, never the prompt's file
    path: "read <file>" there trips `source_derived_expectation`). A rule with
    no such check (judge-only, or its layer disabled) gets no case: report
