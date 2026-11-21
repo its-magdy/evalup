@@ -1601,7 +1601,8 @@ class TestTraceability(ValidateTest):
         """`outside: true` forgotten on a wiki URL still keeps its quote out
         of the versioned profile."""
         for source in ("https://wiki.example/billing §Refunds",
-                       "http://intranet/policy"):
+                       "http://intranet/policy",
+                       "Confluence page https://wiki.example/x"):
             with self.subTest(source=source):
                 rc, out = self.lint([good_case(covers=["refund-cap"])],
                                     [a_rule(source=source)])

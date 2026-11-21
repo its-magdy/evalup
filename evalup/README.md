@@ -280,9 +280,10 @@ set -e   # stop at the first command that fails
 python3 scripts/convert_suite.py your-app/.evalup -o converted.json
 python3 scripts/validate_cases.py --cases converted.json \
   --capabilities converted.json --profile converted.json
-python3 scripts/make_plan.py converted.json --mode regression \
-  --state-dir your-app/.evalup -o plan.json    # prints the exact run command next
-python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/<run-id>
+run_id="regression-$(date -u +%Y%m%dT%H%M%SZ)"
+python3 scripts/make_plan.py converted.json --mode regression --run-id "$run_id" \
+  --state-dir your-app/.evalup -o plan.json
+python3 scripts/run_cases.py --plan plan.json --out your-app/.evalup/reports/"$run_id"
 python3 scripts/gate.py your-app/.evalup/reports --latest --mode regression
 ```
 

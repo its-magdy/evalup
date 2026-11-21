@@ -1659,7 +1659,7 @@ def check_rule_entry(rep, rule, where):
     source = rule.get("source")
     # A URL is outside the app repo whether or not `outside:` says so.
     outside = rule.get("outside") is True or (
-        is_nonempty_str(source) and bool(URL_SOURCE.match(source.strip())))
+        is_nonempty_str(source) and bool(URL_SOURCE.search(source)))
     missing = [key for key in ("rule", "source", "date")
                if not is_nonempty_str(str(rule.get(key) or ""))]
     has_quote = is_nonempty_str(rule.get("quote"))

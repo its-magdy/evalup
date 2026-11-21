@@ -100,7 +100,7 @@ The app's prompt (the fixture's `SYSTEM_PROMPT`, built from one fragment per
 line) says *reply in plain text: no Markdown, and no line starting with a
 bullet or a number*, and `profile.yaml` records it as the business rule
 `plain-text`, with the fragment's verbatim quote, its `file:line`, a date and
-`status: confirmed` (with `confirmed_by`, the human who confirmed it). It is
+`status: confirmed` (with `confirmed_by`, the person or role who confirmed it). It is
 the kind of rule generate turns into a check rather than leaves to a judge: its breach is a pattern in
 the text. Because it binds every answer, **every case** carries the same
 `must_not_contain` regex for bullet, numbered and heading lines and for bold.
