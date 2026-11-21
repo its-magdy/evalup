@@ -220,6 +220,21 @@ class TestPluginLayout(unittest.TestCase):
                       read("skills", "generate", "SKILL.md"))
         self.assertIn("`unconfirmed_rule_gates`",
                       read("agents", "test-generator.md"))
+        # #25 review: the exceptions and the CI step are said where they bite.
+        self.assertIn("and never a canary", read("agents", "test-generator.md"))
+        for phrase in ("`gate.py --min-pass-rate`", "`contradiction:` is deleted",
+                       "`covers_contradicted_rule`"):
+            self.assertIn(phrase, interview)
+        ci = read("skills", "run", "references", "ci-gate.md")
+        self.assertIn("`convert_suite.py` → `validate_cases.py` → "
+                      "`make_plan.py`", ci)
+        self.assertIn("scripts/validate_cases.py --cases converted.json",
+                      readme)
+        analyze = read("skills", "analyze", "SKILL.md")
+        rules = analyze.index("### Rules and risks with no case")
+        self.assertLess(analyze.index("## `--cluster`"), rules)
+        self.assertLess(rules, analyze.index("## `--label`"))
+        self.assertIn("even when no case was edited", analyze)
 
     def test_the_prompts_checkable_rules_become_cases(self):
         # Issue #52: discover recorded a plain-text rule with its source

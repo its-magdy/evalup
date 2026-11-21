@@ -118,7 +118,7 @@ from existing checks — plain-text-only, a `must_not_contain` regex such as
 language, `must_contain` on its words; one answer per ambiguous candidate,
 `must_contain` on each; "call X before saying not found", `expect.tools`; a
 stated count, `expect.result`. Every case names its rule and risk ids in
-`covers`; an unconfirmed rule backs only `gating: false` cases, a
+`covers`; an unconfirmed rule backs no gating case or canary, a
 contradicted one none until the owner decides. Hand over the validator's
 `summary.traceability.gaps`. `coverage_grid.rules` lists every rule with
 its case ids, or why none (judge-only, layer disabled). Spread cases over

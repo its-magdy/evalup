@@ -1380,24 +1380,33 @@ graded the app against itself.
   (`quote_versioned: true`).
 - **Cases name what they are for: `covers: [<rule or risk id>, ...]`.**
   `validate_cases.py --profile` resolves each link (`dangling_cover`,
-  ERROR), refuses a gating case covering a rule no human confirmed
-  (`unconfirmed_rule_gates`, ERROR), warns on a case covering nothing and
-  on an incomplete or vaguely sourced rule, and prints
-  `summary.traceability`: each rule's and risk's cases, the gaps ("rule
-  dispute-window has no case"), the unconfirmed rules and the contradicted
-  ones. A gap is a report line, not a finding: nothing scores rules, and an
+  ERROR), refuses a gating case or a canary (whose fail aborts the run)
+  covering a rule no human confirmed (`unconfirmed_rule_gates`, ERROR),
+  warns on a case covering nothing or a still-contradicted rule, on an
+  incomplete or vaguely sourced rule and on rules left under
+  `confirmed_by_human.business_rules`, and prints `summary.traceability`:
+  each rule's and risk's cases, the gaps ("rule dispute-window has no
+  case"), the unconfirmed rules, the contradicted ones, and the `gating:
+  false` cases on an unconfirmed rule -- which close no gate, but
+  `gate.py --min-pass-rate` counts them (gate.py is unchanged). A gap is a report line, not a finding: nothing scores rules, and an
   inferred rule is meant to wait for its case. `covers` without `--profile`
   warns `covers_unchecked`.
 - **`convert_suite.py`'s combined document** carries `schema_version`,
-  `business_rules` and `risks` under `profile`, so it can be passed as
-  `--profile` by itself.
+  `business_rules` and `risks` under `profile`, and `--profile` unwraps
+  it, so the one file serves `--cases`, `--capabilities`, `--profile` and
+  `--rubrics`.
+- **The deterministic CI pipeline validates before it plans:** README and
+  `ci-gate.md` give five commands (convert, validate, plan, run, gate) and
+  stop on the validator's non-zero exit; `demo.py` runs the same step and
+  prints the gaps.
 - **generate, the test-generator and analyze** link every case, keep an
   unconfirmed rule out of the gate, and report the gaps; the trace-analyzer
   reads only confirmed rules as a SHOULD.
 - **The commit policy, stated in the README and discover:** evalup never
   commits. `profile.yaml`, rule statuses included, is meant to be versioned
-  with the app like the cases, so a fresh clone or CI gates on the same
-  confirmed rules and a confirmation is a reviewable diff; an outside quote
+  with the app like the cases, so a fresh clone or a CI job running the
+  validator refuses the same unconfirmed rules and a confirmation is a
+  reviewable diff; an outside quote
   is not versioned.
 - **The quickstart shows all of it:** prompt fragments one per line, each
   rule's quote checked against the line its source names, a small

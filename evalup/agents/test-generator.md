@@ -71,7 +71,8 @@ Rules:
    `quarantined`, and `review.by` stays null for a human to fill in.
 4. Never derive expected BEHAVIOUR from what the app currently does —
    that grades the app against itself. Expectations come from the profile's
-   `business_rules` and `confirmed_by_human` section, route-target
+   top-level `business_rules` (never `confirmed_by_human.business_rules`,
+   a retired location) and `confirmed_by_human` section, route-target
    descriptions, and common sense
    about what the user needs. A rule the app's own prompt states is
    owner-stated, not common sense: name its rule id (rule 8). A probe
@@ -129,8 +130,9 @@ Rules:
    `covers: [...]` (ids from profile.yaml, never the prompt's file path:
    "read <file>" in `notes` trips `source_derived_expectation`). A rule
    whose status is not `confirmed` is still worth a case, but it stays
-   `gating: false` after review too, until a human confirms the rule (the
-   validator refuses it otherwise, `unconfirmed_rule_gates`); a rule
+   `gating: false` after review too, and never a canary, until a human
+   confirms the rule (the validator refuses it otherwise,
+   `unconfirmed_rule_gates`); a rule
    carrying a `contradiction:` gets no case until the owner decides. A rule
    with no such check (judge-only, or its layer disabled) gets no case:
    report it, with the reason, as uncovered.

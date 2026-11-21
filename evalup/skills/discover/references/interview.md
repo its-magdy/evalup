@@ -25,10 +25,15 @@ the answers under `confirmed_by_human:` in profile.yaml:
 **Confirming.** A rule becomes `status: confirmed` only when a human says so
 in this interview, with their name in `confirmed_by` — never on your own
 reading, and never headless. An unconfirmed rule never gates:
-`validate_cases.py --profile` refuses a `gating` case that `covers` one
-(`unconfirmed_rule_gates`). For a rule with a `contradiction:`, ask which
-side is right; the answer is a design finding (a bug in the code, or a stale
-doc) and, once confirmed, the rule keeps the side the owner chose. A struck
+`validate_cases.py --profile` refuses a `gating` case or a canary (whose
+fail aborts the run) that `covers` one (`unconfirmed_rule_gates`). One
+exception: `gate.py --min-pass-rate` counts every scored non-canary case,
+`gating: false` included; `summary.traceability.unconfirmed_non_gating`
+lists those. For a rule with a `contradiction:`, ask which side is right;
+the answer is a design finding (a bug in the code, or a stale doc) and,
+once confirmed, the rule keeps the side the owner chose and its
+`contradiction:` is deleted (a case covering a rule that still has one
+warns, `covers_contradicted_rule`). A struck
 rule is deleted, with a dated line in findings.md saying why.
 
 **Outside the app path** (a wiki, a shared drive, an MCP server the user has

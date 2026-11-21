@@ -118,7 +118,7 @@ conversation/session handling, OTel setup. Record as you go:
   docs under the app path for what it SHOULD do: `docs/adr/`, `GLOSSARY.md`,
   `CONTEXT.md`, `docs/agents/`, policy docs, what an `AGENTS.md` or README
   points at. Each rule: a one-sentence verbatim `quote`, a `date`, `status:
-  inferred` (profile-schema.md). A doc and the code disagreeing is a
+  inferred` (profile-schema.md). A doc contradicting the code is a
   finding, both sides quoted, plus a `contradiction:` on the rule.
 - Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
   adapter-contract.md defines them. Confirm each with the human — except in

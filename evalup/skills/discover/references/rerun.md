@@ -19,7 +19,8 @@ A profile written before #25 keeps its rules under
 `business_rules` list in profile-schema.md's shape, each `status: inferred`
 until the interview re-confirms it — a confirmation nobody can date is not
 one. Add the quote, source and date you can find; the validator names what
-is missing (`rule_incomplete`).
+is missing (`rule_incomplete`), and warns `legacy_rules_location` while
+the old block is left.
 
 ## `--diff` mode (after app changes)
 Re-run SKILL.md steps 2–4 against the current code, topology detection included: a

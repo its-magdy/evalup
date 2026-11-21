@@ -278,8 +278,8 @@ no_op_justification: null            # Expected with `pass` (else WARN no_op_pas
                                      # the whole gate — the author notices the exemption.
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
 covers: [refund-cap, risk-oos]       # profile.yaml business_rules/risks ids. Absent: WARN.
-                                     # Unknown id, or a gating case covering a rule not
-                                     # `confirmed`: ERROR. Linked, never scored.
+                                     # Unknown id, or a gating case or canary on an
+                                     # unconfirmed rule: ERROR. Linked, never scored.
 gating: true                         # true = regression; false = never gates (capability)
 notes: ""                            # reviewer's one-liner: why this case exists
 ```

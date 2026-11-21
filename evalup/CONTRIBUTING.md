@@ -239,13 +239,17 @@ Do not reopen one without reading that commit.
 
 A case's `covers` (#25) names profile.yaml `business_rules` / `risks` ids.
 `validate_cases.py --profile` reads it — it resolves the links, refuses a
-gating case covering a rule that is not `confirmed` with a human's
-`confirmed_by`, and reports the gaps — and nothing else does: no scorer,
+gating case or a canary covering a rule that is not `confirmed` with a
+human's `confirmed_by`, and reports the gaps — and nothing else does: no scorer,
 not the runner. Keep it that way until #26 brings a scorer; a rule's
 `status` deciding a verdict would be new scoring semantics. The quickstart's
 rule quotes are checked against the `file:line` their source names, so
 moving the fixture's `SYSTEM_PROMPT_FRAGMENTS` in `tests/test_example.py`
 means updating `profile.yaml` (and regenerating `converted.json`).
+"Never gates" has one exception, by design of `gate.py` (not to be changed
+for this): `--min-pass-rate` counts every scored non-canary case, so a
+`gating: false` case on an unconfirmed rule moves that floor;
+`summary.traceability.unconfirmed_non_gating` lists them.
 
 ## Five fields are RESERVED
 

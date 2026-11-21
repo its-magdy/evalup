@@ -149,7 +149,7 @@ business_rules:                  # versioned like the cases; no run scores these
     source: "prompts/router.md:4"   # code: the FRAGMENT's file:line; doc: path or URL + §section
     date: 2026-11-21             # the source's own date, else the day it was read
     status: inferred             # inferred | confirmed. Only a human confirms, by name in
-    confirmed_by: null           # confirmed_by (the interview); an unconfirmed rule never gates
+    confirmed_by: null           # confirmed_by (the interview); unconfirmed: `gating: false`, no canary
     # contradiction: "<the other side, with its source>"   when docs and code disagree
     # outside: true + quote_in: local   a source outside the app repo (interview.md)
 risks:                           # ranked, costliest first; cases `covers` them too
