@@ -66,10 +66,22 @@ def judge_pass(out, replies):
     planned = judge("plan", str(out), "--rubrics",
                     str(HERE / "converted.json"))
     print("\n" + "\n".join(planned["summary"]))
+    inbox = out / "judge" / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
     for launch in planned["pending"]:
-        reply = replies / (launch["key"] + ".txt")
+        # A self-test's key carries a random label (judge-run.md SS19), so
+        # its fixture is named by side, and the reply's case_id is put back
+        # to the key this plan drew -- the one thing a real judge copies
+        # from its assignment.
+        name = (f"selftest-{launch['rubric_id']}-{launch['side']}"
+                if launch["kind"] == "self_test" else launch["key"])
+        reply = replies / (name + ".txt")
         if reply.is_file():
-            judge(*launch["record_args"][:-1], str(reply))
+            text = reply.read_text("utf-8").replace(
+                f'"case_id": "{name}"', f'"case_id": "{launch["key"]}"')
+            target = inbox / (launch["key"] + ".txt")
+            target.write_text(text, encoding="utf-8")
+            judge(*launch["record_args"][:-1], str(target))
     judge("merge", str(out))
     judged = json.loads((out / "judge" / "judged.json").read_text("utf-8"))
     print("\nJudged (PROVISIONAL: in no pass rate, gate or optimize "

@@ -246,8 +246,9 @@ Pre-fill `judge_label` from each criterion's `verdict`, with `rubric_id`,
 `node_id` (the criterion id), `rubric_version` (the case's
 `graded_version`) and `judge_model_id` (`resolved_model_id`). **Record
 agreements too, not only disagreements**: a sample of only contested cases
-makes TPR and TNR meaningless. Its `unjudged` cases have no verdict to
-label.
+makes TPR and TNR meaningless. An `unjudged` case still carries the
+criteria that came back a checked `pass`/`fail`: label those too (only
+`unknown` ones have nothing to pair), or the sample loses the hard cases.
 
 The judge grades per node (or per criterion), so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:

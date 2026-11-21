@@ -125,12 +125,18 @@ class JudgeRunTest(unittest.TestCase):
         obj.update(over)
         return "I read the files.\n\n" + json.dumps(obj) + "\n"
 
+    def st_key(self, side):
+        """The self-test's opaque launch key for one side (SS19)."""
+        return next(x["key"] for x in self.plan_doc()["launches"]
+                    if x["kind"] == "self_test" and x["side"] == side)
+
     def record(self, key, text, ok=True):
+        """`key` is a case id, or "good"/"bad" for a self-test side."""
+        side = key if key in ("good", "bad") else None
         path = self.tmp / f"{key}.txt"
         path.write_text(text, encoding="utf-8")
-        flag = (["--self-test", key.split("selftest-", 1)[1].rsplit("-", 1)[0]
-                 + ":" + key.rsplit("-", 1)[1]]
-                if key.startswith("selftest-") else ["--case", key])
+        flag = (["--self-test", f"{RID}:{side}"] if side
+                else ["--case", key])
         rc, out, proc = script("judge_run.py", "record", self.run_dir, *flag,
                                "--reply-file", path)
         if ok:
@@ -140,14 +146,14 @@ class JudgeRunTest(unittest.TestCase):
     def self_test(self, good=None, bad=None, model=MODEL):
         """A passing self-test unless told otherwise. The bad answer's
         quotes come from its own answer.txt."""
-        self.record("selftest-grounded-answer-good", self.reply(
-            "selftest-grounded-answer-good", good, model=model,
+        self.record("good", self.reply(
+            self.st_key("good"), good, model=model,
             evidence={c: [{"source": "answer.txt", "quote": "You spent"}]
                       for c in CRITERIA}))
         bad = bad if bad is not None else {
             "period_is_asked_one": "fail", "no_unsupported_claim": "fail"}
-        return self.record("selftest-grounded-answer-bad", self.reply(
-            "selftest-grounded-answer-bad", bad, model=model,
+        return self.record("bad", self.reply(
+            self.st_key("bad"), bad, model=model,
             evidence={c: [{"source": "answer.txt", "quote": "April 2026"}]
                       for c in CRITERIA}))
 
@@ -328,16 +334,22 @@ class TestSelfTest(JudgeRunTest):
     def test_the_self_test_is_materialised_as_case_files(self):
         self.case("c-1")
         self.plan()
-        d = self.run_dir / "judge" / "selftest" / RID / "bad"
+        key = self.st_key("bad")
+        d = self.run_dir / "judge" / "selftest" / RID / key.rsplit("-", 1)[1]
         self.assertEqual(sorted(p.name for p in d.iterdir()),
                          ["answer.txt", "expect.json", "request.json",
                           "response.json"])
         self.assertIn("April 2026", (d / "answer.txt").read_text("utf-8"))
         # The bad answer's `fails` list is never in what the judge reads:
         # its prompt names files, not the rubric.
-        prompt = self.plan_doc()["launches"][1]["prompt"]
-        self.assertNotIn("fails", prompt)
-        self.assertNotIn("rubrics/", prompt)
+        # Nor does any name say which answer is the bad one: the key and the
+        # directory carry a random label (the review of #23's build).
+        for launch in self.plan_doc()["launches"][:2]:
+            self.assertNotIn("fails", launch["prompt"])
+            self.assertNotIn("rubrics/", launch["prompt"])
+            for word in ("good", "bad"):
+                self.assertNotIn(word, launch["key"])
+                self.assertNotIn(f"/{word}", launch["prompt"])
 
 
 class TestModelId(JudgeRunTest):
@@ -520,13 +532,12 @@ class TestStaleness(JudgeRunTest):
         self.rubrics = [rubric_entry(version=2)]
         self.case("c-1")
         self.plan()
-        for key in ("selftest-grounded-answer-good",
-                    "selftest-grounded-answer-bad"):
-            verdicts = ({} if key.endswith("good") else
+        for key in ("good", "bad"):
+            verdicts = ({} if key == "good" else
                         {"period_is_asked_one": "fail",
                          "no_unsupported_claim": "fail"})
             self.record(key, self.reply(
-                key, verdicts, rubric_version=2,
+                self.st_key(key), verdicts, rubric_version=2,
                 evidence={c: [{"source": "answer.txt",
                                "quote": "You spent"}] for c in CRITERIA}))
         self.record("c-1", self.reply("c-1", rubric_version=2))
@@ -618,7 +629,8 @@ class TestCalibrated(JudgeRunTest):
     def test_3_a_stale_pin(self):
         case = self.judged(self.sidecar(), rubric="grounded-answer")
         self.assertEqual(case["state"], "provisional")
-        self.assertIn("stale pin", case["not_calibrated_because"])
+        self.assertEqual(case["not_calibrated_because"],
+                         "the case pins no version (write grounded-answer-v1)")
 
     def test_4_a_failed_self_test_is_never_calibrated(self):
         """Condition 4 can never be the one that fails alone: a rubric whose
@@ -788,6 +800,68 @@ class TestRubricLint(JudgeRunTest):
         self.assertIn("rubric_pin_stale", codes)
 
 
+class TestReviewFixes(JudgeRunTest):
+    """What the Opus review of the build found, each pinned."""
+
+    def test_an_object_nested_in_a_broken_one_is_not_picked(self):
+        inner = self.reply("c-1").split("\n\n", 1)[1].strip()
+        case = self.one_case('{"wrapper": ' + inner + ', "x": NaN}\n')
+        self.assertEqual((case["state"], case["reason"]),
+                         ("unjudged", "no structured output"))
+
+    def test_a_one_letter_or_stitched_quote_is_not_evidence(self):
+        for quote in ("e", "You spent [REDACTED x] 4"):
+            with self.subTest(quote=quote):
+                self.setUp()
+                case = self.one_case(self.reply("c-1", evidence={
+                    "states_a_period": [{"source": "answer.txt",
+                                         "quote": quote}]}))
+                self.assertEqual(case["state"], "unjudged")
+
+    def test_a_redaction_spans_a_secret_not_the_file(self):
+        far = ANSWER + " " + "x" * 300 + " the end."
+        case = self.one_case(self.reply("c-1", evidence={
+            "states_a_period": [{"source": "answer.txt",
+                                 "quote": "You spent [REDACTED t] the end."}]
+            }), answer=far)
+        self.assertEqual(case["state"], "unjudged")
+
+    def test_a_float_rubric_version_does_not_match(self):
+        case = self.one_case(self.reply("c-1", rubric_version=1.0))
+        self.assertIn("rubric_version", case["reason"])
+
+    def test_holdout_cases_without_a_rubric_say_nothing_to_judge(self):
+        self.manifest.update(mode="holdout", selecting_split="holdout")
+        self.case("c-1", rubric=None)
+        self.case("c-2", rubric=None)
+        out = self.plan()
+        self.assertIn("nothing to judge", out["summary"][0])
+        self.assertNotIn("pin a rubric;", out["summary"][0])
+
+    def test_canaries_are_counted_apart(self):
+        self.case("c-can", canary=True)
+        self.case("c-1")
+        self.plan()
+        self.self_test()
+        self.record("c-can", self.reply("c-can"))
+        self.record("c-1", self.reply("c-1"))
+        summary = self.merge()["summary"]
+        self.assertEqual(summary["provisional"], 1)
+        self.assertEqual(summary["selected"], 1)
+        self.assertEqual(summary["canaries"]["provisional"], 1)
+        self.assertEqual(summary["by_verdict"]["provisional"]["pass"], 1)
+
+    def test_resume_refuses_a_different_cap(self):
+        self.case("c-1")
+        self.plan()
+        self.self_test()
+        rc, out, _ = script("judge_run.py", "plan", self.run_dir, "--rubrics",
+                            self.tmp / "rubrics.json", "--resume",
+                            "--max-calls", "40")
+        self.assertEqual(rc, 2)
+        self.assertIn("--restart", out["error"])
+
+
 class TestTheWall(ExampleCase):
     """SS16 test 2: no judged verdict moves a decision. The same real run,
     with and without a judge/ holding a `fail` on a gating case -- once
@@ -830,6 +904,36 @@ class TestTheWall(ExampleCase):
                         if canary else None}]}), encoding="utf-8")
                 self.assertEqual(self.decisions(out), before)
                 shutil.rmtree(jdir)
+
+    def test_a_real_judge_tree_moves_nothing(self):
+        """The same, with the tree a real pass writes: plan.json, selftest/,
+        inbox/, replies/, launches.jsonl and judged.json, from the
+        quickstart's fixture replies."""
+        rc, _, proc = self.invoke(self.build_plan())
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        out = self.out_dir()
+        before = self.decisions(out)
+        rc, planned, proc = script("judge_run.py", "plan", out, "--rubrics",
+                                   EXAMPLE / "converted.json")
+        self.assertEqual(rc, 0, proc.stdout)
+        replies = EXAMPLE / "judge-replies"
+        for launch in planned["pending"]:
+            name = (f"selftest-{launch['rubric_id']}-{launch['side']}"
+                    if launch["kind"] == "self_test" else launch["key"])
+            text = (replies / (name + ".txt")).read_text("utf-8").replace(
+                f'"case_id": "{name}"', f'"case_id": "{launch["key"]}"')
+            path = out / "judge" / "inbox" / (launch["key"] + ".txt")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            rc, _, proc = script("judge_run.py", *launch["record_args"])
+            self.assertEqual(rc, 0, proc.stdout)
+        rc, _, proc = script("judge_run.py", "merge", out)
+        self.assertEqual(rc, 0, proc.stdout)
+        judged = json.loads((out / "judge" / "judged.json").read_text("utf-8"))
+        self.assertEqual(judged["summary"]["provisional"], 1)
+        for name in ("plan.json", "launches.jsonl", "replies", "selftest"):
+            self.assertTrue((out / "judge" / name).exists(), name)
+        self.assertEqual(self.decisions(out), before)
 
 
 if __name__ == "__main__":

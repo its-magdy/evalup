@@ -432,6 +432,19 @@ class TestSidecarV2(ScorerCase):
         self.assertEqual(out["rubrics"]["billing_answer"]["labelled_pairs"],
                          120)
 
+    def test_a_plain_redo_still_supersedes_a_versioned_pair(self):
+        """As before /2: a later line on the same (rubric, node, case) with
+        no version or model drops the earlier pairing from the numbers."""
+        rows = self.tagged("claude-opus-5-5")
+        redo = {k: rows[0][k] for k in ("case_id", "rubric_id", "node_id")}
+        redo["label"] = "fail"
+        rc, out, _ = self.score([*rows, redo])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["unpaired_annotations"], 1)
+        self.assertEqual(
+            out["rubrics"]["billing_answer v1 on claude-opus-5-5"]
+            ["labelled_pairs"], 119)
+
     def test_a_bad_version_or_model_is_exit_2(self):
         for field, value in (("rubric_version", "1"),
                              ("rubric_version", True),

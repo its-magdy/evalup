@@ -1107,9 +1107,16 @@ is a pass after the run, in the run skill's turn.
   known-good and a known-bad answer, graded before any case; a judge that
   gets either wrong judges no case on that rubric.
 - **The walls**: nothing the pass writes is read by `gate.py`, `stats.py`,
-  `--verify`, `run_history.py` or optimize, and a test runs the quickstart
-  with a judged `fail` on a gating case (provisional, calibrated, and as a
-  failed judge canary) and finds every decision output byte-identical.
+  `--verify`, `run_history.py` or optimize. A test runs the quickstart with
+  a judged `fail` on a gating case (provisional, calibrated, and as a failed
+  judge canary), and with a real `judge/` tree from plan, record and merge,
+  and finds `gate.py`, `--verify`, `stats.py` and every runner file
+  byte-identical. `run_history.py` and optimize are walled by not reading
+  `judge/` (no test runs them against one).
+- **The self-test's two answers are anonymous**: each gets a random label
+  in its directory and `case_id`, and the good/bad mapping lives only in
+  `plan.json`, so a judge cannot pass it by reading a name. Quotes need
+  three characters per piece and a redaction spans at most 200.
 - **The criteria form** of a rubric (`rubric-format.md`): a flat list of
   yes/no questions plus `self_test`, parsed by `convert_suite.py`
   (`--rubrics-dir`, `rubrics.json`) and linted by `validate_cases.py

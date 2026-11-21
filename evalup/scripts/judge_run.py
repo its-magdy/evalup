@@ -53,6 +53,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,10 @@ BLOCKING_ROWS = ("error", "infra_error", "infra_incomplete")
 VERDICTS = ("pass", "fail", "unknown")
 SIDES = ("good", "bad")
 REDACTED = re.compile(r"\[REDACTED[^\]]*\]")
+# A quote's every unredacted piece is at least this long, and one redaction
+# stands for at most this many characters of the file (quote_found).
+MIN_QUOTE_PIECE = 3
+MAX_REDACTED_SPAN = 200
 SAME_FAMILY_NOTE = (
     "the app and its judge are both Claude: a judge passes its own family's "
     "failing outputs more often (Panickssery et al. 2024, arXiv 2508.06709, "
@@ -318,12 +323,16 @@ def assignment_prompt(key, rubric_id, snap, case_dir, expect_refusal):
     return "\n".join(lines)
 
 
-def materialise_self_test(jdir, rubric_id, side, block):
-    """judge/selftest/<rubric>/<side>/: the same file names a case has, so
-    SS4's checks apply to it unchanged."""
-    d = os.path.join(jdir, "selftest", rubric_id, side)
+def materialise_self_test(jdir, rubric_id, snap, side):
+    """judge/selftest/<rubric>/<label>/: the same file names a case has, so
+    SS4's checks apply to it unchanged. The label is opaque (self_test_key),
+    so neither the directory nor the case_id tells the judge which answer is
+    the bad one."""
+    block = snap["self_test"][side]
+    d = os.path.join(jdir, "selftest", rubric_id,
+                     snap["self_test_labels"][side])
     os.makedirs(d, exist_ok=True)
-    key = self_test_key(rubric_id, side)
+    key = self_test_key(rubric_id, snap, side)
     write_json(os.path.join(d, "request.json"), {
         "case_id": key,
         "body": {"messages": [{"role": "user", "content": block["user"]}]}})
@@ -337,8 +346,11 @@ def materialise_self_test(jdir, rubric_id, side, block):
     return d
 
 
-def self_test_key(rubric_id, side):
-    return f"selftest-{rubric_id}-{side}"
+def self_test_key(rubric_id, snap, side):
+    """`selftest-<rubric>-<random label>`: the good/bad mapping lives only in
+    plan.json, which no assignment names (SS3: two separate calls, so the
+    judge cannot grade by contrast -- nor by a label)."""
+    return f"selftest-{rubric_id}-{snap['self_test_labels'][side]}"
 
 
 def input_tokens(case_dir):
@@ -394,8 +406,14 @@ def cmd_plan(a):
     replies = os.path.join(jdir, "replies")
     if a.resume:
         plan = load_plan(run_dir)
+        if a.max_calls is not None and a.max_calls != plan["max_calls"]:
+            die(f"--resume keeps this pass's plan, budget included "
+                f"(--max-calls {plan['max_calls']}); a different cap means "
+                "a different selection, so plan it with --restart")
         print_plan(plan, run_dir)
         return
+    if a.max_calls is None:
+        a.max_calls = DEFAULT_MAX_CALLS
     has_replies = os.path.isdir(replies) and os.listdir(replies)
     if has_replies and not a.restart:
         die(f"{jdir} already holds a judge pass with replies: --resume "
@@ -479,9 +497,13 @@ def cmd_plan(a):
     launches = []
     for rid in used_rubrics:
         snap = rubrics[rid]
+        labels = set()
+        while len(labels) < len(SIDES):
+            labels.add(secrets.token_hex(3))
+        snap["self_test_labels"] = dict(zip(SIDES, sorted(labels)))
         for side in SIDES:
-            d = materialise_self_test(jdir, rid, side, snap["self_test"][side])
-            key = self_test_key(rid, side)
+            d = materialise_self_test(jdir, rid, snap, side)
+            key = self_test_key(rid, snap, side)
             launches.append({
                 "kind": "self_test", "key": key, "rubric_id": rid,
                 "side": side, "dir": d,
@@ -560,12 +582,16 @@ def print_plan(plan, run_dir):
     done = replied(run_dir)
     pending = [x for x in plan["launches"] if x["key"] not in done]
     lines = []
-    if cases or plan["holdout_not_judged"]:
-        n = len(cases) + plan["holdout_not_judged"]
-        why = ", ".join(f"{v} {k}" for k, v in sorted(reasons.items()))
+    if cases:
+        n = len(cases)
+        why = ", ".join(f"{v} {k}" for k, v in sorted(reasons.items())
+                        if k != "sealed holdout")
         lines.append(f"judge pass: {n} case(s) pin a rubric; "
                      f"{len(selected)} selected"
-                     + (f" ({n - len(selected)} not: {why})" if why else ""))
+                     + (f" ({n - len(selected)} not: {why})" if why else "")
+                     + (f"; {plan['holdout_not_judged']} sealed holdout "
+                        "case(s) not read" if plan["holdout_not_judged"]
+                        else ""))
         lines.append(f"  calls: {est['case_calls']} cases + "
                      f"{est['self_test_calls']} self-test "
                      f"({est['self_test_calls'] // 2} rubric(s)) = "
@@ -586,11 +612,15 @@ def print_plan(plan, run_dir):
             "records it)")
     else:
         lines.append("judge pass: no case in this run pins a rubric")
+    if plan["holdout_not_judged"] and not cases:
+        lines[-1] = ("judge pass: nothing to judge -- "
+                     f"{plan['holdout_not_judged']} sealed holdout case(s) "
+                     "are never judged, and their rubric pins are not read")
     print(json.dumps({
         "plan": os.path.join(judge_dir(run_dir), "plan.json"),
         "summary": lines,
         "pending": [{"key": x["key"], "kind": x["kind"],
-                     "rubric_id": x["rubric_id"],
+                     "rubric_id": x["rubric_id"], "side": x.get("side"),
                      "reply_file": x["reply_file"],
                      "record_args": x["record_args"],
                      "prompt": x["prompt"]} for x in pending],
@@ -611,7 +641,11 @@ def last_json_object(text):
 
     Top-level: once an object parses, the scan resumes after it, so an object
     nested inside a parsed one is never a candidate. A `{` that does not
-    start a valid object (prose, a NaN, a truncated reply) is skipped."""
+    parse (prose, a NaN, trailing junk) is skipped together with its
+    balanced, string-aware extent, so an object nested inside a BROKEN
+    outer one is never a candidate either (SS4). Only an opener that never
+    closes -- a stray `{` in prose, or a truncated reply -- is skipped by one
+    character."""
     decoder = json.JSONDecoder(parse_constant=_reject)
     found, i = None, 0
     while True:
@@ -621,11 +655,36 @@ def last_json_object(text):
         try:
             obj, end = decoder.raw_decode(text, i)
         except (ValueError, RecursionError):
-            i += 1
+            close = balanced_end(text, i)
+            i = close if close is not None else i + 1
             continue
         if isinstance(obj, dict):
             found = obj
         i = end
+
+
+def balanced_end(text, start):
+    """Index after the `}` closing the `{` at `start`, strings respected, or
+    None when it never closes."""
+    depth, in_string, escaped = 0, False, False
+    for j in range(start, len(text)):
+        ch = text[j]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return None
 
 
 def _reject(name):
@@ -652,20 +711,31 @@ def haystacks(path):
 
 def quote_found(quote, stacks):
     """Whitespace-collapsed, NFC, and a `[REDACTED <kind>]` piece (judge rule
-    3) matches when the pieces around it appear in order."""
+    3) matches when the pieces around it appear in order, each redaction
+    spanning at most MAX_REDACTED_SPAN characters -- a secret, not a stretch
+    of file. Every piece is at least MIN_QUOTE_PIECE characters, so a quote
+    of `e` or stitched from fragments is not evidence."""
     pieces = [p for p in (normalise(x) for x in REDACTED.split(quote)) if p]
-    if not pieces:
+    if not pieces or any(len(p) < MIN_QUOTE_PIECE for p in pieces):
         return False
     for hay in stacks:
-        pos, ok = 0, True
-        for piece in pieces:
-            at = hay.find(piece, pos)
-            if at < 0:
-                ok = False
-                break
-            pos = at + len(piece)
-        if ok:
+        at = hay.find(pieces[0])
+        while at >= 0:
+            if _rest_follows(hay, at + len(pieces[0]), pieces[1:]):
+                return True
+            at = hay.find(pieces[0], at + 1)
+    return False
+
+
+def _rest_follows(hay, pos, pieces):
+    if not pieces:
+        return True
+    window = hay[pos:pos + MAX_REDACTED_SPAN + len(pieces[0])]
+    at = window.find(pieces[0])
+    while at >= 0:
+        if _rest_follows(hay, pos + at + len(pieces[0]), pieces[1:]):
             return True
+        at = window.find(pieces[0], at + 1)
     return False
 
 
@@ -718,6 +788,7 @@ def check_reply(obj, launch, snap):
     elif obj.get("rubric_id") != launch["rubric_id"]:
         mismatch = "rubric_id"
     elif obj.get("rubric_version") != snap["version"] \
+            or not isinstance(obj.get("rubric_version"), int) \
             or isinstance(obj.get("rubric_version"), bool):
         mismatch = "rubric_version"
     elif not isinstance(crits, list) \
@@ -793,7 +864,11 @@ def cmd_record(a):
         if side not in SIDES or not rid:
             die(f"--self-test {a.self_test!r}: expected RUBRIC:good or "
                 "RUBRIC:bad")
-        key = self_test_key(rid, side)
+        snap = plan["rubrics"].get(rid) or {}
+        if "self_test_labels" not in snap:
+            die(f"--self-test {a.self_test!r}: rubric {rid!r} has no "
+                "self-test in this pass's plan")
+        key = self_test_key(rid, snap, side)
     else:
         key = a.case
     launch = next((x for x in plan["launches"] if x["key"] == key), None)
@@ -835,7 +910,7 @@ def cmd_record(a):
         sides = {}
         for side in SIDES:
             rec = read_optional(os.path.join(
-                jdir, "replies", self_test_key(rid, side) + ".json"))
+                jdir, "replies", self_test_key(rid, snap, side) + ".json"))
             sides[side] = self_test_side_ok(rec, snap, side) \
                 if rec is not None else None
         if all(v is not None for v in sides.values()):
@@ -961,7 +1036,7 @@ def cmd_merge(a):
             continue
         result, reason = "pass", None
         for side in SIDES:
-            rec = records.get(self_test_key(rid, side))
+            rec = records.get(self_test_key(rid, snap, side))
             if rec is not None and rec.get("rubric_sha256") != snap["sha256"]:
                 rec = None
             ok, why = self_test_side_ok(rec, snap, side)
@@ -1042,7 +1117,9 @@ def cmd_merge(a):
                 why = (f"no calibration for {rid} v{version} on {resolved}")
         if why is None and case["pinned_version"] != version:
             why = (f"stale pin: the case pins v{case['pinned_version']}, "
-                   f"the file is v{version}")
+                   f"the file is v{version}"
+                   if case["pinned_version"] is not None else
+                   f"the case pins no version (write {rid}-v{version})")
         if why is None and self_tests.get(rid, ("fail",))[0] != "pass":
             why = "self-test did not pass in this pass"
         if why is None and family == "unknown":
@@ -1057,8 +1134,10 @@ def cmd_merge(a):
         else:
             case["not_calibrated_because"] = why
 
-    def count(state, verdict=None):
+    def count(state, verdict=None, canary=False):
+        # SS9: canaries are counted apart, never in the cases' counts.
         return sum(1 for c in out_cases if c["state"] == state
+                   and c["canary"] is canary
                    and (verdict is None or c["verdict"] == verdict))
     tokens = [u.get("tokens") for u in used]
     started = parse_stamp(plan.get("created_at"))
@@ -1079,7 +1158,8 @@ def cmd_merge(a):
                         if sidecar_sha else None),
         "cases": out_cases,
         "summary": {
-            "selected": sum(1 for r in plan["cases"] if r["selected"]),
+            "selected": sum(1 for r in plan["cases"] if r["selected"]
+                            and not r["canary"]),
             "unjudged": count("unjudged"),
             "provisional": count("provisional"),
             "calibrated": count("calibrated"),
@@ -1087,7 +1167,13 @@ def cmd_merge(a):
                                "fail": count(s, "fail")}
                            for s in ("provisional", "calibrated")},
             "holdout_not_judged": plan["holdout_not_judged"],
-            "canaries": sum(1 for c in out_cases if c["canary"])},
+            "canaries": {
+                "unjudged": count("unjudged", canary=True),
+                "provisional": count("provisional", canary=True),
+                "calibrated": count("calibrated", canary=True),
+                "fail": sum(1 for c in out_cases if c["canary"] and (
+                    c["verdict"] == "fail"
+                    or c.get("voided_verdict") == "fail"))}},
         "cost": {"calls": len(used),
                  "wall_s": (round((last - started).total_seconds(), 1)
                             if started and last else None),
@@ -1193,7 +1279,7 @@ def main():
     p.add_argument("--include-failed", action="store_true",
                    help="also judge cases with a `fail` layer row (when "
                         "labelling); never a holdout case")
-    p.add_argument("--max-calls", type=int, default=DEFAULT_MAX_CALLS,
+    p.add_argument("--max-calls", type=int, default=None,
                    help="cap on launches, self-tests and retries included "
                         f"(default {DEFAULT_MAX_CALLS})")
     p.add_argument("--resume", action="store_true",

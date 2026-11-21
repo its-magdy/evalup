@@ -667,11 +667,15 @@ unless the owner says otherwise.
   run's own parse. The rules of §2 live in `scripts/_rubric.py`, shared by
   the linter and `plan`.
 - **The judge never reads the rubric file.** `plan.json` carries each
-  launch's prompt, with the criteria inline and the case's files listed, so
-  a self-test call cannot see `bad.fails`. A self-test's `case_id` is
-  `selftest-<rubric_id>-<good|bad>`.
-- **Flags §5 did not name:** `plan --resume` (keep the plan, list launches
-  with no reply) and `--restart` (discard an earlier pass; a plain `plan`
+  launch's prompt, with the criteria inline and the case's files listed.
+  A self-test's `case_id` and directory carry a random label
+  (`selftest-<rubric_id>-<6 hex>`), never `good` or `bad`; the mapping
+  lives only in `plan.json`, which no assignment names (rule 0 is what keeps
+  the judge out of it). `record --self-test RUBRIC:good|bad` and `pending`'s
+  `side` are for the skill. A quote's unredacted pieces are at least three
+  characters each, and one redaction spans at most 200 characters.
+- **Flags §5 did not name:** `plan --resume` (keep the plan and its
+  budget, list launches with no reply; a different `--max-calls` is exit 2) and `--restart` (discard an earlier pass; a plain `plan`
   over existing replies is exit 2), `record --tokens N`, `merge
   --launch-denied`. `record` counts each launch in `judge/launches.jsonl`
   and refuses one past `--max-calls`; `plan` pays for a rubric's self-test
@@ -683,6 +687,10 @@ unless the owner says otherwise.
   leaves its cases `unjudged` before §6 is asked, so §16 test 7 checks it
   as `unjudged`, not `provisional`.
 - **`cost.wall_s`** is the time from `plan` to the last recorded launch.
+- **Canaries are counted apart**: `summary.canaries` holds their own state
+  counts, and `summary`'s other counts are the non-canary cases only.
+- **Sealed holdout cases' rubric pins are not read**: `holdout_not_judged`
+  counts every holdout case of the run, whether it pins a rubric or not.
 - **The quickstart's fixture app** returns `invoices: 4` beside the total,
   so the answer's "across 4 invoices" is grounded and the case's
   provisional `pass` is the right verdict.

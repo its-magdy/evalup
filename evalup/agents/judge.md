@@ -60,7 +60,8 @@ nothing after it that contains a `{`:
 
 - `criteria` holds every assigned id exactly once — no more, no fewer.
 - `source` is one of the files the assignment listed (never `expect.json`),
-  written exactly as listed; `quote` is copied verbatim from that file, with
+  written exactly as listed; `quote` is copied verbatim from that file — a
+  whole phrase, each unredacted piece at least three characters — with
   secrets redacted as rule 3 says. A script checks every quote against the
   file: a paraphrase, or a quote from anywhere else, turns that verdict into
   `unknown`.

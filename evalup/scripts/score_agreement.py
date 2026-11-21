@@ -357,6 +357,19 @@ def load_pairs(path):
         # Dedupe over EVERY line, paired or not, before filtering for
         # judge_label -- so a later open-coding re-annotation supersedes an
         # earlier calibration pairing rather than being invisible to it.
+        # A line WITHOUT rubric_version/judge_model_id is the pre-/2 shape
+        # and supersedes every earlier line on its (rubric, node, case),
+        # versioned or not, exactly as before; a versioned line supersedes
+        # only its own (version, model) and an earlier unversioned line.
+        # So a new model's label never replaces another model's pair, and
+        # a plain re-annotation still drops them all.
+        base = key[:3]
+        if key[3] is None and key[4] is None:
+            for old in [k for k in latest if k[:3] == base]:
+                del latest[old]
+        else:
+            latest.pop(base + (None, None), None)
+        latest.pop(key, None)
         latest[key] = (lineno, row)
     paired, unpaired = [], 0
     for (rubric_id, node_id, ident, version, model), (lineno, row) in \

@@ -42,15 +42,18 @@ run skill: one plain command per call, the script path written out.
 3. **Cases.** Launch the `case` entries only for rubrics whose self-test
    printed `pass` — a failed self-test spends no case call — up to four per
    message, each recorded as in step 2. Stop when `record` reports
-   `calls_left: 0` or exits 2 over the budget; never retry past it. A denied
-   launch ends the launches (not the run): go to step 4 with
-   `--launch-denied`.
+   `calls_left: 0` or exits 2 over the budget; never retry past it. A launch
+   that errored still cost a call: write its error text as the reply and
+   record it (it comes out `no structured output`) before any retry, so the
+   budget counts every launch. A denied launch ends the launches (not the
+   run): go to step 4 with `--launch-denied`.
 4. **Merge.** `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/judge_run.py" merge reports/<run-id>`,
    plus `--calibration <state-dir>/judge/calibration.json` when that file
    exists. It writes `judge/judged.json`; re-running it is safe.
 
 An interrupted pass (a rate limit, a turn that ended) resumes with
-`plan … --resume`: it keeps the plan and lists only launches with no reply.
+`plan … --resume`: it keeps the plan, its budget included, and lists only
+launches with no reply.
 `--restart` discards an earlier pass on the same run.
 
 ## The report section
