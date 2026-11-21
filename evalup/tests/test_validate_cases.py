@@ -149,11 +149,13 @@ class TestCleanSuite(ValidateTest):
                       expect={"result": {"scalar": 7}}),
             good_case("f-sealed-6", split=["holdout"], gating=False,
                       review={"status": "pending"}),
+            good_case("g-quarantined-7", review={"status": "quarantined"}),
+            good_case("h-no-reviewer-8", review={"status": "accepted"}),
         ]
         _, out, _ = self.validate(cases)
         summary = out["summary"]
         self.assertEqual(summary["by_split"],
-                         {"canary": 1, "full": 5, "holdout": 1, "smoke": 2})
+                         {"canary": 1, "full": 7, "holdout": 1, "smoke": 2})
         self.assertEqual(summary["usable_by_split"],
                          {"canary": 0, "full": 1, "holdout": 0, "smoke": 1})
 

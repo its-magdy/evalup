@@ -956,11 +956,12 @@ correctly, but its preconditions left the agent to guess what they meant (#54).
 - **An iteration is estimated before its first app call**: messages from the
   dry runs' `app_calls_planned` (R + 3H on a seal's first iteration, R + H
   after; × `max_attempts` worst case), and wall time. A rate limit recorded
-  in findings or the adapter is checked against each run: the runner does
-  not pace to one (a 429 gets `max_attempts` tries, each wait capped at
-  60 s), so a run with more calls than the limit allows per window would
-  burn a holdout look on `infra_error`s — optimize refuses it until the
-  limit is raised. At 20 messages per 10 minutes, a 30 + 10-case suite at
+  in findings or the adapter is checked against each run: the serial runner
+  does not pace to one (a 429 gets `max_attempts` tries, each wait capped
+  at 60 s), so a run that can send more calls inside a window than the
+  limit allows would burn a holdout look on `infra_error`s — optimize
+  refuses it until the limit is raised. The plain regression run a keep
+  needs is dry-run and counted too. At 20 messages per 10 minutes, a 30 + 10-case suite at
   k = 3 (180 messages) is refused.
 - **`--budget $N` says what meters it**: `score_cost.py`'s dollars × `k`,
   holdout runs charged per app call. With the cost capability off or unpriced

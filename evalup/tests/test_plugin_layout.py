@@ -267,13 +267,14 @@ class TestPluginLayout(unittest.TestCase):
                 r"--[\w-]+", hint.group(1))) if hint else set()
         for n, _, unlock in rows:
             with self.subTest(precondition=n):
-                commands = re.findall(r"/evalup:(\w+)((?: --[\w-]+)*)",
+                # Every --flag up to the next command, placeholders between.
+                commands = re.findall(r"/evalup:(\w+)((?:(?!/evalup:)[^|])*)",
                                       unlock)
                 if not commands:
                     self.assertTrue(unlock.startswith("none:"), unlock)
                 for skill, flags in commands:
                     self.assertIn(skill, hints, "no such skill")
-                    for flag in flags.split():
+                    for flag in re.findall(r"--[\w-]+", flags):
                         # Membership, not substring: `--lab` is no flag.
                         self.assertIn(flag, hints[skill],
                                       f"{skill} takes no {flag}")
@@ -289,7 +290,9 @@ class TestPluginLayout(unittest.TestCase):
         for phrase in ("messages = R + 3H on a seal's first iteration",
                        "`execution.max_attempts`", "`app_calls_planned`",
                        "`wait_floor_s`", "`run_cases.py --dry-run` each", "no look",
-                       "the runner does not pace to", "any run over L → refuse",
+                       "the runner does not pace to", "any such run → refuse",
+                       "W ÷ the per-request latency > L", "+ P when the "
+                       "candidate is kept", "R + 2H when the seal record",
                        "time ≥ runs × W", "never assume one",
                        "**What `--budget $N` meters**", '`status: "unpriced"`',
                        "`holdout_excluded`", "`usd_per_case_with_trace`",
@@ -309,8 +312,9 @@ class TestPluginLayout(unittest.TestCase):
         m = re.search(r"(\d+) single-turn training cases and (\d+) sealed, "
                       r"k = (\d): R = (\d+), H = (\d+), so (\d+) messages "
                       r"on the first iteration \((\d+) worst case\)\. "
-                      r"Against (\d+) per (\d+) minutes every one of those "
-                      r"four runs exceeds L", flat)
+                      r"Against (\d+) per (\d+) minutes at a few seconds a "
+                      r"call, every one of those four runs \(five with a "
+                      r"keep\) outpaces L", flat)
         self.assertIsNotNone(m, "the worked example moved")
         train, sealed, k, r, h, msgs, worst, per, _ = map(int, m.groups())
         self.assertEqual((r, h), (train * k, sealed * k))

@@ -63,7 +63,8 @@ Two terms, used exactly:
   only when that row is `judged`. No run scores `judged` today (always
   `unjudged`, runner-contract §5), so the holdout gate cannot see a cluster
   that fails on `judged` alone: refuse it, and name the deterministic
-  assertion that would make it visible.
+  assertion that would make it visible. Until a run scores `judged`, rows 1
+  and 2's ~100 bar therefore never apply; every objective is deterministic.
 - **Usable case count**: `summary.usable_by_split.full` +
   `summary.by_split.holdout`, both from what `validate_cases.py` prints
   (convert and validate as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §1
@@ -79,7 +80,7 @@ Each refusal names its unlock, as a command:
 |---|---|---|
 | 1 | `judge.status: calibrated` when any objective dimension is judge-scored. Check the evidence, not the flag: `paths.judge_calibration`'s sidecar (`score_agreement.py --write`) derives it; a `calibrated` profile without one is hand-set, and the runner refuses it. An uncalibrated judge as a target yields a confidently worse app. | `/evalup:analyze --label` until the sidecar backs it |
 | 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --layer <layer> --count <N>` (adds beside the existing cases, changes none), then its §3 review: a human accepts each training case and flips `gating` in the same edit — never a holdout case, which reading unseals |
-| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal whose ledger has no looks left counts as none (step 4). | `/evalup:generate --layer <layer> --count <N>`, its §4 holdout cut from those fresh cases, which nobody has run or read; looks spent → `/evalup:analyze --unseal` |
+| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on, N ≥ 25 (generate's holdout floor) and ≥ 1.25 × the usable training count, so §4's 20% of those fresh, unread cases reaches the bar; looks spent → `/evalup:analyze --unseal` |
 | 4 | `stage:` ≥ stable. Below it, route-target and tool boundaries still move, so a gain is indistinguishable from drift. | `/evalup:discover` — its §6 sets `stage` once the user confirms the boundaries hold |
 | 5 | A budget, and its meter (below). | `/evalup:optimize --budget $N`, or ask |
 | 6 | White-box prompt access, and an edit that reaches the running app (below). | none: gray-box or `repo_access: read-only` → recommendations only, written to findings |
@@ -108,28 +109,32 @@ gate.
 
 **Estimate an iteration before its first app call** — messages and wall
 time, printed, then "Proceed?" (skipped under a pre-approved budget). Build
-the regression plan (`--single-turn` as step 4 runs it) and the holdout plan
-(k = 3) as run §1 does, and `run_cases.py --dry-run` each: no app call, no
-look. With R and H their `app_calls_planned`:
+the regression plan (`--single-turn` as step 4 runs it), the plain
+regression plan (step 5's pin run after a keep) and the holdout plan (k = 3)
+as run §1 does, and `run_cases.py --dry-run` each: no app call, no look.
+With R, P and H their `app_calls_planned`:
 - messages = R + 3H on a seal's first iteration (step 4's noise pair plus
-  the candidate's look), R + H after; plus a plain `--regression` run's
-  calls when a keep needs one (step 5). Worst case × the plan's `execution.max_attempts` (default
-  3): every call retried.
+  the candidate's look; R + 2H when the seal record holds one noise run),
+  R + H after; + P when the candidate is kept. Worst case × the plan's
+  `execution.max_attempts` (default 3): every call retried.
 - time = messages × discover §4's per-request latency + every run's
   `wait_floor_s` (the holdout plan's three times on a first iteration).
 - A rate limit recorded in `findings.md` or the adapter (L messages per W
-  minutes) is one the runner does not pace to: it sends as fast as the app
-  answers, and retries a 429 at most `max_attempts` times with each wait
-  capped at 60 s — never a whole window. A run with `app_calls_planned` > L
-  therefore ends in `infra_error`s and can abort (exit 5) after a holdout
-  run has already spent its look at pre-flight. So: any run over L → refuse;
-  the unlock is the user raising or lifting the limit for the eval's
-  client. Runs that fit start a full window apart: time ≥ runs × W. No
-  limit recorded → say so; never assume one.
+  minutes) is one the runner does not pace to: it sends one call at a time
+  as fast as the app answers, and retries a 429 at most `max_attempts`
+  times with each wait capped at 60 s — never a whole window. A run that
+  can outpace the limit (`app_calls_planned` > L, and W ÷ the per-request
+  latency > L; no latency recorded → the first test alone) therefore ends
+  in `infra_error`s and can abort (exit 5) after a holdout run has already
+  spent its look at pre-flight. So: any such run → refuse; the unlock is
+  the user raising or lifting the limit for the eval's client. A run over L
+  that the latency keeps under it is fine. Start each run a full window
+  after the last one ended, so two runs never share one (time ≥ runs × W).
+  No limit recorded → say so; never assume one.
 - e.g. 30 single-turn training cases and 10 sealed, k = 3: R = 90, H = 30,
   so 180 messages on the first iteration (540 worst case). Against 20 per
-  10 minutes every one of those four runs exceeds L: refuse until the limit
-  is raised.
+  10 minutes at a few seconds a call, every one of those four runs (five
+  with a keep) outpaces L: refuse until the limit is raised.
 
 ## The loop (one iteration per session unless told otherwise)
 1. **Ground first, edit never-first**: read the latest `analyze --cluster`
