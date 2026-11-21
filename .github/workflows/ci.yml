@@ -216,9 +216,10 @@ jobs:
           echo "checked $n CLIs"
           # 21: wait_run.py joined on 2026-09-25 (field test fix C1);
           # md_to_html.py left on 2026-11-21 (#21, report.html dropped);
-          # pin_baseline.py joined on 2026-11-21 (#53).
-          [ "$n" -eq 21 ] || {
-            echo "expected 21 CLIs, found $n -- update this count and say why" >&2
+          # pin_baseline.py joined on 2026-11-21 (#53); judge_run.py on
+          # 2026-11-21 (#23, the run-time judge pass).
+          [ "$n" -eq 22 ] || {
+            echo "expected 22 CLIs, found $n -- update this count and say why" >&2
             exit 1
           }
 
