@@ -251,6 +251,287 @@ class TestGate(TempDirTest):
         self.assertIn("artifacts NOT verified", out)
 
 
+class TestBaselineGate(TempDirTest):
+    """#40: `--baseline` gates on regressions, not on every pass^k failure.
+
+    The seeded fixture is a k = 3 baseline holding one case of each standing:
+    `steady` passed 3/3 (reliable), `flaky` passed 2/3, `broken` passed 0/3.
+    """
+
+    BASELINE = "regression-20260901T120000Z"
+    CURRENT = "regression-20260902T120000Z"
+    SEEDED = {"steady": ["pass"] * 3, "flaky": ["pass", "fail", "pass"],
+              "broken": ["fail"] * 3}
+
+    def write_run(self, run_id, verdicts, k=3, **extra):
+        """A fabricated run directory: results.json plus, at k > 1, each
+        case's verdict.json with its repeats. `verdicts` maps a case id to a
+        list of repeat verdicts -- "pass", "infra_error", "fail" (on
+        `answer`) or "fail:<layer>" -- and the case verdict is their pass^k
+        fold."""
+        out = self.tmp / "reports" / run_id
+        out.mkdir(parents=True, exist_ok=True)
+        rows = []
+
+        def plain(value):
+            return value if value in ("pass", "infra_error") else "fail"
+
+        def layers_of(value):
+            layer = value.split(":", 1)[1] if ":" in value else "answer"
+            return {"answer": "pass", "routing": "pass", "http": "pass",
+                    **({layer: "fail"} if plain(value) == "fail" else {})}
+
+        for case_id, repeats in verdicts.items():
+            folded = [plain(v) for v in repeats]
+            verdict = ("fail" if "fail" in folded else "pass"
+                       if all(v == "pass" for v in folded) else "infra_error")
+            chosen = next((v for v in repeats if plain(v) == verdict),
+                          "pass")
+            rows.append({"case_id": case_id, "verdict": verdict,
+                         "gating": True, "layers": layers_of(chosen)})
+            case_dir = out / "cases" / case_id
+            case_dir.mkdir(parents=True, exist_ok=True)
+            (case_dir / "verdict.json").write_text(json.dumps(
+                {"case_id": case_id, "verdict": verdict, "k": k,
+                 "repeats": [{"n": i + 1,
+                              "verdict": plain(v),
+                              "layers": {name: {"verdict": value}
+                                         for name, value
+                                         in layers_of(v).items()}}
+                             for i, v in enumerate(repeats)]
+                 if k > 1 else None}), encoding="utf-8")
+        passes = sum(1 for r in rows if r["verdict"] == "pass")
+        failures = sum(1 for r in rows if r["verdict"] == "fail")
+        summary = {"status": "ok", "n": len(rows), "attempted": len(rows),
+                   "passes": passes, "failures": failures,
+                   "gating_failures": failures, "unscored": 0,
+                   "skipped": 0, "infra_errors": 0, "infra_rate": 0.0,
+                   "crash_rate": 0.0, "scorer_errors": 0,
+                   "unscorable_layers": [], "unjudged": None,
+                   "canaries": None, "holdout": None,
+                   "missing_artifacts": []}
+        summary.update(extra.pop("summary", {}))
+        doc = {"run_id": run_id, "mode": run_id.split("-")[0],
+               "scoring_version": 3, "harness_version": "0.1.0",
+               "dataset_version": 1, "cases": rows, "summary": summary,
+               "exit_code": 0}
+        doc.update(extra)
+        (out / "results.json").write_text(json.dumps(doc), encoding="utf-8")
+        return str(out)
+
+    def gate(self, current, *baselines, extra=()):
+        argv = ["--no-verify", "--json", current, *extra]
+        for baseline in baselines:
+            argv += ["--baseline", baseline]
+        rc, out, err = run("gate.py", *argv)
+        return rc, (json.loads(out) if out.startswith("{") else out), err
+
+    def seeded(self):
+        return self.write_run(self.BASELINE, self.SEEDED)
+
+    def test_green_on_the_seeded_flaky_fixture_when_nothing_regressed(self):
+        baseline = self.seeded()
+        # The flaky case fails this time and the broken one still fails:
+        # the default rule closes on both, the relative rule on neither.
+        current = self.write_run(self.CURRENT, {
+            "steady": ["pass"] * 3, "flaky": ["pass", "pass", "fail"],
+            "broken": ["fail"] * 3})
+        self.assertEqual(self.gate(current)[0], 1)
+        rc, payload, err = self.gate(current, baseline)
+        self.assertEqual(rc, 0, f"{payload} {err}")
+        self.assertEqual(payload["gate"], "open")
+        self.assertEqual(payload["gating_failures"], 2)
+        facts = payload["baseline"]
+        self.assertEqual(facts["runs"], [self.BASELINE])
+        self.assertEqual(facts["regressions"], [])
+        self.assertEqual(len(facts["flaky_excused"]), 1)
+        self.assertIn("flaky (answer) [2/3 baseline trials passed]",
+                      facts["flaky_excused"][0])
+        self.assertIn("broken", facts["failing_excused"][0])
+        # Excused is not hidden: the text verdict line says it.
+        rc, out, _ = run("gate.py", "--no-verify", current,
+                         "--baseline", baseline)
+        self.assertIn("PASS (2 gating failure(s) excused by the baseline",
+                      out.splitlines()[0])
+        self.assertIn("flaky in the baseline, not gating: flaky", out)
+
+    def test_red_on_a_real_regression(self):
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, {
+            "steady": ["pass", "fail", "pass"], "flaky": ["pass"] * 3,
+            "broken": ["fail"] * 3})
+        rc, payload, _ = self.gate(current, baseline)
+        self.assertEqual(rc, 1)
+        self.assertEqual(len(payload["reasons"]), 1)
+        self.assertIn("1 regression(s)", payload["reasons"][0])
+        self.assertIn("steady (answer) [3/3 baseline trials passed]",
+                      payload["reasons"][0])
+
+    def test_a_failing_case_the_baseline_never_saw_closes(self):
+        # No evidence it is flaky is not evidence that it is: fail closed.
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, dict(
+            self.SEEDED, steady=["pass"] * 3, fresh=["fail"] * 3))
+        rc, payload, _ = self.gate(current, baseline)
+        self.assertEqual(rc, 1)
+        self.assertEqual(len(payload["baseline"]["no_baseline_verdict"]), 1)
+        self.assertIn("fresh (answer) [0/0", payload["reasons"][0])
+
+    def test_trials_add_up_across_k1_baselines(self):
+        # Two k = 1 runs that disagree make a case flaky; one alone made it
+        # look reliable, and the output says how thin that is.
+        one = self.write_run("regression-20260901T120000Z",
+                             {"c": ["pass"]}, k=1)
+        two = self.write_run("regression-20260901T130000Z",
+                             {"c": ["fail"]}, k=1)
+        current = self.write_run(self.CURRENT, {"c": ["fail"]}, k=1)
+        rc, payload, _ = self.gate(current, one)
+        self.assertEqual(rc, 1)
+        self.assertEqual(payload["baseline"]["min_trials"], 1)
+        _, out, _ = run("gate.py", "--no-verify", current, "--baseline", one)
+        self.assertIn("baseline rests on 1 trial(s)", out)
+        rc, payload, _ = self.gate(current, one, two)
+        self.assertEqual(rc, 0, payload)
+        self.assertEqual(len(payload["baseline"]["flaky_excused"]), 1)
+
+    def test_a_flaky_case_failing_a_new_layer_closes(self):
+        # Flaky on `answer` in the baseline excuses `answer`, not `authz`.
+        # The new layer may fail on a repeat other than the row's.
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, dict(
+            self.SEEDED, flaky=["fail", "pass", "fail:authz"]))
+        rc, payload, _ = self.gate(current, baseline)
+        self.assertEqual(rc, 1, payload)
+        self.assertEqual(len(payload["reasons"]), 1)
+        self.assertIn("never failed authz there", payload["reasons"][0])
+        self.assertEqual(len(payload["baseline"]["flaky_excused"]), 0)
+
+    def test_k3_baselines_add_up_and_infra_repeats_are_no_trial(self):
+        one = self.seeded()
+        two = self.write_run("regression-20260901T130000Z",
+                             {"steady": ["pass", "fail", "pass"],
+                              "flaky": ["pass"] * 3, "broken": ["fail"] * 3,
+                              "dark": ["infra_error"] * 3})
+        current = self.write_run(self.CURRENT, {
+            "steady": ["fail"] * 3, "flaky": ["fail"] * 3,
+            "broken": ["fail"] * 3})
+        rc, payload, _ = self.gate(current, one, two)
+        self.assertEqual(rc, 0, payload)          # steady: 5/6 is flaky
+        self.assertIn("steady (answer) [5/6",
+                      " ".join(payload["baseline"]["flaky_excused"]))
+        # A case whose every baseline repeat was infra has no trial: closes.
+        current = self.write_run(self.CURRENT, dict(
+            self.SEEDED, flaky=["pass"] * 3, dark=["fail"] * 3))
+        rc, payload, _ = self.gate(current, two)
+        self.assertEqual(rc, 1)
+        self.assertIn("dark (answer) [0/0",
+                      " ".join(payload["reasons"]))
+
+    def test_a_malformed_case_id_is_unknown_not_a_crash(self):
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, self.SEEDED)
+        doc = json.loads((pathlib.Path(current) / "results.json").read_text(
+            encoding="utf-8"))
+        doc["cases"][1]["case_id"] = ["flaky"]
+        (pathlib.Path(current) / "results.json").write_text(
+            json.dumps(doc), encoding="utf-8")
+        rc, payload, err = self.gate(current, baseline)
+        self.assertEqual(rc, 1, err)
+        self.assertEqual(len(payload["baseline"]["no_baseline_verdict"]), 1)
+
+    def test_every_other_closing_rule_still_applies(self):
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, self.SEEDED,
+                                 summary={"infra_rate": 0.5})
+        rc, payload, _ = self.gate(current, baseline)
+        self.assertEqual(rc, 1)
+        self.assertEqual(len(payload["reasons"]), 1)
+        self.assertIn("infra rate", payload["reasons"][0])
+
+    def test_rows_that_disagree_with_the_count_close(self):
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, self.SEEDED,
+                                 summary={"gating_failures": 5})
+        rc, payload, _ = self.gate(current, baseline)
+        self.assertEqual(rc, 1)
+        self.assertIn("summary.gating_failures says 5",
+                      " ".join(payload["reasons"]))
+
+    def test_the_baseline_json_pointer_resolves_to_its_run(self):
+        self.seeded()
+        pointer = self.tmp / "reports" / "baseline.json"
+        pointer.write_text(json.dumps({"run_id": self.BASELINE}),
+                           encoding="utf-8")
+        current = self.write_run(self.CURRENT, self.SEEDED)
+        rc, payload, _ = self.gate(current, str(pointer))
+        self.assertEqual(rc, 0, payload)
+        self.assertEqual(payload["baseline"]["runs"], [self.BASELINE])
+
+    def test_the_absolute_floor(self):
+        current = self.write_run(self.CURRENT, self.SEEDED)   # 1/3 pass
+        baseline = self.seeded()
+        rc, payload, _ = self.gate(current, baseline,
+                                   extra=("--min-pass-rate", "0.5"))
+        self.assertEqual(rc, 1)
+        self.assertIn("below the --min-pass-rate floor 50.0%",
+                      payload["reasons"][0])
+        rc, payload, _ = self.gate(current, baseline,
+                                   extra=("--min-pass-rate", "0.3"))
+        self.assertEqual(rc, 0, payload)
+        self.assertEqual(run("gate.py", "--no-verify", current,
+                             "--min-pass-rate", "1.5")[0], 2)
+        # Without --baseline too: the floor is in either mode.
+        green = self.write_run("regression-20260903T120000Z",
+                               {"a": ["pass"], "b": ["pass"]}, k=1)
+        self.assertEqual(self.gate(green, extra=("--min-pass-rate", "1"))[0],
+                         0)
+        rc, payload, _ = self.gate(green, extra=("--min-pass-rate", "1",
+                                                 "--max-infra-rate", "0"))
+        self.assertEqual(rc, 0, payload)
+
+    def test_a_baseline_that_cannot_be_one_is_bad_input(self):
+        current = self.write_run(self.CURRENT, self.SEEDED)
+        cases = {
+            "not ok": {"summary": {"status": "incomplete"}},
+            "scoring version": {"scoring_version": 99},
+            "dataset version": {"dataset_version": 2},
+            "sealed": {"summary": {"holdout": {"n": 1, "passes": 1,
+                                               "failures": 0,
+                                               "gating_failures": 0}}},
+        }
+        for label, extra in cases.items():
+            with self.subTest(label):
+                baseline = self.write_run(self.BASELINE, self.SEEDED, **extra)
+                rc, out, _ = self.gate(current, baseline)
+                self.assertEqual(rc, 2, out)
+                self.assertIn("--baseline", out["error"])
+        self.assertEqual(self.gate(current, current)[0], 2)
+        pointer = self.tmp / "reports" / "baseline.json"
+        pointer.write_text(json.dumps({"run_id": "../elsewhere"}),
+                           encoding="utf-8")
+        self.assertEqual(self.gate(current, str(pointer))[0], 2)
+        missing = str(self.tmp / "nowhere")
+        self.assertEqual(self.gate(current, missing)[0], 2)
+
+    def test_a_sealed_run_cannot_be_gated_relatively(self):
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, self.SEEDED, summary={
+            "holdout": {"n": 1, "passes": 0, "failures": 1,
+                        "gating_failures": 1}})
+        rc, out, _ = self.gate(current, baseline)
+        self.assertEqual(rc, 2)
+        self.assertIn("sealed holdout", out["error"])
+
+    def test_the_baseline_directory_is_verified(self):
+        # Without --no-verify a fabricated baseline is refused before the
+        # gate reads a trial from it.
+        baseline = self.seeded()
+        current = self.write_run(self.CURRENT, self.SEEDED)
+        rc, out, _ = run("gate.py", current, "--baseline", baseline)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("fails run_cases.py --verify", out)
+
+
 class TestGateVerifiesTheRunDirectory(TempDirTest):
     """results.json is the file under audit, so its own `missing_artifacts: []`
     is not evidence. The gate recounts from cases/*/verdict.json by calling

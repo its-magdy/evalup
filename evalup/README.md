@@ -267,7 +267,13 @@ python3 scripts/gate.py your-app/.evalup/reports --latest --mode regression
 
 `gate.py` exits `0` open, `1` closed, `2` bad input, and prints a one-screen
 summary naming what failed. For a release pipeline add `--require-canaries`:
-the gate then also closes when a canary did not pass or the run has none. The full headless recipe, including a
+the gate then also closes when a canary did not pass or the run has none.
+For an app whose answers vary, add `--baseline your-app/.evalup/reports/baseline.json`:
+the gate then closes on a regression (a case that passed every trial in the
+baseline now fails, a failing case the baseline never scored, or a failure
+on a layer the case never failed there) and lists
+the cases that were flaky or already failing there without gating on them.
+`--min-pass-rate 0.9` adds an absolute floor. The full headless recipe, including a
 Claude-driven run with a tokenless gate step, is in
 `skills/run/references/ci-gate.md`.
 

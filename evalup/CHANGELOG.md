@@ -1206,6 +1206,32 @@ except by misusing `auth: {type: headers}`, and under `route_from_status:
   failing canary's abort message names its 4xx. Print-only in the gate: no verdict, reason
   or exit code changes, so `SCORING_VERSION` stays 1.
 
+### Added — a baseline-relative gate (2026-11-21)
+
+#40, items 1 and 4. At k = 3 a case passes only if all three repeats pass,
+so a non-deterministic app with a hundred gating cases almost always has one
+flaky case, and `gate.py` closed on it.
+
+- **`gate.py --baseline <run>`** (repeatable; a run directory or the
+  `reports/baseline.json` pointer): a gating failure closes the gate only
+  when the case passed every pass/fail trial it had in the baseline runs
+  (a trial is one repeat), or had none there — a new case fails closed. A
+  case that was flaky (some trials passed) or already failing (none did)
+  in the baseline is named, with its baseline count, and does not gate —
+  unless it now fails a layer it failed in no baseline trial, which closes;
+  the verdict line says how many were excused. Every other closing rule is
+  unchanged. A baseline that did not finish clean, has another scoring or
+  dataset version, fails `--verify`, or holds sealed holdout cases is exit 2,
+  and so is a holdout run under `--baseline`. A baseline case resting on
+  fewer than three trials is flagged: one lucky pass reads as reliable.
+- **`gate.py --min-pass-rate R`**: an absolute floor on the summary's
+  passes / (passes + failures), in either mode.
+- **`docs/workflow.md`** no longer promises "absolute floor + statistical
+  delta vs the rolling baseline"; it describes these two flags.
+
+A gate policy over verdicts the runner already wrote: no verdict, the pass^k
+fold and `SCORING_VERSION` (still 1) are unchanged.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live
