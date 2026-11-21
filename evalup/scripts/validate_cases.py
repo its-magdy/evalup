@@ -524,7 +524,8 @@ def check_expect_shapes(rep, case_id, expect):
     """Report any expect key whose VALUE is the wrong type. Without this a
     malformed expectation is silently inert: `expect.args: [x]` parses and
     asserts nothing. asserted_layers() already refuses to count it graded,
-    but only this report tells the author why the case is ungraded."""
+    but only this report tells the author that expectation counts for
+    nothing."""
     for key, shape in sorted(EXPECT_SHAPE.items()):
         value = expect.get(key)
         if value is None or isinstance(value, shape):
@@ -777,8 +778,8 @@ def gates(case):
     """Whether the RUNNER will let this case close a gate, as
     run_cases.build_verdict decides it: never for a canary, and otherwise
     `case.get("gating", True) is not False` -- an absent key is true
-    (case-format.md). Reading an absent key as false here let a pending case
-    with no key gate unwarned."""
+    (case-format.md). Reading an absent key as false here would let a
+    pending case with no key gate unwarned."""
     if "canary" in (case.get("split") or []):
         return False
     return case.get("gating", True) is not False
@@ -1130,8 +1131,8 @@ def check_case(rep, case, all_ids, enabled, index=None):
     # SAYS SO. So the check is on the KEY's presence, not on its truthiness —
     # absent means the two-phase generation flow was short-circuited and
     # nobody decided anything, `template_id: null` means the author decided.
-    # Checking only truthiness is what let a 12-case suite carrying neither
-    # key validate clean while both docs called the pair required.
+    # Checking only truthiness would let a suite carrying neither key
+    # validate clean while both docs call the pair required.
     template_id = case.get("template_id")
     params = case.get("instantiation_params")
     has_params = bool(params) and isinstance(params, dict)
@@ -1494,7 +1495,7 @@ def check_adapter(rep, cases, records, adapter):
     - under `invocation.route_from_status` the observed route is the map's
       VALUE (`<answered>`, `__oos__`, ...), so `expect.route: billing` can
       never pass until a trace or `route_from_response` supplies a domain
-      label. Without this check nothing says so, and a generator writes
+      label. Without this check nothing says so, and a generator will write
       domain labels on every case. An `oos` case is exempt when the map
       yields `__oos__`, because its expected route is the profile's
       out-of-scope name, which --oos-route maps onto that label at run time.
