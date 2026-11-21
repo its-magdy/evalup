@@ -73,9 +73,10 @@ run (SS10), so every run gets the latency half, priced or not.
 WHAT IS NOT MEASURED, stated in the payload and not only here, because a number
 copied into a report loses its docstring:
   - CACHED TOKENS. `normalize_trace.py` reads `gen_ai.usage.input_tokens` and
-    `gen_ai.usage.output_tokens` and nothing else; there is no cache-read or
-    cache-write count anywhere in this package, and the convention version it
-    supports carries no attribute for one. So an app using prompt caching is
+    `gen_ai.usage.output_tokens` and nothing else, and the convention version
+    it supports carries no attribute for a cache count. (An AG-UI stream's
+    cache counts are kept in `response.json` and on the response-built chat
+    spans (#46), but nothing here reads them.) So an app using prompt caching is
     priced at the full input rate for tokens it was billed a fraction of, and
     the error is LARGE -- a cached read is commonly a tenth of the input price,
     a cache write more than the input price. The direction is not even reliably
@@ -975,7 +976,8 @@ def declared_limits(runs):
             "NONE. normalize_trace.py records gen_ai.usage.input_tokens and "
             "gen_ai.usage.output_tokens and no cache-read or cache-write "
             "count, and the convention it supports carries no attribute for "
-            "one. An app using prompt caching is priced at the full input "
+            "one (an AG-UI stream's cache counts stay in response.json, "
+            "unread here). An app using prompt caching is priced at the full input "
             "rate for tokens it was billed a fraction of, and the sign of the "
             "error depends on whether the exporter counts cached tokens "
             "inside input_tokens or beside it. RESERVED: the field does not "

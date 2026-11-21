@@ -225,9 +225,15 @@ beyond the health check.
    without `response_format: sse`, the reverse, an unknown key, or `sse` in
    function mode is exit 3. At run time a `text/event-stream` reply is decoded
    by `scripts/_sse.py` into the body
-   `{text, partial_text, tool_calls, error, finished, interrupted, usage, sse}`
-   (`tool_calls` for `ag-ui` only: `{id, name, arguments, result}`, arguments
-   joined from their deltas). `response_body` marks the answer in that body,
+   `{text, partial_text, tool_calls, error, finished, interrupted, usage,
+   run_usage, sse}` (`tool_calls` for `ag-ui` only: `{id, name, arguments,
+   result}`, arguments joined from their deltas). An AG-UI server may emit one
+   `RUN_FINISHED` per model call: `run_usage` holds each `RUN_FINISHED` /
+   `RUN_ERROR` usage that was reported, `usage` their sum (null when none
+   was), and `traces.source: response` writes one chat span per entry, so
+   `llm_calls` counts the calls. Cache counts (`cached_input_tokens`,
+   `cache_write_input_tokens`, parts of `input_tokens` in AG-UI's
+   accounting) appear only when the stream reported them. `response_body` marks the answer in that body,
    usually `{"text": "<answer>"}`. Any other content type parses as JSON exactly
    as without the block, so an app's JSON 4xx still reaches the `http` layer.
    `text` is null unless the run finished without an error (`RUN_FINISHED` for
