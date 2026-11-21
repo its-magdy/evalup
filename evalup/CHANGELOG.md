@@ -1217,7 +1217,8 @@ flaky case, and `gate.py` closed on it.
   when the case passed every pass/fail trial it had in the baseline runs
   (a trial is one repeat), or had none there — a new case fails closed. A
   case that was flaky (some trials passed) or already failing (none did)
-  in the baseline is named, with its baseline count, and does not gate;
+  in the baseline is named, with its baseline count, and does not gate —
+  unless it now fails a layer it failed in no baseline trial, which closes;
   the verdict line says how many were excused. Every other closing rule is
   unchanged. A baseline that did not finish clean, has another scoring or
   dataset version, fails `--verify`, or holds sealed holdout cases is exit 2,

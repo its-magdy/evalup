@@ -100,7 +100,8 @@ for your backlog instead of being silently attempted.
   By default any gating failure closes the gate, which a non-deterministic
   app rarely passes at k = 3; `gate.py --baseline reports/baseline.json`
   closes only on a regression — a case that passed every baseline trial now
-  failing, or a failing case the baseline never scored — and names the
+  failing, a failing case the baseline never scored, or one failing a layer
+  it never failed there — and names the
   flaky and already-failing ones without gating on them. `--min-pass-rate`
   adds an absolute floor. There is no statistical delta in the gate: that
   test is `stats.py`'s, on optimize's sealed holdout.

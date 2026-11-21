@@ -70,10 +70,14 @@ A non-deterministic app rarely gets a k = 3 regression run with no gating
 failure at all, so a CI gate for one adds `--baseline reports/baseline.json`
 (the pinned run; repeatable, a run directory works too): a gating failure
 then closes only when the case passed every trial it had in the baseline,
-or has no verdict there, and the cases that were flaky or already failing
-there are listed, not gating. `--min-pass-rate R` closes below an absolute
-floor. Neither works on a holdout run (exit 2: its cases have no per-case
-row). `--json` prints the same facts for a dashboard. Deterministic-only CI needs no
+or has no verdict there, or now fails a layer it never failed there; the
+cases that were flaky or already failing there are listed, not gating.
+"Reliable" means it passed every baseline trial (a trial is one repeat), so
+a case that fails one run in seven can pass a k = 3 baseline's three and
+then gate: pass several `--baseline` runs to see it as flaky. `--min-pass-rate R`
+closes below an absolute floor, in either mode. `--baseline` refuses a
+holdout run (exit 2: its cases have no per-case row). `--json` prints the
+same facts for a dashboard. Deterministic-only CI needs no
 `claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
 `gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
 pipeline, runnable). A pipeline may want `make_plan.py`'s overrides:
