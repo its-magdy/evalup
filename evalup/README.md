@@ -360,13 +360,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 1018 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 1023 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-1008 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
+1013 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.
