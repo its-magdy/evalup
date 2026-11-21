@@ -3,12 +3,12 @@
 
 Every comparison this harness makes is PAIRWISE: `stats.py` pairs one candidate
 against one baseline, and `run_cases.py` SS5.6 refuses that pair unless the two
-runs agree on `dataset_version`, `scoring_version` and `k`. Nothing ever looked
-at more than two runs at once, so five consecutive "within noise" diffs could
-hide a ten-point erosion and no artifact would say so. This script is that
-missing view: it groups a `reports/` directory into COMPARABLE SERIES, emits a
-time series per metric, tests each for monotone drift, and builds a per-case
-journal ("passed runs 1-7, failed after run 8").
+runs agree on `dataset_version`, `scoring_version` and `k`. With only
+pairwise comparisons, five consecutive "within noise" diffs can hide a
+ten-point erosion that no artifact reports. This script is the longitudinal
+view: it groups a `reports/` directory into COMPARABLE SERIES, emits a time
+series per metric, tests each for monotone drift, and builds a per-case journal
+("passed runs 1-7, failed after run 8").
 
 It reads. It writes nothing except the JSON it prints (or `-o`), invokes no
 scorer, and re-derives no verdict -- every number below is copied out of an
@@ -55,18 +55,17 @@ degradation the reader needs to see.
 
 WHICH RUNS COUNT. Only `summary.status == "ok"`. That is not a new rule: SS9(c)
 writes `"ok"` only after the completeness check passes, and `run/SKILL.md` SS3
-says an incomplete run is "not quotable, not a baseline". A run that predates
-the runner has no `summary.status` at all, and the ones this engine replaced
-were also missing `selecting_split` and `capability_matrix` from their
-manifests, so they could not be placed in a series even if they were quotable.
+says an incomplete run is "not quotable, not a baseline". A pre-runner run has
+no `summary.status`, `selecting_split` or `capability_matrix`, so it cannot be
+placed in a series even if it were quotable.
 Excluded runs are NAMED with their reason, never dropped silently.
 
-WHAT A TIME SERIES CAN ACTUALLY READ, per run, field by field. `REVIEW` SS4.9
-says the data is "already on disk"; it is, but not in one file and not all of
-it. `results.json` carries no timestamp, no `k`, no `selecting_split` and no
-`capability_matrix`, so the comparability keys come from `manifest.yaml` and
-the numbers from `results.json` -- both are REQUIRED_ALWAYS (SS9(b)), so this
-needs no new artifact and no contract change:
+WHAT A TIME SERIES CAN ACTUALLY READ, per run, field by field. The data is on
+disk, but not in one file and not all of it. `results.json` carries no
+timestamp, no `k`, no `selecting_split` and no `capability_matrix`, so the
+comparability keys come from `manifest.yaml` and the numbers from
+`results.json` -- both are REQUIRED_ALWAYS (SS9(b)), so this needs no new
+artifact and no contract change:
   manifest.yaml  -> run_id, started_at, mode, k, selecting_split,
                     dataset_version, scoring_version, harness_version,
                     capability_matrix,
@@ -77,11 +76,11 @@ needs no new artifact and no contract change:
   routing_report.json -> accuracy, macro_f1   (only when a case was
                     routing-scorable; SS6's `# only when:`)
   reliability.json    -> pass_hat_k, flakiness_gap  (only when k > 1)
-`REVIEW` SS4.9 also calls one of these a "flakiness ledger". There is no such
-artifact and never was: the flakiness signal is `reliability.json`, written by
-`reduce_repeats.py` and present ONLY when k > 1. Since k is a series key, a
-series either has it on every point or on none, and a metric present on some
-runs and not others is skipped with its reason rather than plotted ragged.
+There is no "flakiness ledger" artifact: the flakiness signal is
+`reliability.json`, written by `reduce_repeats.py` and present ONLY when k > 1.
+Since k is a series key, a series either has it on every point or on none, and
+a metric present on some runs and not others is skipped with its reason rather
+than plotted ragged.
 NOT read, and each for a stated reason: per-case `latency_s` IS on disk in
 `results.json`, but a mean over a heavy-tailed, retry-contaminated distribution
 is the weakest possible summary of it, and cost is not on this line at all --
@@ -133,9 +132,9 @@ WHAT MANN-KENDALL DOES NOT TEST, stated so the flag is not overread:
   - Not magnitude. It detects a monotone TENDENCY; a 0.2pp-per-run slide and a
     20pp collapse both flag. Read `first`, `last` and `change` beside it.
   - Not a change point. A suite that dropped once and stayed flat is not
-    monotone, and this test is entitled to miss it. SS4.9's own scenario (five
-    consecutive small erosions) is monotone, which is why this is the right
-    test for it and not a universal one.
+    monotone, and this test is entitled to miss it. The scenario this script
+    exists for (five consecutive small erosions) is monotone, which is why this
+    is the right test for it and not a universal one.
   - Not stability. A non-flag is not evidence of no drift; `p_floor` says
     whether rejection was attainable at this n at all, and `underpowered` says
     so outright when it was not.
@@ -156,10 +155,9 @@ content across two runs of one series is detectable. That is a silently-broken
 comparison -- the case was edited without a `dataset_version` bump, so SS5.6's
 version check let the pair through -- and it is reported as
 `content_changed_at`. The journal lives here and NOT in
-`build_review_viewer.py` (which SS4.9 also suggests): that script takes ONE run
-path, and its whole job is annotating traces for calibration. Teaching it to
-walk N run directories would give it a second input model and put "which run
-comes next" in a UI file.
+`build_review_viewer.py`: that script takes ONE run path, and its whole job is
+annotating traces for calibration. Teaching it to walk N run directories would
+give it a second input model and put "which run comes next" in a UI file.
 
 OUTPUT: JSON on stdout, or to `-o PATH`. Nothing is written into a run
 directory, on purpose. SS6 says the runner's tree is the complete list of files
@@ -712,8 +710,8 @@ def case_journal(points, all_cases, max_cases):
             row["absent_in"] = absent[:MAX_REPORTED_CASES]
         if content:
             row["content_changed_at"] = content
-        # The default is the readable journal SS4.9 asked for -- "case X passed
-        # runs 1-7, failed after Y" -- not a dump of every stable case.
+        # The default is a readable journal -- "case X passed runs 1-7, failed
+        # after Y" -- not a dump of every stable case.
         if all_cases or transitions or absent or content:
             rows.append(row)
     complete = sum(1 for cid in ever

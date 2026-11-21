@@ -251,8 +251,8 @@ def require_list(field, value, item="entry", plural=None, of_strings=True):
 
 
 def require_mapping(field, value):
-    """The object-valued sibling of require_list. A non-object here reached
-    .items() and raised AttributeError — a traceback and exit 1, which is
+    """The object-valued sibling of require_list. A non-object here would
+    reach .items() and raise AttributeError — a traceback and exit 1, which is
     neither the {"error": ...} payload this module promises nor the exit 2 the
     run skill branches on."""
     if not isinstance(value, dict):
@@ -264,11 +264,11 @@ def optional_mapping(field, value):
     """An expectation block that may be absent: None is "nothing to score",
     anything else must be an object.
 
-    Written once here because every scorer needs it and each one that
-    re-derived it got it wrong the same way: `x or {}` tests TRUTHINESS, so a
-    present-but-off-shape falsy value (`answer: []`, `args: []`) was silently
-    dropped and the case reported "unscored" — an expectation the author wrote
-    was never evaluated and nothing said so. Only ABSENCE may default."""
+    Written once here because every scorer needs it and re-deriving it goes
+    wrong the same way: `x or {}` tests TRUTHINESS, so a present-but-off-shape
+    falsy value (`answer: []`, `args: []`) would be silently dropped and the
+    case would report "unscored", so an expectation the author wrote would go
+    unevaluated and nothing would say so. Only ABSENCE may default."""
     return {} if value is None else require_mapping(field, value)
 
 
@@ -316,12 +316,12 @@ def stringify(value):
 
     NFC-normalized (see nfc) and serialized with ensure_ascii=False. The
     default ensure_ascii=True escapes every non-ASCII character, so a result
-    holding {"customer": "Al Mu\u2018tasim"} became the literal text
+    holding {"customer": "Al Mu\u2018tasim"} would become the literal text
     "Al Mu\\u2018tasim" — and a from_tool_result provenance check on an
     argument the app copied verbatim OUT of that result could never find it,
-    reporting "possible hallucinated arg" for a value whose provenance was
-    perfect. Normalizing would not have helped: the two sides were not in
-    different Unicode forms, one of them was not Unicode text at all."""
+    reporting "possible hallucinated arg" for a value whose provenance is
+    perfect. Normalizing would not help: the two sides are not in different
+    Unicode forms; one of them is not Unicode text at all."""
     return nfc(value if isinstance(value, str)
                else json.dumps(value, ensure_ascii=False))
 
@@ -510,14 +510,14 @@ def load_text(path, on_error=None):
     Every read in this harness passes encoding="utf-8" explicitly rather than
     taking the locale default (PEP 597; Ruff PLW1514). The default is not
     UTF-8 everywhere, and both of its failure modes corrupt a verdict: under
-    an ASCII locale a valid answer containing "€" or an em-dash raised
+    an ASCII locale a valid answer containing "€" or an em-dash would raise
     UnicodeDecodeError — a traceback and exit 1, outside the exit-2 contract
-    entirely — and under latin-1/cp1252 it did not raise at all, silently
-    decoding to mojibake so a must_contain check on the euro sign FAILED a
-    correct answer. A verdict must not depend on the reviewer's locale.
+    entirely — and under latin-1/cp1252 it would not raise at all, silently
+    decoding to mojibake so a must_contain check on the euro sign would FAIL
+    a correct answer. A verdict must not depend on the reviewer's locale.
 
     UnicodeDecodeError is caught separately because it is a ValueError, not an
-    OSError, so the OSError arm below never saw it.
+    OSError, so the OSError arm below would never see it.
 
     `on_error` overrides the exit path for scripts whose error payload carries
     extra keys (normalize_trace.py's {"status": "error", ...}); see die. Every
@@ -596,8 +596,8 @@ def load_json(path, on_error=None, strict=True):
         return loads_strict(text) if strict else json.loads(text)
     except (ValueError, RecursionError) as e:
         # The path, not just the exception: JSONDecodeError carries no filename,
-        # so a directory scan reported "Expecting value: line 1 column 1"
-        # without naming which of its files was bad.
+        # so a directory scan would report "Expecting value: line 1 column 1"
+        # without naming which file was bad.
         fail(f"bad input: {path}: {e}")
 
 
@@ -624,7 +624,7 @@ def load_trajectory(path):
             "(normalize_trace.py output or a bare trajectory)")
     # The ELEMENTS, not just the container. Every consumer reads a call with
     # c.get(...), so a non-object entry — the shape a miswritten adapter
-    # mapping_shim emits — raised AttributeError in all four of them: a
+    # mapping_shim emits — would raise AttributeError in all four of them: a
     # traceback and exit 1, which is neither the {"error": ...} payload this
     # module promises nor the exit 2 the run skill branches on. Validated once
     # here so the four consumers cannot drift on it.
