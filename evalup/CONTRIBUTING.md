@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1229 tests, ~4 min (228 s measured 2026-11-21), the blessed command.
+1272 tests, ~4.5 min (260 s measured 2026-11-21), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,22 +43,22 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1209 passed, 20 skipped, 942 subtests.
+whatever `python3` happens to be. Expect 1252 passed, 20 skipped, 976 subtests.
 All twenty skips need PyYAML (thirteen are `convert_suite.py`'s, rubric
 files included, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check, four
 read the CI workflow template); add
-`--with pyyaml` and they run (1229 passed, none
+`--with pyyaml` and they run (1272 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
 There are **22** CLIs in `scripts/` (everything not underscore-prefixed) and
-each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`
-is a shared module, not a CLI: it has no argparse, so `python _common.py --help`
-exits 0 having printed nothing, which is why the check tests for output and not
-just the exit code.
+each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`,
+`_rubric.py`, `_sse.py` and `_exec.py` are shared modules, not CLIs: they have
+no argparse, so `python _common.py --help` exits 0 having printed nothing,
+which is why the check tests for output and not just the exit code.
 
 ## The toolchain, and why it looks like this
 

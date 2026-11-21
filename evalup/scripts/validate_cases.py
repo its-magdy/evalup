@@ -1569,6 +1569,24 @@ def check_adapter(rep, cases, records, adapter):
                      "not true (runner-contract SS7), so this case never "
                      "reaches the app. That flag is the app owner's decision: "
                      "ask them, and say the case is skipped until they set it")
+        if invocation.get("mode") == "exec":
+            # run_cases.skip_reason skips these: an exec command has no
+            # status, and every answer is 200 (#39).
+            turns = mapping(case.get("input")).get("turns")
+            expects = [expect, mapping(case.get("every_turn"))] + [
+                mapping(mapping(t).get("expect"))
+                for t in (turns if isinstance(turns, list) else [])]
+            statuses = sorted({str(mapping(e.get("http")).get("status"))
+                               for e in expects
+                               if mapping(e.get("http")).get("status")
+                               not in (None, 200)})
+            if statuses:
+                rep.warn(label, "status_unobservable_in_exec",
+                         f"expect.http.status {', '.join(statuses)} under "
+                         "invocation.mode: exec: a command reports no "
+                         "status (every answer is 200), so every run skips "
+                         "this case. Assert the route through "
+                         "route_from_response instead")
         if expect.get("clarify_ok") is True \
                 and not is_nonempty_str(invocation.get("clarify_from_response")):
             rep.warn(label, "clarify_unobservable",

@@ -124,7 +124,8 @@ expect:
     status: 200                      # expected HTTP status. Use when status codes
                                      # carry behavior (deliberate 400 on OOS, 403
                                      # on permission) — for trace-less apps often
-                                     # the only routing observable.
+                                     # the only routing observable. `exec`
+                                     # adapter: 200 only; refusals are a route.
   route: billing                     # omit if no router / not asserted.
                                      # Trace-less app whose adapter declares only
                                      # `route_from_status`? Then the runner observes
@@ -133,8 +134,7 @@ expect:
                                      # domain in `unit`, and let validate_cases.py
                                      # --adapter say so (route_not_observable).
   route_acceptable: [billing]        # set-valued: any of these passes (ambiguous
-                                     # cases). `route` is always implicitly
-                                     # acceptable — no need to repeat it here.
+                                     # cases). `route` is implicitly acceptable.
                                      # Scored by score_routing.py: the runner maps
                                      # route→expected, route_acceptable→acceptable
                                      # (accepted as aliases) and passes

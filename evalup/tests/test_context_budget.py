@@ -76,6 +76,8 @@ CONDITIONAL = {
     "skills/discover/references/interview.md":
         "discover step 7, deferred on a lean first session",
     "skills/discover/references/adapters/dotnet.md": "a .NET app only",
+    "skills/discover/references/adapters/exec.md":
+        "an app driven through invocation.mode: exec only",
     "docs/concepts.md": "only when the user asks what a term means",
     "docs/runner-contract.md": "the runner's spec, read for a specific rule",
     "docs/multi-turn.md": "conversations only",

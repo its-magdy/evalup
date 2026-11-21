@@ -1434,6 +1434,56 @@ Rules are linked, never scored: `covers` reaches no scorer, the runner
 never reads it, `expect.answer.rules` is still "not measured" (#26), and
 `SCORING_VERSION` stays 1.
 
+### Added — reach: `invocation.mode: exec`, a command per call (2026-11-21)
+
+#39 option 2. An app that is a CLI, or that is hard to call over HTTP (an
+auth wall, a local-only process, a non-Python app with no route), is
+reached through a command the runner starts once per call: the rendered
+`request_body` as JSON on stdin, one JSON object on stdout, read through
+`response_body` exactly as an http body is.
+
+- **`invocation.exec: {argv, cwd, env}`** (`scripts/_exec.py`). `argv` is a
+  list, never a shell string, and a `${REF}` in it or in `cwd` is exit 3:
+  argv is visible to every process. The child gets an env **allowlist** —
+  a few base variables plus the names in `exec.env` (unset → exit 3,
+  `missing_env`) — never the runner's whole environment. `cwd` is required
+  and relative to the state location (`..` for state in `<app>/.evalup/`);
+  `argv[0]` must resolve at pre-flight (exec's health check). Tool calls
+  come from `traces.source: response`; a trace store is refused.
+- **One process per call**, in its own process group, killed at
+  `timeout_s` (enforced) and after it exits. A process that left the group
+  (`setsid`) may outlive the call but cannot hang it: a call takes at most
+  `timeout_s` + 2 s, and a stdout still held open then is no answer. No
+  group kill on Windows (untested there). stdout is capped at 16 MiB;
+  stderr's last 64 KiB are kept and a tail is quoted in errors, scrubbed
+  (before any cut) of passed env values of 4+ characters in plain, JSON
+  and `repr` form. The answer itself
+  is recorded as printed, as an http body is.
+- **No status from a command**: a success is 200 and a non-zero exit is
+  always a crash, so a deliberate refusal is exit 0 with a JSON body read
+  through `route_from_response`. `route_from_status` is refused in exec
+  mode, and a case expecting a status other than 200 is skipped.
+- A SIGTERM to the runner mid-call kills the call's group first and still
+  ends the runner by SIGTERM; a SIGKILL orphans the call.
+- **Failures are infra**, as http's transport failures are: a timeout; a
+  non-zero exit (a crash, like a raising function entrypoint); a command
+  that cannot start, or stdout that is empty, oversized, not JSON or not an
+  object. Each is `infra_error`, retried like any.
+- **Same choke points**: pacing, retries, `--dry-run`'s call counts,
+  `--probe`, conversations (`client-id`, `server-id` with
+  `session_from.body`) and `traces.source: response` (tool calls in the
+  stdout object). `auth`, `headers`, `identity_map`, `health_check`,
+  `response_format: sse` and the `cookie` style are refused in exec mode;
+  a `token_env` credential goes in `exec.env` by name instead.
+- **`cli` stays reserved** (exit 3), now pointing at `exec`: it was never
+  specified, so there was no `cli` adapter to keep, and an alias would give
+  one shape two names.
+- `discover` detects it (step 3) and writes it from
+  `references/adapters/exec.md`, read only for an exec app.
+
+Transport only: no verdict or `SCORING_VERSION` (still 1) changes. Not yet
+run against a live app (#27).
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

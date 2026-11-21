@@ -135,6 +135,8 @@ conversation/session handling, OTel setup. Record as you go:
   cannot read it, but on a trace-less app it is how a person checks per-route
   or per-tool behaviour, and the capability statement should say it is one
   join away.
+- **A CLI, or no callable route** →
+  [`mode: exec`](references/adapters/exec.md).
 - **How the answer comes back.** A streaming route (`text/event-stream`, an
   AG-UI helper) → `invocation.response_format: sse` + `sse.protocol`; tool
   calls in the stream or body → `traces.source: response` (adapter-contract.md).
@@ -199,8 +201,8 @@ A "no" is fine — see Read-only mode below.
 - No trace-ID echo → add `traceparent`, or a trace-id field, to the response.
 - Non-`gen_ai` trace convention → write the `traces.mapping_shim` and verify its
   output on one live trace. No shim keeps the trajectory layers off.
-- No clean invocation path (auth walls) → add a test-mode entry point or an
-  internal-function shim, and record which in adapter.yaml.
+- No clean invocation path (auth walls) → add a test-mode entry point, an
+  internal-function shim or an exec shim, and record which in adapter.yaml.
 - Prompts as string literals or f-strings → offer the one-time extraction
   refactor: prompts to files, code loads them, 2–3 smoke requests to show no
   behavior change. Pitch it as what unlocks the optimizer later.

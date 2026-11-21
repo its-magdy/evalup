@@ -61,6 +61,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import socket
 import ssl
@@ -74,6 +75,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
+import _exec
 import _sse
 from _common import (
     FULL_MODE_REMOVED,
@@ -92,6 +94,7 @@ from _common import (
     nfc,
     run_bounded,
     scoring_comparison,
+    secret_forms,
     unsafe_case_id,
 )
 
@@ -726,6 +729,15 @@ def resolve_env(adapter):
         else:
             auth_values[kind] = value
 
+    # invocation.exec.env (#39) names what an exec command inherits, by
+    # name like token_env; an unset one is the same pre-flight failure,
+    # listed with every other missing name.
+    invocation = out.get("invocation") if isinstance(out.get("invocation"),
+                                                     dict) else {}
+    if invocation.get("mode") == "exec":
+        missing.extend(name for name in _exec.env_names(invocation.get("exec"))
+                       if not os.environ.get(name))
+
     if missing:
         preflight_fail(
             "unresolved env var(s) referenced by adapter: {}".format(
@@ -791,9 +803,11 @@ def secret_header_names(adapter, secret_paths):
 
 
 # --------------------------------------------------------------------------
-# Invocation. Two modes (decision D6, runner-contract.md): http and
-# function. `cli` exits 3 -- adapter-contract.md advertises it, and refusing
-# loudly is the only honest thing to do with a mode nothing implements.
+# Invocation. Three modes (decision D6, runner-contract.md): http, function
+# and exec (a command per call, JSON on stdin and stdout, scripts/_exec.py).
+# `cli` exits 3 pointing at exec: it was never specified, so no adapter holds
+# a working `cli` block to keep, and one name per shape is what a reader of
+# adapter.yaml can trust.
 # --------------------------------------------------------------------------
 
 REQUEST_PLACEHOLDERS = ("<user turn>", "<uuid>", "<persona>", "<case id>",
@@ -951,9 +965,9 @@ def check_static_headers(invocation):
     if block is None:
         return
     where = "adapter.invocation.headers"
-    if invocation.get("mode") == "function":
-        preflight_fail(f"{where} needs invocation.mode: http; a function "
-                       "is called with no headers")
+    if invocation.get("mode") in ("function", "exec"):
+        preflight_fail(f"{where} needs invocation.mode: http; a "
+                       f"{invocation.get('mode')} is called with no headers")
     if not isinstance(block, dict):
         preflight_fail(f"{where} must be an object of name: value, got "
                        f"{type(block).__name__}")
@@ -1013,6 +1027,10 @@ def build_headers(adapter, case, identity_map, auth_values):
     against the wrong persona and report the result as if it meant something.
     """
     invocation = adapter.get("invocation", {})
+    if invocation.get("mode") == "exec":
+        # A command gets stdin, not headers: request.json records none
+        # rather than a Content-Type nothing sent.
+        return {}
     headers = {"Content-Type": "application/json"}
     headers.update(static_headers(adapter))
     auth = invocation.get("auth") or {}
@@ -1238,6 +1256,16 @@ def send_http(url, method, headers, body, timeout, insecure, sse=None):
         parsed = {"raw": text}
     return {"status": status, "body": parsed, "latency_s": latency,
             "headers": response_headers, "set_cookies": set_cookies}
+
+
+def send_exec(spec, body, timeout):
+    """invocation.mode: exec -- one process per call (scripts/_exec.py),
+    its failures as the TransportError kinds http and function raise."""
+    try:
+        return _exec.run(spec["argv"], spec["executable"], spec["cwd"],
+                         spec["env"], body, timeout, spec["secrets"])
+    except _exec.ExecFailure as exc:
+        raise TransportError(exc.kind, exc.message) from exc
 
 
 def load_entrypoint(invocation, app_root):
@@ -1718,6 +1746,7 @@ class Runner:
         self.secret_names = set()
         self.identity_map = {}
         self.entrypoint = None
+        self.exec = None        # invocation.exec, resolved, in exec mode
         self.request_template = None
         self.answer_path = None
         self.trace_id_path = None
@@ -1786,6 +1815,13 @@ class Runner:
     def preflight(self):
         """In order, and any failure is exit 3 with zero app calls billed."""
         adapter = self.plan["adapter"]
+        raw_invocation = adapter.get("invocation") or {}
+        if raw_invocation.get("mode") == "exec":
+            # On the UNRESOLVED block, before env resolution: a ${REF} in
+            # argv is refused as such, not resolved into a command line.
+            problems = _exec.check_config(raw_invocation.get("exec"))
+            if problems:
+                preflight_fail("; ".join(problems))
         (self.adapter, secret_paths, self.auth_values,
          self.sent_refs) = resolve_env(adapter)
         self.secret_names = secret_header_names(self.adapter, secret_paths)
@@ -1808,10 +1844,17 @@ class Runner:
             self.prepare_http(invocation)
         elif mode == "function":
             self.prepare_function(invocation)
+        elif mode == "exec":
+            self.prepare_exec(invocation)
+        elif mode == "cli":
+            preflight_fail(
+                "invocation.mode: cli is reserved and not implemented; a "
+                "command the runner starts per call is invocation.mode: "
+                "exec (adapter-contract.md)")
         else:
             preflight_fail(
-                "runner v1 implements invocation.mode: http and function "
-                f"only (got: {mode!r})")
+                "runner v1 implements invocation.mode: http, function and "
+                f"exec only (got: {mode!r})")
         self.prepare_conversation(invocation, mode)
         # What request.json and the manifest RECORD, as opposed to what is
         # sent: the same template and url with every env ref put back (SS3).
@@ -1903,6 +1946,91 @@ class Runner:
             else {"message": "<user turn>", "session_id": "<uuid>"}
         self.answer_path = ("text",)
 
+    def prepare_exec(self, invocation):
+        """invocation.mode: exec (#39). The block was checked unresolved
+        (check_config); here the cwd and the command are resolved, once, so
+        a missing directory or command is exit 3 with nothing billed -- it
+        is also exec's health check, as the import is function mode's."""
+        block = invocation["exec"]
+        auth = invocation.get("auth") or {}
+        auth_env = auth.get("token_env") or auth.get("cookie_env")
+        refused = [
+            (invocation.get("response_format", "json") != "json",
+             "response_format applies to invocation.mode: http only; an "
+             "exec command prints one JSON object"),
+            (auth.get("type", "none") != "none",
+             "auth applies to invocation.mode: http only; list the "
+             "credential's env var in exec.env ({}) so the command gets it "
+             "by name, or put it as a ${{REF}} in request_body (stdin)"
+             .format(f"exec.env: [{auth_env}]" if isinstance(auth_env, str)
+                     else "its NAME")),
+            (bool(invocation.get("identity_map")),
+             "identity_map maps to headers, which an exec command never "
+             "gets; carry the persona in request_body as <persona>"),
+            (invocation.get("health_check") is not None,
+             "health_check needs invocation.mode: http; exec's pre-flight "
+             "check is that its cwd and command resolve"),
+            ((self.adapter.get("traces") or {}).get("source")
+             not in (RESPONSE_TRACE_SOURCE, *TRACELESS_TRACE_SOURCES, None),
+             "traces.source {!r} cannot be joined in invocation.mode: "
+             "exec (a store's join needs an http health check). Use "
+             "traces.source: response -- tool calls in the stdout object "
+             "-- or run trace-less (view-only | none)".format(
+                 (self.adapter.get("traces") or {}).get("source"))),
+            (invocation.get("route_from_status") is not None,
+             "route_from_status needs invocation.mode: http; an exec "
+             "command reports no status (every answer is 200), so the "
+             "route would be made up. Print the route in the stdout object "
+             "and declare route_from_response"),
+        ]
+        for bad, why in refused:
+            if bad:
+                preflight_fail(f"adapter.invocation: {why}")
+        # Relative to the state location (adapter.yaml's own directory),
+        # the root app.repo itself resolves against -- never to app.repo:
+        # the common `repo: .` with state in <app>/.evalup/ would put the
+        # command in .evalup/. Required (check_config), so it is written.
+        cwd = _exec.resolve_cwd(block["cwd"], self.state_dir)
+        if not os.path.isdir(cwd):
+            preflight_fail(f"adapter.invocation.exec.cwd resolves to {cwd!r}, "
+                           "which is not a directory; it is relative to the "
+                           "state location (adapter.yaml's directory), so "
+                           "the app root of <app>/.evalup/ is `..`")
+        names = _exec.env_names(block)
+        env = _exec.child_env(names)
+        executable = _exec.resolve_command(block["argv"][0], cwd, env)
+        if executable is None:
+            preflight_fail(
+                f"adapter.invocation.exec.argv[0] {block['argv'][0]!r} is "
+                "not an executable file: a path is relative to exec.cwd "
+                f"({cwd}), a bare name is looked up on the PATH the command "
+                "gets")
+        # Scrubbed out of any stderr/stdout an error quotes: what the child
+        # was handed by name, and what request_body resolved.
+        # From PROBE_SCRUB_MIN_LEN characters up, for exec.env values and
+        # request_body refs alike: exec.env also carries plain settings
+        # (DEBUG=1, a PYTHONPATH), and scrubbing a "1" would rewrite every
+        # 1 in a traceback. A secret is never that short.
+        secrets = [(os.environ[n], n) for n in names
+                   if len(os.environ.get(n) or "") >= PROBE_SCRUB_MIN_LEN]
+        secrets += [(value, name) for name, value in self.sent_refs.items()
+                    if len(value) >= PROBE_SCRUB_MIN_LEN]
+        self.exec = {"argv": list(block["argv"]), "executable": executable,
+                     "cwd": cwd, "env": env, "env_names": names,
+                     "secrets": secrets}
+        self.url = "exec:" + " ".join(shlex.quote(a) for a in block["argv"])
+        self.method = "EXEC"
+        self.request_template = load_body_template(invocation, "request_body")
+        response_template = load_body_template(invocation, "response_body")
+        self.answer_path = find_marker_path(response_template, ANSWER_MARKER)
+        if self.answer_path is None:
+            preflight_fail(
+                "adapter.invocation.response_body must mark the answer field "
+                f"of the command's stdout object with {ANSWER_MARKER!r}, e.g. "
+                f"'{{\"text\": \"{ANSWER_MARKER}\"}}'")
+        self.trace_id_path = find_marker_path(response_template,
+                                              TRACE_ID_MARKER)
+
     def prepare_conversation(self, invocation, mode):
         """docs/multi-turn.md SS2: the adapter's invocation.conversation.
 
@@ -1941,7 +2069,7 @@ class Runner:
                     f"got {source!r}")
             if "header" in source and mode != "http":
                 preflight_fail(f"{where}.session_from.header needs "
-                               "invocation.mode: http; a function returns "
+                               f"invocation.mode: http; a {mode} returns "
                                "no headers")
             if not template_mentions(self.request_template, SESSION_MARKER):
                 preflight_fail(
@@ -1989,6 +2117,9 @@ class Runner:
             return {"ok": None, "detail": "skipped (--dry-run)"}
         if mode == "function":
             return {"ok": True, "detail": "entrypoint imported"}
+        if mode == "exec":
+            return {"ok": True, "detail": "command resolved: {} (cwd {})"
+                    .format(self.exec["executable"], self.exec["cwd"])}
         declared = (self.adapter.get("invocation") or {}).get("health_check")
         if isinstance(declared, dict):
             method = str(declared.get("method", "GET")).upper()
@@ -2242,6 +2373,13 @@ class Runner:
                            "response_format":
                                "sse" if self.sse else "json",
                            "sse": self.sse,
+                           # #39: what an exec command was, where it ran
+                           # and which env vars it got -- names, never
+                           # values (SS3). Absent in http/function mode.
+                           **({"exec": {"argv": self.exec["argv"],
+                                        "cwd": self.exec["cwd"],
+                                        "env": self.exec["env_names"]}}
+                              if self.exec else {}),
                            # #76: present only when declared, so a run with
                            # no budget writes the same manifest as one from
                            # a runner without the field.
@@ -2485,6 +2623,24 @@ class Runner:
             return ("case declares an identity but the adapter has no "
                     "invocation.identity_map; running it under the default "
                     "identity would score the wrong persona")
+        if self.exec is not None:
+            # An exec command has no status: 200 is "it answered" (exit 0,
+            # one JSON object), as function mode's default is. Any other
+            # expected status can never be observed, and scoring it would
+            # report a fail the app never had (#39 review).
+            expects = [e for _, e in turns] if turns is not None \
+                else [case.get("expect") or {}]
+            wanted = sorted({str((e.get("http") or {}).get("status"))
+                             for e in expects
+                             if isinstance(e, dict)
+                             and (e.get("http") or {}).get("status")
+                             not in (None, 200)})
+            if wanted:
+                return ("expect.http.status {} cannot be observed in "
+                        "invocation.mode: exec: a command reports no status "
+                        "(200 = it answered). Express a refusal as exit 0 "
+                        "with a JSON body and assert it through "
+                        "route_from_response".format(", ".join(wanted)))
         return None
 
     def invoke_once(self, case, repeat):
@@ -2562,6 +2718,9 @@ class Runner:
         A conversation retries WHOLE (SS3); invoke_once loops on this."""
         if self.entrypoint is not None:
             return self.paced(lambda: send_function(self.entrypoint, body))
+        if self.exec is not None:
+            return self.paced(lambda: send_exec(self.exec, body,
+                                                self.timeout()))
         return self.paced(lambda: send_http(
             self.url, self.method, headers, body, self.timeout(),
             self.execution["insecure_tls"], self.sse))
@@ -4818,6 +4977,9 @@ def adapter_env_names(adapter):
 
     walk(adapter)
     names.update(probe_auth_names(adapter).values())
+    # An exec command's passthrough names (#39): needed, and scrubbed.
+    names.update(_exec.env_names(
+        _mapping(_mapping(adapter).get("invocation")).get("exec")))
     return sorted(names)
 
 
@@ -4847,6 +5009,10 @@ def probe_redactions(adapter):
     places a run records. Read from the environment directly, so a
     pre-flight failure is scrubbed too. Longest first, as in unresolve()."""
     pairs = {}
+    # An exec command's passthrough names are NOT auth names here: exec.env
+    # also carries plain settings (DEBUG=1), and a "1" scrubbed at any
+    # length would rewrite the report's own text. They are scrubbed from
+    # PROBE_SCRUB_MIN_LEN up, as every other env value is.
     auth_names = set(header_env_names(adapter, url=False))
     for name in adapter_env_names(adapter):
         value = os.environ.get(name)
@@ -4855,9 +5021,7 @@ def probe_redactions(adapter):
             # Also the forms a value takes inside text that is itself
             # JSON (a tool result, a raw body) or a repr in an exception
             # message: the plain replace would miss a quoted cookie there.
-            for form in (value, json.dumps(value)[1:-1],
-                         json.dumps(value, ensure_ascii=False)[1:-1],
-                         repr(value)[1:-1]):
+            for form in secret_forms(value):
                 pairs.setdefault(form, name)
     return sorted(pairs.items(), key=lambda item: len(item[0]), reverse=True)
 
@@ -5024,9 +5188,12 @@ def probe_send(adapter, adapter_path, message, insecure_tls, timeout_s):
     request = record["request"]
     probe_print(probe_report(
         adapter, problems,
-        request={"method": request["method"], "url": request["url"],
-                 "headers": request["headers_sent"],
-                 "body": request["body"]},
+        request=dict({"method": request["method"], "url": request["url"],
+                      "headers": request["headers_sent"],
+                      "body": request["body"]},
+                     # exec: where the command ran, resolved -- the first
+                     # thing to check when it cannot find its own files.
+                     **({"cwd": runner.exec["cwd"]} if runner.exec else {})),
         response={
             "status": response["status"],
             "latency_s": response["latency_s"],

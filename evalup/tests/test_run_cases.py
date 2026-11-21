@@ -624,12 +624,16 @@ class TestPreflight(RunnerCase):
     responder = staticmethod(health_only(ok_responder))
 
     def test_unimplemented_invocation_mode(self):
-        plan = make_plan(self.state, self.app.base_url)
-        plan["adapter"]["invocation"]["mode"] = "cli"
-        rc, payload, _ = self.invoke(plan)
-        self.assertEqual(rc, 3)
-        self.assertIn("http and function only", payload["error"])
-        self.assertEqual(self.app.calls, [])
+        # `cli` stays reserved (#39) and points at exec, its implemented
+        # form; any other name lists the three modes.
+        for mode, fragment in (("cli", "is invocation.mode: exec"),
+                               ("grpc", "http, function and exec only")):
+            plan = make_plan(self.state, self.app.base_url)
+            plan["adapter"]["invocation"]["mode"] = mode
+            rc, payload, _ = self.invoke(plan)
+            self.assertEqual(rc, 3)
+            self.assertIn(fragment, payload["error"])
+            self.assertEqual(self.app.calls, [])
 
     def test_health_check_failure(self):
         plan = make_plan(self.state, self.app.base_url)

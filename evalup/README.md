@@ -40,8 +40,11 @@ it without Claude.
   only the stdlib.
 - **An app you can call**: an HTTP endpoint that returns one JSON body or a
   server-sent event stream (AG-UI, or any JSON-frame stream with a declared
-  text path: `invocation.response_format: sse`), or a Python
-  `module:callable`.
+  text path: `invocation.response_format: sse`), a Python
+  `module:callable`, or a command the runner starts per call with the
+  request as JSON on stdin and a JSON reply on stdout
+  (`invocation.mode: exec` — a CLI, or a small shim in the app's own
+  language for an app behind auth or not reachable over HTTP).
 - **Optional:** tool calls the response itself carries — an AG-UI stream's
   tool-call events, or a list in the JSON body (`traces.source: response`,
   no collector needed) — or OpenTelemetry GenAI traces exported to a file
@@ -413,7 +416,8 @@ versions. Diffs between incomparable runs are refused.
   otherwise. Not built: a simulated user, client-sent history, pre-written
   assistant turns, and whole-conversation end-state checks
   (`docs/multi-turn.md` §9). A suite made only of skipped cases closes the
-  gate. WebSocket and CLI apps are not driven; streaming (SSE) answers are
+  gate. WebSocket apps are not driven, and a CLI only through
+  `invocation.mode: exec` (JSON in, JSON out); streaming (SSE) answers are
   read (`invocation.response_format: sse`), but no time-to-first-token is
   recorded.
   Phase 1 has passed its tests but has not yet been run against a live app.

@@ -220,8 +220,10 @@ With R, P and H their `app_calls_planned`:
 
    **Rebuild-bound surface (precondition 6)?** Between applying the edit and
    running anything, stop: ask the user to rebuild and restart the instance
-   at `invocation.base_url` and to confirm the running build carries the edit
-   — and again after any revert. Never measure, and never spend a holdout
+   at `invocation.base_url` (under `mode: exec`, a shim that runs the app's
+   code in its own process needs only the rebuild; one that forwards to a
+   running server needs that server restarted too) and to confirm the
+   running build carries the edit — and again after any revert. Never measure, and never spend a holdout
    look, on an edit nobody has confirmed is live: an unchanged binary
    measures as "no gain", and noise can spend a look on it.
 5. **Gate on holdout**: only if training looks positive. Three names, never

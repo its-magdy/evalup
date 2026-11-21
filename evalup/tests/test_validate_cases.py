@@ -1147,6 +1147,21 @@ class TestAdapterCrossCheck(ValidateTest):
             {"invocation": {"clarify_from_response": "needs_clarification"}}))
         self.assertNotIn("clarify_unobservable", self.codes(out))
 
+    def test_a_non_200_status_under_an_exec_adapter_warns(self):
+        # #39: run_cases skips it, since an exec command has no status.
+        case = good_case(expect={"http": {"status": 403},
+                                 "answer": {"must_contain": ["x"]}})
+        finding = self.assert_finds(
+            "status_unobservable_in_exec", [case],
+            *self.adapter({"invocation": {"mode": "exec"}}), severity="WARN")
+        self.assertIn("route_from_response", finding["message"])
+        ok = good_case(expect={"http": {"status": 200},
+                               "answer": {"must_contain": ["x"]}})
+        for cases, adapter in (([ok], {"invocation": {"mode": "exec"}}),
+                               ([case], {"invocation": {"mode": "http"}})):
+            rc, out, _ = self.validate(cases, *self.adapter(adapter))
+            self.assertNotIn("status_unobservable_in_exec", self.codes(out))
+
     def test_a_domain_route_under_route_from_status_warns(self):
         case = good_case(expect={"route": "billing",
                                  "answer": {"must_contain": ["x"]}})
