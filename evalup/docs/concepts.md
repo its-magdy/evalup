@@ -62,9 +62,9 @@ scored at run time yet.
 ## Capability and regression suites
 
 Two kinds of case, told apart by the existing `gating` field, not by a new
-one. The **regression suite** is the human-accepted cases with `gating: true`:
-the app should pass them every time, and one failing closes the gate. The
-**capability suite** is the accepted cases with `gating: false`: what the app
+one. The **regression suite** is the gating cases (canaries never gate), and
+only accepted ones should be: the app should pass them every time, and one
+failing closes the gate. The **capability suite** is the accepted cases with `gating: false`: what the app
 cannot yet do reliably, tracked and reported, never gating, so a low pass rate
 there is expected. Cases still `pending` (or `quarantined`) are `gating:
 false` too but belong to neither: nobody has accepted them. A capability case

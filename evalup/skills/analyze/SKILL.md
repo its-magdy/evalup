@@ -116,16 +116,17 @@ re-read it is what the first field test spent.
 
 **Never passed → suspect the case first.** A case that fails every trial is
 more often a broken case than a broken app. Find them before clustering,
-never in a holdout run (its files name sealed cases): a
-`reliability.json` `per_case` row with `c: 0` (k > 1), a
-`run_history.py --all-cases` journal row whose `verdicts` hold no `pass`, or
-a whole `category` in `verdicts.jsonl` with no `pass` row. One fail at k = 1
-is not "never". For each, check the case against `adapter.yaml`,
-`profile.yaml` and `findings.md`: does the expected route or tool exist under
-that name, could any correct answer satisfy the check, does the answer read
-right while the check fails? Report them as their own group, "case or app?",
-ask the user which, and keep them out of what `optimize` gets until answered.
-This flags a question; no verdict changes.
+never in a holdout run (its files name sealed cases): at k > 1 a
+`reliability.json` `per_case` row with `c: 0` (a case verdict there is
+pass^k, so a flaky case fails every run too); at k = 1 a
+`run_history.py --all-cases --max-cases <N>` journal row with a `fail` and no
+`pass`; or a `category` in `verdicts.jsonl` with `fail` rows and no `pass`.
+`skipped` and infra rows count as neither. For each, check the case against
+`adapter.yaml`, `profile.yaml` and `findings.md`: does the expected route or
+tool exist under that name, could any correct answer satisfy the check, does
+the answer read right while the check fails? Report them as their own group,
+asked in the closing question below, and keep them out of what `optimize`
+gets until answered. This flags a question; no verdict changes.
 
 Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
 the plugin is installed) per failed case, on its normalized trajectory
@@ -169,16 +170,6 @@ Zero gating failures → produce insight, not silence:
   suite is not the same as a good one. That is how the issues a green suite
   cannot see get caught.
 
-**Graduating a capability case.** Accepted `gating: false` cases are the
-capability suite; gating ones are the regression suite
-(`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Capability and regression suites).
-After any run, name each accepted, non-canary `gating: false` case that
-passed every run of its `run_history.py --all-cases` series (three runs at
-least) and, at k > 1, every repeat (a regression run's `reliability.json`,
-`c` = `n`).
-Suggest flipping it to `gating: true`; the user decides. A flip edits the case, so batch them into
-one `dataset_version` bump and pin a new baseline after (run/SKILL.md §4).
-
 ### Conversations — "failed at turn N" is its own diagnosis
 A multi-turn `verdict.json` carries `failed_turn` and `stop_reason`; read them
 and `cases/<id>/turns/<t>/` (request, response, verdict, `answer.txt`) before
@@ -200,6 +191,14 @@ monotone drift per metric, and journals each case's verdict history. Quote
 is `stats.py`'s call on a specific pair, and this script deliberately makes
 none. Read `excluded_runs` first: a run without `summary.status: ok` is not in
 the series, which is usually why a series looks short.
+
+**Graduating a capability case**
+(`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Capability and regression suites).
+After any run, name each accepted, non-canary `gating: false` case that
+passed every run of its series (three at least; `--all-cases --max-cases
+<N>`, N the case count, or rows are cut at 40). Suggest flipping it to
+`gating: true`; the user decides. A flip edits the case, so batch them into
+one `dataset_version` bump and pin a new baseline after (run/SKILL.md §4).
 
 ### What it cost, beside whether it worked
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_cost.py <run> [--baseline <run>]

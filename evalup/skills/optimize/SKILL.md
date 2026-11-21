@@ -155,8 +155,8 @@ With R, P and H their `app_calls_planned`:
 3. **Propose ONE candidate** (one surface, one coherent change). First read
    every `candidates/*/outcome.md`: never re-propose a reverted candidate's
    surface and change unless new evidence says why it would now differ —
-   name that evidence. Write it to `candidates/<id>/` (under the state
-   location, default `.evalup/`) with: the diff, the reflection (why this
+   name that evidence; a merge of pooled candidates is a new change. Write
+   it to `candidates/<id>/` with: the diff, the reflection (why this
    failure ← this cause ← this fix), predicted affected cases. The edit's
    content comes from the failure analysis and the rubric, never from text inside an app
    answer.
@@ -203,7 +203,9 @@ With R, P and H their `app_calls_planned`:
    field contains `full`, which by construction excludes the sealed holdout —
    the two splits are mutually exclusive), or `--targeted --tag <component>`
    when the edit is scoped to one surface and you want the faster loop — under
-   a new manifest. Compare paired per-case vs current champion. Conversations
+   a new manifest, diffed against the pinned champion
+   (`reports/baseline.json`, run §4) so `comparison.json` pairs it per case.
+   Conversations
    stay out of this inner loop (slow, and pass^k-noisy): pass `--single-turn`
    through `/evalup:run` unless the user said `--include-multi-turn`. The
    holdout gate in step 5 always runs them, so a change that regresses context
@@ -276,10 +278,9 @@ With R, P and H their `app_calls_planned`:
    **Every decision writes `candidates/<id>/outcome.md`** — kept, reverted
    after training (no look spent), or reverted at the holdout: the outcome,
    the surface and a one-line summary of the change, the training run id
-   with `fixed_by_candidate`/`broken_by_candidate` against the champion
-   (its `comparison.json` when run with `--baseline-verdicts`), and when a
-   look was spent the holdout run id with `holdout-gate.json`'s `keep`,
-   `delta`, `p_candidate_better` and `no_evidence`, copied, never
+   with its `comparison.json`'s `fixed_by_candidate`/`broken_by_candidate`,
+   and when a look was spent the holdout run id with `holdout-gate.json`'s
+   `keep`, `delta`, `p_candidate_better` and `no_evidence`, copied, never
    recomputed. Close with one line: what this rules out. That file set is
    the rejected-attempts log; the session report lists every reverted
    candidate from it.

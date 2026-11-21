@@ -1087,12 +1087,14 @@ and every step after the first review was decided ad hoc (#53).
 
 Three of #29's borrowed ideas, all skill text; no script changed.
 
-- **A case that never passes is suspected first** (`analyze --cluster`). A
-  `reliability.json` row with no passing repeat, a `run_history.py
-  --all-cases` row with no `pass` in its series, or a `category` with no
-  passing case is reported as its own "case or app?" group: is the
-  expected route or tool real, could any correct answer satisfy the check?
-  The user answers before the cluster reaches `optimize`.
+- **A case that never passes is suspected first** (`analyze --cluster`).
+  At k > 1 a `reliability.json` row with no passing repeat (a case verdict
+  is pass^k there, so a flaky case fails every run), at k = 1 a
+  `run_history.py --all-cases` row with a `fail` and no `pass`, or a
+  `category` with failures and no pass — `skipped` and infra rows count as
+  neither — is reported as its own "case or app?" group: is the expected
+  route or tool real, could any correct answer satisfy the check? The user
+  answers before the cluster reaches `optimize`.
 - **Optimize keeps a rejected-attempts log**: every decision writes
   `candidates/<id>/outcome.md` beside the candidate's diff and
   `holdout-gate.json` — kept or reverted, the training
@@ -1103,8 +1105,9 @@ Three of #29's borrowed ideas, all skill text; no script changed.
 - **Capability and regression suites are named** (`docs/concepts.md`) on
   the existing `gating` field: accepted `gating: true` cases are the
   regression suite, accepted `gating: false` ones the capability suite.
+  `generate` lets a reviewer keep an accepted case `gating: false` for it.
   `analyze` suggests graduating a capability case that passed every run of
-  its series (three at least) and every repeat; the user flips `gating`.
+  its series (three at least); the user flips `gating`.
 - **No scoring semantics changed** (`SCORING_VERSION` stays 1): each item
   reads numbers the scripts already write and changes no verdict.
 

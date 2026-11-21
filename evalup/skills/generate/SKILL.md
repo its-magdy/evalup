@@ -213,7 +213,8 @@ labeling. generation-method.md says why each of these three matters.
 **The generator emits `gating: false` on every case** (its brief, rule 3):
 an unreviewed label must not close a gate, which is what
 `validate_cases.py`'s `gating_unreviewed` warns about per case. A reviewer
-who accepts a case flips `gating` to true in the same edit. Check the
+who accepts a case flips `gating` to true in the same edit, or keeps it
+false as a capability case. Check the
 generator's output before validating anyway: among the cases this
 delegation just wrote — never a case a human already accepted — find every
 one whose `gating` is not `false` (an absent key means true), set it to
