@@ -66,7 +66,14 @@ Canaries close nothing by default — a canary `fail` already aborted the run,
 and one that reached no verdict is printed as NOT VERIFIED — so a release
 pipeline that wants "no verified canary, no pass" adds `--require-canaries`
 (not on a holdout run: `holdout` is exclusive of `canary`, so it always closes).
-`--json` prints the same facts for a dashboard. Deterministic-only CI needs no
+A non-deterministic app rarely gets a k = 3 regression run with no gating
+failure at all, so a CI gate for one adds `--baseline reports/baseline.json`
+(the pinned run; repeatable, a run directory works too): a gating failure
+then closes only when the case passed every trial it had in the baseline,
+or has no verdict there, and the cases that were flaky or already failing
+there are listed, not gating. `--min-pass-rate R` closes below an absolute
+floor. Neither works on a holdout run (exit 2: its cases have no per-case
+row). `--json` prints the same facts for a dashboard. Deterministic-only CI needs no
 `claude -p` at all: `convert_suite.py` → `make_plan.py` → `run_cases.py` →
 `gate.py` is four plain commands (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that
 pipeline, runnable). A pipeline may want `make_plan.py`'s overrides:
