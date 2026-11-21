@@ -52,6 +52,30 @@ axis. INV is the cheapest cell in the grid because it inherits its parent's
 expectation and needs no new labeling — that is what `metamorphic_parent` is
 for.
 
+## §1 — why rules get a row of their own
+
+A live run on a real app showed the gap (issue #52). Its prompt said "plain
+text only, never start a line with a bullet", and discover recorded that as a
+business rule with its source line. One case's answer started lines with `- `
+in two of three regression runs and passed, because no case checked the rule;
+a hand-run's top finding had been the same defect. The prompt's other
+checkable rules (reply language, a count matching the items listed, one answer
+per ambiguous name, a lookup retried before "not found") got no case either,
+while 8 of 12 cases asked about one settings record, the only data the probe
+had grounded. The grid covered its units and still missed the rules, so they
+are an input of their own, and the tool spread is said out loud.
+
+Every check the row uses already scores: `must_not_contain` regexes,
+`must_contain`, `expect.tools`, `expect.result`. Nothing here adds a scoring
+semantic; `expect.answer.rules` stays unscored (#26 is where rules get a
+scorer). A rule only a judge can read is listed as uncovered, not forced into
+a regex that would pass on a paraphrase.
+
+A rule the prompt states is the owner's SHOULD, written down, so it is not
+the source-derived expectation §3 forbids: that is a check restating what a
+guard in the code already enforces, which passes by construction. A prompt
+rule is what the model is asked to do, and nothing makes it comply.
+
 ## §2a — why tuples come before prose
 
 The two-phase flow follows Hamel Husain's dimension/tuple method.

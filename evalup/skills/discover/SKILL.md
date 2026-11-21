@@ -115,6 +115,8 @@ conversation/session handling, OTel setup. Record as you go:
   — and whether an edit to it takes effect only after a rebuild or restart
   (compiled-in, embedded, or loaded at startup). Record that in findings.md
   beside the surface; optimize's precondition 6 reads it.
+- Every **rule a system prompt states** (format, reply language, a tool to
+  call first) → `business_rules`, `source:` its file:line; generate tests it.
 - Every tool's **side-effect class**, `safe-live | needs-mock | never-live` as
   adapter-contract.md defines them. Confirm each with the human — except in
   lean mode: there, mark the `tools:` list `# side_effects inferred from code,

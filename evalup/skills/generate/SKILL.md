@@ -47,16 +47,14 @@ targets still `verified: false` are inferred, which is normal after a lean
 first session and no reason to bounce. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
 when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
-the budget: ~30 cases is a good default, ~12 a legitimate minimum — and ~12 is
-what `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for,
-so a new user sees a result before they are asked to review thirty cases.
+the budget: ~30 cases by default, ~12 the minimum — what
+`${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for.
 `--count N` sets that size instead (§1's quotas still apply as ratios plus
 floors). `--layer routing|tools|answer` limits §1's grid to the cases that
-exercise that layer — a route label, a tool or args expectation, an answer
-expectation — to extend an existing suite where one layer is thin; the new
+exercise that layer, to extend a suite where one layer is thin; the new
 cases go beside the old ones and no existing case changes.
 
-Four documents own what they name, and this file never restates their rules:
+Four documents own what they name; this file never restates them:
 [case-format.md](references/case-format.md) (schema + `validate_cases.py`'s
 error/warning line), [suite-sizing.md](references/suite-sizing.md) (quotas, and
 what a suite this size may claim),
@@ -70,11 +68,9 @@ Generate cases — and drive user-simulator personas — with a different model
 family than the app under test, whenever one is available. Record the
 generator's model and family in the dataset metadata either way.
 
-Same-family generation is a documented risk, not a measured effect. So when no
-cross-family generator exists, **generate anyway and mitigate** rather than
-blocking: human review on every case (§3), expectations grounded in state or an
-oracle (§2), the caveat in the metadata. Evidence, and why the judge's
-same-family rule is hard where this one is not: generation-method.md.
+With none, **generate anyway and mitigate**: human review (§3), expectations
+grounded in state or an oracle (§2), the caveat in the metadata. Why this is
+not the judge's hard rule: generation-method.md.
 
 ## 1. Build the coverage grid
 The ROW axis is the app's **unit of dispatch** — whatever the app chooses
@@ -112,6 +108,17 @@ known to be able to catch, and a grid that covers every unit can still miss
 it. Pass those findings to the generator with the grid assignment, and list
 the findings left uncovered, by number, under `known_gaps` in `dataset.yaml`.
 
+**Rules are its fourth.** Every `business_rules` entry, and every rule the
+app's prompt states (owner-stated: never file one as common sense), whose
+breach shows in the answer or the trace gets a case that fails on it, built
+from existing checks — plain-text-only, a `must_not_contain` regex such as
+`'/(?m)^[ \t]*([-*+•]|\d+[.)]|#+)[ \t]|\*\*/'` on every case; a reply
+language, `must_contain` on its words; one answer per ambiguous candidate,
+each name plus `'/\?/'`; "call X before saying not found", `expect.tools`; a
+stated count, `expect.result`. `coverage_grid.rules` lists every rule with
+its case ids, or why none (judge-only, layer disabled). Spread cases over
+every tool, never mostly the one record a probe grounded.
+
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
 of the suite size plus a floor**, never a fixed count. Apply them to the size
 actually being generated, and note in the metadata when a floor overrode its
@@ -146,13 +153,8 @@ The damage concentrates in the EXPECTED OUTPUT, not the input — see
 generation-method.md.
 
 ### 2c. What to add to the agent's own rules
-test-generator.md carries crossed dimensions, honest route labels, trajectory
-defaults (end-state + policy, never an invented tool order), INV/DIR
-derivation, the enabled-layer rule and adversarial refusals. case-format.md
-carries the per-layer rules: `expect.result` with its `reference_query`,
-`expect.authz` derived under the persona's real access scope, and which fields
-are RESERVED (`excluded_tools` among them — documentation, not a measurement).
-This skill adds two. **Real seeds first**: seed from real messages or traces
+test-generator.md carries the per-case rules and case-format.md the per-layer
+ones, RESERVED fields included. This skill adds two. **Real seeds first**: seed from real messages or traces
 where they exist, and record which cases are synthetic-only — a regression
 scaffold, not a measure of real-world quality. And INV/DIR cases are cheap but
 still spend suite slots, so hold them to §1's ratio and floor.
@@ -160,14 +162,11 @@ still spend suite slots, so hold them to §1's ratio and floor.
 **Conversations** (`input.turns`,
 [references/conversations.md](references/conversations.md) — read it only
 then) are written only when the adapter declares `invocation.conversation`;
-otherwise every one is skipped, so write none and say so in the handover. Default 10–20 of them — they are slow.
-Word turns so they do not depend on the reply's exact wording; put a checkpoint
-`expect` on turn 1 so a wrong start is caught where it happens; use `clarify_ok`
-checkpoints only where the clarification is deterministic; at most 8 turns.
-Near-duplicate detection compares whole conversations. Never a conversation
-canary (a validator error). They are `gating: false` until a baseline exists and
-the user promotes them: pass^k makes them look worse (four turns at 0.9 pass is
-about 0.66), so recommend repeats (`--k`) when they are run.
+otherwise every one is skipped, so write none and say so in the handover.
+Default 10–20 of them — they are slow; their authoring rules are that file's.
+They are `gating: false` until a baseline exists and the user promotes them:
+pass^k makes them look worse (four turns at 0.9 pass is about 0.66), so
+recommend repeats (`--k`) when they are run.
 
 **Before delegating, read the adapter's `environment.safe_to_attack`** (this
 is yours, not the agent's): while it is not true, every run skips
@@ -250,8 +249,7 @@ on that.
   `smoke`**: a run selects on its mode's split alone, so a canary tagged only
   `[full, canary]` never runs under `--smoke` (the validator warns,
   `canary_not_in_smoke`). Canaries sit outside every denominator; on a smoke
-  run the tag adds the abort (exit 4) when one scores wrong, so a drifted
-  harness stops before it spends the suite on numbers nobody should read.
+  run one scoring wrong aborts it (exit 4).
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither
@@ -282,10 +280,10 @@ splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
     billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
+  rules: { plain-text: [c-4f2a91c7], refund-cap: "judge-only" }   # not checked
 ```
 
 ## 5. Suite adequacy (periodic, not per-generate)
-Offer mutation testing of the suite: inject 3–5 deliberate bugs into a COPY of
-a prompt (drop a constraint, invert a condition, swap a tool name), run the
-suite against each, report mutation score (% caught). <80% → the suite has
-holes where the mutations lived; generate targeted cases there.
+Offer mutation testing: inject 3–5 bugs into a COPY of a prompt (drop a
+constraint, invert a condition, swap a tool name) and run the suite on each.
+Under 80% caught, generate cases where the mutations lived.

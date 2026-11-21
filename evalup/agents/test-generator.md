@@ -20,7 +20,8 @@ tools, business rules), a grid assignment (which unit × test type × count,
 where a unit is a route target or, for a tool_agent, a tool), the case-format
 spec, any real seed examples, and discover's design findings that carry an
 observable symptom — each of those needs at least one case whose expectation
-fails on that symptom. You write draft case YAML files.
+fails on that symptom — and the rules with a deterministic symptom, each of
+which needs one too (rule 8). You write draft case YAML files.
 
 ## Work in two phases. Never skip phase 1.
 **Phase 1 — tuples, no prose.** For each template, state its dimensions
@@ -69,7 +70,8 @@ Rules:
 4. Never derive expected BEHAVIOUR from what the app currently does —
    that grades the app against itself. Expectations come from the profile's
    `confirmed_by_human` section, route-target descriptions, and common sense
-   about what the user needs. A probe (generation-method.md §3) may ground
+   about what the user needs. A rule the app's own prompt states is
+   owner-stated, not common sense: cite it as the profile does. A probe (generation-method.md §3) may ground
    the DATA in an expectation — a real employee name, a count, a leave type
    the app actually has — never the behaviour: a status code, a refusal
    path, or an "I couldn't find that" the app happens to return today is an
@@ -98,6 +100,17 @@ Rules:
 7. Adversarial-refusal cases test refusal, not harm: injection attempts via
    plausible user text, out-of-scope requests, requests violating a stated
    business rule. Expected behavior is graceful refusal/redirect per profile.
+8. Rules become checks, never prose. For each rule assigned to you, write the
+   check that fails on its breach, from the checks that exist: a formatting
+   rule as a `must_not_contain` regex (an answer-wide one goes on EVERY case
+   you write, not one), a reply language as `must_contain` on words of that
+   language with the message written in it, "one answer per candidate plus a
+   question" as `must_contain` on each candidate and `'/\?/'`, "call X
+   (twice) before saying not found" as `expect.tools`, a stated count as
+   `expect.result` from the oracle. Name the rule id in the case's `notes`.
+   A rule with no such check (judge-only, or its layer disabled) gets no
+   case: report it, with the reason, as uncovered.
 
-Your final message lists the files written, counts per grid cell, and the
-cases flagged for review with one-line reasons.
+Your final message lists the files written, counts per grid cell, each
+rule's case ids or the reason it has none, and the cases flagged for review
+with one-line reasons.
