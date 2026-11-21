@@ -261,8 +261,9 @@ under a cluster-robust correction, §12). So:
 ## 5. Traces, timing and cost
 
 - **Traces per turn.** Each turn's trace id comes from that turn's response;
-  the existing quiescence wait (3 s quiet, up to 30 s, `run_cases.py:1645`)
-  runs per turn, and each turn's tool and trajectory checks read only that
+  the existing quiescence wait (3 s quiet, up to 30 s,
+  `run_cases.py` `wait_for_quiescence`) runs per turn when traces come from a
+  store (`traces.source: response` has none), and each turn's tool and trajectory checks read only that
   turn's trace. `collect_trace` copies the whole span store per turn, so each
   `turns/<t>/trace.json` holds the full store; acceptable, and stated.
 - **One trace for the whole conversation.** Some instrumentations reuse one
@@ -275,7 +276,7 @@ under a cluster-robust correction, §12). So:
   replying, so a turn sent too soon reads as "forgot the context". The
   optional `turn_delay_s` waits between turns; `discover` sets it when it
   sees async memory writes.
-- **Session expiry.** The per-turn quiescence wait plus `turn_delay_s` can
+- **Session expiry.** The per-turn quiescence wait (from a store) plus `turn_delay_s` can
   outlive a server-side session TTL, and the resulting "new conversation"
   reads as "forgot the context". Each turn's `request.json` keeps `sent_at`;
   `analyze` reads the gaps before calling a failure a memory bug.
@@ -285,10 +286,12 @@ under a cluster-robust correction, §12). So:
   so a conversation is priced as one case. The per-turn token growth curve is
   later (§9).
 - **Run time.** 20 conversations × 5 turns × (model latency + at least 3 s
-  quiescence) at `k=3` is about an hour. The dry run's `app_calls_planned`
-  (`run_cases.py:3260`) counts turns, not cases, and adds the quiescence
-  floor; `generate` defaults to 10–20 conversations; the README says a
-  headless run will need several `wait_run.py` waits (540 s each).
+  quiescence, when traces come from a store) at `k=3` is about an hour. The
+  dry run (`run_cases.py` `dry_run_report`) counts turns, not cases, in
+  `app_calls_planned`, every retry in `app_calls_max`, and the quiescence
+  floor (none for `traces.source: response`) plus `turn_delay_s` in
+  `wait_floor_s`; `generate` defaults to 10–20 conversations; the README
+  says a headless run will need several `wait_run.py` waits (540 s each).
 
 ## 6. Memory that outlives the session
 

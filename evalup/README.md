@@ -329,7 +329,8 @@ versions. Diffs between incomparable runs are refused.
   recorded.
   Phase 1 has passed its tests but has not yet been run against a live app.
 - **Conversations are slow and look worse.** Every turn waits for trace
-  quiescence (3 s or more when traces are collected) plus any `turn_delay_s`.
+  quiescence (3 s or more when traces come from a store; none for
+  `traces.source: response`) plus any `turn_delay_s`.
   20 conversations × 5 turns at `k=3` take about an hour, so a headless run
   needs several `wait_run.py` waits of 540 s each. pass^k over every turn
   makes a conversation look worse by construction (four turns at 0.9 pass
@@ -360,13 +361,13 @@ versions. Diffs between incomparable runs are refused.
 From the plugin directory:
 
 ```bash
-python3 -m unittest discover -s tests       # 1023 tests, ~2.5 min
+python3 -m unittest discover -s tests       # 1026 tests, ~2.5 min
 ruff check --config ruff.toml .             # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-1013 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
+1016 passed and 10 skipped; add `--with pyyaml` to run the skipped ten.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.

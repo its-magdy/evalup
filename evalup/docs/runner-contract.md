@@ -65,7 +65,7 @@ run_cases.py --verify <reports/<run-id>>
 | `--out DIR` | the run directory to write. Must equal `<state>/reports/<run_id>` where `run_id` is the plan's. Required except with `--verify`. |
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
-| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. |
+| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is an app call, so it is the one pre-flight step `--dry-run` skips; everything else still runs, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1 — what an app-side rate limit has to absorb) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus `turn_delay_s` between turns). |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). Decision **D3**. |
 | `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
 
@@ -905,7 +905,8 @@ key** rather than sending `null`. Turn 1 without the id makes the case
 a `Cookie` for `auth: {type: cookie}`); it is redacted in `request.json`.
 
 **Traces per turn.** Each turn's trace is collected after its own quiescence
-wait and read only by that turn's layers. When two turns of one attempt
+wait (none for `traces.source: response`, which is read off the turn's own
+response) and read only by that turn's layers. When two turns of one attempt
 return the **same trace id**, no span can be attributed to one turn: every
 trace-dependent layer of the case (`TRAJECTORY_LAYERS`, `loops` included) is
 `unscorable` with that reason, and the turn read with the shared id reads no

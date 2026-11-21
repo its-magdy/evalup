@@ -183,7 +183,8 @@ Every flag fills the plan; never hand-edit `plan.json` to change one
 - `--timeout-s N`, `--max-attempts N`, `--backoff-s 5,30` and
   `--insecure-tls` fill `execution`: the retry pair for a throttled provider
   or an app that already retries (the runner's default is 3 tries with 1 s
-  and 4 s waits); the last flag for a self-signed local dev host only —
+  and 4 s waits) — under an app-side rate limit, size `--max-attempts` so
+  the dry run's `app_calls_max` fits it, since a 429 often counts too; the last flag for a self-signed local dev host only —
   pre-flight otherwise exits 3 with `CERTIFICATE_VERIFY_FAILED`.
 - `--single-turn` leaves conversations out of the selection (refused under
   `holdout`); otherwise a selection with a conversation writes

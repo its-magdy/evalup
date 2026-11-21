@@ -716,6 +716,31 @@ class TestPreflight(RunnerCase):
         self.assertFalse(self.out_dir().exists())
         self.assertEqual(self.app.calls, [])
 
+    def test_dry_run_states_the_worst_case_with_retries(self):
+        """#48: a rate-limited app has to absorb every retry, so the dry
+        run says cases x k x max_attempts next to the no-retry floor."""
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["k"] = 2
+        plan["execution"]["max_attempts"] = 3
+        plan["execution"]["backoff_s"] = [0, 0]
+        rc, payload, proc = self.invoke(plan, extra_argv=["--dry-run"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(payload["app_calls_planned"], 2 * 2)
+        self.assertEqual(payload["app_calls_max"], 2 * 2 * 3)
+        self.assertEqual(self.app.calls, [])
+
+    def test_dry_run_counts_no_quiescence_for_a_response_trace(self):
+        """#48: traces.source: response is never waited on (no store to
+        settle), so the wait floor must not add 3 s per call for it."""
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["adapter"]["traces"] = {"source": "response"}
+        rc, payload, proc = self.invoke(plan, extra_argv=["--dry-run"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertTrue(payload["traces"]["collected"])
+        self.assertEqual(payload["wait_floor_s"], 0)
+
 
 class TestSkipGates(RunnerCase):
     """SS7. Every one of these is a REFUSAL recorded as `skipped`, never a
