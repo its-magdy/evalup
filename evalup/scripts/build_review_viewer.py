@@ -123,8 +123,8 @@ def load_records(run_path, pattern=None):
     the one layout this package writes itself: a directory holding
     manifest.yaml and cases/ IS a run_cases.py run directory, so its records
     are at RUN_DIR_GLOB and no flag is needed. That is recognition of our own
-    output, not a guess at someone else's depth; the viewer used to fail by
-    default on the very thing `run` produces (2026-09 audit)."""
+    output, not a guess at someone else's depth; without it the viewer would
+    fail by default on the very thing `run` produces."""
     p = pathlib.Path(run_path)
     if not p.exists():
         die(f"bad input: {run_path}: no such file or directory")
@@ -158,12 +158,12 @@ def from_case_dir(verdict, case_dir):
     shape this page renders.
 
     verdict.json is a VERDICT: it carries layers and nothing a reviewer can
-    read -- no request, no answer, no expected/actual pair. Pointed at a real
-    run, every case rendered "No trajectory data / Nothing to diff / No
-    latency" (2026-09-21 audit): the error-analysis screen worked only on
-    hand-written records, never on the thing `run` produces. The material was
-    always one directory away (runner-contract.md SS6), so it is joined here
-    rather than in a staging step a model would have to perform.
+    read -- no request, no answer, no expected/actual pair. Rendered alone,
+    every case would show "No trajectory data / Nothing to diff / No
+    latency": the error-analysis screen would work only on hand-written
+    records, never on the thing `run` produces. The material is one directory
+    away (runner-contract.md SS6), so it is joined here rather than in a
+    staging step a model would have to perform.
 
     The verdict's own keys win; nothing here overwrites what the runner wrote.
     """
@@ -204,11 +204,10 @@ def _load_dir(p, run_path, pattern):
     # Path.glob rejects some patterns outright — an absolute one
     # ("Non-relative patterns are unsupported") and an empty one
     # ("Unacceptable pattern") — by RAISING, which is exit 1 and a
-    # traceback: the flag added to make this script easier to point at a
-    # run was the one input that escaped the exit-2 JSON contract the rest
-    # of it keeps. Name the fix rather than only the rejection — but the
-    # fix differs by cause, and one shared arm described only the absolute
-    # case, so `--glob ''` was told it was "not an absolute path".
+    # traceback, outside the exit-2 JSON contract the rest of this script
+    # keeps. Name the fix rather than only the rejection — and the fix
+    # differs by cause: `--glob ''` must not be told it is "not an absolute
+    # path".
     try:
         files = sorted(p.glob(pattern))
     except (ValueError, NotImplementedError) as e:
@@ -225,12 +224,11 @@ def _load_dir(p, run_path, pattern):
     holdout_dropped = 0
     for f in files:
         doc = load_json(f, strict=False)
-        # One is_record filter for both shapes. It used to guard only the
-        # dict branch, so a run artifact that happens to be a top-level
-        # JSON array — a manifest holding a list of stage entries — walked
-        # straight past the check and rendered as synthesized-id "cases",
-        # which is the exact failure RECORD_KEYS was added to stop, one
-        # shape over. Normalizing to a list first leaves the policy in one
+        # One is_record filter for both shapes. A run artifact that happens
+        # to be a top-level JSON array — a manifest holding a list of stage
+        # entries — must not walk past the check and render as
+        # synthesized-id "cases", the failure RECORD_KEYS exists to stop,
+        # one shape over. Normalizing to a list first leaves the policy in one
         # place, so the next tweak to it cannot be made in only one branch.
         if isinstance(doc, dict):
             doc = [doc]
@@ -255,7 +253,7 @@ def _load_dir(p, run_path, pattern):
     if skipped and not records:
         # Every matched file was a run artifact, so the path is one level
         # off rather than empty. Naming the files and the likely fix beats
-        # rendering them as cases (what this used to do) and beats a bare
+        # rendering them as cases and beats a bare
         # "nothing to review" page (which would read as a finished run).
         die(f"bad input: {run_path}: {len(files)} file(s) matched "
             f"{pattern!r} but none is a case record "
@@ -304,7 +302,7 @@ def as_dict(value):
     here (see the module docstring: "a record is evidence to render, not a strict
     schema to enforce"). A drifted field must therefore degrade to "nothing to
     render" — `x or {}` guards against null but not against a string, and
-    `"answer": "some text"` used to take the whole page down with an
+    `"answer": "some text"` would take the whole page down with an
     AttributeError, which is neither the promised {"error": ...} contract nor a
     rendered page. Off-shape fields are surfaced by offshape_note, not hidden."""
     return value if isinstance(value, dict) else {}
@@ -410,8 +408,8 @@ def render_span_tree(rec):
         dur_txt = f'{dur} ms' if dur is not None else "duration n/a"
         args_txt = esc(truncate(as_text(tc.get("args")) or "(none)"))
         # An errored call has no result BY SPEC (the convention records one
-        # only on success), so "(no result captured)" was the viewer telling
-        # the reviewer that tracing was misconfigured on precisely the records
+        # only on success), so "(no result captured)" there would tell the
+        # reviewer that tracing was misconfigured on precisely the records
         # where the app had in fact failed.
         err = tc.get("error")
         result_txt = esc(truncate(
@@ -482,7 +480,7 @@ def render_request(rec):
 def render_failed_checks(rec):
     """Why a layer failed, in the scorer's own words. "answer: fail" is a
     badge; `must_contain "$999.99": not found in answer` is what the reviewer
-    came for, and it was only ever in verdict.json."""
+    came for, and it is only in verdict.json."""
     rows = []
     for name, body in as_dict(rec.get("layer_detail")).items():
         body = as_dict(body)
@@ -1033,8 +1031,8 @@ def _finite(node):
 
     Python's json emits NaN/Infinity bare and the page's JSON.parse throws on
     them, so ONE such number anywhere in a run -- an expectation, or an app
-    response, which no input check of ours can police -- aborted the script and
-    rendered an empty page (2026-09 audit). The viewer shows what the run
+    response, which no input check of ours can police -- would abort the
+    script and render an empty page. The viewer shows what the run
     holds; "NaN" as text is the faithful rendering of a value that has no JSON
     one. allow_nan=False below turns any path this misses into a build error
     instead of a blank page."""
@@ -1053,7 +1051,7 @@ def build_page(records, annotations, title, source):
     # trace_id is the viewer's primary key: the JS latest[] map, the "already
     # annotated" dot, the "unannotated only" filter and every exported
     # annotation are all keyed by it. Two records sharing one is therefore the
-    # same defect the backfill below was written to fix, one level up —
+    # same defect the backfill below fixes, one level up —
     # annotating either marks both done and hides the other under the filter.
     # Records legitimately collide (a case re-run in the same directory, a
     # --glob sweeping two run dirs, or two records that both lack a trace_id
@@ -1064,19 +1062,20 @@ def build_page(records, annotations, title, source):
     for i, r in enumerate(records):
         # Render BEFORE backfilling the ids. render_record flags a synthesized
         # id by checking that neither case_id nor trace_id was present, and
-        # backfilling first made that check permanently false — every
-        # positional id then rendered as if it were a real one, which is the
+        # backfilling first would make that check permanently false — every
+        # positional id would render as if it were a real one, which is the
         # opposite of the promise in this module's docstring. A synthesized id
         # does not correlate back to the dataset, so hiding it sends the
         # reviewer looking for a case that does not exist.
         r["detail_html"] = render_record(r, i)
         # Not setdefault: it tests key EXISTENCE, not usefulness, so an
         # explicit "trace_id": null — what a harness writes in the trace-less
-        # mode render_span_tree supports — survived it untouched. Every such
-        # record then collided on the single JS key "null" in the viewer's
-        # latest[] map, so annotating one marked them ALL annotated, hid the
-        # rest under the "unannotated only" filter, and printed "null" in the
-        # sidebar while the detail pane correctly showed the synthesized id.
+        # mode render_span_tree supports — would survive it untouched. Every
+        # such record would then collide on the single JS key "null" in the
+        # viewer's latest[] map, so annotating one would mark them ALL
+        # annotated, hide the rest under the "unannotated only" filter, and
+        # print "null" in the sidebar while the detail pane showed the
+        # synthesized id.
         if not r.get("case_id"):
             r["case_id"] = r.get("trace_id") or f"case-{i}"
         if not r.get("trace_id"):
