@@ -67,6 +67,8 @@ CONDITIONAL = {
     "skills/run/references/run-modes.md":
         "before a run in any mode but smoke",
     "skills/run/references/ci-gate.md": "wiring a run into CI",
+    "skills/generate/references/label-lifecycle.md":
+        "after review: a wrong accepted label, a bump, a re-pin",
     "skills/discover/references/oracle.md":
         "an oracle offer (discover step 5) or an expect.result case",
     "skills/discover/references/interview.md":

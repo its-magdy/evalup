@@ -6,7 +6,7 @@ description: >-
   scorer, the artifacts and the baseline diff; this skill decides what to run
   and what the numbers mean. Five modes — smoke, regression, targeted, holdout,
   full — cover everyday edits through release validation, plus a CI gate.
-argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn] [--baseline]"
+argument-hint: "[--smoke|--regression|--targeted|--holdout|--full] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn]"
 allowed-tools: >-
   Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
@@ -100,7 +100,8 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `--capabilities` is required (`--no-capabilities` only with genuinely no
   profile); `--adapter` catches a label the runner could never observe; pass
   `--manifest` only when convert wrote it (`datasets/dataset.yaml` exists) —
-  a missing path is exit 2.
+  a missing path is exit 2. Name each `label_fixes_open` entry: a label fix
+  awaiting the owner.
 - **`make_plan.py`** resolves the mode via §0 into `cases`, `selecting_split`,
   `k` and `gate`, fills every required key, and prints the `run_id`, the
   `--out` directory and the exact runner command. Its other flags are the
@@ -196,26 +197,25 @@ app's score.
 
 ## 4. Baseline and the holdout ledger
 
-- **`reports/baseline.json`** (`{"schema_version": 1, "run_id", "dataset_version", "scoring_version"}`, the last two copied from the run's `manifest.yaml`)
-  is the one file naming the baseline. Read it; never take the newest
-  `reports/` entry by mtime. Pass `reports/<its run_id>/verdicts_for_stats.jsonl`
-  to `--baseline-verdicts` and the runner enforces the diff's rules — same
-  dataset and scoring version, same `k` — before any spend. **Never prune
-  `reports/` by age without reading this pointer**: deleting the pinned run
-  costs every future diff.
-- **First run** — no pointer — is a branch, not an error. Run
-  without `--baseline-verdicts`, write `baseline.json` at this run, print
-  "baseline established (run <id>); future runs diff against this."
-  `--baseline` does that deliberately. **Never pin a run with no selected
-  case `accepted`** (a first session's smoke run): unreviewed labels, and
-  k=1 that the default k=3 diff refuses. Say "not pinned: labels
-  unreviewed; a `regression` run after the review pins the baseline." **Pinning is yours; the runner never
-  writes that file.**
-- **Holdout runs never use or become `reports/baseline.json`**: it names a
-  regression run, which shares no case with `holdout`. A `--holdout` run (and
-  `--full`'s holdout half) takes `--baseline-verdicts` only from its caller
-  (the optimizer's champion holdout run) and is never pinned, even with no
-  pointer; the runner refuses a holdout/non-holdout pair before any spend.
+- **`reports/baseline.json`** names the baseline: never take the newest
+  `reports/` entry by mtime, nor prune `reports/` by age without reading it.
+  Pass `reports/<its run_id>/verdicts_for_stats.jsonl` to
+  `--baseline-verdicts` and its `k` to `--k`; the runner refuses a pair whose
+  dataset version, scoring version or `k` differ, before any spend.
+- **Pin only with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pin_baseline.py reports/<run-id>`**:
+  it refuses (exit 2) a `running`, incomplete, holdout or ungated run. Quote
+  its `notes`. First run (no pointer): run without `--baseline-verdicts`,
+  pin, print "baseline established (run <id>); future runs diff against
+  this." No selected case `accepted` (a first session's smoke): "not pinned:
+  labels unreviewed; a `regression` run after the review pins the baseline."
+- **After a `dataset_version` bump**, pin a `regression` run made without
+  `--baseline-verdicts`. **A red run** may be pinned if the user chooses; say
+  the baseline is red. **k carries over**: after a `--k 1` pin every diff
+  runs `--k 1` until a k=3 run is pinned. Details:
+  `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`.
+- **Holdout runs never use or become `reports/baseline.json`**: a
+  `--holdout` run (and `--full`'s holdout half) takes `--baseline-verdicts`
+  only from its caller, the optimizer's champion holdout run.
 - **The holdout look**: `--holdout` and `--full` spend one of the N=5 —
   surface the running total the runner prints; run-modes.md's `holdout`
   section says where the ledger is and who else writes it.
@@ -257,7 +257,8 @@ beside them.
 - **Unreviewed labels** — when no selected case is `review.status:
   accepted` (a first session), say so above the clusters: a failure may be
   the label's error, not the app's, no case can close a gate yet, and the run
-  is not pinned (§4).
+  is not pinned (§4). A reviewed label that looks wrong: label-lifecycle.md
+  (§4).
 - **Page one = the top-3 failure clusters**, each with 1–2 expected-vs-actual
   excerpts, the implicated surface (router prompt, tool description X, missing
   OOS route) and an effort tag. That narrative is what the LLM here is for.

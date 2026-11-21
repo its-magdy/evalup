@@ -48,7 +48,8 @@ ones, and synthetic data cannot tell you how common a failure is.
    which unlocks when boundaries stabilize.
 3. `/evalup:generate` → ~30 cases, with a sealed holdout. Review the ~15 it
    flags (15 minutes).
-4. `/evalup:run --baseline` → the pinned baseline. The routing confusion
+4. `/evalup:run --regression` after the review, pinned with
+   `pin_baseline.py` → the baseline. The routing confusion
    matrix is usually the first "I didn't know that" moment.
 
 ## Steady state — the loop you actually live in

@@ -96,8 +96,9 @@ relative to `--state-dir`, move the two sidecars from
 - Permissions: headless, a prompt nobody answers is a denial, and
   `--permission-prompts none` makes that explicit — anything that would
   prompt is denied and Claude is told not to retry it. The skill
-  pre-approves its own scripts for this one turn, and `acceptEdits` covers the
-  two files the skill itself writes, `baseline.json` and `report.md`. Add
+  pre-approves its own scripts for this one turn (`pin_baseline.py` writes
+  `baseline.json`), and `acceptEdits` covers `report.md`, the file the skill
+  writes itself. Add
   `--allowedTools` only for what your adapter needs beyond that (README
   §Permissions). `--permission-mode dontAsk` is not a substitute: it denies
   every call that would prompt, the report write included, so the run stops

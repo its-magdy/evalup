@@ -256,8 +256,9 @@ on that.
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither
-unit nor category. Content hash per case; `dataset_version` bumps on any change
-because baselines pin it. case-format.md has both rules and what each prevents.
+unit nor category. Bump `dataset_version` on any case edit but one to `notes`
+or `review` alone; `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`
+says why, and how a reviewed label is fixed.
 
 ### Validate before handing the dataset over
 Convert, then validate, exactly as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
@@ -278,6 +279,7 @@ checked against the case files:
 ```yaml
 schema_version: 1           # every state file declares it; validate_cases.py warns without it
 dataset_version: 1          # int; make_plan.py pins it into the run manifest
+label_fixes: []             # fixes awaiting the owner (label-lifecycle.md)
 cases: 12                   # total case files
 splits: { full: 12, smoke: 5 }
 coverage_grid:

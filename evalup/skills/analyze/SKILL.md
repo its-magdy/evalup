@@ -82,8 +82,8 @@ clearest failures into cases (origin `real-trace:<id>`, expectation = what
 SHOULD have happened, `review.status: pending`, `gating: false` until a human
 accepts it) — which is `generate`'s "real seeds first" done literally.
 Bump `dataset_version` in `dataset.yaml` when you promote; the pinned
-baseline then stops being comparable (run/SKILL.md §4): say so, and pin a new
-one after. This is not `--mine`: that queries a live trace
+baseline then stops being comparable (run/SKILL.md §4): say so, and re-pin
+after (`pin_baseline.py`, never by hand). This is not `--mine`: that queries a live trace
 backend and needs `stage: traffic`; this reads files the user already has.
 
 ## First run — no prior data
@@ -128,8 +128,10 @@ confusion, same rule violation, same missing clarification. Per cluster: count,
 (text-edit / code-change / architecture). Order by frequency × severity.
 `optimize` consumes this output. The user just fixing the top cluster by hand
 is success too. End by asking which clusters are real and which mean the case
-label is wrong. Label corrections feed back to the dataset (bump
-`dataset_version`).
+label is wrong. A wrong label is a proposed fix under `label_fixes:` in
+`dataset.yaml` until the owner decides; an applied one keeps `review`
+accepted, adds a dated `notes` line, bumps `dataset_version` and needs a
+re-pin — `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`.
 
 For a hands-on look, build the viewer:
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
