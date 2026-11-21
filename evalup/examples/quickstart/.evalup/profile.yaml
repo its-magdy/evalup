@@ -56,21 +56,21 @@ business_rules:
     source: "tests/test_example.py:80"
     date: 2026-11-21
     status: confirmed
-    confirmed_by: mohamed-omar
+    confirmed_by: app-owner
   - id: grounded-only
     rule: "Never state a figure not present in a tool result."
     quote: "Never state a figure that is not in a tool result."
     source: "tests/test_example.py:81"
     date: 2026-11-21
     status: confirmed
-    confirmed_by: mohamed-omar
+    confirmed_by: app-owner
   - id: plain-text
     rule: "Reply in plain text: no Markdown, no bullet or numbered lines."
     quote: "Reply in plain text: no Markdown, and no line starting with a bullet or a number."
     source: "tests/test_example.py:82"
     date: 2026-11-21
     status: confirmed
-    confirmed_by: mohamed-omar
+    confirmed_by: app-owner
     # It binds every answer, so every case carries its check: a
     # must_not_contain regex on bullet, numbered and heading lines and on
     # bold. read-only is checked by c-6c1f82ab's strings; grounded-only

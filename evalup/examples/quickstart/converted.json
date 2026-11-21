@@ -103,7 +103,7 @@
         "source": "tests/test_example.py:80",
         "date": "2026-11-21",
         "status": "confirmed",
-        "confirmed_by": "mohamed-omar"
+        "confirmed_by": "app-owner"
       },
       {
         "id": "grounded-only",
@@ -112,7 +112,7 @@
         "source": "tests/test_example.py:81",
         "date": "2026-11-21",
         "status": "confirmed",
-        "confirmed_by": "mohamed-omar"
+        "confirmed_by": "app-owner"
       },
       {
         "id": "plain-text",
@@ -121,7 +121,7 @@
         "source": "tests/test_example.py:82",
         "date": "2026-11-21",
         "status": "confirmed",
-        "confirmed_by": "mohamed-omar"
+        "confirmed_by": "app-owner"
       },
       {
         "id": "dispute-window",
