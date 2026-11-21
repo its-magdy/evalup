@@ -674,8 +674,12 @@ def secret_header_names(adapter, secret_paths):
         names.add("Authorization")
     elif auth.get("type") == "cookie":
         names.add("Cookie")
+    static = "adapter.invocation.headers."
     for path in secret_paths:
-        if ".invocation.auth.headers." in path:
+        if path.startswith(static):
+            # Sliced, not split: a header name may hold a dot.
+            names.add(path[len(static):])
+        elif ".invocation.auth.headers." in path:
             names.add(path.rsplit(".", 1)[-1])
     return names
 
@@ -820,6 +824,66 @@ def extract_path(body, path):
     return node
 
 
+# invocation.headers (#50): what every request carries whatever the auth --
+# an Origin a same-origin guard checks, a CSRF header. An RFC 9110 token.
+HEADER_NAME_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+# A name like these with an inline value is a credential written into the
+# adapter, which the contract refuses: it would land in every request.json.
+SECRET_HEADER_RE = re.compile(r"token|secret|key|csrf|xsrf|auth|session|"
+                              r"password|cookie", re.IGNORECASE)
+
+
+def check_static_headers(invocation):
+    """invocation.headers, as written (UNRESOLVED), checked at pre-flight.
+
+    Exit 3, never a header dropped: a guard that refuses the request without
+    it answers 403 on every case, and a declared `route_from_status: {403:
+    denied}` files that as a suite of refusals (#50). A name auth or the
+    identity_map already sets is refused rather than merged, so no header
+    has two declared values and nobody has to learn which one wins."""
+    block = invocation.get("headers")
+    if block is None:
+        return
+    where = "adapter.invocation.headers"
+    if invocation.get("mode") != "http":
+        preflight_fail(f"{where} needs invocation.mode: http; a function "
+                       "is called with no headers")
+    if not isinstance(block, dict):
+        preflight_fail(f"{where} must be an object of name: value, got "
+                       f"{type(block).__name__}")
+    auth = invocation.get("auth") if isinstance(invocation.get("auth"),
+                                                dict) else {}
+    taken = {"content-type": "the runner sends JSON",
+             "authorization": "use auth: {type: bearer}",
+             "cookie": "use auth: {type: cookie}"}
+    if auth.get("type") == "headers" and isinstance(auth.get("headers"),
+                                                    dict):
+        taken.update({str(n).lower(): "auth.headers sets it"
+                      for n in auth["headers"]})
+    identity_map = invocation.get("identity_map")
+    if isinstance(identity_map, dict):
+        taken.update({str(n).lower(): "identity_map sets it"
+                      for n in identity_map.values()})
+    for name, value in block.items():
+        if not HEADER_NAME_RE.match(name):
+            preflight_fail(f"{where}: {name!r} is not a valid header name")
+        if not isinstance(value, str) or not value:
+            preflight_fail(f"{where}.{name} must be a non-empty string, got "
+                           f"{value!r}")
+        if name.lower() in taken:
+            preflight_fail(f"{where}.{name} is not allowed here: "
+                           + taken[name.lower()])
+        if SECRET_HEADER_RE.search(name) and not ENV_REF_RE.search(value):
+            preflight_fail(f"{where}.{name} looks like a credential; write "
+                           "its value as a ${ENV_VAR} reference, never "
+                           "inline")
+
+
+def static_headers(adapter):
+    """The resolved invocation.headers, {} when undeclared."""
+    return dict((adapter.get("invocation") or {}).get("headers") or {})
+
+
 def build_headers(adapter, case, identity_map, auth_values):
     """Request headers, plus the per-header record of what was redacted.
 
@@ -831,6 +895,7 @@ def build_headers(adapter, case, identity_map, auth_values):
     """
     invocation = adapter.get("invocation", {})
     headers = {"Content-Type": "application/json"}
+    headers.update(static_headers(adapter))
     auth = invocation.get("auth") or {}
     if auth.get("type") == "headers":
         headers.update(auth.get("headers") or {})
@@ -1322,6 +1387,40 @@ def repeated_5xx(attempts):
     return found
 
 
+def same_4xx(attempts):
+    """The one 4xx (429 aside) every request of every repeat got -- every
+    turn, for a conversation -- or None.
+
+    A 4xx is a response, and often the expected one, so the verdict stands
+    as scored. This is the input to summary.uniform_4xx: a whole run on one
+    4xx is how a guard refusing every request looks (a same-origin or CSRF
+    check, a lapsed credential), and `route_from_status: {403: denied}`
+    would otherwise file it as a suite of correct refusals (#50)."""
+    statuses = set()
+    for attempt in attempts:
+        turns = attempt.get("turns") if attempt.get("multi_turn") else None
+        records = [t["record"] for t in turns] if turns \
+            else [attempt["record"]]
+        statuses.update(r["response"]["status"] for r in records)
+    if len(statuses) != 1:
+        return None
+    status = statuses.pop()
+    return status if isinstance(status, int) and 400 <= status < 500 \
+        and status != 429 else None
+
+
+def uniform_4xx(verdicts):
+    """{status, cases} when every SENT case of the run, canaries included,
+    got the same 4xx on every request; None otherwise or under two cases.
+    Flagged, never rescored -- like repeated_5xx (F-165)."""
+    sent = [v for v in verdicts if v.get("verdict") != SKIPPED]
+    statuses = {v.get("same_4xx") for v in sent}
+    if len(sent) < 2 or len(statuses) != 1:
+        return None
+    status = statuses.pop()
+    return None if status is None else {"status": status, "cases": len(sent)}
+
+
 def body_key(body):
     """A comparable form of a response body, for repeated_5xx(). Never raises:
     a function-mode entrypoint may return a dict json.dumps cannot sort (mixed
@@ -1546,6 +1645,7 @@ class Runner:
         self.secret_names = secret_header_names(self.adapter, secret_paths)
         invocation = self.adapter.get("invocation", {})
         self.identity_map = invocation.get("identity_map") or {}
+        check_static_headers(adapter.get("invocation") or {})
 
         mode = invocation.get("mode")
         if mode == "http":
@@ -1742,7 +1842,9 @@ class Runner:
         else:
             method, url, expect_status = "GET", \
                 self.adapter["invocation"]["base_url"], []
-        headers = redact({}, set())
+        # The adapter's invocation.headers but not its auth: a same-origin
+        # guard may refuse even a GET without its Origin (#50).
+        headers = static_headers(self.adapter)
         # `url` is RESOLVED and these messages go to stdout, CI logs and an
         # agent's transcript: a credential in base_url
         # (https://user:${TOKEN}@host, ?key=${KEY}) was printed in clear by a
@@ -2644,6 +2746,7 @@ class Runner:
                             if a.get("multi_turn") else {}))
                     for a in attempts]
             verdict["repeated_5xx"] = None if skip else repeated_5xx(attempts)
+            verdict["same_4xx"] = None if skip else same_4xx(attempts)
             self.record_routing_row(verdict)
             atomic_write_json(os.path.join(case_dir, "verdict.json"), verdict)
         finally:
@@ -3370,6 +3473,9 @@ class Runner:
             # Of those, the cases that got one 5xx on every attempt of every
             # repeat: still infra, but possibly the app's own error (F-165).
             "repeated_5xx": sum(1 for v in graded if v.get("repeated_5xx")),
+            # Every sent case, canaries too, got one 4xx on every request:
+            # a guard refusing the harness, not the app answering (#50).
+            "uniform_4xx": uniform_4xx(verdicts),
             # SS10's denominators: infra_rate is over the non-canary cases
             # that were SENT (n - skipped), the same cases its count comes
             # from. `attempted` counts canaries too, and dividing the
@@ -3813,6 +3919,14 @@ class Runner:
         # nothing THERE. But exit 0 and total silence read as "did that work?"
         # at a terminal (2026-09-21 audit), and exit 0 is not a verdict -- a
         # red suite exits 0 too -- so the line names the step that gives one.
+        flagged = uniform_4xx(self.verdicts)
+        if flagged:
+            sys.stderr.write(
+                "WARNING: all {cases} case(s) got HTTP {status} on every "
+                "request -- likely a guard (same-origin, CSRF, auth) "
+                "refusing the harness, not the app's answer; check "
+                "invocation.headers and auth before reading any verdict\n"
+                .format(**flagged))
         sys.stderr.write(
             "run {} complete: {} case(s) in {} -- exit 0 means the RUN "
             "finished, not that it passed; gate.py {} gives the "
@@ -4135,6 +4249,14 @@ def check_results_json(results, cases, sealed=None):
                                         if v.get("repeated_5xx"))
         recounted["infra_rate"] = infra_rate(
             recounted["infra_errors"], recounted["n"], recounted["skipped"])
+    if "uniform_4xx" in summary:
+        # Present on runs written since #50. Counted from verdict.json's
+        # same_4xx by this function's own code, as every recount here is.
+        sent = [v for v in cases.values() if v.get("verdict") != SKIPPED]
+        statuses = {v.get("same_4xx") for v in sent}
+        status = statuses.pop() if len(statuses) == 1 else None
+        recounted["uniform_4xx"] = {"status": status, "cases": len(sent)} \
+            if len(sent) >= 2 and status is not None else None
     if "multi_turn" in summary:
         # Present on runs written since docs/multi-turn.md; null when the
         # run held no conversation.
@@ -4405,6 +4527,9 @@ PROBE_BODY_PREVIEW_CHARS = 4000
 # "42" in the app's answer. Auth values are scrubbed whatever their length.
 PROBE_SCRUB_MIN_LEN = 4
 PROBE_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# A 403 body a same-origin or CSRF guard writes (#50): said by name, since
+# "check auth" sends the reader after the wrong header.
+GUARD_403_RE = re.compile(r"origin|csrf|xsrf|cross[- ]?site", re.IGNORECASE)
 
 
 class ProbeRunner(Runner):
@@ -4529,10 +4654,12 @@ def probe_redactions(adapter):
 
 def header_env_names(adapter, url=True):
     """The env vars whose value goes into a header (auth names, ${refs}
-    under invocation.auth) or, with url, the URL (base_url, endpoint)."""
+    under invocation.auth or invocation.headers) or, with url, the URL
+    (base_url, endpoint)."""
     invocation = _mapping(_mapping(adapter).get("invocation"))
     names = set(probe_auth_names(adapter).values())
-    fields = ("auth", "base_url", "endpoint") if url else ("auth",)
+    fields = ("auth", "headers", "base_url", "endpoint") if url \
+        else ("auth", "headers")
     for field in fields:
         names.update(adapter_env_names({"x": invocation.get(field)}))
     return sorted(names)
@@ -4552,14 +4679,20 @@ def scrub(node, redactions):
 
 
 def probe_problems(response, tool_calls_error, sse):
-    """Why this response does NOT verify the adapter, or []. One list so a
-    later check (#50's 403 flag, say) is one more entry, not a new path."""
+    """Why this response does NOT verify the adapter, or []. One list, so a
+    later check is one more entry, not a new path."""
     problems = []
     if response["error"] is not None:
         problems.append(f"no usable response: {response['error']}")
         return problems
     status = response["status"]
-    if not 200 <= status < 300:
+    if status == 403 and GUARD_403_RE.search(body_key(response["body"])):
+        problems.append(
+            "HTTP 403 naming origin/CSRF/cross-site: a same-origin or CSRF "
+            "guard refused the request. Declare the header it checks in "
+            "invocation.headers (e.g. Origin: ${APP_BASE_URL}); a run "
+            "without it scores every case as this 403")
+    elif not 200 <= status < 300:
         problems.append(f"HTTP {status}: the app did not accept the request "
                         "(check auth, endpoint and request_body)")
     gap = stream_gap(response["body"])

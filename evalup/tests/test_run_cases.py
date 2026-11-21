@@ -1045,6 +1045,199 @@ class TestNoRetryOn4xx(RunnerCase):
         self.assertEqual(verdict["layers"]["http"]["verdict"], "fail")
 
 
+def origin_guard(path, body, headers):
+    """A same-origin guard (#50): 403 on any request without the Origin."""
+    if headers.get("Origin") != "http://app.test":
+        return 403, {"message": "Cross-origin request refused"}, {}
+    if path == "/":
+        return 200, {"ok": True}, {}
+    return 200, {"message": "ok"}, {}
+
+
+def cookie_origin_adapter(base_url, **headers):
+    adapter = make_adapter(base_url)
+    adapter["invocation"]["auth"] = {"type": "cookie",
+                                     "cookie_env": "APP_TEST_COOKIE"}
+    adapter["invocation"]["headers"] = headers or {"Origin": "${APP_ORIGIN}"}
+    return adapter
+
+
+class TestRequiredHeaders(RunnerCase):
+    """#50: invocation.headers, sent on every request beside the auth."""
+
+    responder = staticmethod(origin_guard)
+    env = {"APP_TEST_COOKIE": "sid=secret-cookie", "APP_ORIGIN": "http://app.test"}
+
+    def test_cookie_auth_and_a_required_origin_are_both_sent(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         adapter=cookie_origin_adapter(self.app.base_url))
+        rc, _, proc = self.invoke(plan, env=self.env)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        # The health check carries it too: the guard refuses a GET as well.
+        self.assertEqual([c["path"] for c in self.app.calls],
+                         ["/", "/api/chat/ask"])
+        for call in self.app.calls:
+            self.assertEqual(call["headers"].get("Origin"), "http://app.test")
+        self.assertEqual(self.app.calls[1]["headers"].get("Cookie"),
+                         "sid=secret-cookie")
+        self.assertEqual(self.read("cases", "c-0001", "verdict.json")
+                         ["verdict"], "pass")
+        # A value from an env ref is redacted like any other (SS3).
+        sent = self.read("cases", "c-0001", "request.json")["headers_sent"]
+        self.assertEqual(sent["Origin"], "<redacted>")
+        self.assertNotIn("secret-cookie", proc.stdout + proc.stderr)
+
+    def test_a_literal_value_is_sent_and_recorded_as_written(self):
+        adapter = cookie_origin_adapter(self.app.base_url,
+                                        Origin="http://app.test")
+        plan = make_plan(self.state, self.app.base_url, adapter=adapter)
+        rc, _, proc = self.invoke(plan, env=self.env)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        sent = self.read("cases", "c-0001", "request.json")["headers_sent"]
+        self.assertEqual(sent["Origin"], "http://app.test")
+
+    def test_without_it_every_case_is_the_guards_403(self):
+        """The #50 failure, end to end: route_from_status files every 403
+        as `denied`. The verdicts stand; the run says what they are."""
+        adapter = make_adapter(self.app.base_url)
+        adapter["invocation"]["route_from_status"] = {"200": "<answered>",
+                                                      "403": "denied"}
+        cases = [make_case(f"c-000{i}", expect={"http": {"status": 403}})
+                 for i in (1, 2)]
+
+        def guard_but_health(path, body, headers):
+            if path == "/":
+                return 200, {"ok": True}, {}
+            return origin_guard(path, body, headers)
+
+        self.app.server.responder = guard_but_health
+        plan = make_plan(self.state, self.app.base_url, cases=cases,
+                         adapter=adapter)
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        for case_id in ("c-0001", "c-0002"):
+            verdict = self.read("cases", case_id, "verdict.json")
+            self.assertEqual(verdict["verdict"], "pass")
+            self.assertEqual(verdict["same_4xx"], 403)
+        summary = self.read("results.json")["summary"]
+        self.assertEqual(summary["uniform_4xx"], {"status": 403, "cases": 2})
+        self.assertEqual(summary["passes"], 2)
+        self.assertIn("all 2 case(s) got HTTP 403 on every request",
+                      proc.stderr)
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(verify.returncode, 0, verify.stdout)
+        gate = subprocess.run(
+            [sys.executable, str(SCRIPTS / "gate.py"), str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertEqual(gate.returncode, 0, gate.stdout)   # flag, not gate
+        self.assertIn("all 2 sent case(s) got HTTP 403 on every request",
+                      gate.stdout)
+        # --verify recounts it from verdict.json, like every summary count.
+        results = self.read("results.json")
+        results["summary"]["uniform_4xx"] = None
+        (self.out_dir() / "results.json").write_text(json.dumps(results),
+                                                     encoding="utf-8")
+        verify = subprocess.run(
+            [sys.executable, str(RUNNER), "--verify", str(self.out_dir())],
+            capture_output=True, text=True)
+        self.assertNotEqual(verify.returncode, 0)
+        self.assertIn("uniform_4xx", verify.stdout)
+
+    def test_one_case_answered_is_not_flagged(self):
+        def mixed(path, body, headers):
+            if path == "/":
+                return 200, {"ok": True}, {}
+            if body.get("message") == "deny me":
+                return 403, {"message": "forbidden"}, {}
+            return 200, {"message": "ok"}, {}
+
+        self.app.server.responder = mixed
+        cases = [make_case("c-0001"),
+                 make_case("c-0002", input={"messages": [
+                     {"role": "user", "content": "deny me"}]})]
+        plan = make_plan(self.state, self.app.base_url, cases=cases)
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertIsNone(self.read("cases", "c-0001", "verdict.json")
+                          ["same_4xx"])
+        self.assertEqual(self.read("cases", "c-0002", "verdict.json")
+                         ["same_4xx"], 403)
+        self.assertIsNone(self.read("results.json")["summary"]["uniform_4xx"])
+        self.assertNotIn("WARNING", proc.stderr)
+
+    def test_a_single_case_run_is_not_flagged(self):
+        plan = make_plan(self.state, self.app.base_url)
+        self.app.server.responder = health_only(
+            lambda path, body, headers: (403, {"message": "no"}, {}))
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read("cases", "c-0001", "verdict.json")
+                         ["same_4xx"], 403)
+        self.assertIsNone(self.read("results.json")["summary"]["uniform_4xx"])
+
+    def refused(self, headers, mode="http", **auth):
+        adapter = make_adapter(self.app.base_url)
+        adapter["invocation"]["headers"] = headers
+        adapter["invocation"]["mode"] = mode
+        if auth:
+            adapter["invocation"]["auth"] = auth
+        plan = make_plan(self.state, self.app.base_url, adapter=adapter)
+        rc, payload, proc = self.invoke(plan, env=self.env)
+        self.assertEqual(rc, 3, proc.stdout + proc.stderr)
+        self.assertEqual(self.app.calls, [])
+        return payload["error"]
+
+    def test_malformed_or_conflicting_headers_are_refused_at_preflight(self):
+        """Exit 3 before any call: a header silently dropped or overridden
+        is the 403-on-every-case run this field exists to prevent."""
+        cases = [
+            (["Origin"], {}, "must be an object"),
+            ({"Bad Name": "x"}, {}, "not a valid header name"),
+            ({"Origin": ""}, {}, "non-empty string"),
+            ({"Origin": 5}, {}, "non-empty string"),
+            ({"content-type": "text/plain"}, {}, "the runner sends JSON"),
+            ({"Cookie": "a=b"}, {}, "auth: {type: cookie}"),
+            ({"Authorization": "Bearer x"}, {}, "auth: {type: bearer}"),
+            ({"x-user-id": "2"}, {}, "auth.headers sets it"),
+            ({"X-CSRF-Token": "abc123"}, {}, "looks like a credential"),
+        ]
+        for headers, auth, needle in cases:
+            with self.subTest(headers=headers):
+                self.assertIn(needle, self.refused(headers, **auth))
+
+    def test_headers_need_http_mode(self):
+        self.assertIn("needs invocation.mode: http",
+                      self.refused({"Origin": "http://app.test"},
+                                   mode="function"))
+
+    def test_same_4xx_reads_every_turn_of_a_conversation(self):
+        def attempt(*statuses):
+            return {"multi_turn": True, "record": None, "turns": [
+                {"record": {"response": {"status": s}}} for s in statuses]}
+        self.assertEqual(run_cases.same_4xx([attempt(403, 403)]), 403)
+        self.assertIsNone(run_cases.same_4xx([attempt(200, 403)]))
+        self.assertIsNone(run_cases.same_4xx([attempt(429)]))
+        self.assertIsNone(run_cases.same_4xx([attempt(403), attempt(401)]))
+
+    def test_a_credential_named_header_from_an_env_ref_is_sent(self):
+        adapter = cookie_origin_adapter(
+            self.app.base_url, Origin="http://app.test",
+            **{"X-CSRF-Token": "${APP_CSRF}"})
+        plan = make_plan(self.state, self.app.base_url, adapter=adapter)
+        rc, _, proc = self.invoke(plan, env=dict(self.env,
+                                                 APP_CSRF="csrf-value-1"))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        # urllib sends a name capitalize()d; HTTP names are case-blind.
+        got = {k.lower(): v for k, v in self.app.calls[1]["headers"].items()}
+        self.assertEqual(got.get("x-csrf-token"), "csrf-value-1")
+        sent = self.read("cases", "c-0001", "request.json")["headers_sent"]
+        self.assertEqual(sent["X-CSRF-Token"], "<redacted>")
+        self.assertNotIn("csrf-value-1",
+                         (self.out_dir() / "manifest.yaml").read_text())
+
+
 class TestCrashRate(RunnerCase):
     """A crash on a noise/adversarial case is a first-class number, not just
     an excluded row."""

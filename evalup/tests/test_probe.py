@@ -338,6 +338,53 @@ class TestBearerAndUrlSecrets(ProbeCase):
         self.assertNotIn("url-key-987654", proc.stdout + proc.stderr)
 
 
+def origin_guard(path, body, headers):
+    """A same-origin guard (#50) behind cookie auth."""
+    if headers.get("Origin") != "http://app.test":
+        return 403, {"error": "Cross-origin request refused"}, {}
+    if headers.get("Cookie") != COOKIE:
+        return 401, {"message": "login required"}, {}
+    return 200, {"message": "hi"}, {}
+
+
+class TestRequiredHeaders(ProbeCase):
+    """#50's acceptance criteria, through discover's live check."""
+
+    responder = staticmethod(origin_guard)
+
+    def test_a_403_from_an_origin_guard_is_named_as_one(self):
+        rc, report, _ = self.probe(self.write_adapter(
+            cookie_adapter(self.app.base_url)))
+        self.assertEqual(rc, 3)
+        self.assertFalse(report["ok"])
+        self.assertEqual(len(report["problems"]), 2)   # + no answer
+        self.assertIn("same-origin or CSRF guard", report["problems"][0])
+        self.assertIn("invocation.headers", report["problems"][0])
+
+    def test_cookie_auth_plus_a_declared_origin_sends_both(self):
+        adapter = cookie_adapter(self.app.base_url,
+                                 headers={"Origin": "${APP_ORIGIN}"})
+        rc, report, proc = self.probe(self.write_adapter(adapter),
+                                      env={"APP_ORIGIN": "http://app.test"})
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertTrue(report["ok"])
+        headers = self.app.calls[0]["headers"]
+        self.assertEqual(headers.get("Origin"), "http://app.test")
+        self.assertEqual(headers.get("Cookie"), COOKIE)
+        self.assertEqual(report["request"]["headers"]["Origin"], "<redacted>")
+        self.assertIn("APP_ORIGIN", report["env_vars"])
+
+    def test_a_plain_403_still_says_check_auth(self):
+        def plain(path, body, headers):
+            return 403, {"message": "forbidden"}, {}
+
+        self.app.server.responder = plain
+        rc, report, _ = self.probe(self.write_adapter(
+            cookie_adapter(self.app.base_url)))
+        self.assertEqual(rc, 3)
+        self.assertIn("check auth", report["problems"][0])
+
+
 class TestVerdictOfTheProbe(ProbeCase):
     @staticmethod
     def responder(path, body, headers):
