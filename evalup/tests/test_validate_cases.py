@@ -1440,19 +1440,79 @@ class TestTraceability(ValidateTest):
 
     def test_an_unconfirmed_rule_may_back_a_non_gating_case(self):
         rule = a_rule(status="inferred", confirmed_by=None)
-        for label, case in (
-                ("gating false", good_case(covers=["refund-cap"],
-                                           gating=False)),
-                ("a canary", good_case(covers=["refund-cap"],
-                                       split=["full", "smoke", "canary"]))):
-            with self.subTest(label):
-                rc, out = self.lint([case], [rule])
-                self.assertNotIn("unconfirmed_rule_gates", self.codes(out))
+        rc, out = self.lint([good_case(covers=["refund-cap"], gating=False)],
+                            [rule])
+        self.assertNotIn("unconfirmed_rule_gates", self.codes(out))
+        # Listed: gate.py --min-pass-rate still counts a non-gating case.
+        self.assertEqual(
+            out["summary"]["traceability"]["unconfirmed_non_gating"],
+            ["billing-happy-0000abcd"])
         # An absent `gating` gates (case-format.md): still refused.
         case = good_case(covers=["refund-cap"])
         del case["gating"]
         rc, out = self.lint([case], [rule])
         self.assertIn("unconfirmed_rule_gates", self.codes(out))
+        self.assertEqual(
+            out["summary"]["traceability"]["unconfirmed_non_gating"], [])
+
+    def test_a_canary_may_not_cover_an_unconfirmed_rule(self):
+        """A canary closes no gate, but its fail aborts the run (EXIT_CANARY),
+        so an inferred rule in one would decide the run."""
+        canary = good_case(covers=["refund-cap"], gating=False,
+                           split=["full", "smoke", "canary"])
+        rc, out = self.lint([canary], [a_rule(status="inferred",
+                                              confirmed_by=None)])
+        finding = next(f for f in out["findings"]
+                       if f["code"] == "unconfirmed_rule_gates")
+        self.assertIn("canary", finding["message"])
+        self.assertEqual(rc, 1)
+        rc, out = self.lint([canary], [a_rule()])
+        self.assertNotIn("unconfirmed_rule_gates", self.codes(out))
+
+    def test_a_case_on_a_contradicted_rule_warns(self):
+        rule = a_rule(contradiction="prompts/billing.md:9 says 14 days")
+        rc, out = self.lint([good_case(covers=["refund-cap"])], [rule])
+        self.assertIn("covers_contradicted_rule", self.codes(out))
+        self.assertEqual(rc, 0)
+        rc, out = self.lint([good_case(covers=["refund-cap"])], [a_rule()])
+        self.assertNotIn("covers_contradicted_rule", self.codes(out))
+
+    def test_rules_in_the_retired_location_warn(self):
+        profile = self.write_json("profile.json", {
+            "schema_version": 1, "confirmed_by_human": {
+                "business_rules": ["never promise a refund"]}})
+        rc, out, _ = self.validate([good_case()], "--profile", profile)
+        self.assertIn("legacy_rules_location", self.codes(out))
+        self.assertEqual(rc, 0)
+
+    def test_rules_that_are_not_a_list_warn(self):
+        profile = self.write_json("profile.json", {
+            "schema_version": 1, "business_rules": {"refund-cap": "x"},
+            "risks": "none"})
+        rc, out, _ = self.validate([good_case()], "--profile", profile)
+        self.assertEqual(self.codes(out).count("rules_not_a_list"), 2)
+
+    def test_a_non_string_id_says_so(self):
+        rc, out = self.lint([good_case()], [a_rule(3)])
+        finding = next(f for f in out["findings"]
+                       if f["code"] == "rule_incomplete")
+        self.assertIn("id must be a string", finding["message"])
+
+    def test_the_combined_document_is_a_profile(self):
+        """convert_suite.py's one output serves --cases, --capabilities,
+        --profile and --rubrics alike: its profile keys sit under
+        `profile`."""
+        doc = self.write_json("converted.json", {
+            "capability_matrix": ALL_LAYERS_ENABLED["capability_matrix"],
+            "profile": {"schema_version": 1, "business_rules": [
+                a_rule(status="inferred", confirmed_by=None)]},
+            "cases": [good_case(covers=["refund-cap"])]})
+        rc, out, err = run_validate("--cases", doc, "--capabilities", doc,
+                                    "--profile", doc)
+        self.assertNotIn("Traceback", err, err)
+        self.assertIn("unconfirmed_rule_gates", self.codes(out))
+        self.assertEqual(out["summary"]["traceability"]["unconfirmed"],
+                         ["refund-cap"])
 
     def test_a_link_to_nothing_is_an_error(self):
         rc, out = self.lint([good_case(covers=["refund-capp"])], [a_rule()])
@@ -1488,6 +1548,8 @@ class TestTraceability(ValidateTest):
                 ("rule_bad_status", a_rule(status="maybe")),
                 ("rule_confirmed_unattributed", a_rule(confirmed_by="")),
                 ("rule_source_vague", a_rule(source="the system prompt")),
+                ("rule_source_vague", a_rule(
+                    source="the prompt, e.g. the billing part")),
                 ("outside_quote_versioned", a_rule(
                     outside=True, source="https://wiki.example/billing"))):
             with self.subTest(code):

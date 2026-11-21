@@ -294,9 +294,10 @@ class TestCommittedInputsConform(unittest.TestCase):
             [sys.executable, str(VALIDATOR),
              "--cases", str(EXAMPLE / "converted.json"),
              "--capabilities", str(caps), "--strict",
-             # The profile's rules and risks (#25), as convert_suite.py
-             # writes them into converted.json's `profile`.
-             "--profile", str(self.tmp_profile()),
+             # The profile's rules and risks (#25): the combined document
+             # itself, as the CI recipe and demo.py pass it -- its `profile`
+             # key is unwrapped, so the traceability check really runs.
+             "--profile", str(EXAMPLE / "converted.json"),
              # converted.json carries the rubric too (docs/judge-run.md
              # SS14), so the criteria form and the case's pin are linted.
              "--rubrics", str(EXAMPLE / "converted.json")],
@@ -308,14 +309,8 @@ class TestCommittedInputsConform(unittest.TestCase):
             "\n".join("{severity} {code} {case_id}: {message}".format(**f)
                       for f in payload["findings"]))
         self.assertEqual(proc.returncode, 0, proc.stdout)
-
-    def tmp_profile(self):
-        tmp = pathlib.Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, tmp, True)
-        path = tmp / "profile.json"
-        path.write_text(json.dumps(load_converted()["profile"]),
-                        encoding="utf-8")
-        return path
+        self.assertEqual(payload["summary"]["traceability"]["gaps"],
+                         ["rule dispute-window has no case"])
 
     def tmp_caps(self):
         tmp = pathlib.Path(tempfile.mkdtemp())
