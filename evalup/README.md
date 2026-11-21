@@ -306,7 +306,8 @@ The steps `start` runs for you, callable directly:
 | `--regression` | The full suite with pass^k across repeats |
 | `--targeted` | Only what changed |
 | `--holdout` | The sealed holdout |
-| `--full` | Release check (currently two runs) |
+
+A release check is two runs: `--regression`, then `--holdout`.
 
 Other `run` flags: `--tag <component>`, `--filter-failing`, `--layer X`,
 `--k N`, `--single-turn`. `scripts/pin_baseline.py` pins a finished run as

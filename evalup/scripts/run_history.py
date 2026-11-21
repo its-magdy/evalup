@@ -282,7 +282,7 @@ def run_id_time(run_id):
     """The `<mode>-<UTC>` stamp in the id, as a sortable string.
 
     An ordering fallback only, for a run whose manifest predates `started_at`.
-    Lexicographic run-id order is WRONG across modes (`full-20260101...` sorts
+    Lexicographic run-id order is WRONG across modes (`holdout-20260101...` sorts
     before `smoke-20251201...`), which is the whole reason the timestamp is
     pulled out rather than the id sorted directly.
     """

@@ -362,6 +362,15 @@ class TestPlanValidation(RunnerCase):
         plan["paths"]["holdout_ledger"] = None
         self.assert_rejected(plan, "paths.holdout_ledger is null")
 
+    def test_the_removed_full_mode_is_refused_with_its_migration(self):
+        # #42: a plan.json kept from before the removal says how to migrate,
+        # rather than listing the four modes left.
+        plan = make_plan(self.state, self.app.base_url, mode="full")
+        payload = self.assert_rejected(plan, "mode 'full' was removed")
+        self.assertIn("make_plan.py --mode regression, then --mode holdout",
+                      payload["error"])
+        self.assertEqual(self.app.calls, [])
+
     def test_max_concurrency_is_refused_not_downgraded(self):
         """Decision D5: refuse, rather than warn and serialize.
 

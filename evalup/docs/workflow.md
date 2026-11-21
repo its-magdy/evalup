@@ -59,7 +59,7 @@ ones, and synthetic data cannot tell you how common a failure is.
   `${CLAUDE_PLUGIN_ROOT}/docs/hooks-example.json`, and create the hook's target
   from `${CLAUDE_PLUGIN_ROOT}/docs/smoke.sh.example` first; it is not created
   automatically).
-- Before merging: `run` (full) → baseline diff with a posterior-probability
+- Before merging: `run --regression` → baseline diff with a posterior-probability
   verdict (the exact sign test beside it) — "improved / worsened / within
   noise at this n," never a bare percentage.
 - Weekly-ish: `analyze --cluster` on failures; fix the top cluster or feed it

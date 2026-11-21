@@ -433,6 +433,8 @@ def cmd_plan(a):
         if os.path.isfile(path):
             os.remove(path)
     mode = manifest.get("mode")
+    # "full" is a removed mode (#42), still read here: a run recorded under it
+    # may have read sealed cases, so it keeps the holdout treatment.
     sealed = mode in ("holdout", "full") \
         or manifest.get("selecting_split") == "holdout"
     judge = manifest.get("judge") if isinstance(manifest.get("judge"),

@@ -20,10 +20,11 @@ Mode -> selection, k, gate (run/SKILL.md SS0, references/run-modes.md):
   holdout     cases with `holdout` in split    k=3           decision
 `--k` overrides the default except under smoke, where k is 1 by definition.
 
-`full` (the `full` AND `holdout` splits in one run) is refused: the runner
-labels every case with ONE selecting_split and rejects a case that does not
-carry it, and the two splits are mutually exclusive, so no single plan can hold
-both. Release validation is a `regression` run and a `holdout` run.
+Release validation is two plans: a `regression` run, then a `holdout` run.
+There is no mode that does both: the runner labels every case with ONE
+selecting_split and rejects a case that does not carry it, and the `full` and
+`holdout` splits are mutually exclusive. `--mode full` is refused with that
+hint (_common.FULL_MODE_REMOVED).
 
 --tag matches a case's `unit`, or its `expect.route` -- never its id, which is
 opaque on purpose. --failing-in <run-dir> narrows a targeted selection to the
@@ -57,6 +58,7 @@ import subprocess
 import sys
 
 from _common import (
+    FULL_MODE_REMOVED,
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
     RUN_ID_RE,
@@ -286,9 +288,7 @@ def main():
     a = ap.parse_args()
 
     if a.mode == "full":
-        die("--mode full cannot be one plan: the runner labels every case with "
-            "one selecting_split and the `full` and `holdout` splits are "
-            "mutually exclusive. Run --mode regression, then --mode holdout")
+        die(FULL_MODE_REMOVED)
     if a.mode not in MODES:
         die(f"--mode must be one of {', '.join(MODES)}, got {a.mode!r}")
     split, k, gate = MODES[a.mode]
