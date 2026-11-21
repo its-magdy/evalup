@@ -544,6 +544,11 @@ unless the owner says otherwise.
    launch may be a silent denial; with it, a run skill can start a model
    call the user did not name. **Recommended: add it**, because the estimate
    prints first, `--no-judge` turns the pass off, and the budget bounds it.
+   Unproven beside it: whether `record`'s stdin form (a heredoc after the
+   pre-approved `python3 …/judge_run.py` command) matches that rule
+   headless. If it does not, `record --reply-file <path>` with the file
+   written under `acceptEdits` is the fallback; the live check in §16 test
+   13 settles which.
 4. **Business rules (`expect.answer.rules`).** **Recommended: they stay
    `unscored` in v1.** A rule that needs a judge becomes a criterion in a
    rubric; a checkable one becomes `must_contain` / `must_not_contain`
