@@ -44,8 +44,8 @@ a run this harness produced the cost panel renders "No latency/cost recorded on
 this record" and always will. They are kept because a record is evidence to
 render (see the docstring below) and a harness that does capture per-stage cost
 should be able to show it -- not because anything here computes one. There is
-no `stages.json` artifact anywhere and never was: `stage_costs` is read off the
-CASE RECORD. Cost for a runner-produced run is computed after the fact by
+no `stages.json` artifact anywhere: `stage_costs` is read off the CASE RECORD.
+Cost for a runner-produced run is computed after the fact by
 `scripts/score_cost.py`, which is run-level and writes no per-case field
 (runner-contract.md SS5.7).
 
