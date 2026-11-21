@@ -52,14 +52,15 @@ def asserted_list(field, value):
     """A tool-list key the author WROTE, so it must actually assert something.
 
     optional_list is the wrong validator behind an `in` guard: `order:` with no
-    value parses as None and it returned [], and `order: []` was a list so it
-    passed untouched. Either way match() scored `expected == []` — is_subsequence
-    of nothing is vacuously true, Counter() == Counter() is true — and every
-    trajectory PASSED an assertion the author believed they had written. That is
-    the same confidently-wrong-verdict class as the order_mode typo guard below,
-    one step earlier: a malformed expectation silently becoming the loosest
-    possible check instead of an input error. Absence is still fine (the key is
-    simply not asserted); presence-without-content is not."""
+    value parses as None and it would return [], and `order: []` is a list so
+    it would pass untouched. Either way match() would score `expected == []` —
+    is_subsequence of nothing is vacuously true, Counter() == Counter() is true
+    — and every trajectory would PASS an assertion the author believed they had
+    written. That is the same confidently-wrong-verdict class as the order_mode
+    typo guard below, one step earlier: a malformed expectation silently
+    becoming the loosest possible check instead of an input error. Absence is
+    still fine (the key is simply not asserted); presence-without-content is
+    not."""
     entries = require_list(field, value, item="tool name")
     if not entries:
         die(f"{field} is present but empty; an empty list asserts nothing and "
@@ -80,12 +81,11 @@ def match(observed_names, expect_tools):
 
     # A bare string is the plausible YAML slip — `subset: get_invoice` instead
     # of `subset: [get_invoice]` — and it must not degrade silently: `subset:
-    # "foo"` reported missing ['f','o','o'] and FAILED a trajectory that called
-    # foo. This was the scorer the slip was first found in; the rule and the
-    # rest of the reasoning now live in _common.require_list, shared with
-    # score_authz.py / score_answer.py. Absent means the key was not asserted,
-    # which is not a slip — hence the `in` guards, and asserted_list once past
-    # them.
+    # "foo"` would report missing ['f','o','o'] and FAIL a trajectory that
+    # called foo. The rule and the rest of the reasoning live in
+    # _common.require_list, shared with score_authz.py / score_answer.py.
+    # Absent means the key was not asserted, which is not a slip — hence the
+    # `in` guards, and asserted_list once past them.
     if "order" in expect_tools:
         expected = asserted_list("expect.tools.order", expect_tools["order"])
         mode = expect_tools.get("order_mode", "in_order")
@@ -152,20 +152,21 @@ def main():
     # a comparison.
     observed = [nfc(c.get("name")) for c in calls]
     # A tool that was CALLED and a tool that WORKED are different claims, and
-    # this layer only ever checked the first. With no record of the error at
-    # all (normalize_trace dropped it until recently), a trajectory whose only
-    # tool call returned HTTP 500 scored "pass" at precision 1.0 — the same
-    # confidently-wrong-verdict class this harness exists to catch, one layer
-    # up from the stub-tool case in score_execution's docstring. Reported
-    # unconditionally so it can never again be invisible; gated behind a flag
-    # for the verdict, so the default stays a pure "were these tools used".
+    # the mode match checks only the first. Without the error record, a
+    # trajectory whose only tool call returned HTTP 500 would score "pass" at
+    # precision 1.0 — the same confidently-wrong-verdict class this harness
+    # exists to catch, one layer up from the stub-tool case in
+    # score_execution's docstring. Reported unconditionally so it is never
+    # invisible; gated behind a flag for the verdict, so the default stays a
+    # pure "were these tools used".
     errored = [{"index": i, "tool": c.get("name"), "error": c.get("error")}
                for i, c in enumerate(calls) if c.get("error") is not None]
-    # The CONTAINER, before optional_list validates what is inside it. `or {}` let
-    # any non-mapping through, and match() then probed it with `"order" in
-    # expect_tools` — a SUBSTRING test on a string, an element test on a list —
-    # so `tools: "subset"` passed the probe and raised TypeError on the indexing
-    # that followed. Every non-dict shape exited 1 with a traceback.
+    # The CONTAINER, before optional_list validates what is inside it. `or {}`
+    # would let any non-mapping through, and match() would then probe it with
+    # `"order" in expect_tools` — a SUBSTRING test on a string, an element test
+    # on a list — so `tools: "subset"` would pass the probe and raise TypeError
+    # on the indexing that follows: every non-dict shape would exit 1 with a
+    # traceback.
     expect_tools = optional_mapping("expect.tools",
                                     load_object(a.expect).get("tools"))
 

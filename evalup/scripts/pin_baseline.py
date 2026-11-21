@@ -2,12 +2,11 @@
 """Write reports/baseline.json from a finished run's manifest (#53).
 
 `baseline.json` names the run every later `--baseline-verdicts` diff pairs
-against, and until this script the model wrote it by hand: four keys copied
-from a manifest, where a typo or a value from memory silently breaks every
-later diff. In one live session (2026-11-20) the suite went from dataset
-version 1 to 4 with three hand pins in forty minutes. The pin is still the
-skill's DECISION (runner-contract.md SS13); this script is the mechanical
-step, as gate.py is for the verdict.
+against. Written by hand, it is four keys copied from a manifest, where a
+typo or a value from memory silently breaks every later diff -- and pins are
+frequent: a suite can go from dataset version 1 to 4 with three pins in forty
+minutes. The pin stays the skill's DECISION (runner-contract.md SS13); this
+script is the mechanical step, as gate.py is for the verdict.
 
 It refuses (exit 2, nothing written) a run that cannot be a baseline:
   - results.json's summary.status is not "ok" -- `running` (a run still in

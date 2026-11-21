@@ -31,10 +31,10 @@ expectation entry therefore accepts a reserved key "calls":
   all   - every observed call must satisfy every spec.
   first - only the tool's first call is checked.
 
-"any" is the default deliberately: "all" was, and produced a fail for any
-agent that legitimately called the same tool twice with different arguments —
-a manufactured failure, which this harness must never produce. Case authors
-who mean "every call" now say so.
+"any" is the default deliberately: "all" would fail any agent that
+legitimately calls the same tool twice with different arguments — a
+manufactured failure, which this harness must never produce. Case authors who
+mean "every call" say so.
 
 "calls" joins "present"/"from_tool_result" in the reserved-word set: those two
 are reserved as expectation VALUES (an arg literally expected to equal the
@@ -80,10 +80,10 @@ def value_matches(observed, expected):
     """The literal-expectation comparison. Both sides NFC-normalized (see
     _common.nfc): the expectation is authored in a case file and the observed
     value comes back from the app, so the two arrive through different editors
-    and input methods, and an unnormalized comparison reported `expected 'café',
-    observed 'café'` — a fail whose own evidence shows the two as identical.
-    nfc passes non-strings through, so numbers and containers compare exactly as
-    before."""
+    and input methods, and an unnormalized comparison would report
+    `expected 'café', observed 'café'` — a fail whose own evidence shows the
+    two as identical. nfc passes non-strings through, so numbers and
+    containers compare exactly."""
     observed, expected = nfc(observed), nfc(expected)
     return observed == expected or nfc(str(observed)) == nfc(str(expected))
 
@@ -116,11 +116,11 @@ def check_call(idx, call, arg_name, expectation, results,
                             "earlier tool call exists to source this value "
                             "from (provenance impossible)")
         if not prior_count:
-            # Two different worlds, and guessing "content capture off" for both
-            # sent the reader to the exporter config when the actual finding
-            # was that every earlier tool call had FAILED. normalize_trace
-            # records the failures now (checks.tool_calls_errored), so the
-            # reason can name the one that applies.
+            # Two different worlds: guessing "content capture off" for both
+            # would send the reader to the exporter config when the actual
+            # finding is that every earlier tool call FAILED. normalize_trace
+            # records the failures (checks.tool_calls_errored), so the reason
+            # can name the one that applies.
             if prior_errors:
                 return ("unscorable",
                         f"no prior tool result to source from: "
@@ -238,9 +238,10 @@ def main():
     ap.add_argument("expect", help="case 'expect' object JSON")
     a = ap.parse_args()
     calls = load_trajectory(a.trajectory)
-    # `is not None`, not truthiness: the truthy test skipped validation for the
-    # off-shape values that are also falsy, so `args: []` was silently dropped
-    # and the case reported "unscored" rather than naming the bad shape.
+    # `is not None`, not truthiness: a truthy test would skip validation for
+    # the off-shape values that are also falsy, so `args: []` would be
+    # silently dropped and the case would report "unscored" rather than naming
+    # the bad shape.
     expect_args = optional_mapping("expect.args",
                                    load_object(a.expect).get("args"))
 
@@ -264,9 +265,9 @@ def main():
     for tool, assertions in expect_args.items():
         # Validated BEFORE the tool_not_called short-circuit below: a malformed
         # expectation is an input error whether or not the tool happened to be
-        # called, so the error must not depend on the trajectory. Previously
-        # `(assertions or {}).items()` raised AttributeError on a scalar — a
-        # traceback and exit 1, outside the exit-2 contract this scorer shares.
+        # called, so the error must not depend on the trajectory. Without this
+        # check a scalar expectation would raise AttributeError — a traceback
+        # and exit 1, outside the exit-2 contract this scorer shares.
         assertions = optional_mapping(f"expect.args.{tool}", assertions)
         scope, specs = split_scope(tool, assertions)
         # NFC on both sides (see _common.nfc): the key is written in the case
