@@ -1234,6 +1234,7 @@ class TestRequiredHeaders(RunnerCase):
 
     def refused(self, headers, mode="http", **auth):
         adapter = make_adapter(self.app.base_url)
+        adapter["invocation"]["identity_map"] = {"role": "X-Role-Id"}
         adapter["invocation"]["headers"] = headers
         adapter["invocation"]["mode"] = mode
         if auth:
@@ -1258,6 +1259,10 @@ class TestRequiredHeaders(RunnerCase):
             ({"x-user-id": "2"}, {}, "auth.headers sets it"),
             ({"X-CSRF-Token": "abc123"}, {}, "looks like a credential"),
             ({"Origin": "http://a", "origin": "http://b"}, {}, "twice"),
+            ({"Origin\n": "http://a"}, {}, "not a valid header name"),
+            ({"Origin": "http://a\n"}, {}, "control character"),
+            ({"Content-Length": "9"}, {}, "the runner sets it"),
+            ({"X-Role-Id": "admin"}, {}, "identity_map sets it"),
         ]
         for headers, auth, needle in cases:
             with self.subTest(headers=headers):

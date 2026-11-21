@@ -826,7 +826,7 @@ def extract_path(body, path):
 
 # invocation.headers (#50): what every request carries whatever the auth --
 # an Origin a same-origin guard checks, a CSRF header. An RFC 9110 token.
-HEADER_NAME_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+HEADER_NAME_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 # A name like these with an inline value is a credential written into the
 # adapter, which the contract refuses: it would land in every request.json.
 SECRET_HEADER_RE = re.compile(r"token|secret|key|csrf|xsrf|auth|session|"
@@ -845,7 +845,7 @@ def check_static_headers(invocation):
     if block is None:
         return
     where = "adapter.invocation.headers"
-    if invocation.get("mode") != "http":
+    if invocation.get("mode") == "function":
         preflight_fail(f"{where} needs invocation.mode: http; a function "
                        "is called with no headers")
     if not isinstance(block, dict):
@@ -854,6 +854,9 @@ def check_static_headers(invocation):
     auth = invocation.get("auth") if isinstance(invocation.get("auth"),
                                                 dict) else {}
     taken = {"content-type": "the runner sends JSON",
+             "host": "the runner sets it", "content-length":
+             "the runner sets it", "transfer-encoding": "the runner sets it",
+             "connection": "the runner sets it",
              "authorization": "use auth: {type: bearer}",
              "cookie": "use auth: {type: cookie}"}
     if auth.get("type") == "headers" and isinstance(auth.get("headers"),
@@ -870,11 +873,16 @@ def check_static_headers(invocation):
         preflight_fail(f"{where} names {', '.join(twice)} twice (header "
                        "names are case-insensitive); keep one")
     for name, value in block.items():
-        if not HEADER_NAME_RE.match(name):
+        if not isinstance(name, str) or not HEADER_NAME_RE.fullmatch(name):
             preflight_fail(f"{where}: {name!r} is not a valid header name")
         if not isinstance(value, str) or not value:
             preflight_fail(f"{where}.{name} must be a non-empty string, got "
                            f"{value!r}")
+        if PROBE_CONTROL_RE.search(value):
+            # Named, never quoted: http.client would refuse it with the
+            # value in a traceback.
+            preflight_fail(f"{where}.{name} holds a control character (CR, "
+                           "LF, tab ...), which no header may carry")
         if name.lower() in taken:
             preflight_fail(f"{where}.{name} is not allowed here: "
                            + taken[name.lower()])
@@ -4558,6 +4566,7 @@ PROBE_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 # A 4xx body a same-origin or CSRF guard writes (#50; Laravel's is a 419,
 # Rails' a 422): said by name, since "check auth" sends the reader after the
 # wrong header.
+GUARD_STATUSES = (403, 419, 422)
 GUARD_4XX_RE = re.compile(r"\borigin\b|csrf|xsrf|cross[- ]?(site|origin)|"
                           r"authenticity.?token", re.IGNORECASE)
 
@@ -4716,7 +4725,7 @@ def probe_problems(response, tool_calls_error, sse):
         problems.append(f"no usable response: {response['error']}")
         return problems
     status = response["status"]
-    if 400 <= status < 500 and GUARD_4XX_RE.search(
+    if status in GUARD_STATUSES and GUARD_4XX_RE.search(
             body_key(response["body"])):
         problems.append(
             f"HTTP {status} naming origin/CSRF/cross-site: a same-origin or "

@@ -302,8 +302,9 @@ beyond the health check.
 2c. **`invocation.headers`** (#50): `{name: value}` every request carries
    beside the auth (each case, each turn, the health check, `--probe`) —
    an `Origin` a same-origin guard checks, a CSRF header. Http mode only. A
-   name that is not an HTTP token, an empty or non-string value, a name the
-   runner, `auth` or `identity_map` already sets (`Content-Type`,
+   name that is not an HTTP token, an empty or non-string value or one
+   holding a control character, a name the runner, `auth` or `identity_map`
+   already sets (`Content-Type`, `Host`, `Content-Length`,
    `Authorization`, `Cookie`, an `auth.headers` or `identity_map` name), or a
    credential-like name (`token`, `csrf`, `key`, …) with an inline value
    instead of a `${REF}`, or two names equal but for case, is exit 3:
