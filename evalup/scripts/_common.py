@@ -51,7 +51,7 @@ def malformed_version(record):
 
     scoring_version must be an int (a bool is not: `true == 1` would silently
     join scoring-1 runs); a record without it is keyed on harness_version,
-    which must then be a string (`[]` is unhashable and used to crash every
+    which must then be a string (`[]` is unhashable and would crash every
     caller). Anything else is MALFORMED: never comparable, never a crash."""
     if not isinstance(record, dict):
         return f"the run record is a {type(record).__name__}, not an object"
@@ -337,17 +337,16 @@ def run_bounded(fn):
     """fn() under a wall-clock bound, so one pathological author-supplied regex
     cannot hang a run.
 
-    Here, not in score_answer.py where it started, because a second scorer
-    takes a regex from the author -- score_authz.py's --id-pattern, which
-    run_cases.py passes on EVERY authz-scorable case from the profile's
-    record_id_pattern -- and it had no bound at all: `(a+)+$` stalled each case
-    for the runner's full 30s scorer timeout and hung the standalone CLI for
-    good (2026-09 audit). Same reason found_in lives here: two gates, one rule.
+    Here, not in score_answer.py, because a second scorer takes a regex from
+    the author -- score_authz.py's --id-pattern, which run_cases.py passes on
+    EVERY authz-scorable case from the profile's record_id_pattern -- and
+    unbounded, `(a+)+$` stalls each case for the runner's full 30s scorer
+    timeout and hangs the standalone CLI for good. Same reason found_in lives
+    here: two gates, one rule.
 
     SIGALRM is Unix-only and main-thread-only. Where either fails the call
-    runs unguarded rather than not at all -- the docstring always said so, but
-    the guard tested only for SIGALRM, so off the main thread signal.signal
-    raised ValueError instead."""
+    runs unguarded rather than not at all -- so the guard tests for both: off
+    the main thread signal.signal raises ValueError."""
     if not hasattr(signal, "SIGALRM") or \
             threading.current_thread() is not threading.main_thread():
         return fn()
@@ -372,10 +371,10 @@ RUN_ID_RE = re.compile(r"([a-z]+)-(\d{8}T\d{6}Z)")
 # runner layer (run_cases.LAYER_ORDER) -> the capability_matrix key that
 # switches it off. The matrix is the profile's vocabulary and the layers are
 # the runner's, and they differ in one place: `answer_quality` is ONE
-# capability scored as three rows (`answer`, `rules`, `judged`). The runner
-# used to look each row up under its own name, so `answer_quality: {enabled:
-# false}` -- which is what `make_plan.py --layer X` writes -- disabled nothing
-# and the answer layer went on deciding cases the linter had called ungraded.
+# capability scored as three rows (`answer`, `rules`, `judged`). Looking each
+# row up under its own name would make `answer_quality: {enabled: false}` --
+# which is what `make_plan.py --layer X` writes -- disable nothing, and the
+# answer layer would go on deciding cases the linter had called ungraded.
 # None = no key: `http` is the liveness row every case gets and `loops` is
 # triggered by the run having a trace, so neither is a capability a profile
 # declares and nothing switches either off. Written once here because the
@@ -401,10 +400,9 @@ def infra_rate(infra_errors, n, skipped, ndigits=4):
     `n` counts every non-canary case selected and `skipped` the ones the
     safety gates refused, so `n - skipped` is what reached the app. Written
     once because the runner's summary, its --verify recount and
-    run_history.py each carried this denominator, and the one time it changed
-    (F-161, the 2026-09-26 user test) it had to change in all three. The
-    precision is the caller's: results.json records 4 places, a history
-    series 6 like every other ratio it reports.
+    run_history.py all use this denominator, and a change to it must reach
+    all three at once. The precision is the caller's: results.json records 4
+    places, a history series 6 like every other ratio it reports.
     """
     sent = n - skipped
     return round(infra_errors / sent, ndigits) if sent else 0.0
@@ -472,11 +470,11 @@ def unsafe_case_id(case_id):
     """Why `case_id` cannot name a directory, or None when it can.
 
     A case id IS a path segment: the runner writes cases/<id>/, and every
-    report and baseline diff keys on it. It was checked only for being a
-    non-empty unique string, so `../../../../X` -- or an absolute path, which
-    os.path.join lets replace the whole prefix -- wrote six files outside --out
-    before the completeness check noticed (2026-09 audit). Written once here
-    because the linter and the runner must refuse the same ids: the linter so
+    report and baseline diff keys on it. Checked only for being a non-empty
+    unique string, it would let `../../../../X` -- or an absolute path, which
+    os.path.join lets replace the whole prefix -- write files outside --out
+    before the completeness check noticed. Written once here because the
+    linter and the runner must refuse the same ids: the linter so
     the author hears at authoring time, the runner because it is the one that
     touches the disk and is not always preceded by the linter.
 
@@ -564,15 +562,15 @@ def _reject_constant(name):
 
 def loads_strict(text):
     """json.loads, minus the three inputs it handles in ways a caller that
-    catches only JSONDecodeError never sees (2026-09 audit):
+    catches only JSONDecodeError never sees:
 
     - `NaN` / `Infinity` / `-Infinity` PARSE, by Python's default, and are then
       re-emitted into artifacts a strict parser rejects. One `NaN` in one
-      expectation blanked the whole review viewer.
+      expectation would blank the whole review viewer.
     - an integer literal past the interpreter's digit limit raises a bare
       ValueError, and
     - nesting past the recursion limit raises RecursionError --
-    both of which left as a traceback, not as the {"error": ...}/exit-2 this
+    both of which would surface as a traceback, not as the {"error": ...}/exit-2 this
     module's docstring promises. Same shape as load_text's UnicodeDecodeError.
 
     Raises BadJSON (a ValueError) for all of them and for ordinary syntax
@@ -637,9 +635,9 @@ def load_trajectory(path):
         # And the NAME. Every forbidden-tool check asks "is this name among the
         # calls?", so a call with no usable name matches nothing and the check
         # PASSES over the very call it exists to catch, with unscorable: 0
-        # (2026-09-21 audit: an execute_tool span whose name sat under another
-        # attribute key normalized to name: null, and score_authz reported
-        # pass over a delete_user call). A call the harness cannot name is not
+        # (e.g. an execute_tool span whose name sits under another attribute
+        # key normalizes to name: null, and score_authz would report pass over
+        # a delete_user call). A call the harness cannot name is not
         # evidence of absence, so it is refused here, once, for all consumers.
         name = call.get("name")
         if not isinstance(name, str) or not name.strip():

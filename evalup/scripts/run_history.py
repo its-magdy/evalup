@@ -40,7 +40,7 @@ a series of aggregates has no intersection step to absorb a mismatch:
       one line. `stats.py` survives that mismatch because it intersects and
       warns about attrition; a mean has nothing to intersect.
   capability_matrix -- the set of ENABLED layers. Turning a layer off changes
-      what `pass` means: since Step 10, a case whose real layers all come back
+      what `pass` means: a case whose real layers all come back
       `unscored` rolls up `unscored` rather than riding `http` to a pass, so a
       run with `trajectory` disabled scores the same app differently.
 The app's own `git_sha` is deliberately NOT a series key, though SS5.6-style
@@ -540,8 +540,8 @@ def point_metrics(point):
     # runner-contract SS9: `n` is every non-canary case SELECTED, skipped
     # and infra included; pass/fail rates divide by the SCORED cases
     # (passes + failures) because SS7 keeps skipped and infra out of every
-    # pass/fail denominator. Dividing by `n` printed 0.6 for a 3-pass,
-    # 1-fail, 1-skipped run (F-135). The shares of what was selected --
+    # pass/fail denominator. Dividing by `n` would print 0.6 for a 3-pass,
+    # 1-fail, 1-skipped run. The shares of what was selected --
     # unscored, skipped -- stay over `n`.
     scored = None if None in (passes, failures) else passes + failures
     metrics = {
@@ -550,10 +550,10 @@ def point_metrics(point):
                                      scored),
         "unscored_rate": ratio(number(summary.get("unscored")), n),
         "skipped_rate": ratio(number(summary.get("skipped")), n),
-        # Recomputed, not read: runs before the 2026-09-26 user-test fix
-        # divided by `attempted` (canaries in) inside the same harness
-        # version, and a series mixing the two would show the definition
-        # change as drift. Every run carries these counts (SS10's table).
+        # Recomputed, not read: older runs recorded it divided by
+        # `attempted` (canaries in) inside the same harness version, and a
+        # series mixing the two would show the definition change as drift.
+        # Every run carries these counts (SS10's table).
         "infra_rate": recomputed_infra_rate(summary, n),
         "crash_rate": number(summary.get("crash_rate")),
         "scorer_errors": number(summary.get("scorer_errors")),
