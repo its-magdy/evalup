@@ -1248,6 +1248,50 @@ fold and `SCORING_VERSION` (still 1) are unchanged.
   (manifest, results, baseline, ledger rows); every reader keeps working,
   since only a value `make_plan.py` always refused is retired.
 
+### Changed — tool checks on a first session, and `expect.tools.any_of` (2026-11-21)
+
+#51. On a first session (`stage: pre-stability`) a tool agent got no tool
+checks: `expect.tools` is graded only by the `trajectory` layer, which
+discover turned off until `stage: stable`. That included `forbidden`, so the
+"never call the write tool" guard was off exactly when the suite was newest.
+In the live #27 run, enabling it found a real rule break the answer layer
+had missed.
+
+- **discover enables `trajectory` at every stage** (off only for
+  `single_llm` or when no tool call is observable). The stage now holds back
+  only tool **order**: `validate_cases.py --profile` ERRORs
+  `order_before_stable` on `expect.tools.order` (top-level, `every_turn` or a
+  checkpoint) while the profile's stage is not `stable`, `traffic` or
+  `production`. Which tools were called does not churn the way a sequence
+  does. The checks stay in `trajectory`; `tool_selection` still means
+  arguments only, so its history series does not split.
+- **discover no longer turns `authz` off for "no identity/persona config"**:
+  `forbidden_tools` needs neither that nor result capture. The layer is on
+  with the degradation named in `blocked_by`, and off only when no tool call
+  is observable.
+- **One spelling for "never call X"**: generate writes
+  `expect.tools.forbidden`. `expect.authz.forbidden_tools` is the same check
+  on another layer and is still scored, so existing suites keep working.
+- **`expect.tools.any_of: [[a], [b]]`**: passes when one alternative is met.
+  Each alternative is a non-empty multiset like `subset`; it is ANDed with
+  `subset`, and `forbidden` still applies. A flat list, an empty
+  alternative or `any_of` beside `order` is exit 2 in `trajectory_match.py`
+  and an ERROR in the validator (`any_of_flat`, `bad_any_of`,
+  `any_of_with_order`). Precision and recall come from the alternative the
+  verdict used (the first one met, or the closest when none is), and
+  `pr_alternative` names it. The runner's never-live-tool skip reads
+  `any_of` too.
+- generate's grid, discover's step 6, `profile-schema.md`, `case-format.md`
+  and `docs/concepts.md` now say the above.
+
+**Existing baselines need a re-pin.** Nothing changes for a case without
+`any_of`: `tests/trajectory_golden.json` pins the matcher's previous output
+over 264 inputs, byte for byte, so `SCORING_VERSION` stays 1. But a profile
+that discover rewrites with `trajectory` and `authz` on grades more cases
+than the baseline did, and `gate.py --baseline` closes on a case that now
+fails a layer it never failed there. Run a regression on the new profile
+and `pin_baseline.py` it before you gate against it.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

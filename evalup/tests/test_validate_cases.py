@@ -295,6 +295,62 @@ class TestErrorFindings(ValidateTest):
         self.assert_finds("bad_order_mode", [good_case(expect={
             "tools": {"order": ["a", "b"], "order_mode": "ordered"}})])
 
+    def test_any_of_shapes(self):
+        """#51: any_of is a list of non-empty lists; the scorer exits 2 on
+        every shape below, so the linter names each one first."""
+        for any_of, code in ((["a", "b"], "any_of_flat"),
+                             ([["a"], "b"], "any_of_flat"),
+                             ("a", "bad_any_of"),
+                             ([], "bad_any_of"),
+                             (None, "bad_any_of"),
+                             ([["a"], []], "bad_any_of"),
+                             ([[1]], "bad_any_of")):
+            with self.subTest(any_of=any_of):
+                self.assert_finds(code, [good_case(expect={
+                    "tools": {"any_of": any_of}})])
+        self.assert_finds("any_of_with_order", [good_case(expect={
+            "tools": {"any_of": [["a"]], "order": ["a"]}})])
+        # Split across every_turn and a turn, they merge into the same pair.
+        f = self.assert_finds("any_of_with_order", [conversation(
+            every_turn={"tools": {"any_of": [["a"], ["b"]]}},
+            turns=[{"user": "x", "expect": {"tools": {"order": ["c"]}}},
+                   {"user": "y"}])])
+        self.assertIn("input.turns[0].expect", f["message"])
+        f = self.assert_finds("any_of_with_order", [conversation(
+            every_turn={"tools": {"order": ["c"]}},
+            expect={"tools": {"any_of": [["a"]]}})])
+        self.assertIn("final turn", f["message"])
+        rc, out, err = self.validate([good_case(expect={"tools": {
+            "subset": ["s"], "any_of": [["a"], ["b", "c"]],
+            "forbidden": ["w"]}})])
+        self.assertEqual((rc, out["findings"]), (0, []), err)
+
+    def test_order_refused_before_stable(self):
+        """#51: the trajectory layer is on at pre-stability for which tools
+        were called; a tool SEQUENCE waits for stage: stable."""
+        case = good_case(expect={"tools": {"order": ["a", "b"]}})
+        pre = self.write_json("pre.json", {"schema_version": 1,
+                                           "stage": "pre-stability"})
+        f = self.assert_finds("order_before_stable", [case], "--profile", pre)
+        self.assertIn("stage: pre-stability", f["message"])
+        # On a checkpoint and on every_turn too, named by where it sits.
+        f = self.assert_finds("order_before_stable", [conversation(
+            every_turn={"tools": {"order": ["a"]}})], "--profile", pre)
+        self.assertTrue(f["message"].startswith("every_turn.tools.order"))
+        for stage in ("stable", "traffic", "production"):
+            ok = self.write_json("ok.json", {"schema_version": 1,
+                                             "stage": stage})
+            rc, out, err = self.validate([case], "--profile", ok)
+            self.assertEqual((rc, out["findings"]), (0, []), stage)
+        # subset/forbidden/any_of are not order: fine at pre-stability.
+        rc, out, err = self.validate([good_case(expect={"tools": {
+            "subset": ["a"], "any_of": [["b"], ["c"]],
+            "forbidden": ["w"]}})], "--profile", pre)
+        self.assertEqual((rc, out["findings"]), (0, []), err)
+        # No stage, or no profile: nothing to check against.
+        rc, out, err = self.validate([case])
+        self.assertEqual(rc, 0, err)
+
     def test_bad_call_scope(self):
         self.assert_finds("bad_call_scope", [good_case(expect={
             "args": {"search": {"calls": "every", "q": "invoices"}}})])

@@ -2296,6 +2296,11 @@ class Runner:
                 tools = expect.get("tools") or {}
                 for key in ("subset", "order", "forbidden"):
                     named.update(tools.get(key) or [])
+                # any_of names tools too; one never-live alternative is
+                # enough to refuse, since the app may take that path.
+                for alt in tools.get("any_of") or []:
+                    if isinstance(alt, list):
+                        named.update(t for t in alt if isinstance(t, str))
             blocked = sorted(named & self.never_live_tools)
             if blocked:
                 return ("never-live tool(s) {} with environment.kind {!r} "

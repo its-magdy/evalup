@@ -222,14 +222,12 @@ For every patch declined or not offered:
 ### 6. Assess maturity → set the stage
 Ask the user, and check git history: are the app's route-target and tool
 boundaries stable, or still changing week to week?
-- Churning → `stage: pre-stability`. Every layer but trajectory applies:
-  invariants (crash rate, responds-always, format, loops, refusal of the
-  adversarial set), answer checks, routing and tool selection — the matrix in
-  [references/profile-schema.md](references/profile-schema.md) sets
-  `trajectory` off with `blocked_by: "stage: pre-stability"`. Say plainly that
-  full trajectory eval would rot within a week, then name what you track
-  instead and what unlocks when.
-- Stable → `stage: stable`; trajectory layers apply.
+- Churning → `stage: pre-stability`. Every layer applies, trajectory
+  included: invariants, answer checks, routing, tool arguments, and which
+  tools were called or must not be. Only tool **order** waits (the
+  validator refuses `expect.tools.order`): a sequence rots within a week,
+  "never call the write tool" does not. Say what unlocks when.
+- Stable → `stage: stable`; order assertions apply too.
 - Real traffic exists → also enable analyze's trace-mining paths.
 
 ### 7. Interview the human
@@ -265,8 +263,9 @@ Three calls that block leaves to you:
 - The step 2 enum drives routing and trajectory mechanically, not by convention:
   `single_llm` forces both off whatever else you found.
 - Answer quality is always on; cost/latency follows purely from traces existing.
-- `authz` enables *partly* when the id-leak preconditions are missing — enable it
-  and name the degradation in `blocked_by`, rather than calling the layer off.
+- `authz` enables *partly* when the id-leak preconditions or a persona config
+  are missing (`forbidden_tools` needs neither) — enable it and name the
+  degradation in `blocked_by`, rather than calling the layer off.
 
 Never leave a layer off without a `blocked_by`. `run` reads this matrix, and an
 unnamed blocker reaches the user as an unexplained `unscorable`.

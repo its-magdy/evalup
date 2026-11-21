@@ -50,8 +50,8 @@ whose tools get renamed weekly produces only maintenance pain.
 
 | Stage | What runs |
 |---|---|
-| `pre-stability` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool selection/args — every layer but trajectory |
-| `stable` | + trajectory (subset default) |
+| `pre-stability` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool args, and trajectory for which tools were called (`subset`, `any_of`, `forbidden`) |
+| `stable` | + tool order (`expect.tools.order`; the validator refuses it before) |
 | `traffic` | + real-trace mining |
 | `production` | + online sampling, monitoring-window release validation |
 

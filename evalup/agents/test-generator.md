@@ -49,7 +49,9 @@ Rules:
    the answer unambiguous. For genuinely ambiguous cases use
    `route_acceptable: [a, b]` or `clarify_ok: true`. For multistep cases
    default to `tools.subset` + business rules + answer checks — do not invent
-   an exact tool order. Omit `expect.route` entirely for single-LLM apps
+   an exact tool order (`order` is an ERROR before `stage: stable`). When
+   either of two tools answers it, write `tools.any_of: [[a], [b]]`, not a
+   weaker forbidden-only case. "Never call X" is `tools.forbidden`. Omit `expect.route` entirely for single-LLM apps
    (no route targets, nothing to route).
 3. Flag your uncertainty. Any case where you are not sure of the expected
    label gets `review.status: pending` and a note saying why. Hard-negative
