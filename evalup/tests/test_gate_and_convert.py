@@ -6,6 +6,7 @@ to prose. The CI gate was a bash snippet needing jq and yq, so at the shell a
 red suite and a green one were both rc 0 with nothing printed; and the
 YAML -> JSON conversion was the model re-typing the suite on every run.
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -750,6 +751,60 @@ class TestConvertSuite(TempDirTest):
         self.assertEqual(rc, 0, out + err)
         # Zero findings includes #38's schema_version on every state file.
         self.assertEqual(json.loads(out)["findings"], [])
+
+    def test_rubrics_convert_with_their_sha256_and_lint_clean(self):
+        """docs/judge-run.md SS2/SS5: rubric frontmatter goes through this
+        script, the one with a YAML parser, for the linter and the pass."""
+        state = self.state()
+        split = self.tmp / "split"
+        rc, _, err = run("convert_suite.py", str(state),
+                         "-o", str(self.tmp / "c.json"),
+                         "--split-dir", str(split))
+        self.assertEqual(rc, 0, err)
+        rubrics = json.loads((split / "rubrics.json").read_text("utf-8"))
+        entry = rubrics["rubrics"][0]
+        raw = (state / "rubrics" / "grounded-answer.md").read_bytes()
+        self.assertEqual(entry["file"], "rubrics/grounded-answer.md")
+        self.assertEqual(entry["sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(entry["frontmatter"]["form"], "criteria")
+        rc, out, err = run("convert_suite.py", "--rubrics-dir",
+                           str(state / "rubrics"))
+        self.assertEqual((rc, json.loads(out)), (0, rubrics), err)
+        rc, out, err = run("validate_cases.py", "--strict",
+                           "--cases", str(split / "suite.json"),
+                           "--capabilities", str(split / "capabilities.json"),
+                           "--rubrics", str(split / "rubrics.json"))
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(json.loads(out)["findings"], [])
+
+    def test_a_rubric_without_frontmatter_is_exit_2(self):
+        state = self.state()
+        (state / "rubrics" / "broken.md").write_text("no frontmatter\n",
+                                                     encoding="utf-8")
+        rc, out, _ = run("convert_suite.py", "--rubrics-dir",
+                         str(state / "rubrics"))
+        self.assertEqual(rc, 2)
+        self.assertIn("no frontmatter", json.loads(out)["error"])
+
+    def test_no_rubrics_folder_adds_no_key(self):
+        state = self.state()
+        shutil.rmtree(state / "rubrics")
+        rc, out, err = run("convert_suite.py", str(state),
+                           "--split-dir", str(self.tmp / "split"))
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("rubrics", json.loads(out))
+        self.assertFalse((self.tmp / "split" / "rubrics.json").exists())
+
+    def test_judge_run_plan_reads_a_rubrics_directory(self):
+        state = self.state()
+        run_dir = self.tmp / "reports" / "smoke-20261121T100000Z"
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.yaml").write_text(json.dumps(
+            {"run_id": run_dir.name, "mode": "smoke", "cases": []}),
+            encoding="utf-8")
+        rc, out, err = run("judge_run.py", "plan", str(run_dir),
+                           "--rubrics", str(state / "rubrics"))
+        self.assertEqual(rc, 0, out + err)
 
     def test_output_parent_is_created_like_split_dir(self):
         """F-161 (user test round 2): `-o <dir>/converted.json` exited 2 on

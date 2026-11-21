@@ -103,10 +103,18 @@ would be the release-breaks-everything problem #38 removes, in another form.
 The pre-#38 keys `profile_version` / `adapter_version` are read as the old
 name of the same field.
 
+RUBRIC FILES (--rubrics, docs/judge-run.md SS2). convert_suite.py --split-dir
+writes rubrics.json when the state dir has rubrics/; with it, each file of
+`form: criteria` is linted by _rubric.rubric_findings (the rules judge_run.py
+plan applies too), and a case pinning a rubric with no file, or an older
+version than the file's, WARNs: the first is never judged, the second is
+judged on the file's version and can never be `calibrated`.
+
 Usage: validate_cases.py --cases <file.json|->
                          (--capabilities <file.json> | --no-capabilities)
                          [--strict] [--manifest <file.json>]
                          [--adapter <file.json>] [--profile <file.json>]
+                         [--rubrics <rubrics.json>]
 """
 import argparse
 import json
@@ -129,6 +137,7 @@ from _common import (
     run_bounded,
     unsafe_case_id,
 )
+from _rubric import rubric_findings, split_pin
 
 CATEGORIES = ("happy", "multistep", "edge", "ambiguous", "oos",
               "adversarial-refusal", "noise")
@@ -1477,6 +1486,50 @@ def check_adapter(rep, cases, records, adapter):
                      "or declare a route_from_response path")
 
 
+def check_rubrics(rep, cases, path):
+    """--rubrics: lint every rubric file, then each case's pin against it."""
+    text = sys.stdin.read() if path == "-" else load_text(path)
+    try:
+        doc = loads_strict(text)
+    except BadJSON as e:
+        die(f"bad input: {path}: {e}")
+    entries = doc.get("rubrics") if isinstance(doc, dict) else None
+    if not isinstance(entries, list):
+        die(f"{path}: expected {{\"rubrics\": [...]}} (convert_suite.py "
+            "--split-dir writes rubrics.json)")
+    versions = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            die(f"{path}: a rubrics entry is not an object")
+        file = str(entry.get("file") or "?")
+        front = entry.get("frontmatter")
+        stem = file.rsplit("/", 1)[-1]
+        stem = stem[:-3] if stem.endswith(".md") else stem
+        for severity, code, message in rubric_findings(front, stem):
+            (rep.error if severity == "ERROR" else rep.warn)(
+                None, code, f"{file}: {message}")
+        if isinstance(front, dict) and isinstance(front.get("rubric_id"), str):
+            versions[front["rubric_id"]] = front.get("version")
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        answer = (case.get("expect") or {}).get("answer") \
+            if isinstance(case.get("expect"), dict) else None
+        ref = answer.get("rubric") if isinstance(answer, dict) else None
+        if not isinstance(ref, str) or not ref.strip():
+            continue
+        rid, pin = split_pin(nfc(ref.strip()))
+        if rid not in versions:
+            rep.warn(case.get("id"), "rubric_missing",
+                     f"answer.rubric {ref!r} names no file in {path}: the "
+                     "judge pass leaves the case unjudged")
+        elif pin is not None and pin != versions[rid]:
+            rep.warn(case.get("id"), "rubric_pin_stale",
+                     f"answer.rubric {ref!r} pins v{pin}, the file is "
+                     f"v{versions[rid]}: judged on the file's version, it "
+                     "can never be calibrated -- re-pin it")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Lint an eval case suite for defects that make it grade "
@@ -1514,6 +1567,10 @@ def main():
                          "parser, same as --cases); cross-checked against "
                          "the actual case files so a hand-edit can't leave "
                          "the manifest silently stale")
+    ap.add_argument("--rubrics",
+                    help="JSON rubric files (convert_suite.py --split-dir "
+                         "writes rubrics.json): lints the criteria form and "
+                         "each case's rubric pin")
     a = ap.parse_args()
     # Checked here rather than with argparse's required mutually-exclusive
     # group: argparse writes usage text to STDERR and exits 2 with no payload,
@@ -1560,6 +1617,8 @@ def main():
         adapter = load_json_object(a.adapter, "the adapter")
         check_schema_version(rep, adapter, "adapter")
         check_adapter(rep, cases, records, adapter)
+    if a.rubrics:
+        check_rubrics(rep, cases, a.rubrics)
     open_fixes = None
     if a.manifest:
         text = sys.stdin.read() if a.manifest == "-" else load_text(a.manifest)

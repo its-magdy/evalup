@@ -592,7 +592,8 @@ def print_plan(plan, run_dir):
         "pending": [{"key": x["key"], "kind": x["kind"],
                      "rubric_id": x["rubric_id"],
                      "reply_file": x["reply_file"],
-                     "record_args": x["record_args"]} for x in pending],
+                     "record_args": x["record_args"],
+                     "prompt": x["prompt"]} for x in pending],
     }, indent=2, ensure_ascii=False))
 
 
@@ -994,12 +995,15 @@ def cmd_merge(a):
         rec = records.get(row["case_id"])
         if pass_reason:
             case["reason"] = pass_reason
+        elif rec is None and a.launch_denied:
+            # SS10: a denied launch ends the pass; that, not the self-test
+            # it may have stopped, is why every case without a reply is here.
+            case["reason"] = "judge launch denied"
         elif self_tests.get(rid, ("fail",))[0] != "pass":
             why = self_tests.get(rid, ("fail", "no self-test ran"))[1]
             case["reason"] = f"self-test failed: {why}"
         elif rec is None:
             case["reason"] = (
-                "judge launch denied" if a.launch_denied else
                 f"over the judge budget: --max-calls {plan['max_calls']}"
                 if over_budget else "no reply recorded")
         elif rec.get("rubric_sha256") != snap["sha256"]:

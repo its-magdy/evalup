@@ -231,8 +231,11 @@ LAYER_ERROR = "error"
 # The sidecar score_agreement.py writes, named by plan paths.judge_calibration.
 # JSON, not YAML, for the reason the holdout ledger is .jsonl: this package is
 # stdlib-only and cannot safely rewrite the YAML that holds profile.yaml's
-# judge block.
-JUDGE_CALIBRATION_SCHEMA = "evalup/judge-calibration/1"
+# judge block. score_agreement.py writes /2 (docs/judge-run.md SS6), which
+# keeps every key this check reads; /1 sidecars written before it still serve.
+JUDGE_CALIBRATION_SCHEMA = "evalup/judge-calibration/2"
+JUDGE_CALIBRATION_SCHEMAS = ("evalup/judge-calibration/1",
+                             JUDGE_CALIBRATION_SCHEMA)
 # `<rubric_id>-v<version>` is a PIN, not part of the id (rubric-format.md).
 RUBRIC_PIN = re.compile(r"-v\d+$")
 
@@ -3579,9 +3582,10 @@ class Runner:
                 raise ValueError("expected a JSON object")
         except (OSError, ValueError) as exc:
             return f"judge calibration unreadable ({path}): {exc}"
-        if sidecar.get("schema") != JUDGE_CALIBRATION_SCHEMA:
-            return "judge calibration schema is {!r}, expected {!r}".format(
-                sidecar.get("schema"), JUDGE_CALIBRATION_SCHEMA)
+        if sidecar.get("schema") not in JUDGE_CALIBRATION_SCHEMAS:
+            return "judge calibration schema is {!r}, expected {}".format(
+                sidecar.get("schema"),
+                " or ".join(repr(x) for x in JUDGE_CALIBRATION_SCHEMAS))
         if sidecar.get("status") != "calibrated":
             return f"judge not calibrated per {path}"
         measured = sidecar.get("rubrics_measured")
