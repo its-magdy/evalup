@@ -134,10 +134,14 @@ def failing_ids(run_dir, dataset_version, notes=None):
     return {row.get("case_id") for row in rows if row.get("verdict") == "fail"}
 
 
-def git_state(repo):
+def git_state(repo, state_dir=None):
     """(sha, "clean"|"dirty") of the app checkout, or (None, "n/a"). The
     manifest records what was evaluated; a repo that is not a git checkout, or
-    a machine without git, is a fact to record, not an error."""
+    a machine without git, is a fact to record, not an error.
+
+    evalup's own state is not the app's: a `state_dir` inside the checkout is
+    left out of the dirty check, as discover step 5's edit gate leaves it out
+    (#101), or every run of an app with an in-tree `.evalup/` reads dirty."""
     def git(*argv):
         return subprocess.run(["git", "-C", repo, *argv], capture_output=True,
                               text=True, timeout=20, check=False)
@@ -145,7 +149,16 @@ def git_state(repo):
         head = git("rev-parse", "HEAD")
         if head.returncode != 0:
             return None, "n/a"
-        dirty = git("status", "--porcelain").stdout.strip()
+        spec = []
+        top = git("rev-parse", "--show-toplevel").stdout.strip()
+        if state_dir and top:
+            rel = os.path.relpath(os.path.realpath(state_dir),
+                                  os.path.realpath(top))
+            if rel != "." and rel != ".." \
+                    and not rel.startswith(".." + os.sep):
+                spec = ["--", ":/",
+                        ":(top,exclude)" + rel.replace(os.sep, "/")]
+        dirty = git("status", "--porcelain", *spec).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         return None, "n/a"
     return head.stdout.strip(), "dirty" if dirty else "clean"
@@ -490,7 +503,7 @@ def main():
     repo = app.get("repo")
     repo_path = repo if isinstance(repo, str) and os.path.isabs(repo) \
         else os.path.normpath(os.path.join(state_dir, repo or "."))
-    sha, tree = git_state(repo_path)
+    sha, tree = git_state(repo_path, state_dir)
     profile = converted.get("profile") or {}
     profile_judge = profile.get("judge")
     model = app_model(profile)
