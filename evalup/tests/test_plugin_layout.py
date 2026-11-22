@@ -394,7 +394,10 @@ class TestPluginLayout(unittest.TestCase):
                        "time ≥ runs × W", "never assume one",
                        "**What `--budget $N` meters**", '`status: "unpriced"`',
                        "`holdout_excluded`", "`usd_per_case_with_trace`",
-                       "never a gate"):
+                       "never a gate",
+                       # #117's priced estimate and #118's cache split
+                       "`--cost-from <the last priced regression run's "
+                       "cost.json>`", "`estimate.usd`", "`cache_warning`"):
             self.assertIn(phrase, flat)
         # The keys the text names are the ones the scripts write.
         runner = (ROOT / "scripts" / "run_cases.py").read_text(
