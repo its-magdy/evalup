@@ -50,10 +50,9 @@ difficulty: medium                  # easy | medium | hard. HIDDEN from the agen
 template_id: shift_count_by_role    # REQUIRED unless this is a declared one-off.
                                     # id shared by every instantiation of one
                                      # authored case template (e.g. "shift_count_by_role").
-                                     # Groups variants for consistency scoring, and makes
-                                     # clustering computable: cases sharing a template are not
-                                     # independent, so their pass rate needs CLUSTERED standard
-                                     # errors (Miller 2024). `null` ONLY for a declared one-off
+                                     # Cases sharing a template are not independent, so their
+                                     # pass rate needs CLUSTERED standard errors (Miller
+                                     # 2024). `null` ONLY for a declared one-off
                                      # — and WRITE THE KEY: missing_template_id checks its
                                      # PRESENCE (absent = nobody decided). A suite of only
                                      # one-offs warns (all_one_off).
@@ -97,9 +96,8 @@ input:
                                      # state is reserved (docs/multi-turn.md SS9).
 
 available_tools: null                # optional, RESERVED: tool names the agent was meant to see.
-                                     # THIS HARNESS CANNOT SCOPE THE CATALOG — the app exposes
-                                     # whatever it always exposes, so a test authored against a
-                                     # narrowed catalog is not the test that runs. Read only by
+                                     # THIS HARNESS CANNOT SCOPE THE CATALOG: the app exposes
+                                     # what it always does. Read only by
                                      # the never-live-tool skip gate (adapter hard rule 2).
 excluded_tools: []                   # optional, RESERVED: tools deliberately NOT needed for this
                                      # case. NOTHING SCORES IT. To make reaching for one FAIL,
@@ -168,15 +166,11 @@ expect:
                                      # under 3 chars are "unscorable".
                                      # A never-called tool is a trajectory finding,
                                      # not an args fail.
-    # search: { calls: any, q: invoices }   # CALL SCOPE. A tool may legitimately be
-                                     # called several times with different arguments
-                                     # (page, refine, retry), so an expectation about
-                                     # one call is not an assertion about all of them.
+    # search: { calls: any, q: invoices }   # CALL SCOPE: a tool may be called
+                                     # several times (page, refine, retry).
                                      # any   — DEFAULT: passes if AT LEAST ONE call
-                                     #         satisfies every spec in the entry. Specs
-                                     #         are evaluated together per call, so
-                                     #         "the call that did X also did Y" stays
-                                     #         expressible.
+                                     #         satisfies every spec in the entry (specs
+                                     #         are evaluated together per call).
                                      # all   — every observed call must satisfy them.
                                      # first — only the tool's first call is checked.
                                      # An unrecognized scope is a hard error, never a
@@ -237,15 +231,17 @@ expect:
   answer:
     must_contain: []                 # scored by score_answer.py — plain string =
     must_not_contain: ["$"]          # substring, "/.../" = regex (re.search).
-                                     # ALWAYS quote entries: an unquoted number is
-                                     # coerced to its string form, and an unquoted
-                                     # yes/no/true/false becomes a YAML bool, which
-                                     # is reported "unscorable" (not a silent fail).
+                                     # ALWAYS quote entries: an unquoted number becomes
+                                     # its string, an unquoted yes/no/true/false a YAML
+                                     # bool, reported "unscorable".
                                      # Never an entry the user message already contains
-                                     # (validate_cases.py WARNs echo_assertion): an app
-                                     # that repeats the request passes it. Assert the
-                                     # fact that goes WITH the name — the leave type,
-                                     # the date, the count — not the name itself.
+                                     # (WARN echo_assertion): an echo passes it. Assert
+                                     # the fact that goes WITH the name, not the name.
+                                     # It is a SUBSTRING test: ضيف is inside كضيف, so
+                                     # bound a word in a regex suited to the script
+                                     # (test-generator rule 8). Try
+                                     # each entry on the message (no match) and on a
+                                     # colloquial answer ("6:30 المسا", not only مساء).
                                      # WATCH THE SLASHES: "/usr/local/" is the REGEX
                                      # `usr/local` — drop the outer slashes for a
                                      # literal. No trailing flag: "/pattern/i" is
@@ -292,8 +288,7 @@ the adapter declares `invocation.conversation`.
 Validation: `validate_cases.py`, run as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
 §1 spells it, before handing a dataset over. It checks at load time the "hard error, never a
 silent fallback" rules above (`order_mode`, args `calls` scope, empty
-`columns`), which the scorers would otherwise only hit at RUN time — long after
-a suite is authored and reviewed. Exit 0 = clean, 1 = errors, 2 = bad input.
+`columns`), which the scorers would otherwise only hit at RUN time. Exit 0 = clean, 1 = errors, 2 = bad input.
 
 `--capabilities` is **required**: without the matrix, a case asserting only
 DISABLED layers cannot be caught. `--no-capabilities` says so

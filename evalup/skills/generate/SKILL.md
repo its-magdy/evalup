@@ -149,7 +149,8 @@ on obvious junk. Drop a case, logging the reason in the template's `rejected:`
 list, when it is:
 
 1. **not self-contained** — score it, retry a fixed few times, then drop it;
-2. **not grounded** — no oracle for the expectation, so none gets invented:
+2. **not grounded** — no oracle (a seeded fixture's data counts) for the
+   expectation, so none gets invented:
    drop the case or demote it to `pending`;
 3. **a near-duplicate** — ROUGE-L ≥ 0.7 against any existing case;
 4. **an incoherent cell** — cross products generate nonsense combinations.
@@ -198,7 +199,8 @@ reported but cannot close the gate until a human accepts it and flips
 `gating`; no script drops it), cases the generator marked uncertain, and cases a cheap probe
 run shows the app disagreeing with. Present each as the message, the
 expected label and a one-line why — accept / fix / delete — and write the
-review status per case.
+review status per case. A human accepting many at once: label-lifecycle.md
+§Accepting in bulk.
 
 **The rules its cases cover ride the same review.** A lean discover
 confirms none, and a case naming an unconfirmed rule (`covers`,

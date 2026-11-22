@@ -80,7 +80,13 @@ Rules:
    the DATA in an expectation — a real employee name, a count, a leave type
    the app actually has — never the behaviour: a status code, a refusal
    path, or an "I couldn't find that" the app happens to return today is an
-   observation, not a label.
+   observation, not a label. A seeded fixture (the data file the app's run
+   state is loaded from) grounds the DATA of an answer check the same way,
+   even when profile.yaml says `oracle.available: false`: that flag says
+   there is no execution-layer oracle, so no `expect.result` from it, not
+   that the fixture's facts are unknown; name the fixture in `notes` by
+   what it holds ("from the seeded guest list"), not as "read <file>". A
+   constant in the app's code is not a fixture.
    This includes reading the app's source to "verify" an expectation. The
    trap has a signature: an assertion that restates an implementation
    constant — a `must_not_contain` listing the exact strings a guard already
@@ -119,7 +125,17 @@ Rules:
    - reply language: write the message in that language and `must_contain`
      words of that language the message does NOT contain (the fact that
      goes with the name; an echoed word passes any app and trips
-     `echo_assertion`) — a weak check, so say so in `notes`.
+     `echo_assertion`) — a weak check, so say so in `notes`. "Does not
+     contain" is a substring test, not a word test: a script that attaches
+     clitics (Arabic, Hebrew) hides a word inside the message's own words
+     (ضيف inside كضيف, بيبي inside البيبيهات). Pick another word, or bound
+     it in a regex suited to the script: in a script that separates words
+     with spaces, `\b` treats its letters as word characters, and the
+     prefixes the answer may attach are listed, e.g.
+     `'/\b(?:ال|لل|و|ب)?ضيف\b/'` (it misses كضيف) — a starter list, not
+     the language's prefix set: it misses بالضيف and والضيف too. A script without word
+     spaces (Chinese, Japanese, Thai) has no usable `\b`: use a phrase the
+     message does not contain at all.
    - one answer per ambiguous candidate plus a question: `must_contain` on
      what tells each candidate apart, absent from the message. The question
      has no string check (a `?` echoes the user's): say so in `notes`.
@@ -129,6 +145,12 @@ Rules:
      wording (rule 4): say so in `notes`.
    - a stated count: `expect.result` from the oracle (it checks the count,
      not that it matches the items the answer lists).
+   Test every entry before you write it down, on colloquial samples, not
+   only on the standard form: a `must_contain` misses the case's own
+   message and matches a correct sample answer; a `must_not_contain`
+   misses that correct answer and matches a breach. An answer that writes the time
+   "6:30 المسا" fails a pattern written for م/مساء only: write the
+   alternatives a real answer uses, or check something else.
    Name the rule's id, and any risk id the case is for, in the case's
    `covers: [...]` (ids from profile.yaml, never the prompt's file path:
    "read <file>" in `notes` trips `source_derived_expectation`). A rule

@@ -154,6 +154,11 @@ The skills pre-approve two things: running the plugin's own scripts
 to. Anything that touches your side still asks: writing `.evalup/`, sending a
 request to your app, editing a prompt.
 
+- `evalup` is on PATH only where Claude Code puts the plugin's `bin/`
+  there; a subagent's shell or a `--plugin-dir` session has been seen
+  without it. On `evalup: command not found`, the same script is
+  `python3 <plugin root>/scripts/<name>.py …` (`_` for `-`), which
+  `Bash(evalup *)` does not pre-approve: allow it, or answer its prompt.
 - A pre-approval lasts until your next message. After you answer a question,
   the next script run may prompt once; "Yes, and don't ask again" settles it
   for the project.

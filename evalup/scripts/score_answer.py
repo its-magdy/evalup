@@ -20,7 +20,10 @@ written in the other. Regex entries get the ANSWER normalized but never the
 PATTERN — normalizing a pattern would rewrite regex source the author chose,
 and inside a character class it would silently change what the class means.
 Write patterns in NFC (the form every editor produces by default) or match the
-combining mark explicitly; every regex check carries a note saying so.
+combining mark explicitly. A regex check carries a note saying so only when
+normalization touched it: the answer's NFC form differs from the text the app
+sent, or the pattern itself is not in NFC. Otherwise both sides are already
+in one form and the note would be noise.
 
 format.json_schema uses a minimal stdlib validator supporting: type,
 required, properties, items, enum. Unsupported keywords are ignored and
@@ -254,15 +257,21 @@ REGEX_NOT_NFC_NOTE = (
     "characters in the normalized answer: rewrite it in NFC")
 
 
-def regex_note(pattern):
-    """The note every regex check carries, sharpened when the pattern itself
-    is decomposed — that is the one case where the asymmetry above turns a
-    correct expectation into a fail, so it must not read as boilerplate."""
-    return REGEX_NFC_NOTE + (REGEX_NOT_NFC_NOTE if nfc(pattern) != pattern
-                             else "")
+def regex_note(pattern, answer_changed):
+    """The note a regex check carries, or None when normalization changed
+    nothing on either side: an NFC answer the app sent as-is and an NFC
+    pattern (every ASCII one is) ran exactly as written, so the note would be
+    boilerplate on every check (#109). It is sharpened when the pattern itself
+    is decomposed — the one case where the asymmetry turns a correct
+    expectation into a fail."""
+    decomposed = nfc(pattern) != pattern
+    if not (answer_changed or decomposed):
+        return None
+    return REGEX_NFC_NOTE + (REGEX_NOT_NFC_NOTE if decomposed else "")
 
 
-def content_check(kind, entry, answer):
+def content_check(kind, entry, answer, answer_changed=False):
+    """`answer_changed`: main's NFC pass altered the app's text."""
     normalized = normalize_entry(entry)
     if normalized is None:
         return {"check": kind, "entry": entry, "status": "unscorable",
@@ -270,7 +279,9 @@ def content_check(kind, entry, answer):
                           f"{type(entry).__name__}: quote it in the case YAML"}
     check = scored_entry(kind, entry, normalized, answer)
     if is_regex_entry(normalized):
-        check["note"] = regex_note(normalized[1:-1])
+        note = regex_note(normalized[1:-1], answer_changed)
+        if note is not None:
+            check["note"] = note
     return check
 
 
@@ -311,7 +322,9 @@ def main():
     # in one Unicode form, and no future check can be added that forgets to.
     # See _common.nfc for why an unnormalized comparison is a manufactured
     # failure rather than a cosmetic one.
-    answer = nfc(load_text(a.answer))
+    raw = load_text(a.answer)
+    answer = nfc(raw)
+    answer_changed = answer != raw
     expect = load_object(a.expect)
     # `is not None`, not truthiness: a truthy test would conflate "key absent"
     # (nothing to score, correct) with "key present but off-shape AND falsy" —
@@ -343,7 +356,8 @@ def main():
         for entry in require_list(f"expect.answer.{kind}", entries,
                                   item="entry", plural="entries",
                                   of_strings=False):
-            checks.append(content_check(kind, entry, answer))
+            checks.append(content_check(kind, entry, answer,
+                                        answer_changed))
 
     if json_schema:
         check_schema_shape(json_schema)

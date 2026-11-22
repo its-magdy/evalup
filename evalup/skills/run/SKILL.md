@@ -25,7 +25,8 @@ allowed-tools: >-
 > (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
 > `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
 > `Bash(evalup *)`, and it lapses when the user next replies — a prompt
-> after that is expected, not a fault. If a script call is **denied**, stop and tell
+> after that is expected, not a fault. On `evalup: command not found`, stop:
+> README §Permissions has the fallback. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
 > **Every shell call, not only script calls.** One plain command per Bash
@@ -239,7 +240,8 @@ beside them.
   **judged** layer (`expect.answer.rubric`, row `unjudged (…)`) nor
   **business rules** (`expect.answer.rules`). When a selected case pins a
   rubric, and no `--no-judge`, run the pass in this turn:
-  [references/judge-pass.md](references/judge-pass.md). Then, if a case
+  [references/judge-pass.md](references/judge-pass.md); it skips a case
+  already failing a layer unless `--include-failed`. Then, if a case
   lists rules, `evalup rule-report reports/<run-id> --profile <work-dir>/profile.json`,
   whose `summary` goes under **Business rules**. Neither report decides the
   pass rate or gate; never judge by eye.
