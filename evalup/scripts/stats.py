@@ -48,6 +48,12 @@ Usage: stats.py <baseline.jsonl> <candidate.jsonl> [--alpha 0.05]
                 [--bayes-threshold 0.95]
                 [--noise-floor <champion_a.jsonl> <champion_b.jsonl>]
                 [--candidate-looks N]
+       stats.py --holdout-power H --headroom C [--noise-disagreements D]
+                [--alpha 0.05] [--bayes-threshold 0.95]
+The second form (issue #110) is planning only, before any look: the MDE at
+the discordance a whole-cluster fix would produce, and the fewest fixed /
+smallest net fixed-minus-broken that keep_decision could keep at H, searched
+with keep_decision itself. It changes no number the first form prints.
 Rows: {"case_id": ..., "verdict": "pass"|"fail"}. Any other verdict is a hard
 error: infra verdicts must be excluded upstream, never counted as failures.
 
@@ -275,6 +281,83 @@ def keep_decision(prob, delta, threshold, changed=None, noise=None,
     return keep, None
 
 
+def smallest_keeps(n, threshold, noise=0):
+    """Every (fixed, broken) split of n paired cases that keep_decision would
+    keep with the fewest fixed for its broken count: for each broken b, the
+    smallest fixed f with f + b <= n that clears the posterior bar, delta > 0
+    and, with a noise floor of `noise` disagreements, f + b > noise. Breaking
+    cases can LOWER the fixed count needed (more changed cases clear the
+    floor), which is why every b is tried. Same keep_decision the CLI calls."""
+    out = []
+    for b in range(n + 1):
+        for f in range(b + 1, n - b + 1):
+            prob = posterior_prob_improvement(f, b)
+            if keep_decision(prob, (f - b) / n, threshold, f + b, noise)[0]:
+                out.append({"fixed": f, "broken": b, "net": f - b})
+                break
+    return out
+
+
+def holdout_power(n, headroom, noise, alpha, threshold):
+    """Before a holdout look: can a candidate on this cluster keep at all?
+
+    `headroom` is the cluster's plausible holdout headroom — how many sealed
+    cases a candidate that fixed its whole cluster could turn from fail to
+    pass (optimize step 4 estimates it). No new statistic: the counts are
+    keep_decision's own rule searched over every split, and the MDE is
+    min_detectable_effect at the discordant fraction such a candidate would
+    produce (headroom / n). `can_keep` is the hard bar (even fixing every
+    headroom case, breaking none of the rest, cannot keep), `powered` the
+    80%-power planning figure."""
+    keeps = smallest_keeps(n, threshold, noise)
+    fewest = min(keeps, key=lambda k: (k["fixed"], k["broken"]), default=None)
+    net = min(keeps, key=lambda k: (k["net"], k["broken"]), default=None)
+    p_disc = min(1.0, headroom / n)
+    mde = min_detectable_effect(n, p_disc, alpha)
+    can_keep = fewest is not None and headroom >= fewest["fixed"]
+    powered = can_keep and p_disc >= mde
+    needed = None
+    if headroom > 0 and fewest is not None:
+        # A holdout of m cases holds headroom * m / n cluster cases; it needs
+        # that to reach the fewest fixed, and m >= z^2 / p_disc for the MDE
+        # (the `advice` formula below with delta = p_disc).
+        needed = max(math.ceil(fewest["fixed"] * n / headroom),
+                     math.ceil(z_sum(alpha, 0.8) ** 2 / p_disc), n)
+    if not can_keep:
+        least = fewest["fixed"] if fewest else f"more than {n}"
+        verdict = (
+            f"CANNOT KEEP: a candidate needs at least {least} fixed holdout "
+            f"case(s) to keep (fewest_fixed_to_keep), and this cluster's "
+            f"plausible headroom is {headroom:g} of {n}")
+    elif not powered:
+        verdict = (
+            f"UNDERPOWERED: a keep is possible, but the expected effect "
+            f"{p_disc:.0%} is below the ~{mde:.0%} minimum detectable effect "
+            f"at n={n}, so a real gain will usually not keep")
+    else:
+        verdict = (f"powered: the expected effect {p_disc:.0%} is at or "
+                   f"above the ~{mde:.0%} minimum detectable effect")
+    return {
+        "mode": "holdout_power",
+        "holdout_cases": n,
+        "headroom": headroom,
+        "noise_disagreements": noise,
+        "threshold": threshold,
+        "expected_effect": round(p_disc, 3),
+        "min_detectable_effect": round(mde, 3),
+        "fewest_fixed_to_keep": fewest,
+        "smallest_net_to_keep": net,
+        "can_keep": can_keep,
+        "powered": powered,
+        "holdout_cases_needed": needed,
+        "explained": verdict + (
+            f"; a holdout of ~{needed} case(s) would clear both"
+            if needed and not powered else "") + (
+            ". Planning estimate: the MDE is a normal approximation and "
+            "the headroom an estimate; the keep rule is the exact one."),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Paired statistical gate for two evalup runs over "
@@ -282,8 +365,8 @@ def main():
                     "on an exact Beta posterior at all n; reports an exact "
                     "one-sided sign test alongside.")
     add_version_flag(ap)
-    ap.add_argument("baseline", help="baseline verdicts JSONL")
-    ap.add_argument("candidate", help="candidate verdicts JSONL")
+    ap.add_argument("baseline", nargs="?", help="baseline verdicts JSONL")
+    ap.add_argument("candidate", nargs="?", help="candidate verdicts JSONL")
     ap.add_argument("--alpha", type=float, default=0.05,
                     help="significance level for the REPORTED sign test, "
                          "the REPORTED McNemar exact test, and the "
@@ -306,6 +389,20 @@ def main():
                     help="candidate comparisons made against this holdout "
                          "seal, this one included; prints a multi-look "
                          "false-keep bound")
+    ap.add_argument("--holdout-power", type=int, metavar="H",
+                    help="planning mode, no verdict files: for a sealed "
+                         "holdout of H cases, print the minimum detectable "
+                         "effect and the smallest fixed/broken split that "
+                         "could keep (optimize step 4, before the noise pair)")
+    ap.add_argument("--headroom", type=float, metavar="C",
+                    help="with --holdout-power: holdout cases a candidate "
+                         "fixing its whole cluster could turn to pass "
+                         "(an estimate; may be fractional)")
+    ap.add_argument("--noise-disagreements", type=int, default=0,
+                    metavar="D",
+                    help="with --holdout-power: the noise pair's "
+                         "disagreements once measured (default: 0, before "
+                         "the pair)")
     a = ap.parse_args()
     # Out of range, --alpha reached NormalDist().inv_cdf and exited with a
     # StatisticsError traceback (see _common.require_range for why this is not
@@ -313,6 +410,30 @@ def main():
     require_range("--alpha", a.alpha, 0, 1, exclusive=True)
     require_range("--bayes-threshold", a.bayes_threshold, 0, 1,
                   note=" (it is a probability)")
+
+    if a.holdout_power is not None:
+        if a.baseline or a.noise_floor or a.candidate_looks is not None:
+            die("--holdout-power is a planning mode: it takes no verdict "
+                "files, --noise-floor or --candidate-looks")
+        if a.holdout_power < 1:
+            die(f"--holdout-power must be >= 1 (got {a.holdout_power})")
+        if a.headroom is None:
+            die("--holdout-power needs --headroom C (optimize step 4 says "
+                "how to estimate it)")
+        require_range("--headroom", a.headroom, 0, a.holdout_power,
+                      note=" (it is a count of holdout cases)")
+        if a.noise_disagreements < 0:
+            die("--noise-disagreements must be >= 0 (got "
+                f"{a.noise_disagreements})")
+        print(json.dumps(holdout_power(
+            a.holdout_power, a.headroom, a.noise_disagreements, a.alpha,
+            a.bayes_threshold), indent=2))
+        return
+    if a.headroom is not None or a.noise_disagreements:
+        die("--headroom and --noise-disagreements belong to --holdout-power")
+    if not a.candidate:
+        die("two verdict files are required (baseline, candidate), or "
+            "--holdout-power H for the planning mode")
 
     if a.candidate_looks is not None and a.candidate_looks < 1:
         die(f"--candidate-looks must be >= 1 (got {a.candidate_looks}): it "
