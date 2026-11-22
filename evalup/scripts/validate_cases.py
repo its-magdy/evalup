@@ -2209,8 +2209,10 @@ def main():
                     help="promote every WARN to ERROR (a gating CI job)")
     ap.add_argument("--adapter",
                     help="JSON adapter (convert_suite.py --split-dir writes "
-                         "adapter.json); cross-checks each case's labels "
-                         "against what the adapter lets the runner observe "
+                         "adapter.json; its combined document also serves, "
+                         "read through its `adapter` key); cross-checks "
+                         "each case's labels against what the adapter lets "
+                         "the runner observe "
                          "(clarify_ok, route under route_from_status) and "
                          "warns on attack cases environment.safe_to_attack "
                          "would skip")
@@ -2290,6 +2292,16 @@ def main():
                  "--split-dir writes profile.json)")
     if a.adapter:
         adapter = load_json_object(a.adapter, "the adapter")
+        if "cases" in adapter:
+            # convert_suite.py's combined document (#125), read as --profile
+            # reads it: the adapter's keys sit under `adapter`. Linted as an
+            # adapter itself, it drew a false schema_version_missing and a
+            # false attack_category_will_skip.
+            if not isinstance(adapter.get("adapter"), dict):
+                die(f"bad input: {a.adapter}: a document with `cases` but no "
+                    "`adapter` object is not an adapter; pass the adapter.json "
+                    "convert_suite.py --split-dir writes")
+            adapter = adapter["adapter"]
         check_schema_version(rep, adapter, "adapter")
         check_adapter(rep, cases, records, adapter)
     judged_rules = check_rubrics(rep, cases, a.rubrics) if a.rubrics \

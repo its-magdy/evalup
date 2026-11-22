@@ -300,7 +300,10 @@ class TestCommittedInputsConform(unittest.TestCase):
              "--profile", str(EXAMPLE / "converted.json"),
              # converted.json carries the rubric too (docs/judge-run.md
              # SS14), so the criteria form and the case's pin are linted.
-             "--rubrics", str(EXAMPLE / "converted.json")],
+             "--rubrics", str(EXAMPLE / "converted.json"),
+             # And its adapter (#125): read through the `adapter` key, not
+             # linted whole as if the suite were an adapter.yaml.
+             "--adapter", str(EXAMPLE / "converted.json")],
             capture_output=True, text=True)
         payload = json.loads(proc.stdout)
         self.assertEqual(

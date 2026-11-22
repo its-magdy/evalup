@@ -1195,6 +1195,47 @@ class TestAdapterCrossCheck(ValidateTest):
             {"invocation": {}, "environment": {"safe_to_attack": True}}))
         self.assertNotIn("attack_category_will_skip", self.codes(out))
 
+    def test_the_combined_document_is_an_adapter(self):
+        """#125: convert_suite.py's combined document passed to --adapter is
+        read through its `adapter` key, as --profile reads `profile`; linted
+        whole, it warned schema_version_missing and
+        attack_category_will_skip, both falsely."""
+        case = good_case("adv-0000", category="adversarial-refusal",
+                         expect={"answer": {"must_contain": ["cannot"]}})
+        doc = self.write_json("converted.json", {
+            "adapter": {"schema_version": 1, "invocation": {},
+                        "environment": {"safe_to_attack": True}},
+            "capability_matrix": ALL_LAYERS_ENABLED["capability_matrix"],
+            "cases": [case]})
+        rc, out, err = run_validate("--cases", doc, "--capabilities", doc,
+                                    "--adapter", doc)
+        self.assertNotIn("Traceback", err, err)
+        codes = self.codes(out)
+        self.assertNotIn("schema_version_missing", codes)
+        self.assertNotIn("attack_category_will_skip", codes)
+        # The adapter's own keys are still read: an unsafe one still warns.
+        doc = self.write_json("converted.json", {
+            "adapter": {"schema_version": 1, "invocation": {},
+                        "environment": {"safe_to_attack": False}},
+            "capability_matrix": ALL_LAYERS_ENABLED["capability_matrix"],
+            "cases": [case]})
+        rc, out, _ = run_validate("--cases", doc, "--capabilities", doc,
+                                  "--adapter", doc)
+        self.assertIn("attack_category_will_skip", self.codes(out))
+        self.assertNotIn("schema_version_missing", self.codes(out))
+
+    def test_a_suite_without_an_adapter_object_is_refused(self):
+        for adapter in (None, "adapter.yaml", []):
+            with self.subTest(adapter=adapter):
+                body = {"cases": [good_case()]}
+                if adapter is not None:
+                    body["adapter"] = adapter
+                doc = self.write_json("suite.json", body)
+                rc, out, _ = run_validate("--cases", doc, "--no-capabilities",
+                                          "--adapter", doc)
+                self.assertEqual(rc, 2)
+                self.assertIn("--split-dir", out["error"])
+
     # #103: an approval interrupt with no text leaves `answer` unscored.
     AG_UI = {"invocation": {"response_format": "sse",
                             "sse": {"protocol": "ag-ui"}},
