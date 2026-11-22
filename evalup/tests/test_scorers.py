@@ -687,6 +687,24 @@ class TestOptimizeReadsWhatExists(ScorerTest):
                 n = math.ceil(e / 4)
                 self.assertLessEqual(math.ceil(0.2 * (e + n)) - h0, n)
 
+    def test_a_power_target_reaches_both_bars(self):
+        # Optimize step 4's unlock: generate seals the larger of T and its
+        # share, N >= T and >= ceil(E/4). A large, under-sealed suite (100
+        # cases, 10 sealed, 21 needed) once stalled at a 5 x needed bound.
+        optimize = self.text("skills/optimize/SKILL.md")
+        self.assertIn("N ≥ ⌈E/4⌉", optimize)
+        self.assertNotIn("5 ×\n   `holdout_cases_needed`", optimize)
+        for e in range(0, 160, 3):
+            for h0 in range(0, e // 3 + 1, 2):
+                for needed in range(h0, h0 + 30, 4):
+                    t = needed - h0
+                    n = max(t, math.ceil(e / 4))
+                    share = max(0, math.ceil(0.2 * (e + n)) - h0)
+                    sealed = min(n, max(share, t))
+                    with self.subTest(e=e, h0=h0, needed=needed):
+                        self.assertGreaterEqual(h0 + sealed, needed)
+                        self.assertGreaterEqual(h0 + sealed, 0.2 * (e + n))
+
 
 class TestNoOpKeepRate(unittest.TestCase):
     """Issue #36's acceptance test: how often does the keep rule keep an edit

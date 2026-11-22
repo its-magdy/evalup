@@ -306,9 +306,12 @@ def holdout_power(n, headroom, noise, alpha, threshold):
     pass (optimize step 4 estimates it). No new statistic: the counts are
     keep_decision's own rule searched over every split, and the MDE is
     min_detectable_effect at the discordant fraction such a candidate would
-    produce (headroom / n). `can_keep` is the hard bar (even fixing every
-    headroom case, breaking none of the rest, cannot keep), `powered` the
-    80%-power planning figure."""
+    produce (headroom / n). `can_keep: false` is the hard bar (no split
+    fixing at most the headroom keeps), `powered` the
+    80%-power planning figure. `can_keep` means SOME split with at most
+    `headroom` fixed keeps, breaks included: past a noise floor that may be
+    one with breaks (fewest_fixed_to_keep says which), so a clean fix of the
+    same size can still be no evidence."""
     keeps = smallest_keeps(n, threshold, noise)
     fewest = min(keeps, key=lambda k: (k["fixed"], k["broken"]), default=None)
     net = min(keeps, key=lambda k: (k["net"], k["broken"]), default=None)

@@ -198,9 +198,10 @@ With R, P and H their `app_calls_planned`:
    `verdicts_for_stats.jsonl`). Print its `min_detectable_effect`,
    `fewest_fixed_to_keep` and `smallest_net_to_keep` before any look.
    `can_keep: false` → refuse: no look can keep this fix. The unlock is a
-   bigger holdout, `/evalup:generate --count <N>` with E + N ≥ 5 ×
-   `holdout_cases_needed` (precondition 3's share; a new seal, so the pair
-   is re-measured). `powered: false` → say a real gain will usually not
+   bigger holdout: `/evalup:generate --count <N>`, asking it to seal
+   T = `holdout_cases_needed` − H of the new cases, with N ≥ T and
+   N ≥ ⌈E/4⌉: it seals the larger of T and its share, so both bars hold (a
+   new seal, so the pair is re-measured). `powered: false` → say a real gain will usually not
    keep and offer the same generate; go on only if the user says so
    (headless: refuse). E.g. 13 sealed, a cluster failing 14 of 46: C ≈ 3.96,
    4 fixed needed, so refuse — the re-proof spent three looks to learn that.

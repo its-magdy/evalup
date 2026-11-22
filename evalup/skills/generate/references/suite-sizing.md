@@ -6,22 +6,20 @@ shape; this file owns the numbers, their reasons, and what the resulting pass
 rates can mean.
 
 ## Budget geometry — ratios with a floor, never absolutes
-Every quota in this skill (grid depth, smoke, holdout, canary, metamorphic) is
-a **ratio of the current suite size plus a floor**, not a fixed count — a
-fixed absolute (e.g. "always add 5 canaries") silently dominates or breaks a
-12-case suite. Compute against the actual suite size being generated, apply
-the floor, and note in the dataset metadata whenever the floor overrode the
-ratio:
+Every quota is a **ratio of the suite size plus a floor**, never a fixed
+count, which silently dominates or breaks a 12-case suite. Compute against
+the size being generated (the holdout: the suite after it), apply the floor,
+and note in the metadata whenever the floor overrode the ratio:
 - **Grid depth per cell:** baseline 1 case/covered unit; risk-weighted cells
   scale to roughly 2x the baseline, never a fixed "+3" — at the 12-case
   minimum this collapses to 1 case/unit with no depth, which is correct
   (there isn't budget for depth yet).
 - **Smoke:** ~1/3 of the full set, floor 5 (see SKILL.md §4).
 - **Holdout:** 20% of the suite **after** the addition: with E cases (H₀
-  sealed) and N new, seal ⌈0.2 × (E + N)⌉ − H₀ of the new ones, at most N.
-  20% of N alone misses optimize precondition 3 once training cases exist:
-  11 + 50 seals 13, not 10. Floor: skip below 25
-  cases rather than seal a token 1–2 (SKILL.md §4).
+  sealed) and N new, seal ⌈0.2 × (E + N)⌉ − H₀ of the new ones, clamped
+  to 0..N — or optimize's larger target, when it names one. 20% of N alone
+  misses its precondition 3 once training cases exist: 11 + 50 seals 13,
+  not 10. Floor: skip when E + N < 25 rather than seal a token 1–2.
 - **Canary quota** (a small fixed-answer subset carried across runs to detect
   drift — distinct from the judge's own
   calibration set): ~10% of the full set, floor 2 once any data-Q&A layer
