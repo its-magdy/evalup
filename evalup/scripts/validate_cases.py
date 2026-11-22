@@ -671,11 +671,15 @@ def check_stage(rep, stage):
     return "early"
 
 
-def check_order_stage(rep, cases, stage):
+def check_order_stage(rep, cases, stage, written=None):
     """expect.tools.order before `stage: stable` is an ERROR (#51). `stage`
-    is check_stage's value, so a legacy name has been mapped already."""
+    is check_stage's value, so a legacy name has been mapped already;
+    `written` is the profile's own value, quoted when it differs, so the
+    message names what the file says."""
     if stage is None or stage == "stable":
         return
+    said = stage if written is None or written == stage \
+        else f"{written} (read as {stage})"
     for i, case in enumerate(cases):
         if not isinstance(case, dict):
             continue
@@ -692,7 +696,7 @@ def check_order_stage(rep, cases, stage):
             if "order" in mapping(mapping(block).get("tools")):
                 rep.error(label, "order_before_stable",
                           f"{where}.tools.order is asserted but the profile "
-                          f"says stage: {stage}; a tool SEQUENCE is graded "
+                          f"says stage: {said}; a tool SEQUENCE is graded "
                           "only from stage: stable, because it churns before "
                           "then -- use subset/any_of (which tools were "
                           "called) until discover sets the stage")
@@ -2016,8 +2020,8 @@ def main():
             # `rubrics`: the one file serves --cases, --profile, --rubrics.
             profile = profile["profile"]
         check_schema_version(rep, profile, "profile")
-        check_order_stage(rep, cases,
-                          check_stage(rep, profile.get("stage")))
+        written = profile.get("stage")
+        check_order_stage(rep, cases, check_stage(rep, written), written)
         traceability = check_traceability(rep, cases, profile)
     elif any(isinstance(c, dict) and "covers" in c for c in cases):
         rep.warn(None, "covers_unchecked",

@@ -371,8 +371,13 @@ class TestErrorFindings(ValidateTest):
                     self.assertEqual(len(renamed), 1, out["findings"])
                     self.assertEqual(renamed[0]["severity"], "WARN")
                     self.assertIn(f"stage: {new}", renamed[0]["message"])
-                    refused = "order_before_stable" in self.codes(out)
-                    self.assertEqual(refused, new == "early", out)
+                    refused = [f for f in out["findings"]
+                               if f["code"] == "order_before_stable"]
+                    self.assertEqual(bool(refused), new == "early", out)
+                    if refused:
+                        # Names what the file says, not only the mapping.
+                        self.assertIn(f"stage: {old} (read as {new})",
+                                      refused[0]["message"])
                     self.assertEqual(rc, 1 if new == "early" else 0, out)
         # The quickstart's validator run must not grow a finding: the new
         # names produce none.

@@ -22,6 +22,11 @@ one. Add the quote, source and date you can find; the validator names what
 is missing (`rule_incomplete`), and warns `legacy_rules_location` while
 the old block is left.
 
+A profile written before #42 has a four-value `stage`: rewrite
+`pre-stability` to `early`, and `traffic` or `production` to `stable`
+(the stage that gated the same checks), and say so; the validator warns
+`stage_renamed` while the old name is left.
+
 ## `--diff` mode (after app changes)
 Re-run SKILL.md steps 2–4 against the current code, topology detection included: a
 refactor can move an app from `tool_agent` to `router_executor`, which flips
