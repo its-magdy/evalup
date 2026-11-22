@@ -597,7 +597,7 @@ class TestDiscoverUsesTheProbe(unittest.TestCase):
 
     def test_step_4_calls_the_runner_probe(self):
         step = self.step("### 4. Validate the profile")
-        self.assertIn('scripts/run_cases.py" --probe --adapter', step)
+        self.assertIn('`evalup run-cases --probe --adapter', step)
         self.assertIn("Never `curl`", step)
         self.assertNotIn("curl -", self.text)
         # No `$VAR` a permission check would have to expand.

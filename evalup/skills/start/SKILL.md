@@ -14,7 +14,7 @@ description: >-
   does a term mean, why is something locked) use help instead.
 argument-hint: "[path-to-app]"
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Bash(evalup *)
   Skill(evalup:discover) Skill(evalup:generate) Skill(evalup:run) Skill(evalup:analyze)
 ---
 
@@ -28,10 +28,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
@@ -97,7 +97,7 @@ session, without stopping between them:
    `gating: false`, and generate lists the targeted review batch (hard-negative
    and OOS labels, cases marked uncertain, canary candidates) for step 6 to offer.
 5. **`run --smoke`** on those unreviewed cases — wait for the runner as
-   run/SKILL.md §2 says (foreground, then `wait_run.py` while it exits 3;
+   run/SKILL.md §2 says (foreground, then `evalup wait-run` while it exits 3;
    never end the turn while `results.json` says `running`) — then report per
    run/SKILL.md §5: what failed, where, and what the suite could not see. Say
    the labels are unreviewed: a failure may be a wrong label, not a wrong
@@ -128,7 +128,7 @@ lean path would have skipped and let them choose.
 ## Procedure
 
 **First, on every route — before locating or reading the app — check
-PyYAML:** run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py" --self-check`.
+PyYAML:** run `evalup convert-suite --self-check`.
 Generate and run convert the YAML suite with it, and a stock macOS `python3`
 lacks it. Exit 0: say nothing. Exit 2: tell the user now, quoting the
 script's `error` (it names the interpreter and the fix): cases can be written

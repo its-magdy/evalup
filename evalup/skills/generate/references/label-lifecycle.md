@@ -66,7 +66,7 @@ Several fixes from one review sitting go in **one** bump, not one each.
 ## Re-pinning
 
 `baseline.json` is written by
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pin_baseline.py reports/<run-id>`,
+`evalup pin-baseline reports/<run-id>`,
 never by hand. It copies `run_id`, `dataset_version`, `scoring_version` and
 `k` from the run's manifest into `baseline.json` beside the run, and refuses
 (exit 2, nothing written) a run whose status is not `ok` (`running`

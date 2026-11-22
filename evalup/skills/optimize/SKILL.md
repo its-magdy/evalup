@@ -9,7 +9,7 @@ description: >-
 argument-hint: "[--surface <prompt-id|tool>] [--budget $N] [--include-multi-turn]"
 disable-model-invocation: true
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Bash(evalup *)
   Skill(evalup:run)
 ---
 
@@ -23,10 +23,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
@@ -250,7 +250,7 @@ With R, P and H their `app_calls_planned`:
      non-comparable pair before spending it.
    - **The decision** is one call, saved to `candidates/<id>/holdout-gate.json`
      — not the runner's `comparison.json`, which has no noise floor:
-     `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/stats.py" reports/<champion>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<noise-a>/verdicts_for_stats.jsonl reports/<noise-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
+     `evalup stats reports/<champion>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<noise-a>/verdicts_for_stats.jsonl reports/<noise-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
      N = the length of `candidate_runs`, this one included.
      It keeps on exact posterior P(improvement) ≥ 0.95 (the default; never
      pass a lower `--bayes-threshold` on the holdout) and delta > 0, and only
@@ -275,7 +275,7 @@ With R, P and H their `app_calls_planned`:
    zero case ids and `stats.py` dies. It is step 4's run when that was a plain `/evalup:run --regression`
    of this edit (no `--targeted`, no `--single-turn`); otherwise run one now.
    Pin it with
-   `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pin_baseline.py reports/<run-id>`,
+   `evalup pin-baseline reports/<run-id>`,
    never by hand (a partial object silently breaks every later diff); quote
    its `notes`.
    Fail or no evidence → revert as step 4 says, verify the blob, keep the

@@ -8,7 +8,7 @@ description: >-
   the app changed to find stale eval cases.
 argument-hint: "[path-or-url] [--diff]"
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Bash(evalup *)
 ---
 
 # Discover — Profile the App
@@ -21,10 +21,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
@@ -159,7 +159,7 @@ conversation/session handling, OTel setup. Record as you go:
 Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
 tool registration, feature flags). Once adapter.yaml is written, send 1–3
 requests with the runner's probe, one Bash call each:
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py" --probe --adapter <state>/adapter.yaml --message "<a harmless question>"`
+`evalup run-cases --probe --adapter <state>/adapter.yaml --message "<a harmless question>"`
 (plain words: no `$`, backtick, quote or `!`). Never `curl`: headless, a
 command expanding an auth variable is denied. The probe reads auth env vars
 itself, sends as a run does, writes nothing, and prints JSON: `ok`,

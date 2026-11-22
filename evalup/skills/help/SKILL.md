@@ -12,7 +12,7 @@ description: >-
   which command / what does this mean / who does / why is this locked" question
   about evalup, rather than a request to do eval work.
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Bash(evalup *)
   Skill(evalup:start)
 ---
 
@@ -26,10 +26,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
@@ -65,7 +65,7 @@ explanations on purpose, so anything you would "recall" from it is a guess.
 | What must my tracing export? Does Jaeger / Tempo / a collector count? Which layers need traces? | `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/adapter-contract.md` `traces:` block and its "Traces" row — the source the runner reads in v1 is `otlp-file`; a Jaeger/Tempo backend alone is reserved (exit 3). `${CLAUDE_PLUGIN_ROOT}/docs/traces-jaeger.md` §1 has the collector fan-out recipe that feeds `otlp-file` from an existing Jaeger, plus the declared correlation and a declared `invocation.health_check` it needs — the user places the collector; `discover` only records the declaration. `${CLAUDE_PLUGIN_ROOT}/README.md` §What gets measured for the per-layer "needs traces" column. |
 | Why did a run refuse a diff, or halt on my state directory? | `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md` §4 |
 | I already have real chats / logs — can I just see what is broken? | `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md` §`--transcripts` — no profile, cases or run needed. |
-| Did my run pass? How do I gate CI on it? | `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gate.py <reports/run-id>` (exit 0 open / 1 closed); `${CLAUDE_PLUGIN_ROOT}/skills/run/references/ci-gate.md` |
+| Did my run pass? How do I gate CI on it? | `evalup gate <reports/run-id>` (exit 0 open / 1 closed); `${CLAUDE_PLUGIN_ROOT}/skills/run/references/ci-gate.md` |
 | What does a real dataset / adapter / run directory look like? Show me an example. | `${CLAUDE_PLUGIN_ROOT}/examples/quickstart/README.md` |
 
 Rules:

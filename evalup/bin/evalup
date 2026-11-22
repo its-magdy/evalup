@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""evalup: one command for the plugin's scripts (#41).
+
+Claude Code puts a plugin's bin/ on the Bash tool's PATH while the plugin is
+enabled, so a skill can call `evalup run-cases ...` instead of spelling out
+`python3 "<plugin root>/scripts/run_cases.py" ...`, and one allow rule,
+`Bash(evalup *)`, covers every script.
+
+Each subcommand is one script in ../scripts, named with `-` for `_`
+(`run-cases` is run_cases.py; `run_cases` is accepted too). Everything after
+the subcommand goes to the script untouched: same arguments, stdin, stdout,
+stderr and exit code. Nothing here parses a script's arguments, so no
+behaviour changes.
+
+The scripts are found from this file's own location, symlinks resolved:
+CLAUDE_PLUGIN_ROOT is not set for commands the Bash tool runs.
+"""
+import os
+import subprocess
+import sys
+
+SCRIPTS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "scripts")
+
+
+def commands():
+    """Subcommand name -> script path: every scripts/*.py that is not an
+    underscore-prefixed shared module."""
+    out = {}
+    for name in sorted(os.listdir(SCRIPTS)):
+        if name.endswith(".py") and not name.startswith("_"):
+            out[name[:-3].replace("_", "-")] = os.path.join(SCRIPTS, name)
+    return out
+
+
+def usage(cmds):
+    lines = ["usage: evalup <command> [args...]", "",
+             "Runs the evalup script of that name with the rest of the "
+             "arguments.",
+             "`evalup <command> --help` shows that script's own help.", "",
+             "commands:"]
+    lines += ["  " + name for name in cmds]
+    return "\n".join(lines) + "\n"
+
+
+def main(argv):
+    cmds = commands()
+    if not argv:
+        sys.stderr.write(usage(cmds))
+        return 2
+    if argv[0] in ("-h", "--help", "help"):
+        sys.stdout.write(usage(cmds))
+        return 0
+    name = argv[0].replace("_", "-")
+    if name.endswith(".py"):
+        name = name[:-3]
+    script = cmds.get(name)
+    if script is None:
+        sys.stderr.write(
+            f"evalup: unknown command {argv[0]!r}\n\n{usage(cmds)}")
+        return 2
+    args = [sys.executable, script] + argv[1:]
+    if os.name == "posix":
+        sys.stdout.flush()
+        os.execv(sys.executable, args)
+    return subprocess.call(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -10,7 +10,7 @@ description: >-
   judge, or to promote real conversations into the dataset.
 argument-hint: "[--cluster] [--transcripts <path>] [--label] [--mine] [--unseal]"
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Bash(evalup *)
 ---
 
 # Analyze — Failures, Labels, and the Living Dataset
@@ -23,10 +23,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
@@ -149,7 +149,7 @@ accepted, adds a dated `notes` line, bumps `dataset_version` and needs a
 re-pin — `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`.
 
 For a hands-on look, build the viewer:
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
+`evalup build-review-viewer reports/<run-id> [-a <annotations.jsonl>] -o <out.html>`
 — a run directory is recognized and its `cases/*/verdict.json` records are
 read without a flag (`--glob` is for any other layout). Pointed at a run
 directory the viewer leaves every sealed holdout case off the page itself, so
@@ -184,7 +184,7 @@ single-turn one, never only the blend. When `results.json` has `memory: user`,
 the app's memory outlives a session: say every verdict may be contaminated.
 
 ### Across runs, not just this one
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_history.py reports/ [-o reports/history.json]`
+`evalup run-history reports/ [-o reports/history.json]`
 — every other comparison here is pairwise, so five consecutive "within noise"
 diffs can hide a ten-point erosion. It groups `reports/` into comparable series
 (`run/SKILL.md` §4's diff rules, plus the split and the enabled layers), flags a
@@ -203,7 +203,7 @@ passed every run of its series (three at least; `--all-cases --max-cases
 one `dataset_version` bump and pin a new baseline after (run/SKILL.md §4).
 
 ### What it cost, beside whether it worked
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_cost.py <run> [--baseline <run>]
+`evalup score-cost <run> [--baseline <run>]
 [--prices <state>/prices.json] [-o reports/cost.json]` — `stats.py` compares
 binary verdicts only, so "2% better but 3× more expensive" reads there exactly
 like a free win. This prices the tokens the trace already recorded and
@@ -285,7 +285,7 @@ Do not compute the numbers yourself. Append one JSONL line per labelled node —
 `{case_id, rubric_id, node_id, label, judge_label, critique, reviewer, ts}`,
 plus `rubric_version` and `judge_model_id` when pre-filled from `judged.json`
 (annotation-ux.md §"The calibration fields") — then run
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
+`evalup score-agreement <annotations.jsonl> --write
 <state>/judge/calibration.json`. That sidecar is what the runner reads; a
 `calibrated` profile with no sidecar behind it does not open the judged gate.
 
