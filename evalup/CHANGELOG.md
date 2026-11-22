@@ -18,6 +18,13 @@ says when a release bumps it.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-11-22
+
+The first release, tagged `v0.1.0`. There is no earlier release to upgrade
+*from*. This entry describes what 0.1.0 contains, plus the pre-release changes
+that would break anyone who has been tracking this repository directly. Pin
+it in CI with `EVALUP_REF: v0.1.0` (`ci/github-actions.yml`).
+
 ### Changed — one `evalup` command for every script
 
 #41. The skills called every script as
@@ -40,13 +47,6 @@ is why every skill's preamble spent a paragraph on spelling.
   still use `python3 scripts/<name>.py`.
 - **No scoring semantics changed.** Every script is the same; only how a
   skill reaches it changed.
-
-## [0.1.0] — 2026-11-22
-
-The first release, tagged `v0.1.0`. There is no earlier release to upgrade
-*from*. This entry describes what 0.1.0 contains, plus the pre-release changes
-that would break anyone who has been tracking this repository directly. Pin
-it in CI with `EVALUP_REF: v0.1.0` (`ci/github-actions.yml`).
 
 ### Added
 
