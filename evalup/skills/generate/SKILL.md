@@ -8,7 +8,7 @@ description: >-
   for a specific layer or domain.
 argument-hint: "[--layer routing|tools|answer] [--count N]"
 allowed-tools: >-
-  Read Grep Glob Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Bash(evalup *)
 ---
 
 # Generate — Build the Dataset
@@ -21,10 +21,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3` with the path, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >

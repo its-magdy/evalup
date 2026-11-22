@@ -11,7 +11,7 @@ doc is the workflow it exists to serve.
 
 ## The tool
 
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/build_review_viewer.py <run-path> [-a
+`evalup build-review-viewer <run-path> [-a
 annotations.jsonl] [-o out.html] [--glob 'cases/*/verdict.json'] [--title T]`
 (the page title; default `Review — <run-path name>`) renders a
 run's case records (a directory of per-case JSON files, or a single JSON file)
@@ -201,7 +201,7 @@ discovery pass, then a ~100–200 validation pass — `score_agreement.py` requi
 beside a blank human column; the
 reviewer marks agree / disagree / edit-rubric, with a critique on every
 disagreement. Score the pass with
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/score_agreement.py <annotations.jsonl> --write
+`evalup score-agreement <annotations.jsonl> --write
 <state>/judge/calibration.json` — it computes each rubric's TPR/TNR/κ from
 these lines and writes the sidecar the runner reads, which is what makes
 `judge.status` a derived fact instead of a flag someone typed. Its bars are

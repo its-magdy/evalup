@@ -102,31 +102,41 @@ class TestPluginLayout(unittest.TestCase):
                 self.assertTrue(path.read_text(encoding="utf-8").startswith(
                     "#!/usr/bin/env python3"))
 
-    def test_skills_invoke_scripts_through_python3(self):
-        # `python3 <path>` works whatever the mode bit and on every platform,
-        # and it is the form the skills' allowed-tools rule pre-approves.
-        bare = re.compile(r"(?<!python3 )(?<!python3 \")\$\{CLAUDE_PLUGIN_ROOT\}"
-                          r"/scripts/[a-z_]+\.py (?:<|-|\[|reports)")
+    def test_skills_invoke_scripts_through_the_evalup_command(self):
+        # bin/evalup is on the Bash tool's PATH while the plugin is enabled,
+        # and `Bash(evalup *)` was shown to approve it, headless and from a
+        # skill's allowed-tools (#41 spike, 2026-11-22). A `python3 <path>`
+        # call is no longer pre-approved, so a skill that still spells one
+        # is a prompt, and headless a denial. Every `evalup <name>` a doc
+        # names must be a real command.
+        python_call = re.compile(r"python3 \"?\$\{CLAUDE_PLUGIN_ROOT\}/scripts/")
+        named = re.compile(r"`evalup ([a-z][a-z-]*)")
+        commands = {p.stem.replace("_", "-")
+                    for p in (ROOT / "scripts").glob("*.py")
+                    if not p.name.startswith("_")}
         docs = [*(ROOT / "skills").rglob("*.md"), *(ROOT / "agents").glob("*.md")]
+        seen = set()
         for path in docs:
+            text = path.read_text(encoding="utf-8")
             with self.subTest(doc=str(path.relative_to(ROOT))):
-                self.assertEqual(bare.findall(path.read_text(encoding="utf-8")),
-                                 [])
+                self.assertEqual(python_call.findall(text), [])
+                found = set(named.findall(text)) | set(re.findall(
+                    r"(?m)^evalup ([a-z][a-z-]*)", text))
+                self.assertEqual(found - commands, set())
+                seen |= found
+        self.assertIn("run-cases", seen)
 
     def test_every_skill_pre_approves_the_plugins_own_scripts(self):
         # Without this every script call is a permission prompt (~13 before a
-        # first score). Both spellings are needed: a model quotes the path when
-        # it holds a space, and a live session showed an unquoted-only rule
-        # matching nothing. Never a blanket `Bash`.
+        # first score). One rule covers every script through bin/evalup.
+        # Never a blanket `Bash`.
         for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
             with self.subTest(skill=path.parent.name):
                 text = path.read_text(encoding="utf-8")
                 block = text.split("\n---\n", 1)[0]
                 self.assertIn("allowed-tools:", block)
-                self.assertIn("Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*)",
-                              block)
-                self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)',
-                              block)
+                self.assertIn("Bash(evalup *)", block)
+                self.assertNotIn("Bash(python3", block)
                 self.assertNotRegex(block, r"allowed-tools:.*\bBash\b(?!\()")
 
     def test_a_skill_that_loads_another_pre_approves_it(self):
@@ -281,7 +291,7 @@ class TestPluginLayout(unittest.TestCase):
         import re
         optimize = (ROOT / "skills" / "optimize" / "SKILL.md").read_text(
             encoding="utf-8")
-        calls = re.findall(r"scripts/stats\.py\" (\S+) (\S+) --noise-floor "
+        calls = re.findall(r"evalup stats (\S+) (\S+) --noise-floor "
                            r"(\S+) (\S+)", optimize)
         self.assertEqual(len(calls), 1, "one decision call")
         champion, candidate, noise_a, noise_b = calls[0]

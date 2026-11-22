@@ -423,7 +423,7 @@ live calibration and the owner has decided its bar. Nothing in v1 reads a
 The run skill does the whole pass in the turn that ran the suite: run
 (or `wait_run.py`), `judge_run.py plan`, the launches, `record` per reply,
 `merge`, then the report. Every script call is a pre-approved
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*` command, one plain command per
+`evalup *` command, one plain command per
 call: the run skill forbids a heredoc or a pipe, so the reply reaches
 `record` as `--reply-file`, a file the skill writes under
 `reports/<run-id>/judge/inbox/` — a write the README's headless recipe
