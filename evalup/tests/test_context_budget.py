@@ -74,14 +74,17 @@ CONDITIONAL = {
     "skills/discover/references/oracle.md":
         "an oracle offer (discover step 5) or an expect.result case",
     "skills/discover/references/interview.md":
-        "discover step 7, deferred on a lean first session",
+        "discover step 7, deferred on a lean first session; the label "
+        "review's rule confirmations, after the first result",
     "skills/discover/references/adapters/dotnet.md": "a .NET app only",
     "skills/discover/references/adapters/exec.md":
         "an app driven through invocation.mode: exec only",
     "docs/concepts.md": "only when the user asks what a term means",
     "docs/runner-contract.md": "the runner's spec, read for a specific rule",
     "docs/multi-turn.md": "conversations only",
-    "docs/rubric-format.md": "rubrics: not authored on a first session",
+    "docs/rubric-format.md":
+        "rubrics are authored by the test-generator subagent, in its own "
+        "context",
     "docs/traces-jaeger.md": "a Jaeger trace store only",
     "agents/test-generator.md": "read by the subagent, in its own context",
 }

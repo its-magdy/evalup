@@ -159,11 +159,15 @@ generation-method.md.
 
 ### 2c. What to add to the agent's own rules
 test-generator.md carries the per-case rules and case-format.md the per-layer
-ones, RESERVED fields included. This skill adds two. **Real seeds first**:
+ones, RESERVED fields included. This skill adds three. **Real seeds first**:
 seed from real messages or traces where they exist, and record which cases
 are synthetic-only — a regression scaffold, not a measure of real-world
-quality. And INV/DIR cases are cheap but
-still spend suite slots, so hold them to §1's ratio and floor.
+quality. INV/DIR cases still spend suite slots: hold them to §1's ratio
+and floor. **A rubric where no regex decides** — an ambiguous-name reply,
+a decline, "nothing is scheduled": the case pins a `form: criteria` rubric
+(`expect.answer.rubric`, the file under `rubrics/`) with the `self_test`
+`${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md` §The criteria form requires.
+Its verdicts stay provisional until it is calibrated, and gate nothing in v1.
 
 **Conversations** (`input.turns`,
 [references/conversations.md](references/conversations.md) — read it only
@@ -174,38 +178,47 @@ They are `gating: false` until a baseline exists and the user promotes them:
 pass^k makes them look worse (four turns at 0.9 pass is about 0.66), so
 recommend repeats (`--k`) when they are run.
 
-**Before delegating, read the adapter's `environment.safe_to_attack`** (this
-is yours, not the agent's): while it is not true, every run skips
-`adversarial-refusal` cases
-(runner-contract §7) and the validator warns `attack_category_will_skip`.
-Author them when findings name an attack surface and the owner has not been
-asked — they document the defect — but tell the user, where the suite is
-handed over, that they will not run until the owner sets the flag, and ask
-the owner if one is present — never on a first session: there the question
-goes on findings.md's `deferred:` list for start's closing menu. When the owner has said no, leave them out and
-record the decision in findings.md: `--strict` promotes the warning to an
-error, so a CI job validating with `--strict --adapter` would fail on them
-for good.
-Never relabel such a case as `edge` or `oos` to get it past the gate; the flag
-is the owner's call, not the suite's.
+**Before delegating, read the adapter's `environment.safe_to_attack`**
+(yours, not the agent's): while it is not true, every run skips
+`adversarial-refusal` cases (runner-contract §7; the validator warns
+`attack_category_will_skip`). Author them when findings name an attack
+surface and the owner has not been asked — they document the defect — and
+say at handover that they will not run until the owner sets the flag. Ask
+the owner if one is present, never on a first session (the question goes
+on findings.md's `deferred:` list). When the owner has said no, leave them
+out and record it in findings.md: `--strict --adapter` would fail on them
+for good. Never relabel one as `edge` or `oos` to pass the gate; the flag is
+the owner's call.
 
 ## 3. Targeted review — 15 minutes, not 100 cases
 Never ask the user to review everything; they won't, and silent label errors
 become a permanent noise floor. Send only three kinds: hard-negative and OOS
-labels (`review.status: quarantined` with `gating: false` — the case still
-runs and is reported, but cannot close the gate until a human accepts it and
-flips `gating`; no script drops it for you), cases the generator
-marked uncertain, and cases a cheap probe run shows the app disagreeing with.
-Present each as the message, the expected label, and a one-line why — accept /
-fix / delete — and write the review status per case.
+labels (`review.status: quarantined`, `gating: false`: it runs and is
+reported but cannot close the gate until a human accepts it and flips
+`gating`; no script drops it), cases the generator marked uncertain, and cases a cheap probe
+run shows the app disagreeing with. Present each as the message, the
+expected label and a one-line why — accept / fix / delete — and write the
+review status per case.
+
+**The rules its cases cover ride the same review.** A lean discover
+confirms none, and a case naming an unconfirmed rule (`covers`,
+`expect.answer.rules`) can neither gate nor be a canary
+(`unconfirmed_rule_gates`). So list each such rule once — id, quote,
+source — for confirm / fix / strike, per
+`${CLAUDE_PLUGIN_ROOT}/skills/discover/references/interview.md`
+§Business rules — this review is that confirmation for the rules it
+lists. On confirm (or fix, then confirm), write `status: confirmed` and the
+reviewer's own name in `confirmed_by` on the rule in profile.yaml; strike
+deletes it with a dated findings.md line. Never headless, never an agent's
+name or relay. The other rules wait for discover's interview.
 
 **First session** (start's step 4): do not stop for this pass before the
 run — a stop ends the turn and its pre-approvals. List the batch (id,
-label, one-line why) in the handover and leave every case `pending`. Canary
-candidates join it untagged until accepted: a canary `fail` aborts the run,
-reviewed or not. Start
-offers the review after the first result, when the smoke run has become the
-probe that finds the third kind.
+label, one-line why, then its rules) in the handover and leave every case
+`pending`. Canary candidates join it untagged until accepted: a canary
+`fail` aborts the run, reviewed or not. Start offers the review after the
+first result, when the smoke run has become the probe that finds the third
+kind.
 
 **Only a human may set `review.status: accepted`, and `review.by` must be that
 human's name** — not "generate-review", not the agent, not the skill.
@@ -213,25 +226,22 @@ Everything the generator produces starts `pending`. **Never derive an
 expectation by reading the app's source**, and prefer probing the app BEFORE
 labeling. generation-method.md says why each of these three matters.
 
-**The generator emits `gating: false` on every case** (its brief, rule 3):
-an unreviewed label must not close a gate, which is what
-`validate_cases.py`'s `gating_unreviewed` warns about per case. A reviewer
-who accepts a case flips `gating` to true in the same edit, or keeps it
-false as a capability case. Check the
-generator's output before validating anyway: among the cases this
-delegation just wrote — never a case a human already accepted — find every
-one whose `gating` is not `false` (an absent key means true), set it to
-`false`, and list their ids in chat. The validator's per-case warning is the
-backstop, not the instruction.
+**The generator emits `gating: false` on every case** (its rule 3): an
+unreviewed label must not close a gate. A reviewer who accepts a case flips
+`gating` to true in the same edit, unless a rule it names is still
+unconfirmed (then no `gating: true`, no `canary`), or keeps it false as a
+capability case.
+Before validating, set `gating: false` on every case this delegation just
+wrote whose `gating` is not `false` (an absent key means true; never touch
+one a human accepted) and list their ids in chat. The validator's
+`gating_unreviewed` is the backstop, not the instruction.
 
-Only the cases a human accepted gate, so the handover always says how many
-do. **No reviewer in the session** (headless, or the user said not to ask):
-every case stays `pending` and `gating: false`. Say what that means, as the
-last line of the handover and under a free-text `review:` key in
-`dataset.yaml`: "N cases, 0 accepted: this suite cannot fail a build until a
-human accepts cases and flips `gating`." The validator states the same fact at
-suite level (`nothing_gates`); never edit a warning away without naming, case
-by case, what changed and why.
+The handover says how many cases gate. **No reviewer** (headless, or
+told not to ask): every case stays `pending` and `gating: false`; say so
+last in the handover and under a free-text `review:` key in `dataset.yaml`: "N cases, 0 accepted: this
+suite cannot fail a build until a human accepts cases and flips `gating`."
+(The validator's `nothing_gates`.) Never edit a warning away without
+naming, case by case, what changed and why.
 
 ## 4. Splits
 The four legal values of `split` are exactly `full`, `smoke`, `holdout`,

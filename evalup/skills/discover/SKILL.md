@@ -64,7 +64,7 @@ app changed: follow [references/rerun.md](references/rerun.md).
 
 Write three artifacts to the state location (default `<app>/.evalup/`, or
 the adapter's `state_location`). **Before the first of those writes, one line
-in chat saying where they go** — and, when `git -C <app> status --porcelain`
+in chat saying where they go** — and, when step 5's `status` check
 was non-empty or the repo is read-only, that `state_location` can point
 outside the app instead (headless: take the default and say so). The user
 finds out where their eval state lives before it exists, not after.
@@ -179,7 +179,9 @@ session; the profile says which, and `generate` treats those as inferred.
 ### 5. Patch, don't assign homework
 For each gap found, OFFER to fix it now. It is the user's code, so before any
 edit:
-- Run `git -C <app> status --porcelain`. **On a dirty tree, do not edit** — a
+- Run `git -C <app> status --porcelain -- . ':(exclude).evalup'`: evalup's
+  own state is not the user's work (an in-app `state_location` is the path
+  to exclude instead; an out-of-tree one needs none). **On a dirty tree, do not edit** — a
   patch mixed into the user's uncommitted work cannot be reviewed or undone on
   its own. Show the patch text and let them apply it, or wait for a commit.
   A dirty tree, or `repo_access: read-only`, also decides where state goes:
