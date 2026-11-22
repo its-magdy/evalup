@@ -1606,6 +1606,12 @@ TRACE_ROUTE_SOURCES = ("otlp-file",)
 ATTACK_CATEGORIES = ("adversarial-refusal",)
 
 
+# The top-level keys check_adapter (and check_schema_version) read: a
+# document carrying any of them is an adapter, whatever else it holds.
+ADAPTER_OWN_KEYS = ("schema_version", "adapter_version", "invocation",
+                    "traces", "environment", "tools")
+
+
 def check_adapter(rep, cases, records, adapter):
     """Labels the adapter gives the runner no way to observe.
 
@@ -2292,16 +2298,20 @@ def main():
                  "--split-dir writes profile.json)")
     if a.adapter:
         adapter = load_json_object(a.adapter, "the adapter")
-        if "cases" in adapter:
+        if "cases" in adapter and isinstance(adapter.get("adapter"), dict):
             # convert_suite.py's combined document (#125), read as --profile
             # reads it: the adapter's keys sit under `adapter`. Linted as an
             # adapter itself, it drew a false schema_version_missing and a
             # false attack_category_will_skip.
-            if not isinstance(adapter.get("adapter"), dict):
-                die(f"bad input: {a.adapter}: a document with `cases` but no "
-                    "`adapter` object is not an adapter; pass the adapter.json "
-                    "convert_suite.py --split-dir writes")
             adapter = adapter["adapter"]
+        elif "cases" in adapter and not any(
+                key in adapter for key in ADAPTER_OWN_KEYS):
+            # A suite with no adapter in it: refused, since linting it as
+            # one would only repeat those false warnings. A real adapter
+            # that happens to carry a `cases` key is still linted as itself.
+            die(f"bad input: {a.adapter}: a document with `cases` but no "
+                "`adapter` object is not an adapter; pass the adapter.json "
+                "convert_suite.py --split-dir writes")
         check_schema_version(rep, adapter, "adapter")
         check_adapter(rep, cases, records, adapter)
     judged_rules = check_rubrics(rep, cases, a.rubrics) if a.rubrics \

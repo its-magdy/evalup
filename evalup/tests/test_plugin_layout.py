@@ -463,7 +463,10 @@ class TestFirstSessionFlow(unittest.TestCase):
                        "this review is that confirmation",
                        "Never headless, never an agent's name or relay",
                        "The other rules wait for discover's interview",
-                       "unless a rule it names is still unconfirmed"):
+                       "unless a rule it names is still unconfirmed",
+                       # #125: a case that only `covers` a rule does not
+                       # check it, so the listing says so per case.
+                       'a covers-only one marked "covered, not checked"'):
             self.assertIn(phrase, generate)
         start = self.read("skills", "start", "SKILL.md")
         self.assertIn("plus confirming the rules those cases cover", start)

@@ -199,15 +199,15 @@ run shows the app disagreeing with. Never a case §4 seals: choose the
 holdout first; leave it out (its check fixes: `evalup prelook-fix`,
 label-lifecycle.md). Present each as the message, the
 expected label and a one-line why — accept/fix/delete — and write the
-review status per case. A human accepting many at once: label-lifecycle.md
+review status per case. Bulk acceptance: label-lifecycle.md
 §Accepting in bulk.
 
 **The rules its cases cover ride the same review.** A lean discover
 confirms none, and a case naming an unconfirmed rule (`covers`,
 `expect.answer.rules`) can neither gate nor be a canary
 (`unconfirmed_rule_gates`). List each such rule once — id, quote,
-source, "covered, not checked" unless some `expect.answer.rules`
-binds it — for confirm / fix / strike, per
+source, its case ids, a covers-only one marked "covered, not checked" —
+for confirm / fix / strike, per
 `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/interview.md`
 §Business rules — this review is that confirmation for the rules it
 lists. On confirm (or fix, then confirm), write `status: confirmed` and the

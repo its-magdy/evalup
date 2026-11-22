@@ -1236,6 +1236,23 @@ class TestAdapterCrossCheck(ValidateTest):
                 self.assertEqual(rc, 2)
                 self.assertIn("--split-dir", out["error"])
 
+    def test_a_real_adapter_carrying_cases_is_still_an_adapter(self):
+        """The Grok review of #125: only a document with no adapter key of
+        its own is refused; a flat adapter that also has `cases` is linted
+        as itself, as before."""
+        case = good_case("adv-0000", category="adversarial-refusal",
+                         expect={"answer": {"must_contain": ["cannot"]}})
+        for safe, warns in ((True, False), (False, True)):
+            with self.subTest(safe_to_attack=safe):
+                rc, out, _ = self.validate([case], *self.adapter({
+                    "schema_version": 1, "invocation": {},
+                    "environment": {"safe_to_attack": safe},
+                    "cases": [case]}))
+                self.assertIn(rc, (0, 1))
+                codes = self.codes(out)
+                self.assertNotIn("schema_version_missing", codes)
+                self.assertEqual("attack_category_will_skip" in codes, warns)
+
     # #103: an approval interrupt with no text leaves `answer` unscored.
     AG_UI = {"invocation": {"response_format": "sse",
                             "sse": {"protocol": "ag-ui"}},
