@@ -45,8 +45,7 @@ Arguments, when the user typed any: `$ARGUMENTS`
 Precondition: `profile.yaml` exists with its core entries verified
 (`architecture.kind`, the invocation shape, one route target or tool seen
 live — discover §4 defines the set). If not, stop and route to discover; route
-targets still `verified: false` are normal after a lean first session, no
-reason to bounce. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
+targets still `verified: false` after a lean first session are normal. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
 when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases by default, ~12 the minimum — what
@@ -158,7 +157,7 @@ generation-method.md.
 
 ### 2c. What to add to the agent's own rules
 test-generator.md carries the per-case rules and case-format.md the per-layer
-ones, RESERVED fields included. This skill adds three. **Real seeds first**:
+ones, RESERVED fields included. This skill adds four. **Real seeds first**:
 seed from real messages or traces where they exist, and record which cases
 are synthetic-only — a regression scaffold, not a measure of real-world
 quality. INV/DIR cases still spend suite slots: hold them to §1's ratio
@@ -167,6 +166,9 @@ a decline, "nothing is scheduled": the case pins a `form: criteria` rubric
 (`expect.answer.rubric`, the file under `rubrics/`) with the `self_test`
 `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md` §The criteria form requires.
 Its verdicts stay provisional until it is calibrated, and gate nothing in v1.
+**An `oos` case on a router app** asserts the out-of-scope route and, when
+the app refuses by status, `expect.http.status` — even one only observed,
+the case quarantined for §3.
 
 **Conversations** (`input.turns`,
 [references/conversations.md](references/conversations.md) — read it only

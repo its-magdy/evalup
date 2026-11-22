@@ -35,6 +35,16 @@ says when a release bumps it.
   --templates` feeds it. No verdict changes.
 
 ### Changed
+- **The probe tells the app's refusal from an adapter failure** (#124).
+  A 4xx the adapter read an answer from (an out-of-scope 400, say) exits 8
+  with a warning, not 3 with "check auth, endpoint and request_body";
+  401, 403, 404, 405, 407, a CSRF/origin guard and a 4xx with no answer
+  keep exit 3. Discover probes with an in-scope question and, on exit 8,
+  notes the status for generate. An `oos` case on a router app now asserts
+  the out-of-scope route and, when the app refuses by status,
+  `expect.http.status`, quarantined for the label review when that status
+  is only observed. No scoring change: a case that declares no status
+  still needs a 2xx.
 - `validate_cases.py` reads a case's `review.by` like a rule's
   `confirmed_by`: a model's name or a delegate's relayed answer
   (`<name> (delegate: <model>, <date>)`) neither accepts a case

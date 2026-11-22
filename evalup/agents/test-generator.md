@@ -80,7 +80,25 @@ Rules:
    the DATA in an expectation — a real employee name, a count, a leave type
    the app actually has — never the behaviour: a status code, a refusal
    path, or an "I couldn't find that" the app happens to return today is an
-   observation, not a label. A seeded fixture (the data file the app's run
+   observation, not a label. One exception, an `oos` case on a router app
+   (profile `oos_handling: route:<name>`): category `oos` scores no route
+   and `score_http` wants a 2xx, so a deliberate refusal fails a case that
+   declares neither. Assert the out-of-scope route, spelled as the runner
+   observes it:
+   - route read from a response field or a trace: `expect.route: <name>`,
+     the profile's name;
+   - route read only from the adapter's `route_from_status` (a trace-less
+     app): the map's value for the refusal status, usually `__oos__`,
+     never `<name>`;
+   and `expect.http.status` when the app signals refusal by status — except
+   under `invocation.mode: exec`, where any status but 200 skips the case:
+   assert the route alone there. The shipped
+   `${CLAUDE_PLUGIN_ROOT}/examples/quickstart/.evalup/datasets/c-9e05b3f4.yaml`
+   (`http: { status: 400 }`, `route: none`, its route from a response
+   field) is the format. A status the profile, the owner or the app's docs
+   state is a label; one only observed (findings.md, discover's probe) is
+   written on the case anyway, the case `quarantined` with the note "HTTP
+   <status> observed, not documented: confirm in the label review". A seeded fixture (the data file the app's run
    state is loaded from) grounds the DATA of an answer check the same way,
    even when profile.yaml says `oracle.available: false`: that flag says
    there is no execution-layer oracle, so no `expect.result` from it, not

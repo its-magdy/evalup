@@ -95,7 +95,15 @@ never in a shell command.
   whole stream when `response_format: sse`, a readable tool-call list when
   `traces.source: response`. 3 with the same report plus `error` when any of
   those fails, or when pre-flight does (an unset env var is §4's
-  `missing_env` list, with no app call). 2 for bad input. It scores nothing.
+  `missing_env` list, with no app call). 8 (#124) when the app refused the
+  request: a 4xx other than 401, 403, 404, 405 and 407, not an origin/CSRF
+  guard's, with a non-empty answer at the `<answer>` field and nothing else
+  wrong. `problems` is then empty, `ok` false, and `warnings` names the
+  status (and a refusal's unread tool-call list, which is not a problem
+  here). The request reached the app and the response template read its
+  reply, but the 2xx path is unverified: probe again with an in-scope
+  question. A 429 or 5xx is a transport error, so exit 3. 2 for bad input.
+  It scores nothing. Every report carries `warnings`, empty unless exit 8.
 
 ---
 
@@ -1275,6 +1283,9 @@ then 7.
 
 Like the scorers, the runner prints `{"error": "..."}` as JSON **on stdout**
 for every non-zero exit.
+
+`--probe` exits 0, 1, 2, 3 or 8 (§1.1); 8, the app refused the request
+with a 4xx, is the probe's alone.
 
 A red suite exits **0** (§7).
 
