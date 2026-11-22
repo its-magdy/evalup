@@ -390,10 +390,16 @@ class TestBusinessRules(unittest.TestCase):
         profile = self.tmp / "profile.json"
         profile.write_text(json.dumps(self.converted["profile"]),
                            encoding="utf-8")
+        # The run skill's §1 passes rubrics.json beside the profile: a rule
+        # only a rubric criterion judges is bound through it (#26).
+        rubrics = self.tmp / "rubrics.json"
+        rubrics.write_text(json.dumps({"rubrics": self.converted["rubrics"]}),
+                           encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(VALIDATOR), "--cases", str(suite),
              "--capabilities", str(caps), "--profile", str(profile),
-             *extra], capture_output=True, text=True)
+             "--rubrics", str(rubrics), *extra],
+            capture_output=True, text=True)
         return proc.returncode, json.loads(proc.stdout)
 
     def quoted_text(self, source):

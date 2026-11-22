@@ -223,7 +223,11 @@ def index_rubrics(entries):
             snap["criteria"] = [
                 {"id": c["id"], "question": " ".join(c["question"].split()),
                  "reference_guided": bool(c.get("reference_guided")),
-                 "canary_guard": bool(c.get("canary_guard"))}
+                 "canary_guard": bool(c.get("canary_guard")),
+                 # #26: the business rule a criterion judges, for
+                 # rule_report.py. Never in the judge's prompt.
+                 **({"rule": c["rule"]} if isinstance(c.get("rule"), str)
+                    else {})}
                 for c in front["criteria"]]
             snap["self_test"] = front["self_test"]
         by_id[rid] = snap
@@ -1021,6 +1025,12 @@ def cmd_merge(a):
                             "file": snap["file"]}
         if snap["form"] != "criteria" or "criteria" not in snap:
             continue
+        rule_of = {c["id"]: c["rule"] for c in snap["criteria"] if "rule" in c}
+        if rule_of:
+            # #26: which criterion judges which business rule, from the
+            # snapshot the replies were judged against -- rule_report.py
+            # reads it here, never from a rubric file that may have moved.
+            rubrics_out[rid]["criterion_rules"] = rule_of
         if not any(x["rubric_id"] == rid for x in plan["launches"]):
             continue
         result, reason = "pass", None

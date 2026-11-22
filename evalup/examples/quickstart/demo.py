@@ -16,6 +16,7 @@ and nothing else:
   3. build plan.json from plan.template.json + converted.json
   4. run_cases.py  -> reports/<run-id>/   (pre-flight, 6 app calls, every scorer)
   5. gate.py       -> the pass/fail line and exit code CI would see
+  6. rule_report.py -> rules.json: the run by business rule id (#26)
      build_review_viewer.py -> viewer.html, the page a human reviews
 
 The app is imported from tests/test_example.py rather than copied here, so the
@@ -37,8 +38,14 @@ until SIGTERM or Ctrl-C: the app a CI job starts before its eval steps. The
 repository's own CI runs the workflow template (ci/github-actions.yml)
 against it.
 
-Exit code is gate.py's: 0 on the shipped example, 1 under --break; the
-validator's when it finds an error.
+--break-rule makes the app answer every question as a bulleted list: the
+plain-text rule's check fails on all six cases, and the rule report names
+the rule, its source line and each failing case. The gate closes through
+the cases, as it would without the report: the report attributes, it
+decides nothing.
+
+Exit code is gate.py's: 0 on the shipped example, 1 under --break and
+--break-rule; the validator's when it finds an error.
 """
 import argparse
 import datetime
@@ -124,6 +131,10 @@ def main():
     ap.add_argument("--break", dest="broken", action="store_true",
                     help="make one case's expectation wrong first, to see what "
                          "a failing run and a closed gate look like")
+    ap.add_argument("--break-rule", action="store_true",
+                    help="make the app answer as a bulleted list, breaking "
+                         "the prompt's plain-text rule, to see a rule fail "
+                         "by id with its source (#26)")
     ap.add_argument("--judge-replies", metavar="DIR",
                     help="after the run, feed DIR's fixture judge replies "
                          "through judge_run.py plan/record/merge")
@@ -146,6 +157,9 @@ def main():
     state = tmp / ".evalup"
     (state / "reports").mkdir(parents=True)
     app = HelpdeskApp()
+    if a.break_rule:
+        # The planted violation of #52/#26: the same facts, as a bullet.
+        app.server.render = lambda text: "Here you go:\n- " + text
     try:
         # The combined document serves every flag (#25). Not --strict: a
         # WARN is the author's to read, an ERROR makes the run untrue.
@@ -203,6 +217,13 @@ def main():
         gate = script("gate.py", str(out))
         if a.judge_replies:
             judge_pass(out, pathlib.Path(a.judge_replies))
+        rules = script("rule_report.py", str(out), "--profile", combined,
+                       capture_output=True)
+        if rules.returncode != 0:
+            print(f"rule_report.py exited {rules.returncode}:\n"
+                  f"{rules.stdout}{rules.stderr}")
+            return rules.returncode
+        print("\n" + "\n".join(json.loads(rules.stdout)["summary"]))
         viewer = out / "viewer.html"
         script("build_review_viewer.py", str(out), "-o", str(viewer),
                capture_output=True)

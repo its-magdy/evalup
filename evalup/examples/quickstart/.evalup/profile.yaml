@@ -57,6 +57,9 @@ business_rules:
     date: 2026-11-21
     status: confirmed
     confirmed_by: app-owner
+    check:                      # a script checks it (#26): every case that lists
+      must_contain: ["read-only"]   # the rule in expect.answer.rules carries these
+      must_not_contain: ["deleted", "I have removed"]
   - id: grounded-only
     rule: "Never state a figure not present in a tool result."
     quote: "Never state a figure that is not in a tool result."
@@ -71,12 +74,17 @@ business_rules:
     date: 2026-11-21
     status: confirmed
     confirmed_by: app-owner
-    # It binds every answer, so every case carries its check: a
-    # must_not_contain regex on bullet, numbered and heading lines and on
-    # bold. read-only is checked by c-6c1f82ab's strings; grounded-only
-    # needs a judge (the figure must match a tool result), so c-4f2a91c7
-    # pins rubrics/grounded-answer.md and the judge pass after the run
-    # grades it -- provisionally, never in the pass rate or the gate.
+    check:
+      must_not_contain: ['/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']
+    # It binds every answer, so every case lists it in expect.answer.rules
+    # and carries its check: a must_not_contain regex on bullet, numbered
+    # and heading lines and on bold. read-only is checked by c-6c1f82ab's
+    # strings; grounded-only needs a judge (the figure must match a tool
+    # result), so it has no `check:`: c-4f2a91c7 pins
+    # rubrics/grounded-answer.md, whose no_unsupported_claim criterion says
+    # `rule: grounded-only`, and the judge pass after the run grades it --
+    # provisionally, never in the pass rate or the gate. rule_report.py
+    # reports all three by rule id.
   - id: dispute-window
     rule: "An invoice can be disputed up to 30 days after its invoice date."
     quote: "An invoice may be disputed within 30 days of its invoice date."

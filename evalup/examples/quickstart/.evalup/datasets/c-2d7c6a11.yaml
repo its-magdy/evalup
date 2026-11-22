@@ -26,5 +26,6 @@ expect:
   answer:
     must_contain: ["7"]
     must_not_contain: ['/(?m)^[ \t]*([-*+\u2022]|\d+[.)]|#+)[ \t]|\*\*/']   # plain-text
+    rules: [plain-text]
 covers: [plain-text, risk-paraphrase-reroutes]   # ids in profile.yaml: business_rules, risks
 gating: true
