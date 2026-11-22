@@ -11,8 +11,9 @@ documents named below, not here.
 ## Layout
 
 - **`evalup/`** — the plugin (v0.1.0). 7 skills (`start`, `discover`,
-  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 25 CLI scripts
-  in `scripts/`, specs in `docs/`, the worked example in `examples/quickstart/`,
+  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 25 CLIs in
+  `scripts/` (each an `evalup <name>` subcommand; `_*.py` are shared
+  modules), specs in `docs/`, the worked example in `examples/quickstart/`,
   five `claude plugin eval` cases in `evals/`.
 - **`EVAL-DESIGN-RECOMMENDATION.md`** + **`research/`** — why the plugin works
   the way it does. Authoritative for *direction*, not for current state.
@@ -57,26 +58,45 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 - **`main`** holds everything: through the 2026-09-30 refactor review, code
   review and canary work, the 2026-10-09 CI and repo-settings PRs (#1, #3,
   #4, #5), and multi-turn Phase 1 (#2, squash-merged 2026-11-19 as
-  `796c8d3`) built per `evalup/docs/multi-turn.md` — §0 bugfix,
-  `input.turns`, `invocation.conversation`, the driver, cookie style,
-  per-turn tree, stats/cost/gate split, skills/docs. First pushed 2026-09-30.
+  `796c8d3`) built per `evalup/docs/multi-turn.md`. First pushed 2026-09-30.
   **Multi-turn is merged but not yet proven on a live app**: the user merged
   it before the planned RefApp run, and decided 2026-11-19 to prove it on a
   different app instead. Decided 2026-10-06 (after a second opinion): a
   checkpoint can veto a conversation but never certify it — a union `pass`
   needs a graded `pass` on the final turn (`run_cases.final_turn_certifies`).
-  Since then (roadmap #32, PRs #44–#93): the optimizer keep rule, untrusted
-  app output and schema versions (#36–#38); the run-time judge, provisional
-  verdicts only (#23); business rules in discover and scored by id (#25,
-  #26); reach — `traces.source: response`, an SSE reader, `invocation.mode:
-  exec` (#39; Jaeger waits for an app that needs it); pacing and
-  concurrency (#76, #30); a baseline-relative gate, a CI template and the
-  **v0.1.0 tag** (#40); `bin/evalup` (#41); two stages and no `--full`
-  (#42); and the prose budget (`tests/test_prose_budget.py`, #92).
-- **Health** (2026-11-22, `main` at `fdc3bae`): 1320 tests pass on 3.14;
-  1300 + 20 skips on the 3.9 floor (the skips need PyYAML), ruff clean, all
-  23 CLIs answer `--help`, `claude plugin validate` clean for the plugin and
-  the root marketplace.
+  Since then (roadmap #32, PRs #44–#93): the keep rule and schema versions
+  (#36–#38), the run-time judge, provisional only (#23), business rules
+  (#25, #26), reach — `traces.source: response`, SSE, `invocation.mode:
+  exec` (#39; Jaeger not built), pacing (#76, #30), the **v0.1.0 tag**
+  (#40), `bin/evalup` (#41), two stages (#42), the prose budget (#92).
+  #96: `convert_suite` re-runs under uv without PyYAML (#95 stays open).
+  On 2026-11-22, fixes for the #27 re-proof's issues (#97–#112):
+  - #113: criteria rubrics on a first session, rule confirmation in the
+    label review, the dirty-tree check ignores evalup's state (#97, #101, #102).
+  - #114: a delegate's relayed answer neither confirms a rule nor accepts a
+    case (#100).
+  - #115: holdout share of the whole suite, a power check before the noise
+    pair, `clusters.json` (#98, #110, #112).
+  - #116: word checks bounded for clitics, the judge pass's skip said, nits
+    (#107–#109).
+  - #117: app model to the manifest, `--not-before`, unknown
+    `--manifest-extra` keys warned, a priced-run estimate (#104, #111,
+    part of #105).
+  - #118: the cost layer prices AG-UI cache reads/writes from a user table
+    (#105, the other half).
+  - #119: an approval interrupt with no text is named and warned on (#103).
+  - #120: `evalup prelook-fix`, and holdout templates sealed (#99).
+  - #121: `evalup write-artifact` for findings.md/report.md from a subagent
+    (#106).
+  - #122: cross-lane fixes after merging #113–#121; #123: the quickstart
+    e2e's estimate keeps the declared app model.
+- **Health** (2026-11-22, `main` at `6f45d95`): 1430 tests pass on 3.14;
+  on the 3.9 floor 1430 pass `--with pyyaml`, 1394 + 36 skips without it
+  (the skips need PyYAML), ruff clean, all 25 CLIs answer `--help`,
+  `claude plugin validate` passes for the plugin (one warning: no icon) and
+  the root marketplace. #117's
+  `TestNotBefore::test_the_runner_waits_writing_nothing_then_runs` is flaky:
+  `wait_run.py` exited nonzero in 2 of ~20 runs on 3.9.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
   run on an unseen toy app (4.5 min, 3/3 planted flaws) and on a real ASP.NET
   Core app (3/5 planted flaws); two first-time-user rounds ran on RefApp
@@ -84,6 +104,13 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   design:** a skill's pre-approvals last one turn, so a headless `--resume`
   turn is denied — put the whole request in one prompt (README §Permissions).
   A headless `run` that outlives its turn comes back through `wait_run.py`.
+  The 2026-11-22 re-proof (#27), every step a subagent following the skills,
+  on a real TypeScript/Cloudflare app with a streaming tool agent: trace
+  layers scored live from the stream; the judge gave provisional verdicts
+  only (4/4 agreement with blind labels, one model family, n = 4); one
+  optimize loop was refused at P = 0.938 < 0.95 for want of holdout power
+  (13 cases; ~27 needed), which led to #110. #27 stays open pending a
+  scoped re-run.
 - **`claude plugin eval`:** five cases in `evalup/evals/`. The three app-bound
   ones need a Bash-granting sandbox, which this machine refuses (symlinks
   inside `~/.docker`; `DOCKER_CONFIG` does not bypass it); they were proven by
@@ -117,6 +144,12 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   - F-166 (`wait_run.py` overran the 600 s cap) was not changed: a reviewer's
     reading, not the tester's, is that the script cannot overrun on its own
     and macOS sleep stops its clock.
+  - #99 (2026-11-22): a sealed case gets a pre-look fix only while the look
+    ledger is empty (`prelook-fix`), and holdout templates are sealed too.
+  - #103: an approval interrupt with no text stays `unscored`; documented
+    and warned on (`answer_after_interrupt`), no scoring change.
+  - #105: no price table ships; the cost layer prices the cache split only
+    from the user's `prices.json`.
   - The out-of-tree state statement appears in the closing summary, never
     before the first write; headless that is the same information.
   - Left open: F-001 (`$ARGUMENTS` backticks, all seven skills), F-037
