@@ -231,16 +231,19 @@ MACHINE_REVIEWER = re.compile(
 # answered for them -- so a relay marker or a model family's name anywhere in
 # the signature refuses it. interview.md: never on an agent's say-so.
 MACHINE_CONFIRMER = re.compile(
-    r"(?<![a-z0-9])(claude|anthropic|discover|evalup|assistant|agent|ai|llm|"
-    r"model|gpt|chatgpt|openai|gemini|copilot|bot|generated?|"
+    r"(?<![a-z0-9])(anthropic|discover|evalup|assistant|agent|ai|llm|"
+    r"model|openai|copilot|bot|generated?|"
     r"test-generator|auto|automatic|machine|system|"
     # relayed: someone (something) answered for the person named
-    r"delegat(?:e[ds]?|ion)|relay(?:ed|s)?|proxy|on behalf|"
-    # model families an owner's delegate is likely to be, a version fused
-    # on or not ("qwen2", "gpt4", "llama3.1")
-    r"(?:gpt|gemini|fable|opus|sonnet|haiku|grok|llama|mistral|mixtral|"
-    r"gemma|qwen|deepseek|codex|kimi|cohere|command-r|perplexity|cursor|"
-    r"o[134](?:-mini|-pro)?)[0-9.]*)(?![a-z0-9])", re.I)
+    r"delegat(?:e[ds]?|ing|ions?)|relay(?:ed|ing)|prox(?:y|ied)|"
+    r"on[ -]behalf|sub-?agents?|"
+    # model families an owner's delegate is likely to be, with a version
+    # fused on or not ("qwen2", "gpt4o", "llama3.1", "mixtral8x7b"). The
+    # o-series only with its suffix: a bare "o1" is a ticket or a tier.
+    r"(?:claude|chatgpt|gpt|gemini|fable|opus|sonnet|haiku|grok|llama|"
+    r"mistral|mixtral|gemma|qwen|deepseek|codex|kimi|cohere|command-r|"
+    r"perplexity|cursor)(?:[0-9][0-9a-z.]*)?|o[134]-?(?:mini|pro))"
+    r"(?![a-z0-9])", re.I)
 
 
 def machine_signed(by):

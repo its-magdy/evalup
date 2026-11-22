@@ -1456,15 +1456,19 @@ class TestSchemaVersion(ValidateTest):
 RELAYED_SIGNERS = (
     "billing-owner (delegate: Fable, 2026-11-22)",
     "billing-owner (delegated to a subagent)", "billing-owner, delegation",
-    "billing-owner (relayed)", "billing-owner via relay",
+    "billing-owner (relayed)", "billing-owner, relayed",
     "billing-owner by proxy", "Fable on behalf of billing-owner",
     "opus", "Sonnet 4.5", "haiku", "grok-4.7", "llama-3", "Mistral",
     "gemma", "qwen2", "llama3.1", "gpt4", "DeepSeek", "codex", "o3-mini",
-    "Kimi")
+    "Kimi", "gpt4o", "gpt4o-mini", "chatgpt4o", "claude3.5", "o3mini",
+    "mixtral8x7b", "billing-owner (subagent)", "billing-owner (via subagents)",
+    "billing-owner (delegating)", "billing-owner (relaying)",
+    "billing-owner (proxied)", "billing-owner (on-behalf)")
 # ...and people's names that merely contain those letters.
 HUMAN_SIGNERS = ("billing-owner", "billing-owner (product lead)",
                  "Aisha (2026-11-22)", "Delegato", "Grokowski", "Haikuson",
-                 "Opusz", "Relayne")
+                 "Opusz", "Relayne", "Relay Smith", "Nora (tier o1)",
+                 "priority o3")
 
 
 def a_rule(rule_id="refund-cap", **overrides):
@@ -1587,6 +1591,16 @@ class TestTraceability(ValidateTest):
         rc, out, _ = self.validate([good_case(covers=["refund-cap"])],
                                    "--profile", profile)
         self.assertEqual((rc, out["findings"]), (0, []))
+        # answered_by never stands in for the rule's own confirmed_by.
+        profile = self.write_json("profile.json", {
+            "schema_version": 1,
+            "business_rules": [a_rule(confirmed_by=None)],
+            "confirmed_by_human": {"answered_by": "billing-owner"}})
+        rc, out, _ = self.validate([good_case(covers=["refund-cap"])],
+                                   "--profile", profile)
+        self.assertIn("rule_confirmed_unattributed", self.codes(out))
+        self.assertIn("unconfirmed_rule_gates", self.codes(out))
+        self.assertEqual(rc, 1)
 
     def test_an_unconfirmed_rule_may_back_a_non_gating_case(self):
         rule = a_rule(status="inferred", confirmed_by=None)
