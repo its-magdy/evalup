@@ -4744,10 +4744,14 @@ def parse_not_before(text):
     """--not-before's ISO 8601 time, as an aware datetime. A time without a
     UTC offset is refused: whose clock it meant is the one thing a wait
     cannot guess."""
-    raw = text.strip()
+    # Normalized first: 3.9's fromisoformat takes neither `Z`, `+HHMM` nor
+    # a fraction of other than 3 or 6 digits, and Date.toISOString() and
+    # isoformat() write those. Sub-second precision means nothing here.
+    raw = re.sub(r"(T\d\d:\d\d:\d\d)\.\d+", r"\1", text.strip())
+    raw = re.sub(r"[Zz]$", "+00:00", raw)
+    raw = re.sub(r"([+-]\d\d)(\d\d)$", r"\1:\2", raw)
     try:
-        when = datetime.fromisoformat(raw[:-1] + "+00:00"
-                                      if raw[-1:] in ("Z", "z") else raw)
+        when = datetime.fromisoformat(raw)
     except ValueError:
         bad_input(f"--not-before must be an ISO 8601 time with a UTC offset, "
                   f"e.g. 2026-11-22T14:05:00Z; got {text!r}")
@@ -4755,7 +4759,7 @@ def parse_not_before(text):
         bad_input(f"--not-before {text!r} has no UTC offset: add Z or +HH:MM")
     ahead = (when - datetime.now(timezone.utc)).total_seconds()
     if ahead > NOT_BEFORE_MAX_S:
-        bad_input(f"--not-before {text!r} is {ahead / 3600:.1f} h away; the "
+        bad_input(f"--not-before {text!r} is {ahead / 3600:.2f} h away; the "
                   f"limit is {NOT_BEFORE_MAX_S // 3600} h")
     return when
 
@@ -4827,9 +4831,10 @@ def estimate_block(runner, report, cost_from):
     rate = usd / sent
     block.update({
         "usd_per_message": round(rate, 6),
-        "usd": round(rate * planned, 2), "usd_max": round(rate * worst, 2),
+        "usd": round(rate * planned, 4), "usd_max": round(rate * worst, 4),
         "source_messages": sent,
-        "price_table_as_of": (cost.get("price_table") or {}).get("as_of"),
+        "price_table_as_of": cost["price_table"].get("as_of")
+        if isinstance(cost.get("price_table"), dict) else None,
         "note": (
             f"{run_id}'s measured ${rate:.4f} per app message x this plan's "
             "messages; usd_max is every call retried. It inherits that run's "
@@ -4874,13 +4879,25 @@ def traced_messages(state_dir, run_id):
         if row.get("multi_turn"):
             turns = row.get("turns_sent")
             if isinstance(turns, int) and not isinstance(turns, bool) \
-                    and turns >= 1 and all(os.path.isfile(os.path.join(
+                    and turns >= 1 and all(usable_trajectory(os.path.join(
                         case_dir, "turns", str(t), "trajectory.json"))
                         for t in range(1, turns + 1)):
                 sent += turns
-        elif os.path.isfile(os.path.join(case_dir, "trajectory.json")):
+        elif usable_trajectory(os.path.join(case_dir, "trajectory.json")):
             sent += 1
     return sent
+
+
+def usable_trajectory(path):
+    """A trajectory.json score_cost.py would price: it parses and holds a
+    `trajectory` object (score_cost.trajectory_usage's rule). A case it
+    would withhold must not join the denominator either."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = loads_strict(fh.read())
+    except (OSError, BadJSON):
+        return False
+    return isinstance(doc, dict) and isinstance(doc.get("trajectory"), dict)
 
 
 def validate_baseline(plan, path):

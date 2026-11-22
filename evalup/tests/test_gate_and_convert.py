@@ -829,6 +829,7 @@ class TestMakePlan(TempDirTest):
         extra = self.tmp / "extra.json"
         extra.write_text(json.dumps({
             "prompt_snapshot_hash": {"sys": "ab12"}, "app_model": "m",
+            "app": {"modle": "claude-x"},
             "environment_kind": "live", "temperature": 0,
             "prompt_snapshot_hashes": {"sys": "ab12"}}), encoding="utf-8")
         out_path = self.tmp / "plan.json"
@@ -838,6 +839,9 @@ class TestMakePlan(TempDirTest):
                            str(out_path))
         self.assertEqual(rc, 0, out + err)
         notes = json.loads(out)["notes"]
+        self.assertTrue(any("app.modle" in n and "did you mean app.model"
+                            in n for n in notes), notes)
+        self.assertIn("app.modle", err)
         flagged = [n for n in notes if "not a key run_cases.py records" in n]
         self.assertEqual(len(flagged), 3, notes)
         joined = "\n".join(flagged)

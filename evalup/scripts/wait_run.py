@@ -93,9 +93,11 @@ def runner_process(run_dir):
         # combined Bash call) is not a runner, and since #111 a false
         # "alive" keeps an absent directory waited on.
         tokens = [t.rstrip(os.sep) for t in parts[1].split()]
+        # An absolute token must be this directory; a relative one (the
+        # runner's own cwd is unknown here) is matched on the run id.
         if any(os.path.basename(t) == "run_cases.py" for t in tokens) and \
-                any(t == target or os.path.basename(t) == run_id
-                    for t in tokens):
+                any(t == target if os.path.isabs(t)
+                    else os.path.basename(t) == run_id for t in tokens):
             return "alive"
     return "gone"
 
@@ -138,11 +140,15 @@ def main():
     # runner naming it is alive. With none, it is the bad input it was.
     while not started_run(run_dir):
         process = runner_process(run_dir)
-        if process != "alive":
+        # Only "gone" is fatal: with `ps` unavailable ("unknown") a runner
+        # may still be waiting, and exit 2 would invite a second launch --
+        # on a holdout, a second look.
+        if process == "gone":
             if not os.path.isdir(run_dir):
                 die(f"bad input: {run_dir}: not a directory, and no "
                     "run_cases.py process names it (a --not-before runner "
-                    "killed while it waited leaves nothing: relaunch it)")
+                    "killed while it waited leaves nothing: relaunch it "
+                    "with the SAME --not-before, so it keeps its window)")
             die(f"bad input: {run_dir}: no results.json or manifest.yaml; "
                 "this is not a run directory run_cases.py has started")
         if time.monotonic() - started >= a.timeout_s:

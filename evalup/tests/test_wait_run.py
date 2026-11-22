@@ -170,6 +170,19 @@ class WaitRunTest(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("relaunch", out["error"])
 
+    def test_without_ps_a_run_not_started_is_still_waited_on(self):
+        # Review of #111: "unknown" (no ps) is not "gone" -- an exit 2 there
+        # would invite a second launch beside a runner still waiting.
+        pending = self.run_dir.parent / "regression-20260924T170000Z"
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), str(pending), "--timeout-s", "1",
+             "--interval-s", "0.2"], capture_output=True, text=True,
+            env=dict(os.environ, PATH=""))
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual((out["status"], out["runner_process"]),
+                         ("not_started", "unknown"))
+
     def test_bad_input_exits_2_with_the_error_object(self):
         rc, out, _ = wait_run(self.run_dir / "missing")
         self.assertEqual(rc, 2)

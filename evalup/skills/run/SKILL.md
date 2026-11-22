@@ -118,13 +118,13 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
   `datasets/holdout-looks.jsonl`); **`paths.judge_calibration`** is set when
   `judge/calibration.json` exists. `judge.status: calibrated` alone does not
-  open the judged gate — that flag is DERIVED and only the sidecar derives it.
+  open the judged gate: only the sidecar derives it.
 - **`--manifest-extra <file.json>`** carries what only you know, under
   `prompt_snapshot_hashes`, `rubric_versions`, `temperature`,
   `cost_estimate` and `app.model` (other keys warn). The script fills the
-  rest, `app.model` from profile `app_model`.
+  rest, `app.model` from `app_model`.
 
-Full shape and defaults, if you need them: runner-contract §2.
+Full shape: runner-contract §2.
 
 ## 2. Run it
 
@@ -138,8 +138,9 @@ on anything unfamiliar. Then estimate, without calling the app by hand:
 time is its `app_calls_planned` × the per-request latency discover §4
 recorded in findings.md, plus the larger of its `wait_floor_s` and
 `pace_floor_s`. Dollars: `--cost-from <last priced run's cost.json>` gives
-`estimate.usd` (+ judge calls); with none, give messages and minutes, name
-`estimate.models`, ask for prices. Under an app-side
+`estimate.usd` (+ judge calls; quote its note's cache caveat); with none,
+give messages and minutes, name `estimate.models`, ask for prices. A start
+time: `--not-before` (`wait-run` exit 3 `not_started`). Under an app-side
 rate limit (findings or adapter), also state `app_calls_max` (every retry)
 and fit `--max-attempts` to it. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and

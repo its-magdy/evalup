@@ -769,7 +769,7 @@ class TestNotBefore(RunnerCase):
 
     def test_the_runner_waits_writing_nothing_then_runs(self):
         plan = make_plan(self.state, self.app.base_url)
-        target = self.at(3)
+        target = self.at(6)
         proc = self.invoke(plan, wait=False,
                            extra_argv=["--not-before", target])
         self.addCleanup(proc.wait)
@@ -812,6 +812,16 @@ class TestNotBefore(RunnerCase):
                 self.assertFalse(
                     self.out_dir("smoke-20260101T000001Z").exists())
 
+    def test_the_iso_forms_other_tools_write_are_accepted(self):
+        # 3.9's fromisoformat takes none of these; Date.toISOString() and
+        # isoformat() with microseconds write the first two.
+        base = self.at(-60)[:-1]
+        for value in (base + ".123Z", base + ".123456+00:00",
+                      base + "+0000", base + "z"):
+            with self.subTest(value=value):
+                when = run_cases.parse_not_before(value)
+                self.assertIsNotNone(when.tzinfo)
+
     def test_a_dry_run_reports_the_wait_without_waiting(self):
         plan = make_plan(self.state, self.app.base_url)
         started = time.monotonic()
@@ -821,6 +831,9 @@ class TestNotBefore(RunnerCase):
         self.assertLess(time.monotonic() - started, 30)
         self.assertGreater(payload["start_wait_s"], 500)
         self.assertTrue(payload["not_before"].endswith("Z"))
+
+
+TRAJ = json.dumps({"trajectory": {"llm_calls": []}})
 
 
 class TestDryRunEstimate(RunnerCase):
@@ -836,9 +849,10 @@ class TestDryRunEstimate(RunnerCase):
         for case_id in ("c-a", "c-b", "c-c"):
             (run_dir / "cases" / case_id).mkdir(parents=True)
             rows.append({"case_id": case_id})
-            if case_id in traced:
-                (run_dir / "cases" / case_id / "trajectory.json") \
-                    .write_text("{}", encoding="utf-8")
+            # c-c's file is one score_cost.py would not price (no
+            # `trajectory` object), so it must not join the denominator.
+            (run_dir / "cases" / case_id / "trajectory.json").write_text(
+                TRAJ if case_id in traced else "{}", encoding="utf-8")
         if conversation:
             case_id, turns = conversation
             rows.append({"case_id": case_id, "multi_turn": True,
@@ -846,7 +860,7 @@ class TestDryRunEstimate(RunnerCase):
             for t in range(1, turns + 1):
                 turn = run_dir / "cases" / case_id / "turns" / str(t)
                 turn.mkdir(parents=True)
-                (turn / "trajectory.json").write_text("{}", encoding="utf-8")
+                (turn / "trajectory.json").write_text(TRAJ, encoding="utf-8")
         (run_dir / "results.json").write_text(
             json.dumps({"run_id": run_id, "cases": rows}), encoding="utf-8")
         cost = {"status": status, "cache_accounting": "none",
@@ -880,8 +894,8 @@ class TestDryRunEstimate(RunnerCase):
 
     def test_a_priced_run_gives_its_measured_dollars_per_message(self):
         # $0.90 over 2 traced single-turn cases + a 4-turn conversation =
-        # 6 messages, so $0.15 a message; c-c had no trace and is not
-        # divided by. This plan: 2 cases x k=2 = 4 messages, max x2.
+        # 6 messages, so $0.15 a message; c-c's trace is unusable and is
+        # not divided by. This plan: 2 cases x k=2 = 4 messages, max x2.
         cost = self.priced_run(0.90, conversation=("c-conv", 4))
         plan = make_plan(self.state, self.app.base_url,
                          cases=[make_case("c-0001"), make_case("c-0002")])

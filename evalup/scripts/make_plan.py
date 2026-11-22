@@ -168,7 +168,11 @@ EXTRA_ELSEWHERE = {
     "environment_kind": "the runner records the adapter's environment.kind",
     "app_model": "the key is app.model: {\"app\": {\"model\": ...}}",
     "model": "the app's model is app.model: {\"app\": {\"model\": ...}}",
+    "app.model": "nest it: {\"app\": {\"model\": ...}}",
 }
+# The `app` keys anything reads; the runner keeps the block whole, so a typo
+# here (`modle`) is not dropped but leaves app.model unset all the same.
+APP_KEYS = ("name", "repo", "git_sha", "git_tree", "model")
 
 
 def unrecorded_keys(caller):
@@ -185,6 +189,14 @@ def unrecorded_keys(caller):
                    "records, so it will not reach manifest.yaml"
                    + (f" ({hint})" if hint else "")
                    + f"; the recorded keys are {', '.join(RECORDED_EXTRA)}")
+    app = caller.get("app")
+    for key in sorted(app if isinstance(app, dict) else ()):
+        if key not in APP_KEYS:
+            close = difflib.get_close_matches(key, APP_KEYS, n=1)
+            out.append(f"--manifest-extra app.{key} is not a key anything "
+                       "reads" + (f" (did you mean app.{close[0]}?)"
+                                  if close else "")
+                       + f"; the app keys are {', '.join(APP_KEYS)}")
     return out
 
 
