@@ -543,6 +543,23 @@ class TestWarnFindings(ValidateTest):
         self.assertEqual(self.validate(
             [good_case(review={"status": "accepted", "by": "Generosa"})])[0], 0)
 
+    def test_a_delegate_or_a_model_never_accepts_a_case(self):
+        """#100: the rule-confirmation rule holds for acceptance too
+        (generate SKILL.md): a model's name, or an owner's answer a delegate
+        relayed, is not a review -- and it is not counted as usable."""
+        for by in RELAYED_SIGNERS + ("Claude", "gpt-4o"):
+            with self.subTest(by=by):
+                case = good_case(review={"status": "accepted", "by": by})
+                self.assert_finds("machine_accepted", [case], severity="WARN")
+                out = self.validate([case])[1]
+                self.assertEqual(out["summary"]["usable_by_split"]["full"], 0)
+        for by in HUMAN_SIGNERS:
+            with self.subTest(by=by):
+                rc, out, _ = self.validate([good_case(
+                    review={"status": "accepted", "by": by})])
+                self.assertEqual((rc, out["findings"]), (0, []))
+                self.assertEqual(out["summary"]["usable_by_split"]["full"], 1)
+
     def test_gating_unreviewed(self):
         for status in ("pending", "quarantined"):
             self.assert_finds("gating_unreviewed",
@@ -1435,6 +1452,21 @@ class TestSchemaVersion(ValidateTest):
         self.assertNotIn("schema_version_missing", self.codes(out))
 
 
+# #100: signatures that name a person but carry another's word.
+RELAYED_SIGNERS = (
+    "billing-owner (delegate: Fable, 2026-11-22)",
+    "billing-owner (delegated to a subagent)", "billing-owner, delegation",
+    "billing-owner (relayed)", "billing-owner via relay",
+    "billing-owner by proxy", "Fable on behalf of billing-owner",
+    "opus", "Sonnet 4.5", "haiku", "grok-4.7", "llama-3", "Mistral",
+    "gemma", "qwen2", "llama3.1", "gpt4", "DeepSeek", "codex", "o3-mini",
+    "Kimi")
+# ...and people's names that merely contain those letters.
+HUMAN_SIGNERS = ("billing-owner", "billing-owner (product lead)",
+                 "Aisha (2026-11-22)", "Delegato", "Grokowski", "Haikuson",
+                 "Opusz", "Relayne")
+
+
 def a_rule(rule_id="refund-cap", **overrides):
     """A complete rule entry (#25): quote, source, date, status."""
     rule = {"id": rule_id, "rule": "never promise a refund above the total",
@@ -1524,6 +1556,37 @@ class TestTraceability(ValidateTest):
                 rc, out = self.lint([good_case(covers=["refund-cap"])],
                                     [a_rule(confirmed_by=by)])
                 self.assertEqual((rc, out["findings"]), (0, []))
+
+    def test_a_delegate_never_confirms_a_rule(self):
+        """#100: "<owner> (delegate: <model>, <date>)" names a person who
+        said nothing; the delegate did. A relay marker or a model family's
+        name anywhere in confirmed_by is read as unconfirmed, as a model's
+        own name is, so a gating case on the rule is refused."""
+        for by in RELAYED_SIGNERS:
+            with self.subTest(by=by):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [a_rule(confirmed_by=by)])
+                self.assertIn("rule_confirmed_unattributed", self.codes(out))
+                self.assertIn("unconfirmed_rule_gates", self.codes(out))
+                self.assertEqual(rc, 1)
+        for by in HUMAN_SIGNERS:
+            with self.subTest(by=by):
+                rc, out = self.lint([good_case(covers=["refund-cap"])],
+                                    [a_rule(confirmed_by=by)])
+                self.assertEqual((rc, out["findings"]), (0, []))
+
+    def test_a_delegated_answered_by_is_documented_not_flagged(self):
+        """profile-schema.md's confirmed_by_human.answered_by records that a
+        delegate answered the interview's routine questions. It is a record,
+        not a confirmation: the rules still need the owner's own name."""
+        profile = self.write_json("profile.json", {
+            "schema_version": 1, "business_rules": [a_rule()],
+            "confirmed_by_human": {
+                "domain_boundaries": ["cancel -> billing"],
+                "answered_by": "billing-owner (delegate: Fable, 2026-11-22)"}})
+        rc, out, _ = self.validate([good_case(covers=["refund-cap"])],
+                                   "--profile", profile)
+        self.assertEqual((rc, out["findings"]), (0, []))
 
     def test_an_unconfirmed_rule_may_back_a_non_gating_case(self):
         rule = a_rule(status="inferred", confirmed_by=None)
