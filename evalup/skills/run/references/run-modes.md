@@ -164,7 +164,7 @@ full` is refused the same way.)
 - **Adversarial/authz cases**: run if the adapter's `environment.safe_to_attack`
   is true (same gate as any other red-team probe; the runner applies it at
   pre-flight, runner-contract §4 item 5 and §7); still skipped (not failed) otherwise.
-- **When**: before staged rigor moves an app toward `traffic`/`production` — a
+- **When**: before a release to real traffic — a
   monitoring-window release habit sits on top of this, not instead of it
   (`${CLAUDE_PLUGIN_ROOT}/docs/workflow.md` "Production era").
 

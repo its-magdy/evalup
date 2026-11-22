@@ -1484,6 +1484,31 @@ reached through a command the runner starts once per call: the rendered
 Transport only: no verdict or `SCORING_VERSION` (still 1) changes. Not yet
 run against a live app (#27).
 
+### Changed — two stages, `early` and `stable` (2026-11-22)
+
+#42 item 2. `stage` had four values, `pre-stability | stable | traffic |
+production`, and only one boundary meant anything: the validator refuses
+`expect.tools.order` before `stable` (#51). No script reads `stage` for
+anything else (gating goes through `capability_matrix`), and nothing was
+built behind `traffic` or `production`. The stages are now **`early`** and
+**`stable`**.
+
+- **What each does is unchanged.** `early` is what `pre-stability` was;
+  `stable` is what `stable`, `traffic` and `production` were. Trace mining
+  (`analyze --mine`) needs a wired trace backend, which it always checked
+  itself; it no longer names a stage.
+- **Migration — existing `profile.yaml` files keep working.** The old names
+  are read as the new ones: `pre-stability` → `early`, `traffic` and
+  `production` → `stable`. `validate_cases.py --profile` prints a WARN
+  `stage_renamed` naming the new value; like the `schema_version` findings,
+  it is a migration and `--strict` leaves it a WARN. To clear it, change
+  the line by hand (`stage: early` or `stage: stable`) or re-run
+  `/evalup:discover`, which writes the new names. A value that is neither
+  old nor new is a WARN `unknown_stage` and is read as `early`.
+- **No scoring semantics changed** (`SCORING_VERSION` stays 1, no
+  `schema_version` bump): every stage maps onto the one that gated the same
+  checks, so no finding and no verdict moves.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

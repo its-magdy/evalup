@@ -326,30 +326,80 @@ class TestErrorFindings(ValidateTest):
         self.assertEqual((rc, out["findings"]), (0, []), err)
 
     def test_order_refused_before_stable(self):
-        """#51: the trajectory layer is on at pre-stability for which tools
-        were called; a tool SEQUENCE waits for stage: stable."""
+        """#51: the trajectory layer is on at `early` for which tools were
+        called; a tool SEQUENCE waits for stage: stable."""
         case = good_case(expect={"tools": {"order": ["a", "b"]}})
-        pre = self.write_json("pre.json", {"schema_version": 1,
-                                           "stage": "pre-stability"})
-        f = self.assert_finds("order_before_stable", [case], "--profile", pre)
-        self.assertIn("stage: pre-stability", f["message"])
+        early = self.write_json("early.json", {"schema_version": 1,
+                                               "stage": "early"})
+        f = self.assert_finds("order_before_stable", [case], "--profile",
+                              early)
+        self.assertIn("stage: early", f["message"])
         # On a checkpoint and on every_turn too, named by where it sits.
         f = self.assert_finds("order_before_stable", [conversation(
-            every_turn={"tools": {"order": ["a"]}})], "--profile", pre)
+            every_turn={"tools": {"order": ["a"]}})], "--profile", early)
         self.assertTrue(f["message"].startswith("every_turn.tools.order"))
-        for stage in ("stable", "traffic", "production"):
-            ok = self.write_json("ok.json", {"schema_version": 1,
-                                             "stage": stage})
-            rc, out, err = self.validate([case], "--profile", ok)
-            self.assertEqual((rc, out["findings"]), (0, []), stage)
-        # subset/forbidden/any_of are not order: fine at pre-stability.
+        ok = self.write_json("ok.json", {"schema_version": 1,
+                                         "stage": "stable"})
+        rc, out, err = self.validate([case], "--profile", ok)
+        self.assertEqual((rc, out["findings"]), (0, []), err)
+        # subset/forbidden/any_of are not order: fine at early.
         rc, out, err = self.validate([good_case(expect={"tools": {
             "subset": ["a"], "any_of": [["b"], ["c"]],
-            "forbidden": ["w"]}})], "--profile", pre)
+            "forbidden": ["w"]}})], "--profile", early)
         self.assertEqual((rc, out["findings"]), (0, []), err)
         # No stage, or no profile: nothing to check against.
         rc, out, err = self.validate([case])
         self.assertEqual(rc, 0, err)
+
+    def test_legacy_stage_names_still_work(self):
+        """#42/#38: a pre-#42 profile keeps its meaning. pre-stability reads
+        as early (order refused), traffic/production as stable (order
+        allowed), each with a stage_renamed WARN that --strict leaves a
+        WARN, because it is a migration, not a defect in the suite."""
+        case = good_case(expect={"tools": {"order": ["a", "b"]}})
+        for old, new in (("pre-stability", "early"), ("traffic", "stable"),
+                         ("production", "stable")):
+            prof = self.write_json("old.json", {"schema_version": 1,
+                                                "stage": old})
+            for strict in ((), ("--strict",)):
+                with self.subTest(stage=old, strict=bool(strict)):
+                    rc, out, err = self.validate([case], "--profile", prof,
+                                                 *strict)
+                    self.assertNotIn("Traceback", err, err)
+                    renamed = [f for f in out["findings"]
+                               if f["code"] == "stage_renamed"]
+                    self.assertEqual(len(renamed), 1, out["findings"])
+                    self.assertEqual(renamed[0]["severity"], "WARN")
+                    self.assertIn(f"stage: {new}", renamed[0]["message"])
+                    refused = [f for f in out["findings"]
+                               if f["code"] == "order_before_stable"]
+                    self.assertEqual(bool(refused), new == "early", out)
+                    if refused:
+                        # Names what the file says, not only the mapping.
+                        self.assertIn(f"stage: {old} (read as {new})",
+                                      refused[0]["message"])
+                    self.assertEqual(rc, 1 if new == "early" else 0, out)
+        # The quickstart's validator run must not grow a finding: the new
+        # names produce none.
+        for stage in ("early", "stable"):
+            prof = self.write_json("new.json", {"schema_version": 1,
+                                                "stage": stage})
+            rc, out, err = self.validate([good_case()], "--profile", prof,
+                                         "--strict")
+            self.assertEqual((rc, out["findings"]), (0, []), stage)
+
+    def test_unknown_stage_warns_and_reads_as_early(self):
+        prof = self.write_json("bad.json", {"schema_version": 1,
+                                            "stage": "beta"})
+        f = self.assert_finds("unknown_stage", [good_case()], "--profile",
+                              prof, severity="WARN")
+        self.assertIn("early, stable", f["message"])
+        # Read as early: order is still refused.
+        self.assert_finds("order_before_stable", [good_case(expect={
+            "tools": {"order": ["a"]}})], "--profile", prof)
+        # --strict promotes it like any other WARN.
+        self.assert_finds("unknown_stage", [good_case()], "--profile", prof,
+                          "--strict")
 
     def test_bad_call_scope(self):
         self.assert_finds("bad_call_scope", [good_case(expect={

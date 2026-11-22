@@ -42,10 +42,10 @@ ones, and synthetic data cannot tell you how common a failure is.
    your approval), classifies tool side effects, and interviews you for what
    code can't say (route-target boundaries for router/multi-agent apps,
    never-rules).
-2. Note the **stage** it assigned. `pre-stability` is normal for an app under
+2. Note the **stage** it assigned. `early` is normal for an app under
    active development: you get crash rate, format, loops, refusals, answer
-   checks, routing and tool selection — everything but trajectory matching,
-   which unlocks when boundaries stabilize.
+   checks, routing, tool arguments and which tools were called — everything
+   but tool order, which unlocks at `stable`, once boundaries stabilize.
 3. `/evalup:generate` → ~30 cases, with a sealed holdout. Review the ~15 it
    flags (15 minutes).
 4. `/evalup:run --regression` after the review, pinned with
@@ -87,7 +87,7 @@ the advertised first lever: cheapest change, empirically the largest measured
 effect. Proposals that need code or architecture changes arrive effort-tagged
 for your backlog instead of being silently attempted.
 
-## Production era (stage: traffic → production)
+## Production era (real traffic)
 
 - `analyze --mine` promotes real conversations (redacted if PII) into the
   dataset — synthetic cases progressively retire. This is mandatory hygiene:
