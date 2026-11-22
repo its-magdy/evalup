@@ -97,7 +97,7 @@ session, without stopping between them:
    `gating: false`, and generate lists the targeted review batch (hard-negative
    and OOS labels, cases marked uncertain, canary candidates) for step 6 to offer.
 5. **`run --smoke`** on those unreviewed cases — wait for the runner as
-   run/SKILL.md §2 says (foreground, then `wait_run.py` while it exits 3;
+   run/SKILL.md §2 says (foreground, then `evalup wait-run` while it exits 3;
    never end the turn while `results.json` says `running`) — then report per
    run/SKILL.md §5: what failed, where, and what the suite could not see. Say
    the labels are unreviewed: a failure may be a wrong label, not a wrong
