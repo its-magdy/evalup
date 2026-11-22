@@ -50,6 +50,14 @@ says when a release bumps it.
 - `--dry-run --cost-from <cost.json>` adds an `estimate`: dollars only at a
   priced run's measured cost per message, else messages and the models
   seen. No price table ships (part of #105). No verdict changes.
+- `score_answer.py` attaches its regex NFC note only when normalization
+  touched the check: the answer changed under NFC, or the pattern is not in
+  NFC (#109). No verdict changes.
+- Docs (#107, #108, #109): word checks need script-suited boundaries and a
+  colloquial test answer (test-generator rule 8, case-format); the judge
+  pass skips already-failing cases unless `--include-failed`; a bulk-accept
+  path for training cases (label-lifecycle.md); `tool_selection` scores
+  `expect.args`; a seeded fixture is an oracle source; `evalup` off PATH.
 
 ## [0.1.0] — 2026-11-22
 

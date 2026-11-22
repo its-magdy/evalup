@@ -115,7 +115,9 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # measures answered-vs-refused (runner-contract
                                        # SS5.2); per-target numbers need route_from_response
                                        # or traces.
-  tool_selection:  { enabled: true }
+  tool_selection:  { enabled: true }   # scores expect.args (score_args.py), not which
+                                       # tools ran (that is trajectory): n/a without
+                                       # expect.args
   trajectory:      { enabled: true }   # both stages; off for single_llm or when
                                        # no tool call is observable
   multi_turn:      { enabled: false, blocked_by: "adapter declares no invocation.conversation -- discover writes it once it finds how the app keeps a conversation; until then input.turns cases are skipped" }

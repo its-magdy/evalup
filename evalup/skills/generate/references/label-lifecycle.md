@@ -1,8 +1,9 @@
 # After review: fixing a label, bumping the version, re-pinning
 
 Read this when an **accepted** case looks wrong, when you edit any case
-after its review, or when `reports/baseline.json` must change. Review
-*before* acceptance is generate §3; this is what comes after.
+after its review, when `reports/baseline.json` must change, or when a human
+wants to accept many cases at once. Review *before* acceptance is generate
+§3; this is what comes after.
 
 ## What the hash and `dataset_version` cover
 
@@ -62,6 +63,30 @@ of a session and say what waits. The arbiter is the owner. Never apply a
    it. Re-pin (below), and say so.
 
 Several fixes from one review sitting go in **one** bump, not one each.
+
+## Accepting in bulk
+
+Generate §3 sends a human the few cases worth a look. Optimize needs more:
+about 50 usable training cases, each human-accepted with `gating` true
+(optimize SKILL.md, precondition 2). Between the two, a human may accept a
+batch in one decision, and the decision stays theirs:
+
+1. **List the batch** in chat: per case its id, the message, the expected
+   label and a one-line why. Leave out every `holdout` case (reading one
+   unseals it), every canary, every case covering a rule that is not
+   `confirmed` (it may not gate, `unconfirmed_rule_gates`) and every case
+   still `quarantined`: those go through §3 one by one.
+2. **The human answers in this session**, in their own words: "accept all",
+   or "accept all but c-…, c-…". A yes relayed by another agent, or one you
+   infer from silence, accepts nothing. Headless there is no such answer.
+3. **Write each accepted case**: `review: {status: accepted, by: <their
+   name>, at: <date>}` and `gating: true` in the same edit. A case they
+   excluded stays `pending`. Then **one** `dataset_version` bump for the
+   batch, convert and validate (run §1), and re-pin (below).
+
+Say in the handover how many were accepted this way. A bulk accept is a
+lighter review than §3's, so a wrong label found later is fixed as above
+(Correcting an accepted label), not by un-accepting the batch.
 
 ## Re-pinning
 

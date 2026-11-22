@@ -21,8 +21,14 @@ run skill: one plain command per call, the script path written out.
 ## Steps
 
 1. **Plan.** `evalup judge-run plan reports/<run-id> --rubrics <work-dir>/rubrics.json`
-   (`convert_suite.py --split-dir` wrote that file in §1; add
-   `--include-failed` only when the user is labelling). It prints `summary`
+   (`convert_suite.py --split-dir` wrote that file in §1). **It skips every
+   case with a `fail` layer row** (reason `already failing (<layer>: fail)`):
+   a scripted fail already decides the case, so judging it spends a call on
+   nothing that run reports. Add `--include-failed` when the user is
+   collecting labels for calibration (`/evalup:analyze --label`): without
+   it the sample holds only cases the scripted checks passed, the easy ones,
+   and a judge calibrated on them is untested where it matters. Holdout
+   cases are never judged either way. It prints `summary`
    — the call count, the token range and the time per call once a pass has
    been measured — and `pending`, the launches in order, self-tests first.
    Show the summary to the user. Interactive, when it lists cases `over the

@@ -70,7 +70,8 @@ CONDITIONAL = {
     "skills/run/references/judge-pass.md":
         "after a run in which a selected case pins a rubric",
     "skills/generate/references/label-lifecycle.md":
-        "after review: a wrong accepted label, a bump, a re-pin",
+        "after review: a wrong accepted label, a bump, a re-pin, a bulk "
+        "accept",
     "skills/discover/references/oracle.md":
         "an oracle offer (discover step 5) or an expect.result case",
     "skills/discover/references/interview.md":

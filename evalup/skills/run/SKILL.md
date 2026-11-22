@@ -239,7 +239,8 @@ beside them.
   **judged** layer (`expect.answer.rubric`, row `unjudged (…)`) nor
   **business rules** (`expect.answer.rules`). When a selected case pins a
   rubric, and no `--no-judge`, run the pass in this turn:
-  [references/judge-pass.md](references/judge-pass.md). Then, if a case
+  [references/judge-pass.md](references/judge-pass.md); it skips a case
+  already failing a layer unless `--include-failed`. Then, if a case
   lists rules, `evalup rule-report reports/<run-id> --profile <work-dir>/profile.json`,
   whose `summary` goes under **Business rules**. Neither report decides the
   pass rate or gate; never judge by eye.
