@@ -167,8 +167,8 @@ invocation:
   response_format: json        # | sse: a text/event-stream reply becomes {text,
   # tool_calls, error, finished, usage}; mark '{"text": "<answer>"}'. A failed
   # stream is `unscored`, as is `answer` after an approval interrupt with no
-  # text; text before it is scored, so assert that (case-format.md).
-  # runner-contract.md §4 item 2b.
+  # text; assert the text before it (case-format.md). runner-contract.md §4
+  # item 2b.
   # sse: {protocol: ag-ui}       # | {protocol: data-path, text_path: a.b, done: "[DONE]"}
   timeout_s: 60
   max_concurrency: 1           # serial. > 1 is REFUSED (exit 2), never
@@ -247,9 +247,9 @@ data:
    conversation when the adapter declares that block, and is **skipped**,
    not failed, when it does not (every turn would land in a fresh
    conversation). The block is the only switch — a legacy `session:` block
-   turns nothing on. And a case whose `input.messages` holds anything besides
-   exactly one user message is skipped whatever the adapter says: the runner
-   would send that one message alone. (docs/multi-turn.md)
+   turns nothing on. And a case whose `input.messages` is not exactly one
+   user message is skipped whatever the adapter says: the runner would send
+   that message alone. (docs/multi-turn.md)
 4. Env-var refs unresolved at runtime → pre-flight failure before any spend.
 5. `traces.convention` other than `gen_ai` with no `traces.mapping_shim` →
    trajectory layers disabled for the run (raw spans must never reach

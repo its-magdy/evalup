@@ -321,11 +321,10 @@ Scoring semantics:
   `excluded_tools` and `difficulty` are scored by nothing; each one's comment
   above says why it is still worth recording, and the first four WARN.
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
-- An `ag-ui` run that ends on an approval interrupt with no text has
-  `answer` `unscored`; text streamed before the interrupt is scored. To
-  check a proposal's wording, assert that text (`must_not_contain` a claim
-  the change is done). With none, the case passes on its tools alone (WARN
-  `answer_after_interrupt`, which `--strict` never promotes).
+- An `ag-ui` run ending on an approval interrupt with no text has `answer`
+  `unscored`; text before the interrupt is scored: check a proposal's
+  wording there (`must_not_contain` a claim it is done). Else the case
+  passes on its tools (WARN `answer_after_interrupt`, never promoted).
 - Judged dimensions are always reported as `unjudged`: the runner has no
   judge yet. The reason says why (mode, uncalibrated judge, or deferred) —
   never silently included.
