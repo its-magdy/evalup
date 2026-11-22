@@ -30,7 +30,7 @@ allowed-tools: >-
 > a working directory, so those prompt, and headless a prompt is a denial.
 > Run each script as its own Bash call, spelled `evalup <name> …`
 > (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
-> `python3` with the path, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
 > `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.

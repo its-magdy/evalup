@@ -23,7 +23,7 @@ allowed-tools: >-
 > a working directory, so those prompt, and headless a prompt is a denial.
 > Run each script as its own Bash call, spelled `evalup <name> …`
 > (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
-> `python3` with the path, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
 > `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
@@ -238,7 +238,7 @@ beside them.
   **business rules** (`expect.answer.rules`). When a selected case pins a
   rubric, and no `--no-judge`, run the pass in this turn:
   [references/judge-pass.md](references/judge-pass.md). Then, if a case
-  lists rules, `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/rule_report.py reports/<run-id> --profile <work-dir>/profile.json`,
+  lists rules, `evalup rule-report reports/<run-id> --profile <work-dir>/profile.json`,
   whose `summary` goes under **Business rules**. Neither report decides the
   pass rate or gate; never judge by eye.
 - **Before quoting any app response**, check the adapter's
