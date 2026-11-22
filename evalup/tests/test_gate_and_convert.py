@@ -781,6 +781,88 @@ class TestMakePlan(TempDirTest):
         self.assertEqual(rc, 2)
         self.assertIn("'app' must be an object", err["error"])
 
+    def test_the_profile_app_model_reaches_the_manifest(self):
+        """#104: judge_run.py's same-family check reads manifest app.model,
+        which only a hand-written --manifest-extra filled, though discover
+        had already recorded the model. profile app_model now carries it;
+        --manifest-extra still overrides it."""
+        def with_model(model):
+            doc = json.loads(pathlib.Path(self.converted).read_text("utf-8"))
+            doc.pop("//", None)
+            doc.setdefault("profile", {})["app_model"] = model
+            path = self.tmp / "converted-model.json"
+            path.write_text(json.dumps(doc), encoding="utf-8")
+            return str(path)
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("model", plan["manifest_extra"]["app"])
+        for model in ("claude-sonnet-5-5",
+                      {"router": "gpt-x-mini", "agent": "claude-sonnet-5-5"}):
+            with self.subTest(model=model):
+                rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                                     converted=with_model(model))
+                self.assertEqual(rc, 0)
+                app = plan["manifest_extra"]["app"]
+                self.assertEqual(app["model"], model)
+                self.assertEqual(app["name"], "helpdesk-demo")
+        extra = self.tmp / "extra.json"
+        extra.write_text(json.dumps({"app": {"model": "gpt-y"}}),
+                         encoding="utf-8")
+        rc, plan = self.plan("--mode", "smoke", "--oos-route", "none",
+                             "--manifest-extra", str(extra),
+                             converted=with_model("claude-sonnet-5-5"))
+        self.assertEqual(plan["manifest_extra"]["app"]["model"], "gpt-y")
+        # A malformed value is left out and said, never passed on.
+        out_path = self.tmp / "plan.json"
+        rc, summary = self.plan("--mode", "smoke", "--oos-route", "none",
+                                "-o", str(out_path),
+                                converted=with_model(["claude"]))
+        self.assertEqual(rc, 0)
+        self.assertTrue(any("app_model" in n for n in summary["notes"]))
+        plan = json.loads(out_path.read_text("utf-8"))
+        self.assertNotIn("model", plan["manifest_extra"]["app"])
+
+    def test_manifest_extra_warns_on_a_key_the_runner_drops(self):
+        """#111: the runner records seven manifest_extra keys; anything else
+        vanished silently, and a run's manifest ended with a null prompt
+        hash. Each is now named on stderr and in notes, with a hint."""
+        extra = self.tmp / "extra.json"
+        extra.write_text(json.dumps({
+            "prompt_snapshot_hash": {"sys": "ab12"}, "app_model": "m",
+            "app": {"modle": "claude-x"},
+            "environment_kind": "live", "temperature": 0,
+            "prompt_snapshot_hashes": {"sys": "ab12"}}), encoding="utf-8")
+        out_path = self.tmp / "plan.json"
+        rc, out, err = run("make_plan.py", self.converted, "--state-dir",
+                           str(self.state), "--mode", "smoke", "--oos-route",
+                           "none", "--manifest-extra", str(extra), "-o",
+                           str(out_path))
+        self.assertEqual(rc, 0, out + err)
+        notes = json.loads(out)["notes"]
+        self.assertTrue(any("app.modle" in n and "did you mean app.model"
+                            in n for n in notes), notes)
+        self.assertIn("app.modle", err)
+        flagged = [n for n in notes if "not a key run_cases.py records" in n]
+        self.assertEqual(len(flagged), 3, notes)
+        joined = "\n".join(flagged)
+        self.assertIn("did you mean 'prompt_snapshot_hashes'", joined)
+        self.assertIn("app.model", joined)
+        self.assertIn("environment.kind", joined)
+        self.assertNotIn("'temperature'", joined)
+        for note in flagged:
+            self.assertIn(note, err)
+
+    def test_every_recorded_extra_key_is_one_the_runner_reads(self):
+        """RECORDED_EXTRA is make_plan's copy of the runner's manifest
+        builder: a key the runner stops reading must leave the list."""
+        sys.path.insert(0, str(SCRIPTS))
+        self.addCleanup(sys.path.remove, str(SCRIPTS))
+        import make_plan
+        source = (SCRIPTS / "run_cases.py").read_text("utf-8")
+        for key in make_plan.RECORDED_EXTRA:
+            with self.subTest(key=key):
+                self.assertIn(f'extra.get("{key}")', source)
+
     def test_dash_o_prints_the_command_to_run_next(self):
         out_path = self.tmp / "plan.json"
         rc, summary = self.plan("--mode", "regression", "-o", str(out_path))

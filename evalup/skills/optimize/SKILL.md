@@ -137,7 +137,8 @@ With R, P and H their `app_calls_planned`:
   spent its look at pre-flight. So: any such run → refuse; the unlock is
   the user raising or lifting the limit for the eval's client. A run over L
   that the latency keeps under it is fine. Start each run a full window
-  after the last one ended, so two runs never share one (time ≥ runs × W).
+  after the last one ended, so two runs never share one (time ≥ runs × W):
+  pass each run `--not-before <that end + W, e.g. 2026-11-22T14:05:00Z>`, never a sleep.
   No limit recorded → say so; never assume one.
 - e.g. 30 single-turn training cases and 10 sealed, k = 3: R = 90, H = 30,
   so 180 messages on the first iteration (540 worst case). Against 20 per

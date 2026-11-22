@@ -44,7 +44,8 @@ names the DECLARATION that would make it observable, rather than inferring.
 
 Usage:
   run_cases.py --plan <plan.json|-> --out <state>/reports/<run-id> [--resume]
-  run_cases.py --plan <plan.json|-> --out <dir> --dry-run
+  run_cases.py --plan <plan.json|-> --out <dir> --dry-run [--cost-from <cost.json>]
+  run_cases.py --plan <plan.json|-> --out <dir> --not-before <ISO time>
   run_cases.py --plan <plan.json|-> --out <dir> --baseline-verdicts <prev>.jsonl
   run_cases.py --verify <reports/<run-id>>
   run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
@@ -4734,6 +4735,171 @@ def dry_run_report(runner):
     return report
 
 
+# --not-before (#111): the longest a runner will wait to start. A rate-limit
+# window is minutes to an hour, a daily quota a day; a later time is a typo.
+NOT_BEFORE_MAX_S = 24 * 3600
+
+
+def parse_not_before(text):
+    """--not-before's ISO 8601 time, as an aware datetime. A time without a
+    UTC offset is refused: whose clock it meant is the one thing a wait
+    cannot guess."""
+    # Normalized first: 3.9's fromisoformat takes neither `Z`, `+HHMM` nor
+    # a fraction of other than 3 or 6 digits, and Date.toISOString() and
+    # isoformat() write those. Sub-second precision means nothing here.
+    raw = re.sub(r"(T\d\d:\d\d:\d\d)\.\d+", r"\1", text.strip())
+    raw = re.sub(r"[Zz]$", "+00:00", raw)
+    raw = re.sub(r"([+-]\d\d)(\d\d)$", r"\1:\2", raw)
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError:
+        bad_input(f"--not-before must be an ISO 8601 time with a UTC offset, "
+                  f"e.g. 2026-11-22T14:05:00Z; got {text!r}")
+    if when.tzinfo is None:
+        bad_input(f"--not-before {text!r} has no UTC offset: add Z or +HH:MM")
+    ahead = (when - datetime.now(timezone.utc)).total_seconds()
+    if ahead > NOT_BEFORE_MAX_S:
+        bad_input(f"--not-before {text!r} is {ahead / 3600:.2f} h away; the "
+                  f"limit is {NOT_BEFORE_MAX_S // 3600} h")
+    return when
+
+
+def wait_until(when, sleep=time.sleep):
+    """Sleep until `when` on the WALL clock, in slices of at most 30 s: the
+    target is a wall time, and a monotonic clock stops while a laptop
+    sleeps. Writes nothing -- the run directory is still absent or empty, so
+    a runner killed here leaves no run behind (SS11's exit-2 row)."""
+    while True:
+        left = (when - datetime.now(timezone.utc)).total_seconds()
+        if left <= 0:
+            return
+        sleep(min(30.0, left))
+
+
+def estimate_block(runner, report, cost_from):
+    """--dry-run's `estimate` (#105): messages always, dollars only from a
+    run that was PRICED. The rate is that run's measured dollars per app
+    message -- score_cost.py's `cost.usd` (one representative repeat) over
+    the messages that repeat sent for its traced cases. Never a token count
+    times a price this script guessed: prices are the user's sidecar
+    (CONTRIBUTING decision 4), and the plugin ships none."""
+    planned, worst = report["app_calls_planned"], report["app_calls_max"]
+    declared = ((runner.plan.get("manifest_extra") or {}).get("app") or {}) \
+        .get("model")
+    block = {"messages": planned, "messages_max": worst, "usd": None,
+             "usd_max": None, "usd_per_message": None,
+             "models": declared_models(declared), "from_run": None}
+    if cost_from is None:
+        block["note"] = (
+            "no priced run given (--cost-from <score_cost.py output>): "
+            "estimate messages and minutes only, name the models above, and "
+            "ask the user for their prices. Judge calls are not counted")
+        return block
+    try:
+        with open(cost_from, encoding="utf-8") as fh:
+            doc = loads_strict(fh.read())
+    except (OSError, BadJSON) as exc:
+        bad_input(f"--cost-from {cost_from}: {exc}")
+    cost = doc.get("cost") if isinstance(doc, dict) else None
+    run_meta = doc.get("run") if isinstance(doc, dict) else None
+    if not isinstance(cost, dict) or not isinstance(run_meta, dict):
+        bad_input(f"--cost-from {cost_from}: not score_cost.py's output (no "
+                  "`run` and `cost` objects)")
+    run_id = run_meta.get("run_id")
+    block["from_run"] = run_id
+    seen = sorted(m for m in (cost.get("models") or {})
+                  if isinstance(m, str))
+    if seen:
+        block["models"] = seen
+    block["cache_accounting"] = cost.get("cache_accounting")
+    usd = cost.get("usd")
+    if cost.get("status") != "priced" or isinstance(usd, bool) \
+            or not isinstance(usd, (int, float)):
+        block["note"] = (
+            f"{run_id} is not priced ({cost.get('reason') or 'no usd'}): "
+            "estimate messages and minutes only, name the models above, and "
+            "ask the user for their prices. Judge calls are not counted")
+        return block
+    sent = traced_messages(runner.state_dir, run_id) \
+        if isinstance(run_id, str) and RUN_ID_RE.fullmatch(run_id) else None
+    if not sent:
+        block["note"] = (
+            f"{run_id}: priced, but its run directory under "
+            f"{runner.state_dir}/reports has no traced case to divide by: "
+            "estimate messages and minutes only")
+        return block
+    rate = usd / sent
+    block.update({
+        "usd_per_message": round(rate, 6),
+        "usd": round(rate * planned, 4), "usd_max": round(rate * worst, 4),
+        "source_messages": sent,
+        "price_table_as_of": cost["price_table"].get("as_of")
+        if isinstance(cost.get("price_table"), dict) else None,
+        "note": (
+            f"{run_id}'s measured ${rate:.4f} per app message x this plan's "
+            "messages; usd_max is every call retried. It inherits that run's "
+            "limits: with cache_accounting none, cache reads and writes are "
+            "not priced, so a caching agent costs more than this. Judge "
+            "calls are not counted")})
+    return block
+
+
+def declared_models(model):
+    """manifest_extra.app.model as a sorted list of model ids."""
+    if isinstance(model, str) and model.strip():
+        return [model]
+    if isinstance(model, dict):
+        return sorted({v for v in model.values()
+                       if isinstance(v, str) and v.strip()})
+    return []
+
+
+def traced_messages(state_dir, run_id):
+    """The app messages one repeat of a finished run sent for the cases whose
+    trace it kept -- the cases score_cost.py priced: a single-turn case with
+    cases/<id>/trajectory.json is one, a conversation with every
+    turns/<t>/trajectory.json up to turns_sent is that many. None when the
+    run is not on disk. Reads; never enumerates a sealed id, since
+    results.json carries no holdout row."""
+    run_dir = os.path.join(state_dir, "reports", run_id)
+    try:
+        path = os.path.join(run_dir, "results.json")
+        with open(path, encoding="utf-8") as fh:
+            results = loads_strict(fh.read())
+    except (OSError, BadJSON):
+        return None
+    rows = results.get("cases") if isinstance(results, dict) else None
+    if not isinstance(rows, list):
+        return None
+    sent = 0
+    for row in rows:
+        if not isinstance(row, dict) or unsafe_case_id(row.get("case_id")):
+            continue
+        case_dir = os.path.join(run_dir, "cases", row["case_id"])
+        if row.get("multi_turn"):
+            turns = row.get("turns_sent")
+            if isinstance(turns, int) and not isinstance(turns, bool) \
+                    and turns >= 1 and all(usable_trajectory(os.path.join(
+                        case_dir, "turns", str(t), "trajectory.json"))
+                        for t in range(1, turns + 1)):
+                sent += turns
+        elif usable_trajectory(os.path.join(case_dir, "trajectory.json")):
+            sent += 1
+    return sent
+
+
+def usable_trajectory(path):
+    """A trajectory.json score_cost.py would price: it parses and holds a
+    `trajectory` object (score_cost.trajectory_usage's rule). A case it
+    would withhold must not join the denominator either."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = loads_strict(fh.read())
+    except (OSError, BadJSON):
+        return False
+    return isinstance(doc, dict) and isinstance(doc.get("trajectory"), dict)
+
+
 def validate_baseline(plan, path):
     """SS5.6 (D3) and the k-match (D7), checked at PLAN VALIDATION.
 
@@ -4837,7 +5003,8 @@ def verify_command(out_dir):
     return EXIT_OK
 
 
-def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
+def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None,
+        not_before=None, cost_from=None):
     validate_plan(plan, out_dir)
     baseline_warning = (validate_baseline(plan, baseline_verdicts)
                         if baseline_verdicts else None)
@@ -4847,9 +5014,17 @@ def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
 
     if dry_run:
         runner.preflight()
-        print(json.dumps(dry_run_report(runner), indent=2,
-                         ensure_ascii=False))
+        report = dry_run_report(runner)
+        report["estimate"] = estimate_block(runner, report, cost_from)
+        if not_before is not None:
+            report["not_before"] = not_before.astimezone(
+                timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            report["start_wait_s"] = round(max(0.0, (
+                not_before - datetime.now(timezone.utc)).total_seconds()), 1)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
         return EXIT_OK
+    if cost_from is not None:
+        bad_input("--cost-from is a --dry-run flag: it prices the estimate")
 
     existing = os.path.isdir(out_dir) and os.listdir(out_dir)
     if resume:
@@ -4861,6 +5036,23 @@ def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None):
         # the merged result would carry one run id over two selections.
         bad_input(f"--out {out_dir} is not empty; pass --resume to continue that run, "
                   "or choose a new run id")
+
+    if not_before is not None:
+        # #111: wait BEFORE pre-flight and before any write, so the health
+        # check, a holdout's look and the first call all fall after the
+        # time, and a runner killed while waiting leaves nothing behind.
+        print(json.dumps({"waiting": "not_before", "until": not_before
+                          .astimezone(timezone.utc)
+                          .strftime("%Y-%m-%dT%H:%M:%SZ")}),
+              file=sys.stderr, flush=True)
+        wait_until(not_before)
+        # The manifest says when the run started, not when it was launched.
+        runner.started_at = utc_now()
+        # A run that appeared at this --out while we waited is not ours to
+        # merge into, for the same reason as above.
+        if not resume and os.path.isdir(out_dir) and os.listdir(out_dir):
+            bad_input(f"--out {out_dir} filled while --not-before waited; "
+                      "choose a new run id")
 
     # The run directory is created inside pre-flight, not here: a pre-flight
     # failure is exit 3 with "manifest only, or nothing" on disk (SS11), and an
@@ -5227,6 +5419,16 @@ def main():
     ap.add_argument("--dry-run", action="store_true",
                     help="validate, pre-flight, and print the resolved case "
                          "list; write nothing and call the app zero times")
+    ap.add_argument("--not-before", metavar="ISO_TIME",
+                    help="start no earlier than this time (ISO 8601 with a "
+                         "UTC offset, e.g. 2026-11-22T14:05:00Z; at most 24 h "
+                         "ahead): the runner waits first, writing nothing, "
+                         "so runs a rate-limit window apart need no sleep. "
+                         "wait_run.py waits on a runner still in this wait")
+    ap.add_argument("--cost-from", metavar="COST_JSON",
+                    help="with --dry-run: a priced run's score_cost.py "
+                         "output; the estimate block then carries dollars at "
+                         "that run's measured cost per app message")
     ap.add_argument("--baseline-verdicts", metavar="PATH",
                     help="a previous run's verdicts_for_stats.jsonl; pairs it "
                          "against this run's with stats.py and writes "
@@ -5260,7 +5462,7 @@ def main():
     try:
         if a.probe:
             if any((a.plan, a.out, a.resume, a.dry_run, a.baseline_verdicts,
-                    a.verify)):
+                    a.verify, a.not_before, a.cost_from)):
                 bad_input("--probe runs alone: it takes --adapter and "
                           "--message, and no plan, output directory or run "
                           "flags")
@@ -5276,16 +5478,20 @@ def main():
             bad_input("--adapter, --message, --insecure-tls and --timeout "
                       "are --probe flags")
         if a.verify:
-            if any((a.plan, a.out, a.resume, a.dry_run, a.baseline_verdicts)):
+            if any((a.plan, a.out, a.resume, a.dry_run, a.baseline_verdicts,
+                    a.not_before, a.cost_from)):
                 bad_input("--verify runs alone: it re-checks a finished run "
                           "directory and takes no plan, no output directory "
                           "and no scoring flags")
             return verify_command(a.verify)
         if not a.plan or not a.out:
             bad_input("--plan and --out are both required (or --verify DIR)")
+        not_before = parse_not_before(a.not_before) \
+            if a.not_before is not None else None
         return run(load_plan(a.plan), a.out, resume=a.resume,
                    dry_run=a.dry_run,
-                   baseline_verdicts=a.baseline_verdicts)
+                   baseline_verdicts=a.baseline_verdicts,
+                   not_before=not_before, cost_from=a.cost_from)
     except RunnerExit as exc:
         # Every non-zero exit prints {"error": ...} as JSON on STDOUT, so a
         # caller parses ONE shape regardless of outcome -- the scorers'

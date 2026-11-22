@@ -14,6 +14,8 @@ schema_version: 1                # evalup state-file layout; validate_cases.py w
 generated: 2026-07-18            # updated by discover; --diff compares against this
 app_git_sha: abc1234             # code state this profile describes
 
+app_model: claude-sonnet-5-5    # the app's model id, or {role: id}; the judge reads it
+
 stage: early | stable
 # early: every layer, but expect.tools.order is a validator ERROR. stable: + order.
 # Old names: pre-stability = early; traffic, production = stable.

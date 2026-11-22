@@ -15,7 +15,10 @@ is never backgrounded itself.
      "running" (ok, aborted or incomplete -- the runner's own exit code says
      which; gate.py gives the verdict)
   2  bad input ({"error": ...} on stdout, like every script here)
-  3  still running when --timeout-s elapsed; call again
+  3  still running when --timeout-s elapsed; call again. Also a run not
+     yet started (`status: "not_started"`): a runner launched with
+     `--not-before` writes nothing while it waits, so its directory may be
+     absent -- waited on while that runner is alive (#111)
   4  still "running" but no run_cases.py process for this run exists: the
      runner was killed. Resume it with `run_cases.py --resume` under the SAME
      run id rather than starting a fresh run over the cases already paid for.
@@ -85,11 +88,24 @@ def runner_process(run_dir):
         parts = line.strip().split(None, 1)
         if len(parts) != 2 or parts[0] == me:
             continue
-        command = parts[1]
-        if "run_cases.py" in command and (target in command
-                                          or run_id in command):
+        # Whole tokens, not substrings: a shell whose command line merely
+        # MENTIONS run_cases.py and this run id (a script, a heredoc, a
+        # combined Bash call) is not a runner, and since #111 a false
+        # "alive" keeps an absent directory waited on.
+        tokens = [t.rstrip(os.sep) for t in parts[1].split()]
+        # An absolute token must be this directory; a relative one (the
+        # runner's own cwd is unknown here) is matched on the run id.
+        if any(os.path.basename(t) == "run_cases.py" for t in tokens) and \
+                any(t == target if os.path.isabs(t)
+                    else os.path.basename(t) == run_id for t in tokens):
             return "alive"
     return "gone"
+
+
+def started_run(run_dir):
+    """Has run_cases.py written this run directory yet?"""
+    return any(os.path.isfile(os.path.join(run_dir, name))
+               for name in ("results.json", "manifest.yaml"))
 
 
 def status_of(results):
@@ -117,14 +133,35 @@ def main():
     require_range("--interval-s", a.interval_s, lo=0.1, hi=60)
 
     run_dir = a.run_dir
-    if not os.path.isdir(run_dir):
-        die(f"bad input: {run_dir}: not a directory")
-    if not (os.path.isfile(os.path.join(run_dir, "results.json"))
-            or os.path.isfile(os.path.join(run_dir, "manifest.yaml"))):
-        die(f"bad input: {run_dir}: no results.json or manifest.yaml; this "
-            "is not a run directory run_cases.py has started")
-
     started = time.monotonic()
+    # #111: a runner launched with --not-before writes nothing until its time
+    # comes, so its directory is absent or empty while it waits. That is a
+    # run not yet started, and waited on like a running one -- as long as a
+    # runner naming it is alive. With none, it is the bad input it was.
+    while not started_run(run_dir):
+        process = runner_process(run_dir)
+        # Only "gone" is fatal: with `ps` unavailable ("unknown") a runner
+        # may still be waiting, and exit 2 would invite a second launch --
+        # on a holdout, a second look.
+        if process == "gone":
+            if not os.path.isdir(run_dir):
+                die(f"bad input: {run_dir}: not a directory, and no "
+                    "run_cases.py process names it (a --not-before runner "
+                    "killed while it waited leaves nothing: relaunch it "
+                    "with the SAME --not-before, so it keeps its window)")
+            die(f"bad input: {run_dir}: no results.json or manifest.yaml; "
+                "this is not a run directory run_cases.py has started")
+        if time.monotonic() - started >= a.timeout_s:
+            print(json.dumps({
+                "run_id": os.path.basename(os.path.abspath(run_dir)),
+                "status": "not_started", "exit_code": None,
+                "runner_process": process, "last_event": None,
+                "waited_s": round(time.monotonic() - started, 1)},
+                ensure_ascii=False))
+            return STILL_RUNNING
+        time.sleep(min(a.interval_s,
+                       max(0.0, a.timeout_s - (time.monotonic() - started))))
+
     while True:
         results = read_results(run_dir)
         status = status_of(results)

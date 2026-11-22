@@ -136,6 +136,53 @@ class WaitRunTest(unittest.TestCase):
         rc, out, _ = wait_run(self.run_dir, "--timeout-s", "30")
         self.assertEqual(rc, 4)   # no results, no runner: killed at pre-flight
 
+    def test_a_run_not_yet_started_is_waited_on_while_its_runner_lives(self):
+        # #111: run_cases.py --not-before writes nothing while it waits, so
+        # the directory is absent; a live runner naming it makes that a run
+        # not started yet (exit 3, call again), not bad input.
+        pending = self.run_dir.parent / "regression-20260924T150000Z"
+        fake = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)",
+             "run_cases.py", "--not-before", "2026-09-24T15:00:00Z",
+             "--out", str(pending)])
+        self.reap_later(fake)
+        rc, out, proc = wait_run(pending, "--timeout-s", "1",
+                                 "--interval-s", "0.2")
+        self.assertEqual(rc, 3, proc.stdout + proc.stderr)
+        self.assertEqual((out["status"], out["runner_process"]),
+                         ("not_started", "alive"))
+        self.assertFalse(pending.exists())   # it reads; it never writes
+
+        def start_and_finish():
+            time.sleep(0.8)
+            pending.mkdir()
+            (pending / "results.json").write_text(json.dumps(
+                results(pending.name, "ok", 0)), encoding="utf-8")
+        threading.Thread(target=start_and_finish, daemon=True).start()
+        rc, out, proc = wait_run(pending, "--timeout-s", "20",
+                                 "--interval-s", "0.2")
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(out["status"], "ok")
+        # With the runner gone, an absent directory is bad input again.
+        fake.kill()
+        fake.wait()
+        rc, out, _ = wait_run(self.run_dir.parent / "smoke-20260924T160000Z")
+        self.assertEqual(rc, 2)
+        self.assertIn("relaunch", out["error"])
+
+    def test_without_ps_a_run_not_started_is_still_waited_on(self):
+        # Review of #111: "unknown" (no ps) is not "gone" -- an exit 2 there
+        # would invite a second launch beside a runner still waiting.
+        pending = self.run_dir.parent / "regression-20260924T170000Z"
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), str(pending), "--timeout-s", "1",
+             "--interval-s", "0.2"], capture_output=True, text=True,
+            env=dict(os.environ, PATH=""))
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual((out["status"], out["runner_process"]),
+                         ("not_started", "unknown"))
+
     def test_bad_input_exits_2_with_the_error_object(self):
         rc, out, _ = wait_run(self.run_dir / "missing")
         self.assertEqual(rc, 2)

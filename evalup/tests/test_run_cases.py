@@ -16,6 +16,7 @@ a check anyone can re-run).
 Run: python3 -m unittest discover -s tests -v   (from the plugin root)
 """
 import contextlib
+import datetime
 import http.server
 import json
 import os
@@ -753,6 +754,176 @@ class TestPreflight(RunnerCase):
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         self.assertTrue(payload["traces"]["collected"])
         self.assertEqual(payload["wait_floor_s"], 0)
+
+
+class TestNotBefore(RunnerCase):
+    """#111: optimize spaces runs a rate-limit window apart, and nothing
+    could wait for a run that had not started but a sleep loop. The runner
+    now waits itself, before pre-flight and before any write."""
+
+    @staticmethod
+    def at(seconds):
+        when = datetime.datetime.now(datetime.timezone.utc) \
+            + datetime.timedelta(seconds=seconds)
+        return when.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_the_runner_waits_writing_nothing_then_runs(self):
+        plan = make_plan(self.state, self.app.base_url)
+        target = self.at(6)
+        proc = self.invoke(plan, wait=False,
+                           extra_argv=["--not-before", target])
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        time.sleep(1.0)
+        self.assertIsNone(proc.poll())
+        self.assertFalse(self.out_dir().exists())
+        self.assertEqual(self.app.calls, [])
+        # wait_run.py waits on it while it is still in that wait.
+        wait = subprocess.run(
+            [sys.executable, str(SCRIPTS / "wait_run.py"),
+             str(self.out_dir()), "--timeout-s", "30", "--interval-s", "0.2"],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(wait.returncode, 0, wait.stdout + wait.stderr)
+        self.assertEqual(json.loads(wait.stdout)["status"], "ok")
+        _, err = proc.communicate(timeout=60)
+        self.assertEqual(proc.returncode, 0, err)
+        self.assertIn("not_before", err.decode())
+        # Same fixed-width UTC format, so the strings order as times.
+        self.assertGreaterEqual(self.read("manifest.yaml")["started_at"],
+                                target)
+        self.assertTrue(self.app.calls)
+
+    def test_a_past_time_starts_at_once_and_bad_times_are_exit_2(self):
+        plan = make_plan(self.state, self.app.base_url)
+        rc, _, proc = self.invoke(plan,
+                                  extra_argv=["--not-before", self.at(-60)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        for value, fragment in (("tomorrow", "ISO 8601"),
+                                ("2026-11-22T14:05:00", "no UTC offset"),
+                                (self.at(30 * 3600), "limit is 24 h")):
+            with self.subTest(value=value):
+                rc, payload, _ = self.invoke(
+                    make_plan(self.state, self.app.base_url,
+                              run_id="smoke-20260101T000001Z"),
+                    out=self.out_dir("smoke-20260101T000001Z"),
+                    extra_argv=["--not-before", value])
+                self.assertEqual(rc, 2)
+                self.assertIn(fragment, payload["error"])
+                self.assertFalse(
+                    self.out_dir("smoke-20260101T000001Z").exists())
+
+    def test_the_iso_forms_other_tools_write_are_accepted(self):
+        # 3.9's fromisoformat takes none of these; Date.toISOString() and
+        # isoformat() with microseconds write the first two.
+        base = self.at(-60)[:-1]
+        for value in (base + ".123Z", base + ".123456+00:00",
+                      base + "+0000", base + "z"):
+            with self.subTest(value=value):
+                when = run_cases.parse_not_before(value)
+                self.assertIsNotNone(when.tzinfo)
+
+    def test_a_dry_run_reports_the_wait_without_waiting(self):
+        plan = make_plan(self.state, self.app.base_url)
+        started = time.monotonic()
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--dry-run", "--not-before", self.at(600)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertLess(time.monotonic() - started, 30)
+        self.assertGreater(payload["start_wait_s"], 500)
+        self.assertTrue(payload["not_before"].endswith("Z"))
+
+
+TRAJ = json.dumps({"trajectory": {"llm_calls": []}})
+
+
+class TestDryRunEstimate(RunnerCase):
+    """#105: the per-message guess was about 2x low on a caching agent. The
+    estimate's dollars now come only from a priced run's measured dollars
+    per message; with none, messages only, the models named, no rate."""
+
+    def priced_run(self, usd, status="priced", traced=("c-a", "c-b"),
+                   conversation=None):
+        run_id = "regression-20261101T000000Z"
+        run_dir = self.state / "reports" / run_id
+        rows = []
+        for case_id in ("c-a", "c-b", "c-c"):
+            (run_dir / "cases" / case_id).mkdir(parents=True)
+            rows.append({"case_id": case_id})
+            # c-c's file is one score_cost.py would not price (no
+            # `trajectory` object), so it must not join the denominator.
+            (run_dir / "cases" / case_id / "trajectory.json").write_text(
+                TRAJ if case_id in traced else "{}", encoding="utf-8")
+        if conversation:
+            case_id, turns = conversation
+            rows.append({"case_id": case_id, "multi_turn": True,
+                         "turns_sent": turns})
+            for t in range(1, turns + 1):
+                turn = run_dir / "cases" / case_id / "turns" / str(t)
+                turn.mkdir(parents=True)
+                (turn / "trajectory.json").write_text(TRAJ, encoding="utf-8")
+        (run_dir / "results.json").write_text(
+            json.dumps({"run_id": run_id, "cases": rows}), encoding="utf-8")
+        cost = {"status": status, "cache_accounting": "none",
+                "models": {"claude-sonnet-5-5": {"calls": 9}}}
+        if status == "priced":
+            cost.update(usd=usd, price_table={"as_of": "2026-11-01"})
+        else:
+            cost["reason"] = "no price table declared"
+        path = self.tmp / "cost.json"
+        path.write_text(json.dumps({"run": {"run_id": run_id},
+                                    "cost": cost}), encoding="utf-8")
+        return path
+
+    def test_no_priced_run_estimates_messages_and_names_the_model(self):
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["manifest_extra"]["app"] = {"model": {"agent": "claude-x"}}
+        rc, payload, proc = self.invoke(plan, extra_argv=["--dry-run"])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual((est["messages"], est["usd"], est["usd_per_message"]),
+                         (2, None, None))
+        self.assertEqual(est["models"], ["claude-x"])
+        self.assertIn("ask the user for their prices", est["note"])
+        # An unpriced cost file is no better: still no dollars.
+        rc, payload, _ = self.invoke(plan, extra_argv=[
+            "--dry-run", "--cost-from", str(self.priced_run(0, "unpriced"))])
+        self.assertEqual(rc, 0)
+        self.assertIsNone(payload["estimate"]["usd"])
+        self.assertEqual(payload["estimate"]["models"], ["claude-sonnet-5-5"])
+
+    def test_a_priced_run_gives_its_measured_dollars_per_message(self):
+        # $0.90 over 2 traced single-turn cases + a 4-turn conversation =
+        # 6 messages, so $0.15 a message; c-c's trace is unusable and is
+        # not divided by. This plan: 2 cases x k=2 = 4 messages, max x2.
+        cost = self.priced_run(0.90, conversation=("c-conv", 4))
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["k"] = 2
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(cost)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual(est["source_messages"], 6)
+        self.assertAlmostEqual(est["usd_per_message"], 0.15)
+        self.assertAlmostEqual(est["usd"], 0.60)
+        self.assertAlmostEqual(est["usd_max"], 1.20)
+        self.assertEqual(est["from_run"], "regression-20261101T000000Z")
+        self.assertIn("cache", est["note"])
+
+    def test_cost_from_is_a_dry_run_flag_and_must_be_cost_output(self):
+        plan = make_plan(self.state, self.app.base_url)
+        rc, payload, _ = self.invoke(plan, extra_argv=[
+            "--cost-from", str(self.priced_run(1.0))])
+        self.assertEqual(rc, 2)
+        self.assertIn("--dry-run flag", payload["error"])
+        self.assertFalse(self.out_dir().exists())
+        bogus = self.tmp / "bogus.json"
+        bogus.write_text("{}", encoding="utf-8")
+        rc, payload, _ = self.invoke(plan, extra_argv=[
+            "--dry-run", "--cost-from", str(bogus)])
+        self.assertEqual(rc, 2)
+        self.assertIn("not score_cost.py's output", payload["error"])
 
 
 class TestSkipGates(RunnerCase):

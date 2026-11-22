@@ -24,6 +24,7 @@ well-defined.
 ```
 run_cases.py --plan <plan.json|-> --out <reports/<run-id>> [--resume] [--dry-run]
                              [--baseline-verdicts <prev>/verdicts_for_stats.jsonl]
+                             [--not-before <ISO time>] [--cost-from <cost.json>]
 run_cases.py --verify <reports/<run-id>>
 run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
                              [--insecure-tls] [--timeout SECONDS]
@@ -36,6 +37,8 @@ run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
 | `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is the one pre-flight step it skips, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (one call per case, or per turn of a conversation, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus whatever part of `turn_delay_s` that window has not already covered between turns, since the delay runs from the previous reply). With `invocation.rate_limit` declared (§7), also `rate_limit`, `pace_floor_s` and `pace_max_s`: the least seconds that budget lets `app_calls_planned` and `app_calls_max` calls span, the health check aside. Not added to `wait_floor_s`: each interval runs from the earlier call's finish, so the app's latency adds to it, while those waits overlap it. With no budget the three keys are absent. |
+| `--not-before TIME` | start no earlier than TIME (ISO 8601 with a UTC offset — `Z`, `+HH:MM` or `+HHMM`, any fraction ignored — at most 24 h ahead; else exit 2). The runner waits after plan validation and the `--out` check, before pre-flight, **writing nothing**: a runner killed while waiting leaves no run. `started_at` is when the wait ended. With `--dry-run`: no wait, and the report adds `not_before` and `start_wait_s`. `wait_run.py` treats an absent `--out` as `not_started` (exit 3) unless `ps` shows no runner naming it. |
+| `--cost-from PATH` | `--dry-run` only (else exit 2): a run's `score_cost.py` output. The report's `estimate` always carries `messages`, `messages_max` and `models` (`manifest_extra.app.model`, or the cost file's); `usd`, `usd_max` and `usd_per_message` only when that run is `priced`: its `cost.usd` over the messages its priced cases sent (a case counts when every trajectory it needs parses and holds a `trajectory` object, `score_cost.py`'s rule; a conversation counts its `turns_sent`), × this plan's messages. Otherwise null. No price is assumed. |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). |
 | `--probe` | send **one** request through the adapter and print what came back; no plan, no scoring, no writes (§1.1). Runs alone, with `--adapter` and `--message`, plus optional `--insecure-tls` and `--timeout`, which are probe-only flags. |
 | `--version` | `evalup harness <HARNESS_VERSION> (scoring <SCORING_VERSION>)`, via `_common.add_version_flag`, same string as every scorer. |
@@ -150,7 +153,8 @@ keys are a hard error (exit 2).
   },
 
   "manifest_extra": {
-    // values the runner cannot compute; copied verbatim into manifest.yaml
+    // values the runner cannot compute; these seven keys are copied into manifest.yaml
+    // (environment_kind comes from adapter environment.kind); any other is dropped
     "dataset_version": 1,
     "app": {"name": "...", "repo": "...", "git_sha": "dccea614", "git_tree": "dirty",
             "model": {"classifier": "...", "executor": "..."}},
@@ -158,7 +162,6 @@ keys are a hard error (exit 2).
     "judge": {"model": null, "status": "uncalibrated"},
     "rubric_versions": "n/a",
     "temperature": "app-side (0.0/0.1); harness sets none",
-    "environment_kind": "live-readonly",
     "cost_estimate": {"note": "..."}
   }
 }

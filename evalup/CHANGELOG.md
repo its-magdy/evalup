@@ -31,6 +31,16 @@ says when a release bumps it.
   (#110). analyze `--cluster` writes `reports/<run-id>/clusters.json`, and
   optimize falls back to `verdicts.jsonl` without it (#112). No verdict
   changes.
+- profile.yaml `app_model` reaches the manifest's `app.model` through
+  `make_plan.py`, so the judge's same-family check needs no hand-written
+  `--manifest-extra` (#104). A `--manifest-extra` key the runner does not
+  record is now warned about, not dropped silently (#111).
+- `run_cases.py --not-before <time>` waits before pre-flight, writing
+  nothing; `wait_run.py` waits on such a runner (`not_started`, exit 3) and
+  matches runner processes on whole tokens (#111).
+- `--dry-run --cost-from <cost.json>` adds an `estimate`: dollars only at a
+  priced run's measured cost per message, else messages and the models
+  seen. No price table ships (part of #105). No verdict changes.
 
 ## [0.1.0] — 2026-11-22
 
