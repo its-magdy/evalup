@@ -65,10 +65,18 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   different app instead. Decided 2026-10-06 (after a second opinion): a
   checkpoint can veto a conversation but never certify it — a union `pass`
   needs a graded `pass` on the final turn (`run_cases.final_turn_certifies`).
-- **Health** (2026-11-19, measured on `fix/correctness-safety`): 993 tests pass
-  on 3.14; 983 + 10 skips on the 3.9 floor (all 10 skips need PyYAML: 993
-  pass with `--with pyyaml`), ruff clean, 21 CLIs answer `--help`, `claude plugin
-  validate` clean for the plugin and the root marketplace.
+  Since then (roadmap #32, PRs #44–#93): the optimizer keep rule, untrusted
+  app output and schema versions (#36–#38); the run-time judge, provisional
+  verdicts only (#23); business rules in discover and scored by id (#25,
+  #26); reach — `traces.source: response`, an SSE reader, `invocation.mode:
+  exec` (#39; Jaeger waits for an app that needs it); pacing and
+  concurrency (#76, #30); a baseline-relative gate, a CI template and the
+  **v0.1.0 tag** (#40); `bin/evalup` (#41); two stages and no `--full`
+  (#42); and the prose budget (`tests/test_prose_budget.py`, #92).
+- **Health** (2026-11-22, `main` at `fdc3bae`): 1320 tests pass on 3.14;
+  1300 + 20 skips on the 3.9 floor (the skips need PyYAML), ruff clean, all
+  23 CLIs answer `--help`, `claude plugin validate` clean for the plugin and
+  the root marketplace.
 - **What live sessions have shown.** Headless `/evalup:start` reaches a scored
   run on an unseen toy app (4.5 min, 3/3 planted flaws) and on a real ASP.NET
   Core app (3/5 planted flaws); two first-time-user rounds ran on RefApp
@@ -116,8 +124,9 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
     (friction), F-129 (the bench's agents), F-133, F-144, F-147, F-149
     (nits). Deferred: the validator's profile-name check (F-155).
 - **Known gaps, stated in the README, not bugs:** conversations are scripted,
-  Phase 1 only (no simulated user, §9 of the spec); the judged layer and business rules have no run-time
-  scorer; `--mode full` is two runs.
+  Phase 1 only (no simulated user, §9 of the spec); judged verdicts (and
+  judged business rules) are provisional and never gate until a live
+  calibration (#27); a release check is two runs, regression then holdout.
 - **Renamed `agent-eval` → `evalup` on 2026-09-14** (committed 2026-09-20).
   A cursory 2026-09-20 web check found PyPI, npm and the GitHub handle free,
   but **a live French SaaS trades as "EvalUp" (evalup.fr)** and `evalup.com` is
