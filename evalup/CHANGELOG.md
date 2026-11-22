@@ -1509,6 +1509,29 @@ built behind `traffic` or `production`. The stages are now **`early`** and
   `schema_version` bump): every stage maps onto the one that gated the same
   checks, so no finding and no verdict moves.
 
+### Changed — one `evalup` command for every script (2026-11-22)
+
+#41. The skills called every script as
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py" …` and pre-approved it with
+two rules, quoted and unquoted. Each rule matched one literal command, which
+is why every skill's preamble spent a paragraph on spelling.
+
+- **`bin/evalup`.** Claude Code puts it on the Bash tool's PATH while the
+  plugin is enabled. `evalup <name>` runs `scripts/<name>.py`, with `-` for
+  `_` (`evalup run-cases` is `run_cases.py`). It passes arguments, stdin,
+  stdout, stderr and the exit code through unchanged. `evalup --help` lists
+  the 22 commands.
+- **Skills call `evalup <name>` and pre-approve `Bash(evalup *)`.** A
+  headless spike on a cookie-auth app (2026-11-22, the result is on #41)
+  showed the rule approves the command, both as a user allow rule and from a
+  skill's `allowed-tools`, the probe included. The shell `curl` that names
+  the cookie variable is still denied.
+- **Claude Code only.** claude.ai and Cowork don't install a plugin that has
+  a `bin/` directory. Commands run by hand or in CI, outside Claude Code,
+  still use `python3 scripts/<name>.py`.
+- **No scoring semantics changed.** Every script is the same; only how a
+  skill reaches it changed.
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

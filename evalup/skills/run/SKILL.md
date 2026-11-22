@@ -8,7 +8,7 @@ description: >-
   — cover everyday edits through release validation, plus a CI gate.
 argument-hint: "[--smoke|--regression|--targeted|--holdout] [--tag <component>] [--filter-failing] [--layer X] [--k N] [--single-turn] [--no-judge]"
 allowed-tools: >-
-  Read Grep Glob Agent(evalup:judge) Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/*)
+  Read Grep Glob Agent(evalup:judge) Bash(evalup *)
 ---
 
 # Run — Execute and Score
@@ -21,10 +21,10 @@ allowed-tools: >-
 > **Calling the plugin.** Open its files with Read — never `cd` into the
 > plugin, and never `ls`, `grep` or `cat` it from the shell: the plugin is not
 > a working directory, so those prompt, and headless a prompt is a denial.
-> Run each script as its own Bash call, spelled
-> `python3 "<that path>/scripts/<name>.py" …` with the path written out: no
-> `cd`, no `&&` or `; echo $?` tail, no shell variable holding the path. The pre-approval matches
-> that literal form only, and it lapses when the user next replies — a prompt
+> Run each script as its own Bash call, spelled `evalup <name> …`
+> (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
+> `python3` with the path, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
+> `Bash(evalup *)`, and it lapses when the user next replies — a prompt
 > after that is expected, not a fault. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
@@ -79,9 +79,9 @@ no `datasets/**`, and does not know what `--smoke` means. **You never write the
 plan, or any case body, by hand** — three scripts do it, in this order:
 
 ```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/convert_suite.py <state-dir> -o <work-dir>/converted.json --split-dir <work-dir>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/validate_cases.py --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json --profile <work-dir>/profile.json [--manifest <work-dir>/manifest.json] [--rubrics <work-dir>/rubrics.json]
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/make_plan.py <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
+evalup convert-suite <state-dir> -o <work-dir>/converted.json --split-dir <work-dir>
+evalup validate-cases --cases <work-dir>/suite.json --capabilities <work-dir>/capabilities.json --adapter <work-dir>/adapter.json --profile <work-dir>/profile.json [--manifest <work-dir>/manifest.json] [--rubrics <work-dir>/rubrics.json]
+evalup make-plan <work-dir>/converted.json --mode <mode> --state-dir <state-dir> -o <work-dir>/plan.json
 ```
 
 `<work-dir>` is `<state-dir>/work/`: derived files only (`converted.json`,
@@ -129,7 +129,7 @@ Full shape and defaults, if you need them: runner-contract §2.
 ## 2. Run it
 
 ```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py --plan <work-dir>/plan.json --out reports/<run-id> \
+evalup run-cases --plan <work-dir>/plan.json --out reports/<run-id> \
   [--baseline-verdicts reports/<baseline-run-id>/verdicts_for_stats.jsonl] [--resume]
 ```
 
@@ -155,7 +155,7 @@ turns); headless, expect several `wait_run.py` waits below.
 killed seconds after the turn ends, and a killed runner leaves `results.json`
 at `summary.status: "running"` with its cases half paid for. If the harness
 moves the call to the background at that cap, do not stop: call
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/wait_run.py reports/<run-id>` (same
+`evalup wait-run reports/<run-id>` (same
 600000 ms timeout) and repeat it while it exits 3. It exits 0 once the run is
 finalized (printing `summary.status`, the runner's exit code and the last
 `run.log` event — read §3 from that exit code); 4 when the run is still
@@ -205,7 +205,7 @@ endpoint: fix `invocation.headers`, auth or endpoint, re-run before quoting.
   Pass `reports/<its run_id>/verdicts_for_stats.jsonl` to
   `--baseline-verdicts` and its `k` to `--k`; the runner refuses a pair whose
   dataset version, scoring version or `k` differ, before any spend.
-- **Pin only with `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pin_baseline.py reports/<run-id>`**:
+- **Pin only with `evalup pin-baseline reports/<run-id>`**:
   it refuses (exit 2) a `running`, incomplete, non-`regression` or ungated
   run. Quote its `notes`. First run (no pointer): run without `--baseline-verdicts`,
   pin, print "baseline established (run <id>); future runs diff against
@@ -288,7 +288,7 @@ beside them.
 
 `regression` runs unattended, and **the LLM is never in the gate
 path**: it produces the run, then a separate tokenless step —
-`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gate.py reports/<run-id>` (or `reports/
+`evalup gate reports/<run-id>` (or `reports/
 --latest --mode regression`) — reads `results.json`, prints a one-screen
 summary and exits 0 open / 1 closed. Run it after every interactive run too:
 it is the fastest honest summary, and the runner's own exit 0 says nothing

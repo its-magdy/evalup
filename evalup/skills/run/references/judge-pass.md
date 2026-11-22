@@ -20,7 +20,7 @@ run skill: one plain command per call, the script path written out.
 
 ## Steps
 
-1. **Plan.** `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/judge_run.py" plan reports/<run-id> --rubrics <work-dir>/rubrics.json`
+1. **Plan.** `evalup judge-run plan reports/<run-id> --rubrics <work-dir>/rubrics.json`
    (`convert_suite.py --split-dir` wrote that file in §1; add
    `--include-failed` only when the user is labelling). It prints `summary`
    — the call count, the token range and the time per call once a pass has
@@ -35,7 +35,7 @@ run skill: one plain command per call, the script path written out.
    `judge.model` when it is one of the Agent tool's aliases (omit it
    otherwise). Up to four launches in one message. Write each reply,
    verbatim and whole, with the Write tool to the launch's `reply_file`, then
-   run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/judge_run.py"` with the
+   run `evalup judge-run` with the
    launch's `record_args` (append `--tokens N` when the Agent result
    reported its total tokens). `record` prints `self_test: pass` or `fail`
    once both of a rubric's replies are in.
@@ -47,7 +47,7 @@ run skill: one plain command per call, the script path written out.
    record it (it comes out `no structured output`) before any retry, so the
    budget counts every launch. A denied launch ends the launches (not the
    run): go to step 4 with `--launch-denied`.
-4. **Merge.** `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/judge_run.py" merge reports/<run-id>`,
+4. **Merge.** `evalup judge-run merge reports/<run-id>`,
    plus `--calibration <state-dir>/judge/calibration.json` when that file
    exists. It writes `judge/judged.json`; re-running it is safe.
 

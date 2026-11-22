@@ -122,13 +122,20 @@ it is Linux-only.
   `_common.load_trajectory` refuses it, for every consumer at once.
 - **Only the MODE `holdout` and the SPLIT `holdout` touch the seal**
   (`run_cases.touches_seal`). The split named `full` is the unsealed set.
-- **Skills invoke scripts as `python3 <path>` and pre-approve them in
-  `allowed-tools`, in both the quoted and unquoted spelling.**
-  `tests/test_plugin_layout.py` pins it; a live session is what found that the
-  unquoted rule alone matches nothing. The rule matches ONE literal command:
-  a `cd … &&` prefix or a shell variable holding the path falls outside it, so
-  every skill's preamble forbids both. The grant also lapses at the user's
-  next message (documented behaviour, confirmed live).
+- **Skills invoke scripts as `evalup <name>` and pre-approve
+  `Bash(evalup *)` in `allowed-tools`.** `bin/evalup` is on the Bash tool's
+  PATH while the plugin is enabled. It runs `scripts/<name>.py`, with `-`
+  for `_`, and passes everything through. A headless spike (#41, 2026-11-22)
+  showed the rule approves it, both as a user rule and from a skill. It
+  replaced two `python3 <path>` rules (quoted and unquoted) that matched one
+  literal command only. `tests/test_plugin_layout.py` pins the rule and
+  refuses a `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/…` call in a skill. A
+  `cd … &&` prefix still falls outside any rule, and so does a variable
+  Claude Code cannot check, so the preamble forbids both. The grant lapses at
+  the user's next message (documented behaviour, confirmed live). `bin/`
+  is only on PATH inside Claude Code: a README or CI command outside it
+  keeps `python3 scripts/<name>.py`. `CLAUDE_PLUGIN_ROOT` is not set for the
+  Bash tool, so the dispatcher finds `scripts/` from its own path.
 - **A skill that loads another lists it as `Skill(evalup:<name>)`** in its
   `allowed-tools` — loading a skill that has its own `allowed-tools` needs
   approval, and headless a prompt is a silent denial. Pinned by the same test.

@@ -30,7 +30,9 @@ it without Claude.
 
 ## Prerequisites
 
-- **Claude Code**
+- **Claude Code.** evalup installs as a Claude Code plugin only: claude.ai
+  and Cowork don't install a plugin that ships a `bin/` directory, and the
+  skills call the scripts through `bin/evalup`.
 - **Python 3.9+ with PyYAML.** `scripts/convert_suite.py` turns your YAML
   test suite into JSON before every run, and it needs PyYAML importable by the
   `python3` Claude Code calls. A stock macOS `python3` does not have it:
@@ -136,7 +138,7 @@ of it out of the app's repo, point `state_location` outside it.
 ### Permissions
 
 The skills pre-approve two things: running the plugin's own scripts
-(`python3 <plugin>/scripts/*`), and `start`/`help` loading the skill they route
+(`evalup *`, a command the plugin puts on Claude Code's PATH), and `start`/`help` loading the skill they route
 to. Anything that touches your side still asks: writing `.evalup/`, sending a
 request to your app, editing a prompt.
 
@@ -160,7 +162,7 @@ request to your app, editing a prompt.
   tells Claude not to retry it. `Bash(git -C *)` is the one shell command a
   skill mandates that the always-allowed read-only set does not cover
   (`discover`'s `git -C <app> status --porcelain`). No `curl` rule is
-  needed: discover checks your app with `run_cases.py --probe`, a
+  needed: discover checks your app with `evalup run-cases --probe`, a
   pre-approved script that reads `cookie_env`/`token_env` itself. A `curl`
   naming `$APP_TEST_COOKIE` would be denied anyway — Claude Code refuses a
   command whose variables it cannot check, allow rule or not. Export every
