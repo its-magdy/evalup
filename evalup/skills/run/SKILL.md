@@ -238,8 +238,8 @@ beside them.
   rubric, and no `--no-judge`, run the pass in this turn:
   [references/judge-pass.md](references/judge-pass.md). Then, if a case
   lists rules, `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/rule_report.py reports/<run-id> --profile <work-dir>/profile.json`,
-  whose `summary` goes under **Business rules**. Neither enters a pass
-  rate or the gate; never judge by eye.
+  whose `summary` goes under **Business rules**. Neither report decides the
+  pass rate or gate; never judge by eye.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
   redacted: reports are written to be shared and committed. When nothing
