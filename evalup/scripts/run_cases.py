@@ -4834,6 +4834,7 @@ def estimate_block(runner, report, cost_from):
             "estimate messages and minutes only")
         return block
     rate = usd / sent
+    caveat = CACHE_CAVEAT.get(block["cache_accounting"], CACHE_CAVEAT[None])
     block.update({
         "usd_per_message": round(rate, 6),
         "usd": round(rate * planned, 4), "usd_max": round(rate * worst, 4),
@@ -4843,10 +4844,24 @@ def estimate_block(runner, report, cost_from):
         "note": (
             f"{run_id}'s measured ${rate:.4f} per app message x this plan's "
             "messages; usd_max is every call retried. It inherits that run's "
-            "limits: with cache_accounting none, cache reads and writes are "
-            "not priced, so a caching agent costs more than this. Judge "
-            "calls are not counted")})
+            f"limits: {caveat}. "
+            "Judge calls are not counted")})
     return block
+
+
+# The estimate's cache caveat, by the cost file's cache_accounting (#118's
+# three values, score_cost.declared_limits). Keyed on the value, so the note
+# never says "none" of a run whose cache tokens were priced.
+CACHE_CAVEAT = {
+    "priced": "cache reads and writes were priced at their own rates",
+    "unpriced": "its cache tokens were priced at the full input rate (its "
+                "cache_warning), which on a caching agent can be far off "
+                "in either direction",
+    "none": "no cache count was split out of the price, so on a caching "
+            "agent this can be far off",
+    None: "its cost file says nothing of cache accounting, so on a caching "
+          "agent this can be far off",
+}
 
 
 def declared_models(model):
