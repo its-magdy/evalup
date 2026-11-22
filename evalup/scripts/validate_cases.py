@@ -220,6 +220,42 @@ LAYERS = ("routing", "tool_selection", "trajectory", "execution", "authz",
 # reviewer named "Generosa" is not a machine.
 MACHINE_REVIEWER = re.compile(
     r"^(generate|generate-review|test-generator|auto|machine)", re.I)
+# Who may confirm a business rule: a person, by name. Stricter than
+# MACHINE_REVIEWER, which only knows the generator's stamps: a rule is
+# confirmed in discover's interview, so an agent's own names are refused
+# too, as whole words of the name ("claude-code", "gpt-4o", "evalup bot").
+# A person who shares one writes a handle that does not.
+#
+# #100: a name a model relayed is not a human's either. "<owner> (delegate:
+# <model>, <date>)" names a person, but the person said nothing -- an agent
+# answered for them -- so a relay marker or a model family's name anywhere in
+# the signature refuses it. interview.md: never on an agent's say-so.
+MACHINE_CONFIRMER = re.compile(
+    r"(?<![a-z0-9])(anthropic|discover|evalup|assistant|agent|ai|llm|"
+    r"model|openai|copilot|bot|generated?|"
+    r"test-generator|auto|automatic|machine|system|"
+    # relayed: someone (something) answered for the person named
+    r"delegat(?:e[ds]?|ing|ions?)|relay(?:ed|ing)|prox(?:y|ied)|"
+    r"on[ -]behalf|sub-?agents?|"
+    # model families an owner's delegate is likely to be, with a version
+    # fused on or not ("qwen2", "gpt4o", "llama3.1", "mixtral8x7b"). The
+    # o-series only with its suffix: a bare "o1" is a ticket or a tier.
+    r"(?:claude|chatgpt|gpt|gemini|fable|opus|sonnet|haiku|grok|llama|"
+    r"mistral|mixtral|gemma|qwen|deepseek|codex|kimi|cohere|command-r|"
+    r"perplexity|cursor)(?:[0-9][0-9a-z.]*)?|o[134]-?(?:mini|pro))"
+    r"(?![a-z0-9])", re.I)
+
+
+def machine_signed(by):
+    """Whether `by` -- a rule's confirmed_by or a case's review.by -- is not
+    one person's own word: empty, a generator's stamp (MACHINE_REVIEWER), an
+    agent's or a model's name, or an answer a delegate relayed. Both fields
+    take the same rule (interview.md; generate SKILL.md: only a human sets
+    `accepted`, and review.by is that human's name)."""
+    return (not is_nonempty_str(by) or bool(MACHINE_REVIEWER.match(by.strip()))
+            or bool(MACHINE_CONFIRMER.search(by)))
+
+
 # Expectations copied out of the app's own source grade the app against itself:
 # the case then encodes what the code DOES, so a bug in that code is baked into
 # the ground truth and the suite can never see it.
@@ -868,12 +904,13 @@ def check_review(rep, case_id, case):
     review = mapping(case.get("review"))
     status = review.get("status")
     by = review.get("by")
-    if status == "accepted" and (not is_nonempty_str(by)
-                                 or MACHINE_REVIEWER.match(by.strip())):
+    if status == "accepted" and machine_signed(by):
         rep.warn(case_id, "machine_accepted",
                  f"review.status is accepted but review.by is {by!r}; only a "
-                 "human may set accepted — a case accepted by the generator "
-                 "that wrote it has never been reviewed by anyone")
+                 "human may set accepted, by their own name — a case "
+                 "accepted by the generator that wrote it, by a model, or "
+                 "by a delegate answering for the owner has never been "
+                 "reviewed by anyone")
     if gates(case) and status in ("pending", "quarantined"):
         rep.warn(case_id, "gating_unreviewed",
                  f"gating is not false (absent means true) while "
@@ -1303,7 +1340,7 @@ def usable(case):
     review = mapping(case.get("review"))
     by = review.get("by")
     return (gates(case) and review.get("status") == "accepted"
-            and is_nonempty_str(by) and not MACHINE_REVIEWER.match(by.strip()))
+            and not machine_signed(by))
 
 
 def check_manifest(rep, cases, records, manifest):
@@ -1729,25 +1766,14 @@ def check_covers_shape(rep, label, case):
 
 
 URL_SOURCE = re.compile(r"https?://", re.I)
-# Who may confirm a business rule: a person, by name. Stricter than
-# MACHINE_REVIEWER, which only knows the generator's stamps: a rule is
-# confirmed in discover's interview, so an agent's own names are refused
-# too, as whole words of the name ("claude-code", "gpt-4o", "evalup bot").
-# A person who shares one writes a handle that does not.
-MACHINE_CONFIRMER = re.compile(
-    r"(?<![a-z0-9])(claude|anthropic|discover|evalup|assistant|agent|ai|llm|"
-    r"model|gpt|chatgpt|openai|gemini|copilot|bot|generated?|"
-    r"test-generator|auto|automatic|machine|system)(?![a-z0-9])", re.I)
 
 
 def rule_status(rule):
     """The status a rule is READ as. Only `confirmed` with a human's name in
     `confirmed_by` counts as confirmed; everything else -- no status, a typo,
     a confirmation nobody signed -- is inferred, so it can never gate."""
-    by = rule.get("confirmed_by")
-    if rule.get("status") == "confirmed" and is_nonempty_str(by) \
-            and not MACHINE_REVIEWER.match(by.strip()) \
-            and not MACHINE_CONFIRMER.search(by):
+    if rule.get("status") == "confirmed" \
+            and not machine_signed(rule.get("confirmed_by")):
         return "confirmed"
     return "inferred"
 
@@ -1785,8 +1811,9 @@ def check_rule_entry(rep, rule, where):
         rep.warn(None, "rule_confirmed_unattributed",
                  f"profile.yaml {name} is `confirmed` but confirmed_by is "
                  f"{rule.get('confirmed_by')!r}; only a human confirms a "
-                 "rule, by name (not a model, an agent or evalup), so it "
-                 "is read as inferred and cannot gate")
+                 "rule, by name (not a model, an agent, evalup, or a "
+                 "delegate relaying the owner's answer), so it is read as "
+                 "inferred and cannot gate")
     if not outside and is_nonempty_str(source) \
             and not PATH_SHAPED.search(source):
         rep.warn(None, "rule_source_vague",

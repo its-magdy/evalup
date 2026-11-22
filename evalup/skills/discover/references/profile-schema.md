@@ -163,6 +163,7 @@ confirmed_by_human:              # from the discover interview — the app's SHO
     - "cancel subscription → billing (not support)"
   answer_expectations:
     billing: "cites the invoice id it used; no speculation about amounts"
+  answered_by: "<name>"          # or a delegate's: interview.md
 
 roles:
   domain_arbiter: "<name>"       # the one person whose quality judgment is final
