@@ -40,7 +40,7 @@ allowed-tools: >-
 > output to the read-only `judge` / `trace-analyzer` subagents and working
 > from their summaries.
 
-`${CLAUDE_PLUGIN_ROOT}/scripts/run_cases.py` executes the run;
+`evalup run-cases` executes the run;
 `${CLAUDE_PLUGIN_ROOT}/docs/runner-contract.md` is its spec. It owns pre-flight,
 every app call, every scorer, the artifacts, the completeness check and the
 baseline diff. **Never hand-orchestrate a run; never eyeball-score anything.**
@@ -104,7 +104,8 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   awaiting the owner.
 - **`make_plan.py`** resolves the mode via §0 into `cases`, `selecting_split`,
   `k` and `gate`, fills every required key, and prints the `run_id`, the
-  `--out` directory and the exact runner command. Its other flags are the
+  `--out` directory and a runner command for outside Claude Code: here, run
+  `evalup run-cases` with its `--plan` and `--out`. Its other flags are the
   mode's — `--tag`/`--failing-in` (`--filter-failing`), `--k N`, `--layer X`,
   `--oos-route`, the retry pair, `--single-turn`/`--max-turns` —
   run-modes.md's flags section says what each does, for any mode but smoke.
