@@ -80,9 +80,12 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   ones need a Bash-granting sandbox, which this machine refuses (symlinks
   inside `~/.docker`; `DOCKER_CONFIG` does not bypass it); they were proven by
   live `claude -p` sessions instead.
-- **Where the evidence is.** `evalup/CHANGELOG.md` has one section per wave
-  (four September audits, the field test, two user tests, the refactor
-  review) saying what was fixed and why. The user tests' findings are in
+- **Where the evidence is.** The pre-release CHANGELOG had one section per
+  wave (four September audits, the field test, two user tests, the refactor
+  review) saying what was fixed and why; #42 cut it to a summary, so read
+  the long form at the tag (`git show
+  v0.1.0:evalup/CHANGELOG.md`). The runner contract's rationale went the
+  same way (its history before the #42 trim). The user tests' findings are in
   `~/Documents/Personal/Sandboxes/evalup-usertest/` (42) and
   `evalup-usertest-2/` (66) — **read-only**; each REPORT.md §2 is the ranked
   list. The field-test folder is untouched. `evalup/docs/traces-jaeger.md` is

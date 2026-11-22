@@ -161,8 +161,9 @@ it is Linux-only.
   which it is read; prose that is not needed on a first session goes into
   a reference read on that condition, not into the skills.
 - **`docs/runner-contract.md` is the runner's spec and it WINS** over any skill
-  prose. Its nine decisions were confirmed 2026-09-08 with their trade-offs
-  recorded; don't reopen one without reading it. **Four tests read that file at
+  prose. It holds rules only (≤ 15,000 tokens, `tests/test_prose_budget.py`); the reasons (its nine 2026-09-08 decisions
+  among them) are in its git history — `git log -p docs/runner-contract.md`,
+  before the #42 trim — so read that before reopening one. **Four tests read that file at
   run time** — they exec §9(b)'s python block, parse §6's `# only when:`
   markers, pin `--oos-route`'s precondition, and assert §5.7 still names
   `score_cost.py` — so editing those passages fails the suite until the code
@@ -198,7 +199,9 @@ it is Linux-only.
 - **A release is one commit, then a tag on it.** That commit bumps
   `plugin.json` and `_common.HARNESS_VERSION`, renames the CHANGELOG's
   `[Unreleased]` section to the dated version (leaving a fresh, empty
-  `[Unreleased]` above it), and moves `ci/github-actions.yml`'s `EVALUP_REF`
+  `[Unreleased]` above it) and condenses it to what the release contains
+  (≤ 2,000 tokens, `tests/test_prose_budget.py`; the long form stays in
+  git history), and moves `ci/github-actions.yml`'s `EVALUP_REF`
   to `v<version>` (`test_ci_template` refuses anything else). Once it is on
   `main`, publish a GitHub release `v<version>` on that commit, in the same
   sitting: until then, a template copied from `main` fails at `git fetch`.
