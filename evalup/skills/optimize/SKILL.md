@@ -84,7 +84,7 @@ Each refusal names its unlock, as a command:
 |---|---|---|
 | 1 | `judge.status: calibrated` when any objective dimension is judge-scored. Check the evidence, not the flag: `paths.judge_calibration`'s sidecar (`score_agreement.py --write`) derives it; a `calibrated` profile without one is hand-set, and the runner refuses it. An uncalibrated judge as a target yields a confidently worse app. | `/evalup:analyze --label` until the sidecar backs it |
 | 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --layer <layer> --count <N>` (adds beside the existing cases, changes none), then its §3 review: a human accepts each training case and flips `gating` in the same edit — never a holdout case, which reading unseals |
-| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on, N ≥ 25 (generate's holdout floor) and ≥ 1.25 × the usable training count, so §4's 20% of those fresh, unread cases reaches the bar; looks spent → `/evalup:analyze --unseal` |
+| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on. §4 seals ⌈0.2 × (E + N)⌉ − the current holdout of the N fresh, unread cases (E = the suite's cases now), so any N ≥ ⌈E/4⌉ with E + N ≥ 25 reaches the bar — e.g. 11 usable training cases, no holdout, N = 50: 13 sealed against a bar of 12.2 (20% of the 50 alone, 10, would miss it). Step 4's power check may ask for more; looks spent → `/evalup:analyze --unseal` |
 | 4 | `stage: stable` (a pre-#42 `traffic`/`production` counts as stable). At `early`, route-target and tool boundaries still move, so a gain is indistinguishable from drift. | `/evalup:discover` — its §6 sets `stage` once the user confirms the boundaries hold |
 | 5 | A budget, and its meter (below). | `/evalup:optimize --budget $N`, or ask |
 | 6 | White-box prompt access, and an edit that reaches the running app (below). | none: gray-box or `repo_access: read-only` → recommendations only, written to findings |
@@ -145,10 +145,16 @@ With R, P and H their `app_calls_planned`:
   with a keep) outpaces L: refuse until the limit is raised.
 
 ## The loop (one iteration per session unless told otherwise)
-1. **Ground first, edit never-first**: read the latest `analyze --cluster`
-   output. Pick ONE cluster. Read its actual traces. Name the metric contract
-   being violated and the surface implicated. If evidence is ambiguous between
-   surfaces, say so and stop — more cases beat guessed edits.
+1. **Ground first, edit never-first**: read the latest regression run's
+   `reports/<run-id>/clusters.json` (analyze `--cluster` writes it; skip
+   `label_suspect` clusters). None there → cluster that run's
+   `verdicts.jsonl` yourself: rows with `verdict: fail`, `gating: true`,
+   `canary: false`, grouped by which `layers` rows are `fail`, then by
+   `category` (and `failed_turn`), each group's `verdict.json` read for the
+   failed check. Pick ONE cluster. Read its actual traces. Name the metric
+   contract being violated and the surface implicated. If evidence is
+   ambiguous between surfaces, say so and stop — more cases beat guessed
+   edits.
 2. **Choose the lever — full set, effort-tagged:**
    - tool descriptions (cheapest, empirically the biggest lever — start here
      when tool-selection errors exist; 3–4 sentences, when-to-use and
@@ -180,6 +186,24 @@ With R, P and H their `app_calls_planned`:
    - Revert is `git -C <app> checkout -- <path>` (or the copy back), then
      confirm `git hash-object <path>` equals the recorded blob. Say which
      files you restored.
+
+   **Can this holdout keep a fix for this cluster? Ask before the noise
+   pair**, and before each candidate look. Estimate the cluster's holdout
+   headroom C = H × the cluster's failing cases ÷ the rows of that run's
+   `verdicts_for_stats.jsonl` (H = `by_split.holdout`; sealed cases cannot
+   be read, so this assumes the cluster fails there at the training rate).
+   Run `evalup stats --holdout-power <H> --headroom <C>`, adding
+   `--noise-disagreements <D>` once the pair exists (D = `fixed_by_candidate`
+   + `broken_by_candidate` of `evalup stats` on the pair's two
+   `verdicts_for_stats.jsonl`). Print its `min_detectable_effect`,
+   `fewest_fixed_to_keep` and `smallest_net_to_keep` before any look.
+   `can_keep: false` → refuse: no look can keep this fix. The unlock is a
+   bigger holdout, `/evalup:generate --count <N>` with E + N ≥ 5 ×
+   `holdout_cases_needed` (precondition 3's share; a new seal, so the pair
+   is re-measured). `powered: false` → say a real gain will usually not
+   keep and offer the same generate; go on only if the user says so
+   (headless: refuse). E.g. 13 sealed, a cluster failing 14 of 46: C ≈ 3.96,
+   4 fixed needed, so refuse — the re-proof spent three looks to learn that.
 
    **Before the first edit of a seal, measure its noise pair — on the
    unedited app.** Measured after the edit, the candidate would be its own

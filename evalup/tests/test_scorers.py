@@ -9,6 +9,7 @@ because that is its actual contract with the run skill.
 """
 import ast
 import json
+import math
 import os
 import pathlib
 import re
@@ -626,6 +627,65 @@ class TestStatsHoldoutPower(ScorerTest):
                                 "--headroom", 2, b, b)
         self.assert_clean_error("stats.py", b, b, "--headroom", 2)
         self.assert_clean_error("stats.py", b)
+
+
+class TestOptimizeReadsWhatExists(ScorerTest):
+    """optimize/SKILL.md names files and keys that something must write:
+    #112 was a step reading an `analyze --cluster` output nothing wrote, and
+    #110's check is only as good as the keys it names. Pin each one to its
+    writer, and the holdout share (#98) to the formula generate states."""
+
+    PLUGIN = SCRIPTS.parent
+
+    def text(self, rel):
+        return (self.PLUGIN / rel).read_text(encoding="utf-8")
+
+    def test_power_keys_optimize_names_are_printed(self):
+        skill = self.text("skills/optimize/SKILL.md")
+        self.assertIn("evalup stats --holdout-power", skill)
+        rc, out, err = run_script("stats.py", "--holdout-power", 13,
+                                  "--headroom", 4)
+        self.assertEqual(rc, 0, err)
+        for key in ("min_detectable_effect", "fewest_fixed_to_keep",
+                    "smallest_net_to_keep", "can_keep", "powered",
+                    "holdout_cases_needed"):
+            with self.subTest(key=key):
+                self.assertIn(f"`{key}", skill)
+                self.assertIn(key, out)
+
+    def test_the_cluster_file_has_a_writer_and_a_fallback(self):
+        analyze = self.text("skills/analyze/SKILL.md")
+        optimize = self.text("skills/optimize/SKILL.md")
+        for skill in (analyze, optimize):
+            self.assertIn("reports/<run-id>/clusters.json", skill)
+            self.assertIn("label_suspect", skill)
+        self.assertIn('"schema_version": 1', analyze)
+        self.assertNotIn("`analyze --cluster`\n   output", optimize)
+        # The fallback's fields are verdicts.jsonl's own row keys.
+        runner = (SCRIPTS / "run_cases.py").read_text(encoding="utf-8")
+        for field in ("verdict", "gating", "canary", "layers", "category",
+                      "failed_turn"):
+            with self.subTest(field=field):
+                self.assertIn(f"`{field}", optimize)
+                self.assertIn(f'"{field}"', runner)
+
+    def test_the_holdout_share_is_of_the_suite_after_the_addition(self):
+        sizing = self.text("skills/generate/references/suite-sizing.md")
+        optimize = self.text("skills/optimize/SKILL.md")
+        self.assertIn("⌈0.2 × (E + N)⌉ − H₀", sizing)
+        self.assertIn("⌈0.2 × (E + N)⌉", optimize)
+        self.assertNotIn("1.25 ×", optimize)
+        # The worked number both quote: 11 training cases + 50 new.
+        e, n, h0 = 11, 50, 0
+        sealed = math.ceil(0.2 * (e + n)) - h0
+        self.assertEqual(sealed, 13)
+        self.assertGreaterEqual(sealed, 0.2 * (e + n))
+        self.assertLess(0.2 * n, 0.2 * (e + n))
+        # Any N >= ceil(E/4) fits the share inside the new cases.
+        for e in range(200):
+            for h0 in range(e // 2 + 1):
+                n = math.ceil(e / 4)
+                self.assertLessEqual(math.ceil(0.2 * (e + n)) - h0, n)
 
 
 class TestNoOpKeepRate(unittest.TestCase):

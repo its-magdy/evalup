@@ -243,7 +243,8 @@ on that.
   still `pending` (`smoke` too) until the review.
 - `smoke` (~1/3 of full, floor 5): diversity-selected to maximize spread across
   grid cells and phrasings, never random. Used by everyday runs and hooks.
-- `holdout` (20% at ≥25 cases; below that skip it and say so): SEALED. Written
+- `holdout` (20% of the suite after this addition, not of the new cases —
+  suite-sizing.md; below 25 cases skip it and say so): SEALED. Written
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it.

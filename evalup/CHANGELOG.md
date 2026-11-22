@@ -23,6 +23,14 @@ says when a release bumps it.
   --with pyyaml` when `uv` is on PATH, so a stock macOS `python3` needs no
   install (#95's smaller fix). `--self-check` then reports `"via": "uv"`;
   `EVALUP_NO_UV=1` turns it off. No verdict changes.
+- The sealed holdout is 20% of the suite after an addition, not of the new
+  cases, so a suite with training cases can meet optimize precondition 3
+  (#98). `stats.py --holdout-power` prints the holdout's minimum detectable
+  effect and the smallest split that could keep, and optimize refuses a
+  cluster the holdout cannot keep before the noise pair spends two looks
+  (#110). analyze `--cluster` writes `reports/<run-id>/clusters.json`, and
+  optimize falls back to `verdicts.jsonl` without it (#112). No verdict
+  changes.
 
 ## [0.1.0] — 2026-11-22
 
