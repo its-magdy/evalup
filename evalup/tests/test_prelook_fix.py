@@ -25,8 +25,8 @@ def have_yaml():
 
 
 # Text a sealed case holds that must never reach the script's output.
-SECRET_INPUT = "SEALED-QUESTION-about-the-quarterly-roster"
-SECRET_ORACLE = "SEALED-ORACLE-FACT-42"
+SEALED_INPUT = "SEALED-QUESTION-about-the-quarterly-roster"
+SEALED_ORACLE = "SEALED-ORACLE-FACT-42"
 OLD_PATTERN = "/\\d{4}-\\d{2}-\\d{2}/"
 NEW_PATTERN = "/\\d{4}-\\d{2}-\\d{2}( ?[-–] ?\\d{4}-\\d{2}-\\d{2})?/"
 
@@ -78,14 +78,14 @@ class TestPrelookFix(unittest.TestCase):
             review="pending"), encoding="utf-8")
         (d / "c-ho1.yaml").write_text(case_yaml(
             "c-ho1", ["holdout"], [OLD_PATTERN], ["get_shifts", "search"],
-            review="pending", message=SECRET_INPUT, template="ho_shifts"),
+            review="pending", message=SEALED_INPUT, template="ho_shifts"),
             encoding="utf-8")
         (d / "c-ho2.yaml").write_text(case_yaml(
             "c-ho2", ["holdout"], ["unrelated"], ["get_shifts"],
-            review="pending", message=SECRET_INPUT, template="ho_shifts"),
+            review="pending", message=SEALED_INPUT, template="ho_shifts"),
             encoding="utf-8")
         (d / "templates" / "ho_shifts.yaml").write_text(
-            f"oracle: {{fact: {SECRET_ORACLE}}}\ntuples: [{{week: 1}}]\n",
+            f"oracle: {{fact: {SEALED_ORACLE}}}\ntuples: [{{week: 1}}]\n",
             encoding="utf-8")
         (d / "templates" / "t_shifts.yaml").write_text(
             "oracle: {fact: open}\ntuples: [{week: 1}]\n", encoding="utf-8")
@@ -121,8 +121,8 @@ class TestPrelookFix(unittest.TestCase):
                 if p.is_file()}
 
     def assert_no_case_text(self, out):
-        for secret in (SECRET_INPUT, SECRET_ORACLE, "quarterly"):
-            self.assertNotIn(secret, out)
+        for sealed_text in (SEALED_INPUT, SEALED_ORACLE, "quarterly"):
+            self.assertNotIn(sealed_text, out)
 
     def test_apply_fixes_every_split_and_records_hashes(self):
         before, _ = self.converted()
@@ -175,8 +175,8 @@ class TestPrelookFix(unittest.TestCase):
         self.assertEqual(new[:start], old[:start])
         self.assertEqual(new[start + 1:], old[end:])
         self.assertTrue(new[start].startswith("expect: {"))
-        self.assertIn(SECRET_INPUT, "\n".join(new[:start]))
-        self.assertNotIn(SECRET_INPUT, new[start])
+        self.assertIn(SEALED_INPUT, "\n".join(new[:start]))
+        self.assertNotIn(SEALED_INPUT, new[start])
 
     def test_a_second_fix_appends_and_bumps_again(self):
         rc, out, _ = self.run_fix("--apply", "--approved-by", "owner")
@@ -339,7 +339,7 @@ class TestPrelookFix(unittest.TestCase):
         nested = self.state / "datasets" / "templates" / "deep"
         nested.mkdir()
         (nested / "ho_nested.yaml").write_text(
-            f"oracle: {{fact: {SECRET_ORACLE}}}\n", encoding="utf-8")
+            f"oracle: {{fact: {SEALED_ORACLE}}}\n", encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(SCRIPTS / "convert_suite.py"),
              str(self.state), "--templates"], capture_output=True, text=True,
@@ -350,7 +350,7 @@ class TestPrelookFix(unittest.TestCase):
         self.assertEqual(ids, ["ho_nested", "ho_shifts", "t_shifts"])
         # A broken sealed template: the parser's message quotes the line.
         (nested / "ho_nested.yaml").write_text(
-            f"oracle: {{fact: {SECRET_ORACLE}\n", encoding="utf-8")
+            f"oracle: {{fact: {SEALED_ORACLE}\n", encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(SCRIPTS / "convert_suite.py"),
              str(self.state), "--templates"], capture_output=True, text=True,
@@ -362,7 +362,7 @@ class TestPrelookFix(unittest.TestCase):
     def test_a_convert_error_is_not_relayed(self):
         # A YAML error message quotes the line; that line can be sealed.
         (self.state / "datasets" / "c-ho2.yaml").write_text(
-            f"id: c-ho2\ninput: {{message: {SECRET_INPUT}\n", encoding="utf-8")
+            f"id: c-ho2\ninput: {{message: {SEALED_INPUT}\n", encoding="utf-8")
         rc, out, err = self.run_fix()
         self.assertEqual(rc, 2, out)
         self.assertIn("withheld", json.loads(out)["error"])
