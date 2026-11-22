@@ -112,9 +112,8 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   profile's `oos_handling: route:<name>`, so pass it when the route is
   declared any other way, or OOS metrics go unreported — and `--insecure-tls` for a self-signed local dev host
   (pre-flight otherwise exits 3, `CERTIFICATE_VERIFY_FAILED`). Never
-  hand-edit the plan to change any of these. There is no `full` mode: one
-  plan carries one `selecting_split`, so release validation is a
-  `regression` run, then a `holdout` run.
+  hand-edit the plan to change any of these. One plan carries one
+  `selecting_split` (§0: no `full` mode).
 - **`paths.holdout_ledger`** is set for `holdout` (the `.jsonl` sidecar,
   `datasets/holdout-looks.jsonl`); **`paths.judge_calibration`** is set when
   `judge/calibration.json` exists. `judge.status: calibrated` alone does not
@@ -233,12 +232,14 @@ subset, exactly what `stats.py` pairs), and, when they apply,
 number you quote comes from those. You add `report.md`
 beside them.
 
-- **The judge pass.** The runner scores neither the **judged** layer
-  (`expect.answer.rubric`, row `unjudged (…)`) nor **business rules**
-  (`expect.answer.rules`, "not measured in this run"). When a selected case
-  pins a rubric, and no `--no-judge`, run the pass in this turn:
-  [references/judge-pass.md](references/judge-pass.md). Its verdicts go in
-  their own section, never in a pass rate or the gate; never judge by eye.
+- **The judge pass, then business rules.** The runner scores neither the
+  **judged** layer (`expect.answer.rubric`, row `unjudged (…)`) nor
+  **business rules** (`expect.answer.rules`). When a selected case pins a
+  rubric, and no `--no-judge`, run the pass in this turn:
+  [references/judge-pass.md](references/judge-pass.md). Then, if a case
+  lists rules, `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/rule_report.py reports/<run-id> --profile <work-dir>/profile.json`,
+  whose `summary` goes under **Business rules**. Neither enters a pass
+  rate or the gate; never judge by eye.
 - **Before quoting any app response**, check the adapter's
   `data.may_contain_pii`. If true, redact the excerpts and say they are
   redacted: reports are written to be shared and committed. When nothing

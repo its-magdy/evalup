@@ -65,9 +65,12 @@ are an input of their own, and the tool spread is said out loud.
 
 Every check the row uses already scores: `must_not_contain` regexes,
 `must_contain`, `expect.tools`, `expect.result`. Nothing here adds a scoring
-semantic; `expect.answer.rules` stays unscored (#26 is where rules get a
-scorer). A rule only a judge can read is listed as uncovered, not forced into
-a regex that would pass on a paraphrase.
+semantic. A rule whose symptom is a string or a regex gets a `check:` in
+profile.yaml, and each case for it lists the id in `expect.answer.rules`
+and copies the entries: `rule_report.py` then reports the run by that
+rule's id (#26). A rule only a judge can read is a rubric criterion tagged
+`rule: <id>`, or listed as uncovered — never forced into a regex that would
+pass on a paraphrase.
 
 A rule the prompt states is the owner's SHOULD, written down, so it is not
 the source-derived expectation §3 forbids: that is a check restating what a

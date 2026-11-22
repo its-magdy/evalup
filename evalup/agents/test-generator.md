@@ -136,6 +136,14 @@ Rules:
    carrying a `contradiction:` gets no case until the owner decides. A rule
    with no such check (judge-only, or its layer disabled) gets no case:
    report it, with the reason, as uncovered.
+   When the rule has a `check:` in profile.yaml (#26), also list its id in
+   the case's `expect.answer.rules` and copy every entry of that `check:`
+   verbatim into the case's `must_contain` / `must_not_contain`: the run is
+   then reported by that rule's id (`rule_report.py`), and the validator
+   refuses a listed rule whose entries are missing (`rule_check_missing`).
+   A rule with no `check:` goes in `expect.answer.rules` only when the
+   case pins a rubric with a criterion tagged `rule: <id>` (`rule_unbound`
+   otherwise).
 
 Your final message lists the files written, counts per grid cell, each
 rule's case ids or the reason it has none, and the cases flagged for review

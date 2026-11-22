@@ -91,9 +91,12 @@ You cannot judge your way to factual correctness; ground truth is
    runs deterministic.
 3. **Business rules** (cheapest — most real policies are deterministically
    checkable): "never quote a price not in a tool result" would fail any
-   violating answer with no per-case label. **Not scored at run time yet**:
-   the runner reports `expect.answer.rules` as `unscored` (see "The judge",
-   below); state such a rule as `must_contain` / `must_not_contain` today.
+   violating answer with no per-case label. A case lists the rules its
+   answer is checked against in `expect.answer.rules`; a rule a script can
+   check carries a `check:` in profile.yaml (`must_contain` /
+   `must_not_contain` entries the case copies), and one that needs
+   interpretation is a rubric criterion tagged `rule: <id>` (see "The
+   judge", below). `rule_report.py` reports the run by rule id.
 4. **Golden labels** for the rest.
 
 The boundary: whether the *backend* returns correct data is backend-test
@@ -121,8 +124,9 @@ check), `provisional` (judged, every quote found in the file it names, not yet
 calibrated) or `calibrated` (a human-label calibration for the same rubric
 version on the same judge model backs it). **None of the three reaches a pass
 rate, `gate.py`, `stats.py` or an optimize objective in v1**: they are shown,
-with their evidence, in their own report section. Business rules stay
-unscored; one that needs a judge becomes a rubric criterion.
+with their evidence, in their own report section. A business rule that
+needs a judge is a criterion with `rule: <id>`; `rule_report.py` reports
+its verdict under the rule's id, provisional like the rest.
 
 - One strong judge, one rubric dimension per call, binary verdicts,
   reasoning first, "unknown" allowed.

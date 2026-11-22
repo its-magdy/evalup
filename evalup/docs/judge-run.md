@@ -625,7 +625,11 @@ unless the owner says otherwise.
    `unscored` in v1.** A rule that needs a judge becomes a criterion in a
    rubric; a checkable one becomes `must_contain` / `must_not_contain`
    (#52 did that for the prompt's rules). One judge call per rule would undo
-   §4's one-call budget.
+   §4's one-call budget. **Settled by #26:** the runner's row does stay
+   `unscored`, and a judged rule is a criterion tagged `rule: <id>` in the
+   case's one call, so the budget holds. `judged.json` carries each
+   rubric's `criterion_rules` from the plan's snapshot, and
+   `rule_report.py` reports the criterion's verdict under the rule's id.
 5. **How `gate.py` treats judged layers at first.** **Recommended: not at
    all in v1** (§8), including `calibrated`. After #27 measures a live
    calibration, `gate.py --judged` as an opt-in, decided then with its

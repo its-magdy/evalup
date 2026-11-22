@@ -1509,6 +1509,61 @@ built behind `traffic` or `production`. The stages are now **`early`** and
   `schema_version` bump): every stage maps onto the one that gated the same
   checks, so no finding and no verdict moves.
 
+### Added — business rules reported by id, script first (2026-11-22)
+
+#26. The live evidence that permits it: on the first live-proof app (#27,
+2026-11-20) discover recorded a "plain text, no bullets" rule with its
+source, one case's answer broke it in 2 of 3 regression runs, and the case
+passed, because nothing read the rule. #52 made generate write the check;
+this makes a run say, by rule id, which rules it checked and which failed.
+
+- **`expect.answer.rules` is wired up.** It lists the profile.yaml rules a
+  case's answer is checked against; its ids count as `covers`, so the #25
+  refusal of a gating case or canary on an unconfirmed rule reads them too.
+- **Script first.** A rule a script can check carries a `check:` in
+  profile.yaml: `must_contain` / `must_not_contain` entries, the grammar
+  `score_answer.py` already scores. Every case listing the rule copies them
+  verbatim; `validate_cases.py --profile` refuses one that does not
+  (`rule_check_missing`). The runner's answer layer scores them like any
+  entry: no runner or scorer change.
+- **The judge for the rest.** A rule that needs interpretation is a `form:
+  criteria` criterion tagged `rule: <id>` on the case's rubric, graded in
+  the case's one judge call. The tag never reaches the judge's prompt (a
+  test compares the prompts); `judged.json` carries each rubric's
+  `criterion_rules` from the plan's snapshot. A rule's judged verdict is
+  `provisional` (or `calibrated`) like every judged verdict, and gates
+  nothing until a live calibration has been measured.
+- **`scripts/rule_report.py`** (the 23rd CLI) reads a finished run and its
+  `judge/judged.json`, and writes `rules.json`: per rule, its status,
+  source and quote, each case's scripted result (with `failed_repeats`
+  such as `2/3` at k > 1, turn by turn in a conversation), each judged
+  criterion's state, verdict and quote, and the gating cases it failed.
+  Sealed holdout cases are counts only. The run skill pastes its
+  `summary` lines under **Business rules** in `report.md`.
+- **What a rule may decide.** Only through its case: a scripted rule's
+  `fail` is its case's `fail`, which closes the gate when the case is
+  `gating: true`, and only a `confirmed` rule may sit on one. An `inferred`
+  rule is reported, never gated. A judged rule never gates. Nothing on the
+  decision path reads `rules.json`; a test runs the quickstart and finds
+  `gate.py`, `--verify`, `stats.py` and every runner file byte-identical
+  with it written, with a provisional and with a calibrated judged `fail`.
+- **New validator findings:** `bad_answer_rules`, `bad_rule_check`,
+  `rule_check_missing`, `rule_unbound` (a listed rule nothing on the case
+  checks) as ERRORs; `rule_binding_unchecked` (no `--rubrics` to see a
+  judged binding), `rule_judged_unlisted`, `criterion_rule_unknown` and
+  `rules_unchecked` as WARNs. A rubric criterion's `rule:` must be one id,
+  and one criterion per rule.
+- **Quickstart.** Every case lists its rules; `plain-text` and `read-only`
+  have a `check:`; `grounded-answer`'s `no_unsupported_claim` judges
+  `grounded-only`. `demo.py` prints the rule report after every run, and
+  `demo.py --break-rule` plants the violation: the app answers in bullets,
+  and `plain-text` fails by id with its source (`tests/test_example.py:82`),
+  its quote and the six failing cases.
+- **No scoring semantics changed.** The runner's `rules` row still reads
+  `unscored`, every verdict is byte-identical, and `SCORING_VERSION` and
+  `JUDGE_VERSION` stay 1; no `schema_version` bump (`check:` and `rule:`
+  are optional keys).
+
 ### Fixed — the 2026-09-21 shape audit
 
 A third audit asked whether the plugin's *shape* was right, and re-ran a live

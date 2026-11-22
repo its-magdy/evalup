@@ -66,6 +66,7 @@ python3 examples/quickstart/demo.py --break    # the same run with one wrong exp
 python3 examples/quickstart/demo.py --keep     # leave the run directory + viewer.html to open
 python3 examples/quickstart/demo.py --judge-replies examples/quickstart/judge-replies
                                                # + the judge pass, on fixture replies: a PROVISIONAL pass with quotes
+python3 examples/quickstart/demo.py --break-rule   # the app answers in bullets: plain-text FAILS by id, with its source
 python3 examples/quickstart/demo.py --serve    # only the app, on 127.0.0.1:8765, until Ctrl-C
 python3 -m unittest tests.test_example         # the same example, as the suite checks it
 ```
@@ -105,7 +106,18 @@ the kind of rule generate turns into a check rather than leaves to a judge: its 
 the text. Because it binds every answer, **every case** carries the same
 `must_not_contain` regex for bullet, numbered and heading lines and for bold.
 The same app answering as a bulleted list fails all six cases, on that check
-alone (`tests/test_example.py`). The other rules:
+alone (`tests/test_example.py`).
+
+Every case also lists the rules its answer is checked against in
+`expect.answer.rules`, and `profile.yaml` gives `plain-text` and `read-only`
+a `check:`: the entries each listing case copies. After the run,
+`rule_report.py` (the demo's last block) reports the run **by rule id**:
+`plain-text` pass on six cases, `read-only` on one, `grounded-only` through
+the judge (its criterion `no_unsupported_claim` says `rule: grounded-only`),
+`dispute-window` not checked. `demo.py --break-rule` plants the violation:
+`plain-text` comes out `FAIL` with its source, `tests/test_example.py:82`,
+its quote and the six failing cases; the gate closes through those cases,
+as it would without the report, which decides nothing. The rules:
 
 | Rule | Covered by | Why |
 |---|---|---|
@@ -135,8 +147,8 @@ from the document with `status: inferred` and a `contradiction:` naming the
 fragment. It gets no case until the owner says which is right, so the
 validator lists it under `gaps` and `contradictions`. And it cannot gate:
 a case with `gating: true` that covers a rule no human confirmed is a
-validator ERROR (`unconfirmed_rule_gates`). Nothing scores a rule yet; the
-links are bookkeeping, and no verdict depends on them.
+validator ERROR (`unconfirmed_rule_gates`). The rule report shows it as
+`not checked`; no verdict depends on a rule's status.
 
 ### Four layers score; the rest say why they cannot
 

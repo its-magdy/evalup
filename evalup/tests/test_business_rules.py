@@ -403,6 +403,24 @@ class TestUnscored(HandRun):
         self.assertEqual(doc["unknown_rules"], ["ghost"])
         self.assertIn("ghost", out["summary"][-1])
 
+    def test_malformed_json_exits_2_without_a_traceback(self):
+        self.case("c-f", {"answer": self.answer("pass")}, EXPECT_PLAIN)
+        bad = self.tmp / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        for argv in (["--profile", bad], ["--profile", self.profile,
+                                          "--judged", bad]):
+            with self.subTest(argv=argv[-1]):
+                rc, out, proc = script("rule_report.py", self.run_dir, *argv)
+                self.assertEqual(rc, 2, proc.stdout)
+                self.assertIn("error", out)
+                self.assertNotIn("Traceback", proc.stderr)
+        (self.run_dir / "cases" / "c-f" / "verdict.json").write_text(
+            "{not json", encoding="utf-8")
+        rc, out, proc = script("rule_report.py", self.run_dir, "--profile",
+                               self.profile)
+        self.assertEqual(rc, 2, proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
+
     def test_bad_input_exits_2(self):
         rc, out, _ = script("rule_report.py", self.tmp / "nope", "--profile",
                             self.profile)

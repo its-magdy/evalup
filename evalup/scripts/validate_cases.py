@@ -130,10 +130,21 @@ rule (unconfirmed_non_gating: they close no gate, but gate.py
 --min-pass-rate counts every scored non-canary case). A canary covering an
 unconfirmed rule is the same ERROR as a gating case: its fail aborts the
 run. A gap is a report line, not a finding: a rule with no
-case makes no number untrue -- nothing scores rules (#26) -- and an inferred
-or contradicted rule is meant to wait for its case, which a --strict
-failure would push generate to write. `covers` reaches no scorer and no
-verdict.
+case makes no number untrue -- a rule is only ever reported through its
+cases' checks -- and an inferred or contradicted rule is meant to wait for
+its case, which a --strict failure would push generate to write. `covers`
+reaches no scorer and no verdict.
+
+RULE BINDINGS (--profile, #26). `expect.answer.rules` lists the rules a
+case's answer is checked against; its ids count as covers, so the gating
+refusal above reads them too. Each listed rule must be checked by
+something on the case, or rule_report.py would report a check the run
+never made: the rule's `check:` in profile.yaml, every entry of it copied
+into the case's must_contain / must_not_contain (rule_check_missing), or a
+criterion with `rule: <id>` on the case's pinned rubric (seen only with
+--rubrics: rule_binding_unchecked without it). A rule with neither is
+rule_unbound; an off-shape `check:` is bad_rule_check; a rubric criterion
+judging a rule the case does not list WARNs rule_judged_unlisted.
 
 Usage: validate_cases.py --cases <file.json|->
                          (--capabilities <file.json> | --no-capabilities)

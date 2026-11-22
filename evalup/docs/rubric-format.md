@@ -130,9 +130,13 @@ this instead?** A large majority of real business policies are ("never quote a
 price not present in a tool result," "never promise a refund exceeding order
 total") — those belong in `profile.yaml`'s business-rule oracles and
 `answer.rules` (see case-format.md), checked with no judge call and no
-per-case label at all. **No scorer reads `answer.rules` yet** — a run reports
-it `unscored` — so today state a checkable rule as `answer.must_contain` /
-`must_not_contain`. A rubric DAG node
+per-case label at all. Such a rule carries a `check:` in profile.yaml
+(`must_contain` / `must_not_contain` entries), and a case lists it in
+`answer.rules` and copies the entries; the answer layer scores them and
+`rule_report.py` reports them under the rule's id (#26). A rule that does
+need interpretation is a `form: criteria` criterion tagged `rule: <id>`:
+its verdict is reported under that id too, provisional like every judged
+verdict, and the tag never reaches the judge's prompt. A rubric DAG node
 is for facets that genuinely need interpretation and can't be reduced to a
 rule: does this explanation actually clarify the confusion the user had, is
 the hedging proportionate to the evidence, does the window described in
