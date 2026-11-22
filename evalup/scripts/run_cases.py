@@ -1139,11 +1139,14 @@ def transport_kind(exc):
     return kind, f"{type(exc).__name__}: {exc}"
 
 
-def stream_gap(body):
+def stream_gap(body, answer=False):
     """Why a decoded SSE body (_sse.decode) holds no whole run, or None.
 
     None for any body that is not a decoded stream: a JSON body has no
-    terminal event to miss."""
+    terminal event to miss. With `answer`, the caller found no answer, and a
+    run that finished on an approval interrupt with no text is named as
+    that (#103). Only the reason differs: the run is whole, so its tool
+    calls stay trustworthy and the caller without `answer` gets None."""
     if not (isinstance(body, dict) and isinstance(body.get("sse"), dict)):
         return None
     error = body.get("error")
@@ -1153,6 +1156,8 @@ def stream_gap(body):
         return f"the stream reported a run error ({code})"
     if body.get("finished") is False:
         return "the stream ended before its terminal event"
+    if answer and body.get("interrupted") is True and not body.get("text"):
+        return "the run ended on an approval interrupt with no text"
     return None
 
 
@@ -3438,7 +3443,7 @@ class Runner:
                 # content failure for what is an extraction gap. A stream
                 # that failed or stopped early says which (_sse keeps what did
                 # arrive as partial_text in response.json).
-                gap = stream_gap(record["response"]["body"])
+                gap = stream_gap(record["response"]["body"], answer=True)
                 layers["answer"] = unscored(
                     "answer",
                     f"{gap}; no answer to score" if gap else
