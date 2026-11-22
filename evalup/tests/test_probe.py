@@ -428,6 +428,105 @@ class TestVerdictOfTheProbe(ProbeCase):
         self.assertEqual(report["response"]["answer"], "wrong field")
 
 
+def scoped_app(path, body, headers):
+    """An app that refuses out-of-scope questions with a deliberate 400 and
+    a body the adapter reads (#124), like the quickstart's."""
+    if "weather" in json.dumps(body):
+        return 400, {"message": "I only help with invoices and shifts",
+                     "domain": "none"}, {}
+    return 200, {"message": "you have 2 open invoices", "calls": []}, {}
+
+
+class TestAppRefusedWithA4xx(ProbeCase):
+    """#124: a 4xx with an answer at the marker is the app's refusal, not an
+    adapter failure -- exit 8, a warning, no problems. The statuses that name
+    the adapter's own request keep exit 3 and "check auth"."""
+
+    responder = staticmethod(scoped_app)
+
+    def test_an_out_of_scope_400_is_exit_8_not_an_adapter_failure(self):
+        rc, report, proc = self.probe(self.write_adapter(
+            make_adapter(self.app.base_url)), message="weather in Paris")
+        self.assertEqual(rc, 8, proc.stdout + proc.stderr)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(len(report["warnings"]), 1)
+        self.assertIn("HTTP 400: the app answered", report["warnings"][0])
+        self.assertIn("in-scope question", report["warnings"][0])
+        self.assertNotIn("check auth", report["error"])
+        self.assertEqual(report["response"]["status"], 400)
+        self.assertEqual(report["response"]["answer"],
+                         "I only help with invoices and shifts")
+
+    def test_the_in_scope_question_still_verifies(self):
+        rc, report, _ = self.probe(self.write_adapter(
+            make_adapter(self.app.base_url)), message="my invoices")
+        self.assertEqual(rc, 0)
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["warnings"], [])
+        self.assertNotIn("error", report)
+
+    def test_a_400_with_no_answer_at_the_marker_is_still_exit_3(self):
+        adapter = make_adapter(self.app.base_url,
+                               invocation={"response_body":
+                                           '{"reply": "<answer>"}'})
+        rc, report, _ = self.probe(self.write_adapter(adapter),
+                                   message="weather")
+        self.assertEqual(rc, 3)
+        self.assertEqual(report["warnings"], [])
+        self.assertIn("check auth", report["problems"][0])
+
+    def test_statuses_naming_the_request_keep_check_auth(self):
+        # A user id longer than "1", which as an auth value is scrubbed at
+        # any length and would turn "HTTP 401" into "HTTP 40${EVAL_USER_ID}".
+        for status in (401, 403, 404, 405, 407):
+            with self.subTest(status=status):
+                self.app.server.responder = \
+                    lambda path, body, headers, s=status: (
+                        s, {"message": "nope"}, {})
+                rc, report, _ = self.probe(self.write_adapter(
+                    make_adapter(self.app.base_url)),
+                    env={"EVAL_USER_ID": "user-42"})
+                self.assertEqual(rc, 3)
+                self.assertEqual(report["warnings"], [])
+                self.assertIn(f"HTTP {status}: the app did not accept",
+                              report["problems"][0])
+
+    def test_a_csrf_guard_with_an_answer_is_still_the_guard(self):
+        self.app.server.responder = lambda path, body, headers: (
+            419, {"message": "CSRF token mismatch."}, {})
+        rc, report, _ = self.probe(self.write_adapter(
+            make_adapter(self.app.base_url)))
+        self.assertEqual(rc, 3)
+        self.assertEqual(report["warnings"], [])
+        self.assertIn("same-origin or CSRF guard", report["problems"][0])
+
+    def test_a_refusal_without_a_tool_call_list_is_said_not_failed(self):
+        adapter = make_adapter(self.app.base_url, traces={
+            "source": "response", "tool_calls_path": "calls"})
+        rc, report, proc = self.probe(self.write_adapter(adapter),
+                                      message="weather")
+        self.assertEqual(rc, 8, proc.stdout)
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(len(report["warnings"]), 2)
+        self.assertIn("tool_calls_path", report["warnings"][1])
+        rc, report, _ = self.probe(self.write_adapter(adapter),
+                                   message="invoices")
+        self.assertEqual(rc, 0, report)
+
+    def test_a_5xx_or_429_with_an_answer_is_still_exit_3(self):
+        for status in (429, 503):
+            with self.subTest(status=status):
+                self.app.server.responder = \
+                    lambda path, body, headers, s=status: (
+                        s, {"message": "try later"}, {})
+                rc, report, _ = self.probe(self.write_adapter(
+                    make_adapter(self.app.base_url)))
+                self.assertEqual(rc, 3)
+                self.assertEqual(report["warnings"], [])
+                self.assertIn("no usable response", report["problems"][0])
+
+
 class TestJsonToolCalls(ProbeCase):
     @staticmethod
     def responder(path, body, headers):
