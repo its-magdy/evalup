@@ -41,13 +41,14 @@ evals-skills is in the [repository README](../README.md#neighbours).
 - **Claude Code.** evalup installs as a Claude Code plugin only: claude.ai
   and Cowork don't install a plugin that ships a `bin/` directory, and the
   skills call the scripts through `bin/evalup`.
-- **Python 3.9+ with PyYAML.** `scripts/convert_suite.py` turns your YAML
-  test suite into JSON before every run, and it needs PyYAML importable by the
-  `python3` Claude Code calls. A stock macOS `python3` does not have it:
-  `python3 -m pip install --user pyyaml`, or a venv with PyYAML first on your
-  `PATH` if pip refuses (Homebrew Python). Running the scripts by hand,
-  `uv run --with pyyaml python …` needs no install. Everything else imports
-  only the stdlib.
+- **Python 3.9+, and PyYAML or `uv`.** `scripts/convert_suite.py` turns your
+  YAML test suite into JSON before every run, and it needs PyYAML. A stock
+  macOS `python3` does not have it. With [`uv`](https://docs.astral.sh/uv/)
+  on `PATH` you need nothing more: the script re-runs itself under
+  `uv run --no-project --with pyyaml` (set `EVALUP_NO_UV=1` to stop that).
+  Otherwise `python3 -m pip install --user pyyaml`, or a venv with PyYAML
+  first on your `PATH` if pip refuses (Homebrew Python). Everything else
+  imports only the stdlib.
 - **An app you can call**: an HTTP endpoint that returns one JSON body or a
   server-sent event stream (AG-UI, or any JSON-frame stream with a declared
   text path: `invocation.response_format: sse`), a Python
@@ -106,7 +107,8 @@ python3 evalup-repo/evalup/scripts/convert_suite.py --self-check
 ```
 
 The second line fails with exit 2 and an install hint when that `python3`
-cannot import PyYAML; `/evalup:start` runs the same check before it reads your
+cannot import PyYAML and no `uv` can supply it (through `uv` it prints
+`"via": "uv"`); `/evalup:start` runs the same check before it reads your
 app.
 
 ---

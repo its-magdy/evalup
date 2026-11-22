@@ -132,7 +132,7 @@ PyYAML:** run `evalup convert-suite --self-check`.
 Generate and run convert the YAML suite with it, and a stock macOS `python3`
 lacks it. Exit 0: say nothing. Exit 2: tell the user now, quoting the
 script's `error` (it names the interpreter and the fix): cases can be written
-but not run until `python3` imports `yaml`. Then carry on.
+but not run until `python3` imports `yaml` or `uv` is on PATH. Then carry on.
 
 1. **Locate the target app.** Use `$ARGUMENTS` if given; otherwise ask for the
    app's repo path or endpoint URL. **Read and list only under the app path,

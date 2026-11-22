@@ -21,8 +21,11 @@ PyYAML is a real, complete parser, which is the docstrings' own requirement;
 it is imported lazily, and its absence is an exit-2 message naming the fix,
 not a traceback. Nothing at RUN time depends on it: the runner and every scorer
 still read JSON and still import nothing. A machine without PyYAML loses this
-convenience and nothing else (`uv run --with pyyaml python convert_suite.py ...`
-needs no install at all).
+convenience and nothing else -- and with `uv` on PATH not even that: the script
+re-runs itself under `uv run --no-project --with pyyaml` on the same
+interpreter (same arguments, stdin, stdout, exit code), which covers every
+caller, `bin/evalup`, `run_cases.py --probe` and `judge_run.py plan` alike.
+`--self-check` then adds "via": "uv". EVALUP_NO_UV=1 turns that off.
 
 Two things a bare yaml.safe_load gets wrong for this job, both closed here:
   - a DUPLICATE KEY is legal YAML to PyYAML, which keeps the last one silently.
@@ -89,6 +92,8 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
+import subprocess
 import sys
 
 from _common import add_version_flag, die, load_text, write_output
@@ -102,19 +107,69 @@ PROFILE_FIELDS = ("schema_version", "stage", "judge", "business_rules",
                   "risks")
 
 
-def yaml_module():
-    try:
-        import yaml
-    except ImportError:
-        die(f"convert_suite.py needs PyYAML and {sys.executable} cannot "
+# Set on the re-run under uv, so a uv that still cannot give us PyYAML is the
+# install hint, never a loop. EVALUP_NO_UV=1 turns the fallback off.
+VIA_UV_ENV = "EVALUP_PYYAML_VIA_UV"
+NO_UV_ENV = "EVALUP_NO_UV"
+
+
+def install_hint(extra=""):
+    return (f"convert_suite.py needs PyYAML and {sys.executable} cannot "
             "import it. Install it for that interpreter: `python3 -m pip "
             "install --user pyyaml`; if pip refuses with "
             "externally-managed-environment (Homebrew Python), make a venv "
             "(`python3 -m venv ~/.venvs/evalup && ~/.venvs/evalup/bin/pip "
             "install pyyaml`) and start Claude Code with its bin/ first on "
-            "PATH. By hand, with no install, `uv run --with pyyaml python "
-            "<this script> ...` also works. Nothing else in evalup needs it "
-            "-- the runner and scorers read the JSON this script writes.")
+            "PATH. Or install uv (https://docs.astral.sh/uv/): with `uv` on "
+            "PATH this script runs itself under `uv run --with pyyaml` and "
+            "needs no install. Nothing else in evalup needs it -- the runner "
+            "and scorers read the JSON this script writes." + extra)
+
+
+def uv_command(uv, *argv):
+    """`uv run` on this same interpreter, plus PyYAML in a throwaway env
+    that uv caches. --no-project: never read or touch the app's own
+    pyproject.toml or lockfile, since the CWD is the user's app."""
+    return [uv, "run", "--no-project", "--quiet", "--python", sys.executable,
+            "--with", "pyyaml", "python", *argv]
+
+
+def rerun_under_uv():
+    """No PyYAML here: run this same command again under uv, if uv is on
+    PATH, with the same arguments, stdin, stdout and exit code. Returns
+    only with the reason it could not; a successful re-run never returns."""
+    if os.environ.get(VIA_UV_ENV):
+        return " (Already re-run under uv, which could not provide it.)"
+    if os.environ.get(NO_UV_ENV):
+        return ""
+    uv = shutil.which("uv")
+    if uv is None:
+        return ""
+    # Check first, with output captured, so a uv that cannot fetch PyYAML
+    # (offline, no cache) is this script's JSON error, not uv's stderr.
+    try:
+        probe = subprocess.run(uv_command(uv, "-c", "import yaml"),
+                               stdin=subprocess.DEVNULL, capture_output=True,
+                               text=True, timeout=300, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f" (uv is on PATH but failed: {exc})"
+    if probe.returncode != 0:
+        tail = (probe.stderr or probe.stdout).strip().splitlines()
+        return (" (uv is on PATH but could not provide PyYAML: "
+                f"{tail[-1] if tail else f'exit {probe.returncode}'})")
+    cmd = uv_command(uv, os.path.abspath(__file__), *sys.argv[1:])
+    env = dict(os.environ, **{VIA_UV_ENV: "1"})
+    sys.stdout.flush()
+    if os.name == "posix":
+        os.execve(uv, cmd, env)
+    sys.exit(subprocess.call(cmd, env=env))
+
+
+def yaml_module():
+    try:
+        import yaml
+    except ImportError:
+        die(install_hint(rerun_under_uv()))
     return yaml
 
 
@@ -251,9 +306,11 @@ def main():
 
     if a.self_check:
         yaml = yaml_module()
-        print(json.dumps({"ok": True,
-                          "pyyaml": getattr(yaml, "__version__", "unknown"),
-                          "python": sys.executable}))
+        doc = {"ok": True, "pyyaml": getattr(yaml, "__version__", "unknown"),
+               "python": sys.executable}
+        if os.environ.get(VIA_UV_ENV):
+            doc["via"] = "uv"
+        print(json.dumps(doc))
         return
     if a.adapter_file is not None:
         if a.state_dir is not None or a.split_dir:

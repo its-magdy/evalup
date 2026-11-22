@@ -93,8 +93,8 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
 - **`convert_suite.py`** is the run's parse of the YAML, not a second opinion,
   which is why you do not re-type it. It leaves `${VAR}` refs unresolved (the
   runner resolves them, so no secret reaches a file). It needs PyYAML, the only
-  script that does; if absent, the error names the fix, and `uv run --with
-  pyyaml python …` needs no install.
+  script that does; with `uv` on PATH it fetches it itself, else the error
+  names the fix.
 - **`validate_cases.py`** owns what a valid case is; the runner does not
   re-lint. Fix errors in the YAML and re-convert — never in the JSON.
   `--capabilities` is required (`--no-capabilities` only with genuinely no
