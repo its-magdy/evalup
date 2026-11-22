@@ -215,7 +215,8 @@ deterministic step; the skill does only the launches.
 1. **`judge_run.py plan reports/<run-id> --rubrics <state>/rubrics`**
    selects the cases, snapshots each rubric (id, version, sha256 of the
    file bytes), checks the self-test blocks, prints the estimate (§11) and
-   writes `judge/plan.json`. Exit 0 with nothing to judge is normal.
+   writes `judge/plan.json`, creating `judge/inbox/` for the replies.
+   Exit 0 with nothing to judge is normal.
 2. The skill launches the self-test calls, records them (step 3), and only
    then one call per selected case on a rubric whose self-test passed, up to
    four in one message.

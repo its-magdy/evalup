@@ -809,6 +809,41 @@ class TestRubricLint(JudgeRunTest):
         self.assertIn("rubric_pin_stale", codes)
 
 
+class TestInbox(JudgeRunTest):
+    """#125: plan names every reply_file under judge/inbox/, so it makes
+    that directory; a reply copied there (not written with Write) lands."""
+
+    def test_plan_creates_the_inbox_its_reply_files_name(self):
+        self.case("c-1")
+        out = self.plan()
+        inbox = self.run_dir / "judge" / "inbox"
+        self.assertTrue(inbox.is_dir())
+        self.assertTrue(out["pending"])
+        for launch in out["pending"]:
+            self.assertEqual(pathlib.Path(launch["reply_file"]).parent,
+                             inbox)
+        shutil.copyfile(self.tmp / "rubrics.json",
+                        out["pending"][0]["reply_file"])
+
+    def test_restart_and_resume_leave_an_inbox(self):
+        self.case("c-1")
+        self.plan()
+        self.self_test()
+        inbox = self.run_dir / "judge" / "inbox"
+        shutil.rmtree(inbox, ignore_errors=True)
+        self.plan("--resume")
+        self.assertTrue(inbox.is_dir())
+        (inbox / "stale.txt").write_text("x", encoding="utf-8")
+        self.plan("--restart")
+        self.assertEqual(list(inbox.iterdir()), [])
+
+    def test_nothing_to_judge_still_exits_zero(self):
+        self.case("c-1", rubric=None)
+        out = self.plan()
+        self.assertEqual(out["pending"], [])
+        self.assertTrue((self.run_dir / "judge" / "inbox").is_dir())
+
+
 class TestReviewFixes(JudgeRunTest):
     """What the Opus review of the build found, each pinned."""
 
@@ -982,7 +1017,6 @@ class TestTheWall(ExampleCase):
             text = (replies / (name + ".txt")).read_text("utf-8").replace(
                 f'"case_id": "{name}"', f'"case_id": "{launch["key"]}"')
             path = out / "judge" / "inbox" / (launch["key"] + ".txt")
-            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
             rc, _, proc = script("judge_run.py", *launch["record_args"])
             self.assertEqual(rc, 0, proc.stdout)
