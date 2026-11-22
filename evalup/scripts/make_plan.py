@@ -40,6 +40,12 @@ them off and neither can be X. A canary that asserts only a disabled layer
 rolls up `unscored`; stderr and the summary's `notes` name each one, because
 gate.py will report the harness as not verified by it.
 
+manifest_extra is computed: dataset_version, the app's name, repo, git SHA
+and clean/dirty, the profile's judge block, and `app.model` from profile.yaml's
+`app_model` (#104) -- what judge_run.py's same-family check reads. A
+--manifest-extra file merges over it; a key in it the runner does not record
+is named on stderr and in `notes` (#111), never dropped silently.
+
 Exit 0 and the plan on stdout, or with -o a one-object summary naming the run
 id, the --out directory and the exact runner command. Exit 2 on bad input
 ({"error": ...} on stdout, like every script here).
@@ -51,6 +57,7 @@ Usage:
 """
 import argparse
 import datetime
+import difflib
 import json
 import math
 import os
@@ -148,6 +155,52 @@ def git_state(repo):
 # checkout and the dataset, and a caller value would pin the run to
 # provenance nobody measured.
 PROTECTED_EXTRA = ("dataset_version", "app.git_sha", "app.git_tree")
+
+
+# The manifest_extra keys run_cases.py records in manifest.yaml (#111). Any
+# other key is carried in the plan and dropped by the runner, so a typo
+# (`prompt_hashes`, a flat `app_model`) would leave the manifest null where
+# the caller meant a value: warned, never silent.
+RECORDED_EXTRA = ("dataset_version", "app", "prompt_snapshot_hashes", "judge",
+                  "rubric_versions", "temperature", "cost_estimate")
+# Keys the runner records from somewhere other than manifest_extra.
+EXTRA_ELSEWHERE = {
+    "environment_kind": "the runner records the adapter's environment.kind",
+    "app_model": "the key is app.model: {\"app\": {\"model\": ...}}",
+    "model": "the app's model is app.model: {\"app\": {\"model\": ...}}",
+}
+
+
+def unrecorded_keys(caller):
+    """One note per --manifest-extra key the runner would drop."""
+    out = []
+    for key in sorted(caller):
+        if key in RECORDED_EXTRA:
+            continue
+        hint = EXTRA_ELSEWHERE.get(key)
+        if hint is None:
+            close = difflib.get_close_matches(key, RECORDED_EXTRA, n=1)
+            hint = f"did you mean {close[0]!r}?" if close else None
+        out.append(f"--manifest-extra {key!r} is not a key run_cases.py "
+                   "records, so it will not reach manifest.yaml"
+                   + (f" ({hint})" if hint else "")
+                   + f"; the recorded keys are {', '.join(RECORDED_EXTRA)}")
+    return out
+
+
+def app_model(profile):
+    """profile.yaml's `app_model` (#104): the model id the app calls, or a
+    {role: model id} mapping for an app with several. None when absent or
+    malformed -- judge_run.py's same-family check reads a string or a dict of
+    strings, and anything else would read as `unknown` anyway."""
+    value = (profile or {}).get("app_model")
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, dict) and value and all(
+            isinstance(k, str) and isinstance(v, str) and v.strip()
+            for k, v in value.items()):
+        return dict(value)
+    return None
 
 
 def merge_extra(computed, caller, notes):
@@ -284,7 +337,9 @@ def main():
                     "merged over the computed manifest_extra (models, prompt "
                     "hashes, temperature, cost estimate -- what only the "
                     "caller knows); objects merge one level deep, so "
-                    "`app.model` keeps the computed `app.git_sha`")
+                    "`app.model` keeps the computed `app.git_sha` (and "
+                    "overrides the profile's app_model). A key the runner "
+                    "does not record is warned about on stderr")
     a = ap.parse_args()
 
     if a.mode == "full":
@@ -424,17 +479,25 @@ def main():
     repo_path = repo if isinstance(repo, str) and os.path.isabs(repo) \
         else os.path.normpath(os.path.join(state_dir, repo or "."))
     sha, tree = git_state(repo_path)
-    profile_judge = (converted.get("profile") or {}).get("judge")
+    profile = converted.get("profile") or {}
+    profile_judge = profile.get("judge")
+    model = app_model(profile)
+    if model is None and profile.get("app_model") is not None:
+        notes.append("profile app_model is neither a model id nor a mapping "
+                     "of role -> model id: left out of the manifest, so the "
+                     "judge's same-family check reads `unknown`")
     extra = {
         "dataset_version": dataset_version,
-        "app": {"name": app.get("name"), "repo": repo, "git_sha": sha,
-                "git_tree": tree},
+        "app": dict({"name": app.get("name"), "repo": repo, "git_sha": sha,
+                     "git_tree": tree},
+                    **({"model": model} if model is not None else {})),
         "judge": profile_judge if isinstance(profile_judge, dict)
         else {"model": None, "status": "uncalibrated"},
     }
     if a.manifest_extra:
-        merge_notes = []
-        extra = merge_extra(extra, load_object(a.manifest_extra), merge_notes)
+        caller = load_object(a.manifest_extra)
+        merge_notes = unrecorded_keys(caller)
+        extra = merge_extra(extra, caller, merge_notes)
         for note in merge_notes:
             print(note, file=sys.stderr)
         notes.extend(merge_notes)

@@ -108,7 +108,7 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `evalup run-cases` with its `--plan` and `--out`. Its other flags are the
   mode's — `--tag`/`--failing-in` (`--filter-failing`), `--k N`, `--layer X`,
   `--oos-route`, the retry pair, `--single-turn`/`--max-turns` —
-  run-modes.md's flags section says what each does, for any mode but smoke.
+  run-modes.md's flags section says what each does.
   A smoke or first run does not open it; the two it may need are here: `--oos-route <name>` — `scoring.oos_route` comes from the
   profile's `oos_handling: route:<name>`, so pass it when the route is
   declared any other way, or OOS metrics go unreported — and `--insecure-tls` for a self-signed local dev host
@@ -119,10 +119,10 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `datasets/holdout-looks.jsonl`); **`paths.judge_calibration`** is set when
   `judge/calibration.json` exists. `judge.status: calibrated` alone does not
   open the judged gate — that flag is DERIVED and only the sidecar derives it.
-- **`--manifest-extra <file.json>`** carries what only you know — models,
-  prompt snapshot hashes, rubric versions, temperature, environment kind, cost
-  estimate. The script fills `dataset_version`, the app's git SHA and
-  clean/dirty itself. Without these the run compares to nothing.
+- **`--manifest-extra <file.json>`** carries what only you know, under
+  `prompt_snapshot_hashes`, `rubric_versions`, `temperature`,
+  `cost_estimate` and `app.model` (other keys warn). The script fills the
+  rest, `app.model` from profile `app_model`.
 
 Full shape and defaults, if you need them: runner-contract §2.
 
@@ -137,8 +137,9 @@ evalup run-cases --plan <work-dir>/plan.json --out reports/<run-id> \
 on anything unfamiliar. Then estimate, without calling the app by hand:
 time is its `app_calls_planned` × the per-request latency discover §4
 recorded in findings.md, plus the larger of its `wait_floor_s` and
-`pace_floor_s`; dollars are those calls × tokens × price (+ judge calls)
-when a price is known. Under an app-side
+`pace_floor_s`. Dollars: `--cost-from <last priced run's cost.json>` gives
+`estimate.usd` (+ judge calls); with none, give messages and minutes, name
+`estimate.models`, ask for prices. Under an app-side
 rate limit (findings or adapter), also state `app_calls_max` (every retry)
 and fit `--max-attempts` to it. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and

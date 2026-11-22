@@ -106,8 +106,8 @@ signals is itself a finding — never silently pick one and move on.
 ### 3. Code archaeology (white-box)
 Read the code for: agent definitions and their system prompts (files, constants,
 DB references), tool schemas and descriptions, routing/dispatch definitions (the
-route targets the app chooses between, if any), model configuration,
-conversation/session handling, OTel setup. Record as you go:
+route targets the app chooses between, if any), model configuration
+(→ `app_model`), conversation/session handling, OTel setup. Record as you go:
 - Every **optimizable surface** — prompt and tool-description locations → `prompts[]`
   — and whether an edit to it takes effect only after a rebuild or restart
   (compiled-in, embedded, or loaded at startup). Record that in findings.md
