@@ -126,8 +126,8 @@ every tool, never mostly the one record a probe grounded.
 
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
 of the suite size plus a floor**, never a fixed count. Apply them to the size
-actually being generated, and note in the metadata when a floor overrode its
-ratio. suite-sizing.md holds both those numbers and the caveat on what this
+actually being generated — the holdout to the suite after it (§4) — and note
+when a floor overrode its ratio. suite-sizing.md holds both those numbers and the caveat on what this
 size may claim, which goes in the metadata too.
 
 ## 2. Generation rules (pass to test-generator)
@@ -253,7 +253,8 @@ on that.
   still `pending` (`smoke` too) until the review.
 - `smoke` (~1/3 of full, floor 5): diversity-selected to maximize spread across
   grid cells and phrasings, never random. Used by everyday runs and hooks.
-- `holdout` (20% at ≥25 cases; below that skip it and say so): SEALED. Written
+- `holdout` (20% of the suite after this addition — suite-sizing.md; under
+  25 cases after it, skip it and say so): SEALED. Written
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it.

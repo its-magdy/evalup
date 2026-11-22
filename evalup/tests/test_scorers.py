@@ -9,6 +9,7 @@ because that is its actual contract with the run skill.
 """
 import ast
 import json
+import math
 import os
 import pathlib
 import re
@@ -543,6 +544,166 @@ class TestStatsNoiseFloor(ScorerTest):
         self.assertIn("not bounded", loose["multi_look_explained"])
         self.assert_clean_error("stats.py", self.base, self.cand,
                                 "--candidate-looks", 0)
+
+
+class TestStatsHoldoutPower(ScorerTest):
+    """Issue #110: before the noise pair spends two looks, say whether the
+    sealed holdout can keep anything on this cluster. The counts must be the
+    real gate's: each split it names keeps through the two-file CLI, and one
+    fewer fixed case does not."""
+
+    def power(self, *argv):
+        rc, out, err = run_script("stats.py", "--holdout-power", *argv)
+        self.assertEqual(rc, 0, err)
+        return out
+
+    def gate(self, n, fixed, broken, noise):
+        """Two-file stats.py on n cases with this split and a noise pair
+        disagreeing on `noise` cases (all of them, so every change is
+        covered)."""
+        base = ["fail"] * fixed + ["pass"] * broken
+        base += ["pass", "fail"] * ((n - len(base)) // 2 + 1)
+        base = base[:n]
+        cand = (["pass"] * fixed + ["fail"] * broken + base[fixed + broken:])
+        flip = {"pass": "fail", "fail": "pass"}
+        noise_b = [flip[v] if i < noise else v for i, v in enumerate(base)]
+
+        def w(name, vs):
+            return self.write_jsonl(name, [{"case_id": f"c{i:03d}",
+                                            "verdict": v}
+                                           for i, v in enumerate(vs)])
+        rc, out, err = run_script("stats.py", w("b.jsonl", base),
+                                  w("c.jsonl", cand), "--noise-floor",
+                                  w("a.jsonl", base), w("n.jsonl", noise_b))
+        self.assertEqual(rc, 0, err)
+        return out["keep"]
+
+    def test_the_live_reproof_holdout_could_not_keep(self):
+        # 13 sealed cases; the cluster failed 14 of 46 training cases, so
+        # ~3.96 holdout cases. 3 fixed / 0 broken is P = 0.938: 4 are needed.
+        out = self.power(13, "--headroom", 13 * 14 / 46)
+        self.assertEqual(out["fewest_fixed_to_keep"],
+                         {"fixed": 4, "broken": 0, "net": 4})
+        self.assertEqual(out["smallest_net_to_keep"]["net"], 4)
+        self.assertFalse(out["can_keep"])
+        self.assertFalse(out["powered"])
+        self.assertEqual(out["min_detectable_effect"], 0.38)
+        self.assertEqual(out["holdout_cases_needed"], 21)
+        self.assertIn("CANNOT KEEP", out["explained"])
+
+    def test_powered_when_headroom_clears_the_mde(self):
+        out = self.power(50, "--headroom", 20)
+        self.assertTrue(out["can_keep"])
+        self.assertTrue(out["powered"])
+        self.assertEqual(out["holdout_cases_needed"], 50)
+
+    def test_named_splits_are_the_gates_own(self):
+        for n, noise in ((13, 0), (20, 3), (20, 10)):
+            out = self.power(n, "--headroom", n, "--noise-disagreements",
+                             noise)
+            for key in ("fewest_fixed_to_keep", "smallest_net_to_keep"):
+                split = out[key]
+                with self.subTest(n=n, noise=noise, key=key):
+                    self.assertTrue(self.gate(n, split["fixed"],
+                                              split["broken"], noise))
+                    self.assertFalse(self.gate(n, split["fixed"] - 1,
+                                               split["broken"], noise))
+
+    def test_a_noise_floor_can_make_breaks_lower_the_net(self):
+        # 10 disagreements: 0 broken needs 11 fixed, 3 broken needs only 9.
+        out = self.power(20, "--headroom", 20, "--noise-disagreements", 10)
+        self.assertEqual(out["smallest_net_to_keep"],
+                         {"fixed": 9, "broken": 3, "net": 6})
+        self.assertEqual(out["fewest_fixed_to_keep"]["fixed"], 9)
+
+    def test_the_two_forms_do_not_mix(self):
+        b = self.write_jsonl("b.jsonl", [{"case_id": "a", "verdict": "pass"}])
+        self.assert_clean_error("stats.py", "--holdout-power", 13)
+        self.assert_clean_error("stats.py", "--holdout-power", 13,
+                                "--headroom", 14)
+        self.assert_clean_error("stats.py", "--holdout-power", 0,
+                                "--headroom", 0)
+        self.assert_clean_error("stats.py", "--holdout-power", 13,
+                                "--headroom", 2, b, b)
+        self.assert_clean_error("stats.py", b, b, "--headroom", 2)
+        self.assert_clean_error("stats.py", b)
+
+
+class TestOptimizeReadsWhatExists(ScorerTest):
+    """optimize/SKILL.md names files and keys that something must write:
+    #112 was a step reading an `analyze --cluster` output nothing wrote, and
+    #110's check is only as good as the keys it names. Pin each one to its
+    writer, and the holdout share (#98) to the formula generate states."""
+
+    PLUGIN = SCRIPTS.parent
+
+    def text(self, rel):
+        return (self.PLUGIN / rel).read_text(encoding="utf-8")
+
+    def test_power_keys_optimize_names_are_printed(self):
+        skill = self.text("skills/optimize/SKILL.md")
+        self.assertIn("evalup stats --holdout-power", skill)
+        rc, out, err = run_script("stats.py", "--holdout-power", 13,
+                                  "--headroom", 4)
+        self.assertEqual(rc, 0, err)
+        for key in ("min_detectable_effect", "fewest_fixed_to_keep",
+                    "smallest_net_to_keep", "can_keep", "powered",
+                    "holdout_cases_needed"):
+            with self.subTest(key=key):
+                self.assertIn(f"`{key}", skill)
+                self.assertIn(key, out)
+
+    def test_the_cluster_file_has_a_writer_and_a_fallback(self):
+        analyze = self.text("skills/analyze/SKILL.md")
+        optimize = self.text("skills/optimize/SKILL.md")
+        for skill in (analyze, optimize):
+            self.assertIn("reports/<run-id>/clusters.json", skill)
+            self.assertIn("label_suspect", skill)
+        self.assertIn('"schema_version": 1', analyze)
+        self.assertNotIn("`analyze --cluster`\n   output", optimize)
+        # The fallback's fields are verdicts.jsonl's own row keys.
+        runner = (SCRIPTS / "run_cases.py").read_text(encoding="utf-8")
+        for field in ("verdict", "gating", "canary", "layers", "category",
+                      "failed_turn"):
+            with self.subTest(field=field):
+                self.assertIn(f"`{field}", optimize)
+                self.assertIn(f'"{field}"', runner)
+
+    def test_the_holdout_share_is_of_the_suite_after_the_addition(self):
+        sizing = self.text("skills/generate/references/suite-sizing.md")
+        optimize = self.text("skills/optimize/SKILL.md")
+        self.assertIn("⌈0.2 × (E + N)⌉ − H₀", sizing)
+        self.assertIn("⌈0.2 × (E + N)⌉", optimize)
+        self.assertNotIn("1.25 ×", optimize)
+        # The worked number both quote: 11 training cases + 50 new.
+        e, n, h0 = 11, 50, 0
+        sealed = math.ceil(0.2 * (e + n)) - h0
+        self.assertEqual(sealed, 13)
+        self.assertGreaterEqual(sealed, 0.2 * (e + n))
+        self.assertLess(0.2 * n, 0.2 * (e + n))
+        # Any N >= ceil(E/4) fits the share inside the new cases.
+        for e in range(200):
+            for h0 in range(e // 2 + 1):
+                n = math.ceil(e / 4)
+                self.assertLessEqual(math.ceil(0.2 * (e + n)) - h0, n)
+
+    def test_a_power_target_reaches_both_bars(self):
+        # Optimize step 4's unlock: generate seals the larger of T and its
+        # share, N >= T and >= ceil(E/4). A large, under-sealed suite (100
+        # cases, 10 sealed, 21 needed) once stalled at a 5 x needed bound.
+        optimize = self.text("skills/optimize/SKILL.md")
+        self.assertIn("N ≥ ⌈E/4⌉", optimize)
+        self.assertNotIn("5 ×\n   `holdout_cases_needed`", optimize)
+        for e in range(0, 160, 3):
+            for h0 in range(0, e // 3 + 1, 2):
+                for needed in range(h0, h0 + 30, 4):
+                    t = needed - h0
+                    n = max(t, math.ceil(e / 4))
+                    share = max(0, math.ceil(0.2 * (e + n)) - h0)
+                    sealed = min(n, max(share, t))
+                    with self.subTest(e=e, h0=h0, needed=needed):
+                        self.assertGreaterEqual(h0 + sealed, needed)
+                        self.assertGreaterEqual(h0 + sealed, 0.2 * (e + n))
 
 
 class TestNoOpKeepRate(unittest.TestCase):

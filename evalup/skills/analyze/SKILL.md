@@ -141,8 +141,15 @@ its outputs by failure mode, not by metric: same wrong-route pair, same tool
 confusion, same rule violation, same missing clarification. Per cluster: count,
 2 exemplar traces (expected vs actual), implicated surface, effort tag
 (text-edit / code-change / architecture). Order by frequency × severity.
-`optimize` consumes this output. The user just fixing the top cluster by hand
-is success too. End by asking which clusters are real and which mean the case
+`optimize` consumes this output: write it to `reports/<run-id>/clusters.json`
+(never for a holdout run) as `{"schema_version": 1, "run_id", "clusters":
+[{"id", "failure_mode", "case_ids", "layers", "surface", "effort",
+"status"}]}`, in the order above. `layers` names the failing
+`verdicts.jsonl` rows; `status` is `unconfirmed` until the closing question
+below answers `real` or `label_suspect`, then rewrite the file (the
+never-passed group is `label_suspect` from the start). If the write is
+denied, say so: optimize falls back to `verdicts.jsonl`.
+The user just fixing the top cluster by hand is success too. End by asking which clusters are real and which mean the case
 label is wrong. A wrong label is a proposed fix under `label_fixes:` in
 `dataset.yaml` until the owner decides; an applied one keeps `review`
 accepted, adds a dated `notes` line, bumps `dataset_version` and needs a
