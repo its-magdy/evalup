@@ -98,7 +98,7 @@ A sealed case is never read, so a check defect a training review found can
 sit in it too (a sibling template). While the ledger
 (`datasets/holdout-looks.jsonl`) has **no line** for this seal, and the
 noise pair's runs are lines, the fix is a recorded pre-look fix; after
-that, it is `analyze --unseal` and a reseal.
+that, it is `analyze --unseal` and a reseal. Never edit a sealed case by hand.
 
 1. State the fix as a generic transformation on `expect.*` (never `input`),
    in words that name no holdout case, and make it by hand on the training
