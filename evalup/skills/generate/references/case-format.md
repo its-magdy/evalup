@@ -288,7 +288,7 @@ the adapter declares `invocation.conversation`.
 Validation: `validate_cases.py`, run as `${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
 §1 spells it, before handing a dataset over. It checks at load time the "hard error, never a
 silent fallback" rules above (`order_mode`, args `calls` scope, empty
-`columns`), which the scorers would otherwise only hit at RUN time. Exit 0 = clean, 1 = errors, 2 = bad input.
+`columns`), which the scorers would otherwise hit only at run time. Exit 0 = clean, 1 = errors, 2 = bad input.
 
 `--capabilities` is **required**: without the matrix, a case asserting only
 DISABLED layers cannot be caught. `--no-capabilities` says so
@@ -321,6 +321,11 @@ Scoring semantics:
   `excluded_tools` and `difficulty` are scored by nothing; each one's comment
   above says why it is still worth recording, and the first four WARN.
 - `infra_error` / `infra_incomplete` verdicts never count in pass/fail denominators.
+- An `ag-ui` run that ends on an approval interrupt with no text has
+  `answer` `unscored`; text streamed before the interrupt is scored. To
+  check a proposal's wording, assert that text (`must_not_contain` a claim
+  the change is done). With none, the case passes on its tools alone (WARN
+  `answer_after_interrupt`, which `--strict` never promotes).
 - Judged dimensions are always reported as `unjudged`: the runner has no
   judge yet. The reason says why (mode, uncalibrated judge, or deferred) —
   never silently included.

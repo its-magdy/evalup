@@ -58,6 +58,13 @@ says when a release bumps it.
   pass skips already-failing cases unless `--include-failed`; a bulk-accept
   path for training cases (label-lifecycle.md); `tool_selection` scores
   `expect.args`; a seeded fixture is an oracle source; `evalup` off PATH.
+- An `ag-ui` run that ends on an approval interrupt with no text now says
+  so in its `answer` layer's `unscored` reason; text streamed before the
+  interrupt was already scored. `validate_cases.py --adapter` WARNs
+  `answer_after_interrupt` on a case that asserts `expect.answer` and
+  requires a tool not classed `safe-live`; `--strict` never promotes it.
+  adapter-contract.md and case-format.md say how to check a proposal's
+  wording (#103). No verdict changes.
 
 ## [0.1.0] — 2026-11-22
 

@@ -73,18 +73,14 @@ invocation:
 
   identity_map:                           # case `identity` -> headers. REQUIRED for
     permissions: X-User-Permissions       # authz cases: without it the runner SKIPS
-    role: X-Role-Id                       # them rather than running them under the
-    user: X-User-Id                       # adapter's default identity, which would
-                                          # score the wrong persona and report the
-                                          # number as if it meant something.
+    role: X-Role-Id                       # them rather than score the wrong persona
+    user: X-User-Id                       # (the adapter's default identity).
 
   health_check:                           # optional. Pre-flight's one trivial call.
     method: GET                           # Undeclared -> GET base_url, and ANY response
-    path: /healthz                        # (including 404) counts as "the host is up";
-    expect_status: [200]                  # inventing an API call would spend money on a
-                                          # shape you never declared. REQUIRED when
-                                          # traces are queryable, since the trace-join
-                                          # check needs a real call to join on.
+    path: /healthz                        # (including 404) counts as "the host is up".
+    expect_status: [200]                  # REQUIRED when traces are queryable: the
+                                          # trace-join check needs a real call to join on.
 
   # --- what the runner may OBSERVE, all optional, all declared ---
   # A route, a clarification and a result are read only from paths named
@@ -170,7 +166,8 @@ invocation:
   # `conversation` only, checked at pre-flight (exit 3).
   response_format: json        # | sse: a text/event-stream reply becomes {text,
   # tool_calls, error, finished, usage}; mark '{"text": "<answer>"}'. A failed
-  # stream is `unscored`. runner-contract.md §4 item 2b.
+  # stream is `unscored`, as is `answer` after an approval interrupt with no
+  # text (case-format.md). runner-contract.md §4 item 2b.
   # sse: {protocol: ag-ui}       # | {protocol: data-path, text_path: a.b, done: "[DONE]"}
   timeout_s: 60
   max_concurrency: 1           # serial. > 1 is REFUSED (exit 2), never
@@ -288,10 +285,9 @@ checks the declared value.
 
 ## Safe-to-attack + per-tool side-effect enforcement
 
-Two independent gates. The runner enforces both **at the case level**: an
-attack-category case is skipped unless `environment.safe_to_attack` is true,
-and a case naming a `never-live` tool under `environment.kind: live-*` is
-skipped (hard rule 2), with the reason recorded. Per-call interception — mock
+Two independent gates. The runner enforces both **per case**, recording why
+it skipped one: item 2 below, and hard rule 2 for a `never-live` tool under
+`environment.kind: live-*`. Per-call interception — mock
 substitution, refusing one call — is a wrapper the app's own team builds; the
 runner neither provides nor observes it. Neither gate is ever left to a prompt
 instruction or inferred from context:
@@ -305,11 +301,10 @@ instruction or inferred from context:
    - `never-live` — has an external side effect (email, payment, ticket);
      the wrapper must refuse the call outright unless the adapter explicitly
      marks the destination as a sandboxed double (e.g. a test email provider).
-2. **`environment.safe_to_attack`** — a single boolean gate on the whole
-   environment. `false` (the default) makes adversarial/red-team/chaos case
-   categories refuse to run, full stop, regardless of individual tool
-   classes — belt-and-suspenders for the case where a `needs-mock`
-   classification turns out to be wrong.
+2. **`environment.safe_to_attack`** — one boolean for the whole
+   environment. `false` (the default) skips every attack-category case
+   whatever the tool classes say: a backstop for a wrong `needs-mock`
+   classification.
 
 An app that builds a per-call wrapper puts it in one place: look up the
 tool's `side_effects` and the environment's `kind`/`safe_to_attack`, then
