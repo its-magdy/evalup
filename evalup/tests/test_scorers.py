@@ -1751,9 +1751,11 @@ JSON_CLI_SCRIPTS = SCORERS + ("build_review_viewer.py", "score_agreement.py",
 # owns its error contract. rule_report.py takes a run DIRECTORY and a
 # required --profile; tests/test_business_rules.py owns its error contract.
 # write_artifact.py reads Markdown, not JSON; tests/test_write_artifact.py
-# owns its error contract.
+# owns its error contract. prelook_fix.py takes a state directory;
+# tests/test_prelook_fix.py owns it.
 CLI_SCRIPTS = JSON_CLI_SCRIPTS + ("convert_suite.py", "judge_run.py",
-                                  "rule_report.py", "write_artifact.py")
+                                  "rule_report.py", "write_artifact.py",
+                                  "prelook_fix.py")
 
 
 class TestHarnessVersion(ScorerTest):

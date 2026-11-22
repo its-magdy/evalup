@@ -74,6 +74,16 @@ says when a release bumps it.
   adapter-contract.md and case-format.md say how to check a proposal's
   wording (#103). No verdict changes.
 
+### Added
+- `prelook_fix.py` (`evalup prelook-fix`): a check fix to a sealed holdout
+  before its first look (#99). It refuses once the look ledger has a line,
+  changes `expect.*` only, applies one generic transformation already on an
+  accepted training case to every case it matches, prints ids and hashes
+  only, and records each change under `dataset.yaml`'s `prelook_fixes:`
+  with a `dataset_version` bump. `--list` names the sealed cases and the
+  seal's templates (`templates/ho_*`) by id and hash; `convert_suite.py
+  --templates` feeds it. No verdict changes.
+
 ## [0.1.0] — 2026-11-22
 
 The first release, tagged `v0.1.0`. Pin it in CI with `EVALUP_REF: v0.1.0`
