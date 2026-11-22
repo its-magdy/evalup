@@ -92,6 +92,35 @@ Say in the handover how many were accepted this way. A bulk accept is a
 lighter review than §3's, so a wrong label found later is fixed as above
 (Correcting an accepted label), not by un-accepting the batch.
 
+## A sealed holdout case, before its first look
+
+A sealed case is never read, so a check defect a training review found can
+sit in it too (a sibling template). While the ledger
+(`datasets/holdout-looks.jsonl`) has **no line** for this seal, and the
+noise pair's runs are lines, the fix is a recorded pre-look fix; after
+that, it is `analyze --unseal` and a reseal. Never edit a sealed case by hand.
+
+1. State the fix as a generic transformation on `expect.*` (never `input`),
+   in words that name no holdout case, and make it by hand on the training
+   case first, through its review, until that case is `accepted`.
+2. Dry-run it, show the owner the output, and on the owner's yes apply it:
+   `evalup prelook-fix <state-dir> --transformation <fix.json>
+   --motivated-by <training id>`, then the same with
+   `--apply --approved-by <owner>`. It applies the fix to every case it
+   matches, in every split, and refuses once the ledger has a line or
+   `reports/` holds a holdout run at this `dataset_version`. It rewrites
+   only each case's `expect:` block, so a diff never shows an input.
+3. It prints ids and hashes, never case text, and records each changed case
+   in `dataset.yaml`'s `prelook_fixes:` (id, old and new hash, date,
+   approver, transformation, motivating case) with one `dataset_version`
+   bump. Then convert, validate and re-pin, as below.
+
+The hash is the run's: `manifest.yaml`'s `cases[].sha256`. The seal's
+templates (`templates/ho_*`) are sealed with it:
+`evalup prelook-fix <state-dir> --list` names them, and the sealed cases,
+by id and hash. Never open one, and never pass one to a reviewer, the
+judge or a report.
+
 ## Re-pinning
 
 `baseline.json` is written by

@@ -45,8 +45,8 @@ Arguments, when the user typed any: `$ARGUMENTS`
 Precondition: `profile.yaml` exists with its core entries verified
 (`architecture.kind`, the invocation shape, one route target or tool seen
 live — discover §4 defines the set). If not, stop and route to discover; route
-targets still `verified: false` are inferred, which is normal after a lean
-first session and no reason to bounce. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
+targets still `verified: false` are normal after a lean first session, no
+reason to bounce. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
 when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases by default, ~12 the minimum — what
@@ -94,9 +94,8 @@ in case-format.md. `category` is the input flavor, and it sub-divides MFT
 because those flavors share one oracle. Author each case against
 case-format.md's whole schema, not just its grid cell.
 
-The grid maps risk; it is a guide, not a quota. Cover every UNIT at least once,
-then weight cells by risk — costly or frequent paths get depth, rare ones get
-one case or none. Show the grid with counts before generating so the user can
+The grid maps risk, not a quota: cover every UNIT at least once, then give
+costly or frequent paths depth and rare ones one case or none. Show the grid with counts before generating so the user can
 rebalance, and list uncovered cells in the metadata as known gaps. Report
 coverage BY COLUMN too: a suite can cover every unit and still be 40%
 happy-path MFT with no INV (`validate_cases.py` warns above 40% in a category).
@@ -105,9 +104,8 @@ happy-path MFT with no INV (`validate_cases.py` warns above 40% in a category).
 state location (discover writes it beside the profile). Every numbered design
 finding with an observable symptom — an answer the app got wrong live, an
 inverted flag, a date window read backwards — gets at least one case whose
-expectation fails on that symptom: it is the one failure the suite is already
-known to be able to catch, and a grid that covers every unit can still miss
-it. Pass those findings to the generator with the grid assignment, and list
+expectation fails on that symptom: it is the one failure the suite is known
+to be able to catch, and a full grid can still miss it. Pass those findings to the generator with the grid assignment, and list
 the findings left uncovered, by number, under `known_gaps` in `dataset.yaml`.
 
 **Rules are its fourth.** Every `business_rules` entry, and every rule the
@@ -127,8 +125,8 @@ every tool, never mostly the one record a probe grounded.
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
 of the suite size plus a floor**, never a fixed count. Apply them to the size
 actually being generated — the holdout to the suite after it (§4) — and note
-when a floor overrode its ratio. suite-sizing.md holds both those numbers and the caveat on what this
-size may claim, which goes in the metadata too.
+when a floor overrode its ratio. suite-sizing.md holds the numbers and the size caveat, which goes in the
+metadata too.
 
 ## 2. Generation rules (pass to test-generator)
 
@@ -259,7 +257,9 @@ on that.
   25 cases after it, skip it and say so): SEALED. Written
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
-  reseal is due after N=5 looks. Optimization never trains on it.
+  reseal is due after N=5 looks. Optimization never trains on it. Its
+  templates (`ho_<id>`) are sealed: never open one. Before its first look,
+  a training-review check fix is `evalup prelook-fix` (label-lifecycle.md).
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary

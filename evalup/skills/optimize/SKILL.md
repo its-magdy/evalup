@@ -84,7 +84,7 @@ Each refusal names its unlock, as a command:
 |---|---|---|
 | 1 | `judge.status: calibrated` when any objective dimension is judge-scored. Check the evidence, not the flag: `paths.judge_calibration`'s sidecar (`score_agreement.py --write`) derives it; a `calibrated` profile without one is hand-set, and the runner refuses it. An uncalibrated judge as a target yields a confidently worse app. | `/evalup:analyze --label` until the sidecar backs it |
 | 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --layer <layer> --count <N>` (adds beside the existing cases, changes none), then its §3 review: a human accepts each training case and flips `gating` in the same edit — never a holdout case, which reading unseals |
-| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on. §4 seals ⌈0.2 × (E + N)⌉ − the current holdout of the N fresh, unread cases (E = the suite's cases now), so any N ≥ ⌈E/4⌉ with E + N ≥ 25 reaches the bar — e.g. 11 usable training cases, no holdout, N = 50: 13 sealed against a bar of 12.2 (20% of the 50 alone, 10, would miss it). Step 4's power check may ask for more; looks spent → `/evalup:analyze --unseal` |
+| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on. §4 seals ⌈0.2 × (E + N)⌉ − the current holdout of the N fresh, unread cases (E = the suite's cases now), so any N ≥ ⌈E/4⌉ with E + N ≥ 25 reaches the bar — e.g. 11 usable training cases, no holdout, N = 50: 13 sealed against a bar of 12.2 (20% of the 50 alone, 10, would miss it). Step 4's power check may ask for more; looks spent → `/evalup:analyze --unseal`; a check fix before any look → `evalup prelook-fix` (generate §4) |
 | 4 | `stage: stable` (a pre-#42 `traffic`/`production` counts as stable). At `early`, route-target and tool boundaries still move, so a gain is indistinguishable from drift. | `/evalup:discover` — its §6 sets `stage` once the user confirms the boundaries hold |
 | 5 | A budget, and its meter (below). | `/evalup:optimize --budget $N`, or ask |
 | 6 | White-box prompt access, and an edit that reaches the running app (below). | none: gray-box or `repo_access: read-only` → recommendations only, written to findings |
@@ -214,7 +214,10 @@ With R, P and H their `app_calls_planned`:
    - Count the ledger's lines (`${CLAUDE_PLUGIN_ROOT}/skills/run/SKILL.md`
      §4). Fewer than 3 of the 5 looks left (two noise runs and at least one
      candidate; 2 when the record already holds one noise run) → stop and
-     say a reseal is due (`analyze --unseal`); spend nothing.
+     say a reseal is due (`analyze --unseal`); spend nothing. A check fix
+     the seal needs goes in before this pair, while the ledger is empty
+     (`evalup prelook-fix`, ${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md);
+     after its first run only `analyze --unseal` remains.
    - Run the unedited champion twice with `/evalup:run --holdout` (k = 3 by
      default; never lower it here), on a build confirmed live (precondition
      6). Write the record after EACH run, not after both: after the first,
