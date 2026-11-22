@@ -1,0 +1,454 @@
+#!/usr/bin/env python3
+"""Apply a recorded pre-look fix to a sealed holdout, and list the seal (#99).
+
+A sealed holdout is written once (generate SS4) and reading a case unseals
+it (`analyze --unseal`, then a reseal). That leaves no way to fix a check
+defect the training review found, when the same defect sits in a sealed case
+from a sibling template. A pre-look fix is that way, and it is narrow:
+
+  1. Only while the seal's look ledger (datasets/holdout-looks.jsonl, the
+     run plan's `paths.holdout_ledger`) has ZERO lines. Every `run --holdout`
+     appends one -- the noise pair's two runs included -- and so does an
+     `analyze --unseal`, so one line means someone has seen holdout verdicts.
+     A reseal archives the ledger and empties it, which is what "this seal"
+     means.
+  2. The fix is a GENERIC TRANSFORMATION, written by a human without holdout
+     content, and already applied to at least one accepted training case
+     (--motivated-by). This script applies it to every case it matches, in
+     every split; nobody chooses which sealed cases get it.
+  3. It changes `expect.*` only, never `input` or anything else.
+  4. It prints case ids and hashes only. Never case text, and never a
+     convert_suite.py error, which can quote a case file's line.
+  5. datasets/dataset.yaml records each changed case under `prelook_fixes:`
+     (case id, old and new hash, date, the approving human, the
+     transformation, the motivating training case, the new dataset_version),
+     and `dataset_version` goes up by one.
+
+THE HASH is the one a run records: sha256 of the case's canonical JSON
+(run_cases.canonical_json, i.e. manifest.yaml's cases[].sha256) as
+convert_suite.py reads it. Templates are hashed the same way.
+
+THE TRANSFORMATION is a JSON object (a file path, or the object inline):
+  {"statement": "<what is wrong and why, in words that name no holdout case>",
+   "op": "replace_item" | "remove_item" | "set" | "delete",
+   "path": "expect.<key>[.<key>...]"   (or a list of keys),
+   ... the op's operands}
+  replace_item  {"from": X, "to": Y}  every item == X in the list at path -> Y
+  remove_item   {"value": X}          every item == X leaves the list at path
+  set           {"from": X, "to": Y}  the value at path, when == X, becomes Y
+  delete        {"from": X}           the key at path, when its value == X, goes
+A case matches when the op would change it. The motivating case must be a
+non-holdout case whose review.status is `accepted`, which the op leaves
+unchanged and which already shows the fixed form (the list holds `to` and not
+`from`; it lacks `value`; the path holds `to`; the key is absent).
+
+Case files are YAML, and this script is stdlib-only, so it writes a changed
+case file back as JSON (which is YAML), losing that file's comments, and edits
+dataset.yaml as text. It then re-reads everything through convert_suite.py and
+restores every file it wrote unless each hash is the one it computed.
+
+Usage:
+  prelook_fix.py <state-dir> --list
+  prelook_fix.py <state-dir> --transformation <fix.json> --motivated-by <id>
+                 [--apply --approved-by <name>] [--holdout-ledger <path>]
+Without --apply it is a dry run: what would change, nothing written. After an
+apply, convert and validate (run/SKILL.md SS1), then re-pin: the baseline is
+on the old dataset_version.
+
+Exit 0 done (or nothing to do on --list); 2 refused or bad input, with
+{"error": ...} on stdout and nothing written.
+"""
+import argparse
+import copy
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+from _common import BadJSON, add_version_flag, die, load_text, loads_strict
+from run_cases import atomic_write, sha256_of
+
+DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
+MANIFEST = os.path.join("datasets", "dataset.yaml")
+OPERANDS = {"replace_item": ("from", "to"), "remove_item": ("value",),
+            "set": ("from", "to"), "delete": ("from",)}
+SEALED_TEMPLATE_PREFIX = "ho_"
+
+
+# -- reading the suite, through convert_suite.py only ------------------------
+
+def convert(state_dir, *flags):
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "convert_suite.py")
+    proc = subprocess.run([sys.executable, script, state_dir, *flags],
+                          capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        # Withheld on purpose: a YAML error quotes the offending line, and
+        # that line can be a sealed case's.
+        die(f"convert_suite.py refused {state_dir} (exit {proc.returncode}); "
+            "its message is withheld because it can quote a sealed case "
+            "file. Fix the suite first: `evalup convert-suite` on it shows "
+            "why")
+    try:
+        return loads_strict(proc.stdout)
+    except BadJSON:
+        die("convert_suite.py wrote no JSON")
+
+
+def suite_cases(doc):
+    cases = doc.get("cases") or []
+    ids = [c.get("id") if isinstance(c, dict) else None for c in cases]
+    if not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
+        die("refused: a case has no id, or two share one; validate the suite "
+            "first (run/SKILL.md SS1)")
+    return cases
+
+
+def is_holdout(case):
+    split = case.get("split")
+    return split == "holdout" or (isinstance(split, list)
+                                  and "holdout" in split)
+
+
+def template_ids(entries):
+    """[{template_id, sha256}] for convert_suite.py --templates' entries."""
+    return [{"template_id": e["template_id"],
+             "sha256": sha256_of(e["template"])} for e in entries]
+
+
+def seal_listing(cases, templates):
+    """What the seal covers, by id and hash: never a field's value."""
+    sealed = sorted(c["id"] for c in cases if is_holdout(c))
+    by_id = {c["id"]: c for c in cases}
+    sealed_tids = {by_id[i].get("template_id") for i in sealed}
+    training_tids = {c.get("template_id") for c in cases if not is_holdout(c)}
+    sealed_templates = [t for t in template_ids(templates)
+                        if t["template_id"].startswith(SEALED_TEMPLATE_PREFIX)
+                        or t["template_id"] in sealed_tids]
+    return {
+        "sealed_cases": [{"id": i, "sha256": sha256_of(by_id[i])}
+                         for i in sealed],
+        "sealed_templates": sealed_templates,
+        # A template that realizes a sealed case and a training one: the
+        # training case's review shows what the sealed one was built from.
+        "mixed_templates": sorted(
+            t["template_id"] for t in sealed_templates
+            if t["template_id"] in training_tids),
+    }
+
+
+def ledger_lines(state_dir, ledger):
+    path = ledger if os.path.isabs(ledger) else os.path.join(state_dir, ledger)
+    if not path.endswith(".jsonl"):
+        die(f"--holdout-ledger must be a .jsonl file (got {ledger!r})")
+    if not os.path.exists(path):
+        return path, 0
+    # Every non-blank line is a look, malformed or not: the runner counts
+    # lines the same way, and a line nobody can parse is still a look.
+    return path, sum(1 for line in load_text(path).splitlines()
+                     if line.strip())
+
+
+# -- the transformation ---------------------------------------------------------
+
+def load_transformation(source):
+    text = source if source.lstrip().startswith("{") else load_text(source)
+    try:
+        spec = loads_strict(text)
+    except BadJSON as exc:
+        die(f"bad input: --transformation: {exc}")
+    if not isinstance(spec, dict):
+        die("bad input: --transformation must be a JSON object")
+    op = spec.get("op")
+    if op not in OPERANDS:
+        die(f"bad input: --transformation op {op!r} is not one of "
+            + ", ".join(OPERANDS))
+    allowed = {"statement", "op", "path", *OPERANDS[op]}
+    extra = sorted(set(spec) - allowed)
+    if extra:
+        die(f"bad input: --transformation: {op} takes no {', '.join(extra)}")
+    missing = [k for k in OPERANDS[op] if k not in spec]
+    if missing:
+        die(f"bad input: --transformation: {op} needs {', '.join(missing)}")
+    statement = spec.get("statement")
+    if not isinstance(statement, str) or not statement.strip():
+        die("bad input: --transformation needs a `statement`: what is wrong "
+            "and why, stated without holdout content")
+    path = spec.get("path")
+    keys = path.split(".") if isinstance(path, str) else path
+    if not isinstance(keys, list) or not keys \
+            or not all(isinstance(k, str) and k for k in keys):
+        die("bad input: --transformation path must be a dotted string or a "
+            "list of keys")
+    if keys[0] != "expect" or len(keys) < 2:
+        die(f"refused: path {path!r} is outside expect.*: a pre-look fix "
+            "changes a sealed case's checks, never its input or anything "
+            "else")
+    if op in ("replace_item", "set") and spec["from"] == spec["to"]:
+        die("bad input: --transformation: `from` and `to` are equal")
+    return spec, keys
+
+
+def parent_of(case, keys):
+    node = case
+    for key in keys[:-1]:
+        node = node.get(key) if isinstance(node, dict) else None
+    return node if isinstance(node, dict) else None
+
+
+def apply(spec, keys, case):
+    """A transformed deep copy of `case` (equal to it when the op does not
+    match)."""
+    out = copy.deepcopy(case)
+    parent = parent_of(out, keys)
+    if parent is None or keys[-1] not in parent:
+        return out
+    key, op, value = keys[-1], spec["op"], parent[keys[-1]]
+    if op == "replace_item" and isinstance(value, list):
+        parent[key] = [spec["to"] if item == spec["from"] else item
+                       for item in value]
+    elif op == "remove_item" and isinstance(value, list):
+        parent[key] = [item for item in value if item != spec["value"]]
+    elif op == "set" and value == spec["from"]:
+        parent[key] = spec["to"]
+    elif op == "delete" and value == spec["from"]:
+        del parent[key]
+    return out
+
+
+def shows_fixed_form(spec, keys, case):
+    parent = parent_of(case, keys)
+    if parent is None:
+        return False
+    op, present = spec["op"], keys[-1] in parent
+    value = parent.get(keys[-1])
+    if op == "replace_item":
+        return isinstance(value, list) and spec["to"] in value \
+            and spec["from"] not in value
+    if op == "remove_item":
+        return isinstance(value, list) and spec["value"] not in value
+    if op == "set":
+        return present and value == spec["to"]
+    return not present
+
+
+def check_motivation(cases, case_id, spec, keys):
+    case = next((c for c in cases if c.get("id") == case_id), None)
+    if case is None:
+        die(f"refused: --motivated-by {case_id!r} is not a case in the suite")
+    if is_holdout(case):
+        die(f"refused: --motivated-by {case_id!r} is sealed; the fix must "
+            "come from a training case")
+    review = case.get("review")
+    if not (isinstance(review, dict) and review.get("status") == "accepted"):
+        die(f"refused: --motivated-by {case_id!r} is not accepted: the fix "
+            "must already be on a case a human reviewed")
+    if apply(spec, keys, case) != case or not shows_fixed_form(spec, keys,
+                                                               case):
+        die(f"refused: {case_id!r} does not already carry this fix: apply "
+            "it to the training case by hand in its review, then re-run")
+
+
+# -- writing -------------------------------------------------------------------
+
+def bump_manifest_text(text, old_version, entries):
+    """dataset.yaml with dataset_version + 1 and `entries` appended under
+    `prelook_fixes:`, edited as text (no YAML writer here). Anything this
+    cannot place with certainty is a refusal; convert_suite.py re-reads the
+    result either way."""
+    new = old_version + 1
+    line = re.compile(r"(?m)^dataset_version:[ \t]*(\d+)([ \t]*(#.*)?)$")
+    found = line.findall(text)
+    if len(found) == 1:
+        text = line.sub(lambda m: f"dataset_version: {new}{m.group(2)}", text)
+    elif not found and not re.search(r"(?m)^(dataset_)?version:", text):
+        text = f"dataset_version: {new}\n" + text
+    else:
+        die("refused: datasets/dataset.yaml's dataset_version is not one "
+            "plain `dataset_version: <int>` line; set it so, then re-run")
+    items = "".join(
+        "  - " + json.dumps(e, ensure_ascii=False, sort_keys=True) + "\n"
+        for e in entries)
+    if not text.endswith("\n"):
+        text += "\n"
+    head = re.compile(r"(?m)^prelook_fixes:[ \t]*(\[\])?[ \t]*$")
+    heads = list(head.finditer(text))
+    if not heads:
+        return text + "prelook_fixes:\n" + items
+    if len(heads) > 1:
+        die("refused: datasets/dataset.yaml has two prelook_fixes keys")
+    match = heads[0]
+    after = text[match.end() + 1:]
+    # The block runs to the next line that starts at column 0 with a key.
+    stop = re.search(r"(?m)^(?=[^\s#-])", after)
+    block, rest = (after[:stop.start()], after[stop.start():]) if stop \
+        else (after, "")
+    if match.group(1) and block.strip():
+        die("refused: datasets/dataset.yaml's prelook_fixes is not a list "
+            "this script wrote")
+    block = block.rstrip("\n") + "\n" if block.strip() else ""
+    return text[:match.start()] + "prelook_fixes:\n" + block + items + rest
+
+
+def case_file_text(case, date):
+    return ("# Rewritten as JSON (which is YAML) by `evalup prelook-fix` on "
+            f"{date}; datasets/dataset.yaml's prelook_fixes says why.\n"
+            + json.dumps(case, indent=2, ensure_ascii=False) + "\n")
+
+
+def write_all(state_dir, writes):
+    """Write every (path, text); return the old bytes (None = new file)."""
+    saved = {}
+    for path, text in writes:
+        full = os.path.join(state_dir, path)
+        saved[full] = load_text(full) if os.path.exists(full) else None
+        atomic_write(full, text)
+    return saved
+
+
+def restore(saved):
+    for full, text in saved.items():
+        if text is None:
+            os.remove(full)
+        else:
+            atomic_write(full, text)
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Apply a recorded pre-look fix to a sealed holdout "
+                    "(expect.* only, before its first look), or --list the "
+                    "seal by id and hash. Prints ids and hashes, never case "
+                    "text.")
+    add_version_flag(ap)
+    ap.add_argument("state_dir", help="the state location, e.g. <app>/.evalup")
+    ap.add_argument("--list", action="store_true",
+                    help="list the sealed cases and templates by id and "
+                         "sha256, and the ledger's line count; change nothing")
+    ap.add_argument("--transformation", metavar="FILE|JSON",
+                    help="the fix: a JSON object (see the module docstring)")
+    ap.add_argument("--motivated-by", metavar="CASE_ID",
+                    help="the accepted training case that already carries "
+                         "the fix")
+    ap.add_argument("--apply", action="store_true",
+                    help="write the fix (default: a dry run)")
+    ap.add_argument("--approved-by", metavar="NAME",
+                    help="the human who approved the fix (required with "
+                         "--apply)")
+    ap.add_argument("--holdout-ledger", default=DEFAULT_LEDGER,
+                    help=f"relative to state_dir (default: {DEFAULT_LEDGER})")
+    a = ap.parse_args()
+
+    if not os.path.isdir(a.state_dir):
+        die(f"bad input: {a.state_dir}: not a directory")
+    ledger_path, looks = ledger_lines(a.state_dir, a.holdout_ledger)
+    if a.list:
+        if a.transformation or a.apply:
+            ap.error("--list changes nothing: it takes no --transformation "
+                     "or --apply")
+        doc = convert(a.state_dir)
+        listing = seal_listing(suite_cases(doc),
+                               convert(a.state_dir, "--templates")["templates"])
+        print(json.dumps({"ledger_lines": looks, **listing}, indent=2))
+        return
+    if not a.transformation or not a.motivated_by:
+        ap.error("--transformation and --motivated-by are required (or "
+                 "--list)")
+    if a.apply and not (a.approved_by or "").strip():
+        ap.error("--apply needs --approved-by: the human who approved the fix")
+    spec, keys = load_transformation(a.transformation)
+    if looks:
+        die(f"refused: the holdout ledger {ledger_path} has {looks} line(s): "
+            "this seal has been looked at (a noise-pair run counts), so a "
+            "pre-look fix is no longer possible. The path is `analyze "
+            "--unseal` and a reseal")
+
+    doc = convert(a.state_dir)
+    cases, sources = suite_cases(doc), doc.get("sources") or {}
+    check_motivation(cases, a.motivated_by, spec, keys)
+    manifest = doc.get("manifest") or {}
+    old_version = manifest.get("dataset_version", 1)
+    if not isinstance(old_version, int) or isinstance(old_version, bool):
+        die("refused: datasets/dataset.yaml's dataset_version is not an int")
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    changed = []
+    for case in cases:
+        fixed = apply(spec, keys, case)
+        if fixed == case:
+            continue
+        # By construction only expect.* moved; checked anyway, since this is
+        # the promise the whole path rests on.
+        if {k: v for k, v in fixed.items() if k != "expect"} != \
+                {k: v for k, v in case.items() if k != "expect"}:
+            die(f"internal: the fix touched {case.get('id')!r} outside expect")
+        if case.get("id") not in sources:
+            die(f"refused: case {case.get('id')!r} has no source file")
+        changed.append((case, fixed))
+    listing = seal_listing(cases, convert(a.state_dir, "--templates")
+                           ["templates"])
+    rows = [{"id": c["id"], "sealed": is_holdout(c),
+             "old_sha256": sha256_of(c), "new_sha256": sha256_of(f)}
+            for c, f in changed]
+    out = {"applied": False, "ledger_lines": 0,
+           "transformation": spec, "motivated_by": a.motivated_by,
+           "changed": rows,
+           "sealed_changed": sum(r["sealed"] for r in rows),
+           "sealed_templates": listing["sealed_templates"],
+           "mixed_templates": listing["mixed_templates"],
+           "dataset_version": {"from": old_version,
+                               "to": old_version + 1 if rows else old_version}}
+    if not rows:
+        out["note"] = "no case matches: nothing to change"
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return
+    if not a.apply:
+        out["note"] = "dry run: pass --apply --approved-by <name> to write"
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return
+
+    entries = [{"case_id": r["id"], "old_sha256": r["old_sha256"],
+                "new_sha256": r["new_sha256"], "date": date,
+                "approved_by": a.approved_by.strip(),
+                "transformation": spec, "motivated_by": a.motivated_by,
+                "dataset_version": old_version + 1} for r in rows]
+    manifest_full = os.path.join(a.state_dir, MANIFEST)
+    manifest_text = load_text(manifest_full) \
+        if os.path.exists(manifest_full) else "schema_version: 1\n"
+    writes = [(sources[c["id"]], case_file_text(f, date)) for c, f in changed]
+    writes.append((MANIFEST, bump_manifest_text(manifest_text, old_version,
+                                                entries)))
+    before = {c["id"]: sha256_of(c) for c in cases}
+    expected = dict(before, **{r["id"]: r["new_sha256"] for r in rows})
+    prior = manifest.get("prelook_fixes") or []
+    saved = write_all(a.state_dir, writes)
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "convert_suite.py")
+    proc = subprocess.run([sys.executable, script, a.state_dir],
+                          capture_output=True, text=True, check=False)
+    problem = None
+    if proc.returncode != 0:
+        problem = "convert_suite.py refused the rewritten files"
+    else:
+        after = loads_strict(proc.stdout)
+        got = {c.get("id"): sha256_of(c) for c in after["cases"]}
+        meta = after.get("manifest") or {}
+        if got != expected:
+            problem = "a re-read case hash differs from the computed one"
+        elif meta.get("dataset_version") != old_version + 1:
+            problem = "dataset.yaml's dataset_version did not re-read"
+        elif meta.get("prelook_fixes") != [*prior, *entries]:
+            problem = "dataset.yaml's prelook_fixes did not re-read"
+    if problem:
+        restore(saved)
+        die(f"refused: {problem}; every file was restored")
+    out.update(applied=True, approved_by=a.approved_by.strip(), date=date,
+               next="convert and validate (run/SKILL.md SS1), then re-pin: "
+                    "the baseline is on the old dataset_version")
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

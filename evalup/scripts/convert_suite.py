@@ -81,8 +81,14 @@ parses no YAML either. A state directory with a rubrics/ folder adds the same
 list to the combined document as `rubrics`, and --split-dir writes it as
 rubrics.json (validate_cases.py --rubrics); without one, both stay absent.
 
+--templates, with a state dir, converts only the generation templates
+(datasets/**/templates/*.yaml) as {"templates": [{"template_id", "file",
+"template"}]}, the id being the file's stem. prelook_fix.py reads it to list
+a sealed holdout's templates by id and hash; their content is never shown.
+
 Usage:
   convert_suite.py <state-dir> [-o converted.json] [--split-dir <dir>]
+  convert_suite.py <state-dir> --templates [-o templates.json]
   convert_suite.py --rubrics-dir <state-dir>/rubrics [-o rubrics.json]
   convert_suite.py --adapter-file <state-dir>/adapter.yaml [-o adapter.json]
   convert_suite.py --self-check
@@ -226,6 +232,22 @@ def case_files(datasets_dir):
     return found
 
 
+def template_entries(yaml, loader, datasets_dir):
+    """Every templates/*.yaml under `datasets_dir`, sorted by path."""
+    found = []
+    for root, dirs, files in os.walk(datasets_dir):
+        dirs.sort()
+        if os.path.basename(root) != "templates":
+            continue
+        found.extend(os.path.join(root, name) for name in sorted(files)
+                     if name.endswith((".yaml", ".yml")))
+    base = os.path.dirname(os.path.abspath(datasets_dir))
+    return [{"template_id": os.path.splitext(os.path.basename(path))[0],
+             "file": os.path.relpath(path, base),
+             "template": load_mapping(yaml, loader, path)}
+            for path in sorted(found)]
+
+
 def rubric_entries(yaml, loader, rubrics_dir):
     """Every rubric file under `rubrics_dir`, sorted by name: its path
     relative to the state dir, the sha256 of its bytes, and its frontmatter.
@@ -299,6 +321,10 @@ def main():
                     help="convert only the rubric files in DIR (their "
                          "frontmatter and sha256) -- what judge_run.py plan "
                          "reads")
+    ap.add_argument("--templates", action="store_true",
+                    help="with a state_dir, convert only the generation "
+                         "templates under datasets/ -- what prelook_fix.py "
+                         "reads")
     ap.add_argument("-o", "--output", help="write the combined document here "
                                            "(default: stdout)")
     ap.add_argument("--split-dir", help="also write suite.json, "
@@ -340,6 +366,13 @@ def main():
         die(f"bad input: {a.state_dir}: not a directory")
     yaml = yaml_module()
     loader = strict_loader(yaml)
+    if a.templates:
+        if a.split_dir:
+            ap.error("--templates takes no --split-dir")
+        datasets = os.path.join(a.state_dir, "datasets")
+        dump({"templates": template_entries(yaml, loader, datasets)
+              if os.path.isdir(datasets) else []}, a.output)
+        return
 
     def at(*parts):
         return os.path.join(a.state_dir, *parts)
