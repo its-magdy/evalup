@@ -72,7 +72,8 @@ The three: `profile.yaml` (what the app is — fields in
 [references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`
 (how to talk to it — fields in
 [references/adapter-contract.md](references/adapter-contract.md)), and
-`findings.md` (design gaps, often week one's most valuable output). Those two
+`findings.md` (design gaps, often week one's most valuable output: create it
+with `evalup write-artifact` (see `--help`), then Edit it). Those two
 schemas own what each field *means*; this file owns how to decide its value
 from evidence.
 
@@ -251,8 +252,7 @@ rules, good answers, the domain arbiter, `safe_to_attack` — and record the
 answers where it says.
 
 ### 8. Report findings
-`findings.md`, written with `evalup write-artifact` (read its `--help`):
-design gaps (no OOS route, overlapping route targets, vague tool
+`findings.md`: design gaps (no OOS route, overlapping route targets, vague tool
 descriptions, missing confirmation on destructive tools), each with evidence and
 a suggested fix; each ranked risk also goes in `risks:`. Present the top 3 in chat, and list the probe's `env_vars`:
 every one must be exported wherever generate and run will run.
@@ -270,7 +270,7 @@ repeated as behaviour.
 ## Capability matrix (write into profile.yaml)
 Give every layer an `enabled`, and when false a named `blocked_by`. The layers
 and their preconditions are profile-schema.md's `capability_matrix:` block —
-work down it and check each precondition against what steps 1–7 actually found.
+work down it and check each precondition against what steps 1–7 found.
 
 Three calls that block leaves to you:
 - The step 2 enum drives routing and trajectory mechanically, not by convention:

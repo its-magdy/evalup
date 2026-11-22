@@ -143,6 +143,12 @@ class TestPluginLayout(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assertRegex(
                     text, re.escape(artifact) + r"[^.]*`evalup write-artifact`")
+        # discover records into findings.md from step 3 on, so the pointer
+        # sits before the Procedure, where the file's first write happens.
+        discover = (ROOT / "skills" / "discover" / "SKILL.md").read_text(
+            encoding="utf-8")
+        self.assertLess(discover.index("`evalup write-artifact`"),
+                        discover.index("## Procedure"))
         helptext = (ROOT / "scripts" / "write_artifact.py").read_text(
             encoding="utf-8")
         for phrase in ("Subagents", "drafts/", "--move", "final message"):

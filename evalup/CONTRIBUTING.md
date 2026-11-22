@@ -144,8 +144,9 @@ it is Linux-only.
   allowed. So discover and run Write a draft and hand it to the script,
   whose `--help` is the one place the steps and the fallback (the full text
   in the final message) are written; later changes are Edits. It writes
-  `.md` files inside `--state-dir` only, so it cannot become a way around
-  a run's records. `tests/test_plugin_layout.py` pins both call sites.
+  `.md` files inside `--state-dir` only, and `--move` deletes only a
+  regular file under `<state>/drafts/`, so a pre-approved call cannot touch
+  a run's records or anything outside the state. `tests/test_plugin_layout.py` pins both call sites.
 - **A skill that loads another lists it as `Skill(evalup:<name>)`** in its
   `allowed-tools` — loading a skill that has its own `allowed-tools` needs
   approval, and headless a prompt is a silent denial. Pinned by the same test.

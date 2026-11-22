@@ -8,7 +8,8 @@ Read when discover runs against a state location that already has a
 Read findings.md's `deferred:` list —
 after a lean session that is the to-do list — and run those steps plus any
 the user names; with no `deferred:` list, run the full procedure. Either way
-update `profile.yaml`, `adapter.yaml` and findings.md in place: keep every
+update `profile.yaml`, `adapter.yaml` and findings.md in place (Edit
+findings.md: Write is refused on that name in a subagent): keep every
 entry a live request already verified, never regenerate a working adapter
 from scratch. Before the first write, say which files will change — nothing
 else backs them up, so the user can copy them first — and list what changed

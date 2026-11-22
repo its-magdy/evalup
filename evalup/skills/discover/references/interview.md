@@ -41,7 +41,8 @@ the answer is a design finding (a bug in the code, or a stale doc) and,
 once confirmed, the rule keeps the side the owner chose and its
 `contradiction:` is deleted (a case covering a rule that still has one
 warns, `covers_contradicted_rule`). A struck
-rule is deleted, with a dated line in findings.md saying why.
+rule is deleted, with a dated line in findings.md saying why (an Edit:
+Write is refused on that name in a subagent).
 
 **Outside the app path** (a wiki, a shared drive, an MCP server the user has
 connected): read one only after the user's explicit yes naming that source;

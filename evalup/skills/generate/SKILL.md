@@ -187,7 +187,7 @@ surface and the owner has not been asked — they document the defect — and
 say at handover that they will not run until the owner sets the flag. Ask
 the owner if one is present, never on a first session (the question goes
 on findings.md's `deferred:` list). When the owner has said no, leave them
-out and record it in findings.md: `--strict --adapter` would fail on them
+out and Edit it into findings.md: `--strict --adapter` would fail on them
 for good. Never relabel one as `edge` or `oos` to pass the gate; the flag is
 the owner's call.
 
@@ -211,7 +211,7 @@ source — for confirm / fix / strike, per
 §Business rules — this review is that confirmation for the rules it
 lists. On confirm (or fix, then confirm), write `status: confirmed` and the
 reviewer's own name in `confirmed_by` on the rule in profile.yaml; strike
-deletes it with a dated findings.md line. Never headless, never an agent's
+deletes it with a dated findings.md line (an Edit). Never headless, never an agent's
 name or relay. The other rules wait for discover's interview.
 
 **First session** (start's step 4): do not stop for this pass before the

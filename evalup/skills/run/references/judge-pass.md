@@ -64,7 +64,8 @@ launches with no reply.
 
 ## The report section
 
-Add one section to `report.md`, after the scripted results, headed
+Add one section to `report.md` (in its draft, or an Edit once it exists),
+after the scripted results, headed
 **Judged (provisional)**, from `judged.json` only:
 
 - The banner, first: "These verdicts are in no pass rate, gate or optimize

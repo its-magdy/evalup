@@ -61,6 +61,22 @@ class TestInput(WriteArtifactTest):
                                "replaced": False, "moved": False})
         self.assertTrue(src.exists(), "without --move the draft stays")
 
+    def test_a_crlf_draft_keeps_its_bytes(self):
+        raw = b"# T\r\n\r\nline\r\n"
+        src = self.drafts / "findings.txt"
+        src.write_bytes(raw)
+        out = self.ok(run(["--state-dir", str(self.state), "findings.md",
+                           "--from", str(src)]))
+        self.assertEqual((self.state / "findings.md").read_bytes(), raw)
+        self.assertEqual(out["bytes"], len(raw))
+
+    def test_a_draft_that_is_not_utf8_is_exit_2(self):
+        src = self.drafts / "findings.txt"
+        src.write_bytes(b"\xff\xfe bad")
+        self.refused(run(["--state-dir", str(self.state), "findings.md",
+                          "--from", str(src)]), "not valid utf-8")
+        self.assertFalse((self.state / "findings.md").exists())
+
     def test_stdin_writes_it_verbatim(self):
         text = "# Report\r\n\r\nkeeps CRLF\r\n"
         self.ok(run(["--state-dir", str(self.state), "findings.md"],
@@ -78,6 +94,50 @@ class TestInput(WriteArtifactTest):
         self.assertEqual(
             (self.state / "reports" / "r1" / "report.md").read_text(
                 encoding="utf-8"), "# R\n")
+
+    def test_move_deletes_only_a_draft(self):
+        # --move is an unlink under a pre-approved command, so it is held to
+        # <state>/drafts/: never a run's record, never a file outside.
+        record = self.state / "reports" / "r1" / "results.json"
+        record.parent.mkdir(parents=True)
+        record.write_text("{}\n", encoding="utf-8")
+        outside = self.base / "secret.txt"
+        outside.write_text("keep\n", encoding="utf-8")
+        loose = self.state / "notes.txt"
+        loose.write_text("keep\n", encoding="utf-8")
+        for src in (record, outside, loose):
+            with self.subTest(src=src.name):
+                self.refused(run(["--state-dir", str(self.state),
+                                  "findings.md", "--from", str(src),
+                                  "--move"]), "deletes only a draft")
+                self.assertTrue(src.exists())
+                self.assertFalse((self.state / "findings.md").exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlinks")
+    def test_move_refuses_a_symlinked_draft(self):
+        target = self.base / "secret.txt"
+        target.write_text("keep\n", encoding="utf-8")
+        link = self.drafts / "findings.txt"
+        os.symlink(target, link)
+        self.refused(run(["--state-dir", str(self.state), "findings.md",
+                          "--from", str(link), "--move"]),
+                     "deletes only a draft")
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(target.exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlinks")
+    def test_move_refuses_a_drafts_dir_that_leads_out(self):
+        (self.drafts / "findings.txt").unlink(missing_ok=True)
+        self.drafts.rmdir()
+        outside = self.base / "elsewhere"
+        outside.mkdir()
+        victim = outside / "findings.txt"
+        victim.write_text("keep\n", encoding="utf-8")
+        os.symlink(outside, self.drafts)
+        self.refused(run(["--state-dir", str(self.state), "findings.md",
+                          "--from", str(self.drafts / "findings.txt"),
+                          "--move"]), "deletes only a draft")
+        self.assertTrue(victim.exists())
 
     def test_move_without_from_is_refused(self):
         self.refused(run(["--state-dir", str(self.state), "findings.md",
@@ -99,7 +159,7 @@ class TestInput(WriteArtifactTest):
         dest = self.state / "findings.md"
         dest.write_text("old\n", encoding="utf-8")
         self.refused(run(["--state-dir", str(self.state), "findings.md",
-                          "--from", str(dest), "--move"]), "same file")
+                          "--from", str(dest)]), "same file")
         self.assertEqual(dest.read_text(encoding="utf-8"), "old\n")
 
     def test_through_the_dispatcher(self):

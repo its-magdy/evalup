@@ -8,10 +8,11 @@ file's name: a draft such as `drafts/findings.txt` and other `.md` files
 (rubrics) are allowed, and so is an Edit to a file that already exists. So
 creating or replacing one of those two goes through this script:
 
-  1. Write the full text to a draft, `<state>/drafts/<name>.txt`.
-  2. `evalup write-artifact --state-dir <state> findings.md
-     --from <state>/drafts/findings.txt --move`
-     (`reports/<run-id>/report.md` for a run's report).
+  1. Write the full text to a draft, <draft> = `<state>/drafts/<name>.txt`.
+  2. Run this, as ONE command on one line (`reports/<run-id>/report.md` in
+     place of `findings.md` for a run's report):
+
+  evalup write-artifact --state-dir <state> findings.md --from <draft> --move
 
 Later changes to the file are Edits. If this call is denied too, put the
 file's full text in the final message, so the parent session can save it.
@@ -23,7 +24,8 @@ outside the state. Missing parent directories inside it are created. An
 existing file is replaced whole and atomically (never appended to); the
 output says `"replaced": true` when it was. Without --from the text is read
 from stdin. Empty text is refused, since a blank findings.md is never meant.
---move deletes the draft once the artifact is written.
+--move deletes the draft once the artifact is written, and only a draft:
+a regular file (not a symlink) inside `<state>/drafts/`.
 
 Prints one JSON object on stdout: {"wrote", "bytes", "replaced", "moved"}.
 Exit 0 on success, 2 on bad input ({"error": ...} on stdout, like every
@@ -38,7 +40,7 @@ import os
 import sys
 import tempfile
 
-from _common import add_version_flag, die, load_text
+from _common import add_version_flag, die
 
 
 def inside(root, path):
@@ -64,15 +66,36 @@ def resolve_dest(state_dir, dest):
     return real
 
 
+def check_movable(state_dir, src):
+    """--move deletes `src`, so it must be a draft: a regular file directly
+    or below `<state>/drafts/`, never a symlink (whose target would stay) and
+    never a run's record or a file outside the state."""
+    drafts = os.path.join(os.path.realpath(state_dir), "drafts")
+    real = os.path.join(os.path.realpath(os.path.dirname(os.path.abspath(src))),
+                        os.path.basename(src))
+    if os.path.islink(real) or not os.path.isfile(real) \
+            or not inside(drafts, real):
+        die(f"refused: --move deletes only a draft, a regular file inside "
+            f"{drafts}; {src} is not one (nothing was written)")
+
+
 def read_text(src):
-    if src is not None:
-        return load_text(src)
-    if sys.stdin is None or sys.stdin.isatty():
-        die("bad input: no --from and no text on stdin")
+    """The text verbatim: bytes decoded as utf-8, newlines untouched (a
+    universal-newline read would turn a CRLF draft into LF)."""
+    name = src if src is not None else "stdin"
     try:
-        return sys.stdin.buffer.read().decode("utf-8")
+        if src is not None:
+            with open(src, "rb") as f:
+                raw = f.read()
+        else:
+            if sys.stdin is None or sys.stdin.isatty():
+                die("bad input: no --from and no text on stdin")
+            raw = sys.stdin.buffer.read()
+        return raw.decode("utf-8")
     except UnicodeDecodeError as e:
-        die(f"bad input: stdin: not valid utf-8 text: {e}")
+        die(f"bad input: {name}: not valid utf-8 text: {e}")
+    except OSError as e:
+        die(f"bad input: {e}")
 
 
 def existing_mode(path):
@@ -127,6 +150,8 @@ def main():
     if a.move and a.src is None:
         die("bad input: --move needs --from")
     real = resolve_dest(a.state_dir, a.dest)
+    if a.move:
+        check_movable(a.state_dir, a.src)
     if a.src is not None and os.path.exists(a.src) \
             and os.path.realpath(a.src) == real:
         die(f"bad input: --from and the destination are the same file: "

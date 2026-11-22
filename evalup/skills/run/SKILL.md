@@ -232,9 +232,9 @@ The runner always leaves `manifest.yaml`, `results.json`, `verdicts.jsonl` (the
 durable per-case record) and `verdicts_for_stats.jsonl` (its `pass`/`fail`
 subset, exactly what `stats.py` pairs), and, when they apply,
 `routing_report.json` (a non-canary case's routing was scored),
-`reliability.json` (k > 1, so never under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
+`reliability.json` (k > 1, never `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
 number you quote comes from those. You add `report.md`
-beside them, written with `evalup write-artifact` (read its `--help`).
+beside them with `evalup write-artifact` (see `--help`).
 
 - **The judge pass, then business rules.** The runner scores neither the
   **judged** layer (`expect.answer.rubric`, row `unjudged (…)`) nor
