@@ -487,6 +487,24 @@ class TestValidatorBindings(unittest.TestCase):
         codes, _ = self.lint()
         self.assertIn("rule_unbound", codes)
 
+    def test_a_conversations_final_turn_binds_through_its_rubric(self):
+        """The judge grades the deciding turn: a judged rule listed on a
+        conversation's top-level expect is bound; on a checkpoint it is
+        not, since no criterion grades an earlier turn."""
+        c = self.case("c-4f2a91c7")
+        msg = c["input"].pop("messages")[0]["content"]
+        c["input"]["turns"] = [{"user": "hello"}, {"user": msg}]
+        # every_turn makes each turn's expect a fresh overlay, never the
+        # top-level object itself.
+        c["every_turn"] = {"answer": {"must_contain": ["$"]}}
+        c["expect"]["answer"]["rules"] = ["grounded-only"]
+        codes, _ = self.lint()
+        self.assertNotIn("rule_unbound", codes)
+        c["input"]["turns"][0]["expect"] = {
+            "answer": {"must_contain": ["hi"], "rules": ["grounded-only"]}}
+        codes, _ = self.lint()
+        self.assertIn("rule_unbound", codes)
+
     def test_without_rubrics_a_judged_binding_is_unchecked(self):
         codes, _ = self.lint(rubrics=False)
         self.assertEqual(codes, {"rule_binding_unchecked"})

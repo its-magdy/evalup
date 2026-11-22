@@ -2054,7 +2054,12 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
                      "expect.answer.rules does not list, so the rule report "
                      "leaves that criterion out: list the rule, or drop the "
                      "criterion's `rule:`")
-        for expect in case_rule_expects(case):
+        expects = case_rule_expects(case)
+        for index, expect in enumerate(expects):
+            # The last expect is the deciding one, the judge's: for a
+            # conversation it is the top-level expect, overlaid, so it is
+            # never the same object as `top`.
+            deciding = index == len(expects) - 1
             answer = mapping(expect.get("answer"))
             ids = answer.get("rules")
             for rid in ids if isinstance(ids, list) else []:
@@ -2075,9 +2080,9 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
                                   "the entries verbatim, or the rule report "
                                   "would credit a check the run never made")
                     continue
-                if answer is top and rid in judged.values():
+                if deciding and rid in judged.values():
                     continue
-                if answer is top and rubric_id and judged_rules is None:
+                if deciding and rubric_id and judged_rules is None:
                     rep.warn(label, "rule_binding_unchecked",
                              f"expect.answer.rules lists {rid!r}, which has "
                              "no check in profile.yaml; whether rubric "
