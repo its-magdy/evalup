@@ -46,17 +46,24 @@ subagents; runs report judged layers as not measured.
 
 ## Installation
 
-Install through this repo's marketplace, so every session has the plugin:
+Clone the latest release, **v0.1.0** (leave out `--branch v0.1.0` to track
+`main` instead):
 
 ```bash
-claude plugin marketplace add its-magdy/evalup
+git clone --branch v0.1.0 https://github.com/its-magdy/evalup.git evalup-repo
+```
+
+Then install it through the clone's marketplace, so every session has the
+plugin:
+
+```bash
+claude plugin marketplace add ./evalup-repo
 claude plugin install evalup@evalup
 ```
 
-Or load it from a clone for one session:
+Or load it for one session:
 
 ```bash
-git clone https://github.com/its-magdy/evalup.git evalup-repo
 claude --plugin-dir ./evalup-repo/evalup
 ```
 
