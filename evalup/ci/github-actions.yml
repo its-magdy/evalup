@@ -44,12 +44,12 @@ defaults:
     shell: bash
 
 env:
-  # The plugin, at an immutable commit. evalup has no release tag yet; when
-  # one exists, a tag (e.g. v0.2.0) replaces the SHA here and nothing else
-  # changes. Bump it on purpose, and re-pin your baseline when the new
-  # version's scoring_version differs (gate.py --baseline refuses the pair).
+  # The plugin, at a release tag. evalup's releases are immutable, so the
+  # tag cannot be moved to another commit. A commit SHA works here too.
+  # Bump it on purpose, and re-pin your baseline when the new version's
+  # scoring_version differs (gate.py --baseline refuses the pair).
   EVALUP_REPO_URL: https://github.com/its-magdy/evalup.git
-  EVALUP_REF: 1e16839a2d7ea5a8bc44cd97edff83438fe67108
+  EVALUP_REF: v0.1.0
 
   # EDIT: the state location, relative to the repository root.
   EVALUP_STATE_DIR: .evalup

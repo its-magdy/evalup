@@ -5,6 +5,7 @@ ci.yml's `ci-template` job runs the template's shell steps for real
 `uses:` steps it skips must be the ones the job itself runs, and the
 template must keep the shape the step runner can run faithfully.
 """
+import json
 import pathlib
 import re
 import sys
@@ -50,8 +51,13 @@ class TestTemplateText(unittest.TestCase):
         for action, pin in pins(self.text).items():
             self.assertEqual(ci.get(action), pin, action)
 
-    def test_the_plugin_is_pinned_to_a_commit(self):
-        self.assertRegex(self.text, r"(?m)^  EVALUP_REF: [0-9a-f]{40}$")
+    def test_the_plugin_is_pinned_to_this_versions_release_tag(self):
+        # A version bump moves the pin in the same commit, and the release
+        # tag is cut on that commit, so a copied template names a release.
+        version = json.loads((ROOT / ".claude-plugin" / "plugin.json")
+                             .read_text(encoding="utf-8"))["version"]
+        self.assertRegex(self.text,
+                         rf"(?m)^  EVALUP_REF: v{re.escape(version)}$")
 
     def test_the_hardening_lines_are_present(self):
         for line in ("permissions:\n  contents: read",

@@ -14,12 +14,14 @@ says when a release bumps it.
 
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
+[0.1.0]: https://github.com/its-magdy/evalup/releases/tag/v0.1.0
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-11-22
 
-Nothing has been published yet, so there is no release to upgrade *from*. This
-entry describes what 0.1.0 contains, plus the pre-release changes that would
-break anyone who has been tracking this repository directly.
+The first release, tagged `v0.1.0`. There is no earlier release to upgrade
+*from*. This entry describes what 0.1.0 contains, plus the pre-release changes
+that would break anyone who has been tracking this repository directly. Pin
+it in CI with `EVALUP_REF: v0.1.0` (`ci/github-actions.yml`).
 
 ### Added
 
@@ -1232,6 +1234,16 @@ flaky case, and `gate.py` closed on it.
 A gate policy over verdicts the runner already wrote: no verdict, the pass^k
 fold and `SCORING_VERSION` (still 1) are unchanged.
 
+### Changed — the first release tag (2026-11-22)
+
+- **The CI template pins a release tag.** `ci/github-actions.yml` fetches
+  the plugin at `EVALUP_REF: v0.1.0` instead of a commit SHA. The repo's
+  releases are immutable, so the tag cannot move; a SHA still works.
+  `tests/test_ci_template.py` now requires the pin to be the tag of
+  `plugin.json`'s version, so a version bump moves the pin in the same
+  commit (#40, item 3).
+- **README §Installation** clones the tag.
+
 ### Removed — the `full` run mode (2026-11-21)
 
 - **`--full` is gone** (#42, item 1). It was always two runs and never one
@@ -1630,7 +1642,6 @@ so are multi-turn's later phases (`docs/multi-turn.md` §9). Each waits for the 
 
 ### Known limits
 
-- `.github/workflows/ci.yml` **has never executed** — this repository has no
-  git remote. It is a specification. The checks in `CONTRIBUTING.md` are the
-  only verified claim.
+- The plugin is not listed in a public plugin marketplace; install it from a
+  clone of the tag (README §Installation).
 - RAG/retrieval scoring is deliberately out of scope for 0.1.0.

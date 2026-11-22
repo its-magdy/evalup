@@ -188,6 +188,12 @@ it is Linux-only.
   skills, transport, new flags or a refactor that leaves every verdict
   byte-identical — that would invalidate every user's baseline for nothing.
   Say the bump in CHANGELOG.
+- **A release is one commit, then a tag on it.** That commit bumps
+  `plugin.json` and `_common.HARNESS_VERSION`, dates the CHANGELOG section,
+  and moves `ci/github-actions.yml`'s `EVALUP_REF` to `v<version>`
+  (`test_ci_template` refuses anything else). Once it is on `main`, publish a
+  GitHub release `v<version>` on that commit. Releases are immutable here, so
+  the tag cannot be redone: check the commit before you publish.
 - **Every state file declares `schema_version`** (`_common.SCHEMA_VERSION`):
   case files, `adapter.yaml`, `profile.yaml`, `datasets/dataset.yaml`, the run
   manifest, `reports/baseline.json`, `reports/holdout-seal.json` (optimize's
