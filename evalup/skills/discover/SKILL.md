@@ -66,16 +66,14 @@ Write three artifacts to the state location (default `<app>/.evalup/`, or
 the adapter's `state_location`). **Before the first of those writes, one line
 in chat saying where they go** — and, when step 5's `status` check
 was non-empty or the repo is read-only, that `state_location` can point
-outside the app instead (headless: take the default and say so). The user
-finds out where their eval state lives before it exists, not after.
+outside the app instead (headless: take the default and say so).
 The three: `profile.yaml` (what the app is — fields in
 [references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`
 (how to talk to it — fields in
 [references/adapter-contract.md](references/adapter-contract.md)), and
 `findings.md` (design gaps, often week one's most valuable output: create it
-with `evalup write-artifact` (see `--help`), then Edit it). Those two
-schemas own what each field *means*; this file owns how to decide its value
-from evidence.
+with `evalup write-artifact` (see `--help`), then Edit it). The schemas
+say what a field means; this file, how to decide it from evidence.
 
 ## Procedure
 
@@ -102,7 +100,7 @@ The catalogue for all three, plus the framework-signature grep that speeds them
 up, is [references/topology-detection.md](references/topology-detection.md).
 Record each signal's evidence under `architecture.detected_from`, so a human can
 audit why you said `router_executor` and not `multi_agent`. Disagreement between
-signals is itself a finding — never silently pick one and move on.
+signals is itself a finding.
 
 ### 3. Code archaeology (white-box)
 Read the code for: agent definitions and their system prompts (files, constants,
@@ -160,12 +158,14 @@ route targets the app chooses between, if any), model configuration
 Static reading is confidently wrong for dynamic apps (DB-held prompts, runtime
 tool registration, feature flags). Once adapter.yaml is written, send 1–3
 requests with the runner's probe, one Bash call each:
-`evalup run-cases --probe --adapter <state>/adapter.yaml --message "<a harmless question>"`
+`evalup run-cases --probe --adapter <state>/adapter.yaml --message "<a harmless in-scope question>"`
 (plain words: no `$`, backtick, quote or `!`). Never `curl`: headless, a
 command expanding an auth variable is denied. The probe reads auth env vars
 itself, sends as a run does, writes nothing, and prints JSON: `ok`,
 `problems`, `response.answer`, `response.tool_calls`, `env_vars`. Exit 3
-names the problem (`missing_env`: ask the user to export them).
+names the problem (`missing_env`: ask the user to export them). Exit 8: the
+app refused it with a 4xx; if that is its out-of-scope reply, probe in scope
+and note the status in findings.md for `oos` cases.
 Compare observed agent and tool names and `invoke_agent` span shape
 (Read the store at the printed `trace_id`) against the profile. Mark
 every profile entry `verified: true|false`, and note each request's latency in
@@ -219,19 +219,19 @@ After each patch, re-verify with one live request.
 
 ### Read-only mode — declining patches is normal
 Read-only repos, change freezes, QA without write access and third-party audits
-are supported paths, not improvisations for when things go wrong. With
+are supported paths. With
 `repo_access: read-only` set, never offer a code patch at all. That includes
 step 5's oracle: propose the read-only *role* against an existing replica if
 there is one, never seed or reset scripts written into the app repo. Pair it
 with an out-of-tree `state_location` — offer that before the first write, as
-step 5 says; it is the expected shape for a QA sandbox or third-party audit.
+step 5 says.
 For every patch declined or not offered:
 - Record it in findings.md as `declined: <patch> → costs <capability>`, e.g.
   "declined: no oracle → execution layer unavailable, data-Q&A cases stay
   answer-graded only".
 - Include the copy-paste patch text, fixture and role-grant scripts included.
 - Continue with whatever capabilities remain; the capability matrix records what
-  stayed off and why. Never stall on a "no".
+  stayed off and why.
 
 ### 6. Assess maturity → set the stage
 Ask the user, and check git history: are the app's route-target and tool
