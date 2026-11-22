@@ -187,7 +187,7 @@ surface and the owner has not been asked — they document the defect — and
 say at handover that they will not run until the owner sets the flag. Ask
 the owner if one is present, never on a first session (the question goes
 on findings.md's `deferred:` list). When the owner has said no, leave them
-out and record it in findings.md: `--strict --adapter` would fail on them
+out and Edit it into findings.md: `--strict --adapter` would fail on them
 for good. Never relabel one as `edge` or `oos` to pass the gate; the flag is
 the owner's call.
 

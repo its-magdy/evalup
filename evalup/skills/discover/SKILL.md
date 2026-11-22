@@ -72,7 +72,8 @@ The three: `profile.yaml` (what the app is — fields in
 [references/profile-schema.md](references/profile-schema.md)), `adapter.yaml`
 (how to talk to it — fields in
 [references/adapter-contract.md](references/adapter-contract.md)), and
-`findings.md` (design gaps, often week one's most valuable output). Those two
+`findings.md` (design gaps, often week one's most valuable output: create it
+with `evalup write-artifact` (see `--help`), then Edit it). Those two
 schemas own what each field *means*; this file owns how to decide its value
 from evidence.
 
@@ -261,16 +262,15 @@ where it came from: `[observed: <the request, response or trace>]` when a
 live call showed it, `[from code: <file:line>]` when it was read. A claim read
 from code states the conditions it needs, pipeline order included: "the guard
 throws and maps to 500 `[from code: …]` — reached only after an earlier step
-has accepted the request". A code reading that skips that clause turns into a
-user-facing claim a real request contradicts. Findings are the SHOULD source
+has accepted the request". A code reading that skips that clause becomes a
+claim a real request contradicts. Findings are the SHOULD source
 analyze and the trace-analyzer cite, so an untagged code reading gets
 repeated as behaviour.
 
 ## Capability matrix (write into profile.yaml)
 Give every layer an `enabled`, and when false a named `blocked_by`. The layers
 and their preconditions are profile-schema.md's `capability_matrix:` block —
-work down it and check each precondition against what steps 1–7 actually found,
-rather than restating the block from memory.
+work down it and check each precondition against what steps 1–7 found.
 
 Three calls that block leaves to you:
 - The step 2 enum drives routing and trajectory mechanically, not by convention:
