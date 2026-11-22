@@ -117,9 +117,9 @@ session, without stopping between them:
 
 Vocabulary rule for this session: say "test cases", "a quick run", "checks that
 could not run", not `split`, `selecting_split`, `capability matrix`,
-`unscorable`. Introduce a term when the user first needs it, with its one-line
-meaning. `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` has them all — read it
-only when the user asks what one means, and do not recite it.
+`unscorable`. Introduce a term when first needed, with its one-line meaning;
+`${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` has them all — read it only when
+the user asks, and do not recite it.
 
 A user who asks for the full setup up front ("do it properly", a team with a
 QA owner) gets the full `discover` and a ~30-case suite instead — say what the
@@ -184,11 +184,10 @@ but not run until `python3` imports `yaml` or `uv` is on PATH. Then carry on.
    - Tell the user where everything was written and that it should be
      committed with the app (or versioned wherever it lives, if out-of-tree).
    - On the full setup, name the three roles (developer / reviewer / domain
-     arbiter) and ask who will be the domain arbiter — record the answer in
-     `profile.yaml` under `roles:`. On the lean first session this is one of
-     the deferred interview questions, not a gate on the first run.
-   - Estimate the time to first useful result honestly: minutes for the lean
-     first session on a reachable app; about an hour for the full setup.
+     arbiter) and ask who the domain arbiter is, recorded under `roles:` in
+     `profile.yaml`; on the lean first session that question is deferred.
+   - Estimate the time to a first useful result honestly: minutes for the
+     lean session on a reachable app, about an hour for the full setup.
 
 ## Rules
 

@@ -167,7 +167,7 @@ and floor. **A rubric where no regex decides** — an ambiguous-name reply,
 a decline, "nothing is scheduled": the case pins a `form: criteria` rubric
 (`expect.answer.rubric`, the file under `rubrics/`) with the `self_test`
 `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md` §The criteria form requires.
-Its verdicts stay provisional, and never gate.
+Its verdicts stay provisional until it is calibrated, and gate nothing in v1.
 
 **Conversations** (`input.turns`,
 [references/conversations.md](references/conversations.md) — read it only
@@ -195,7 +195,7 @@ Never ask the user to review everything; they won't, and silent label errors
 become a permanent noise floor. Send only three kinds: hard-negative and OOS
 labels (`review.status: quarantined`, `gating: false`: it runs and is
 reported but cannot close the gate until a human accepts it and flips
-`gating`), cases the generator marked uncertain, and cases a cheap probe
+`gating`; no script drops it), cases the generator marked uncertain, and cases a cheap probe
 run shows the app disagreeing with. Present each as the message, the
 expected label and a one-line why — accept / fix / delete — and write the
 review status per case.
@@ -206,9 +206,11 @@ confirms none, and a case naming an unconfirmed rule (`covers`,
 (`unconfirmed_rule_gates`). So list each such rule once — id, quote,
 source — for confirm / fix / strike, per
 `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/interview.md`
-§Business rules: the reviewer's own yes and name in `confirmed_by`, never
-an agent's relay. Only those rules; the rest wait for its interview. A case
-accepted while one of its rules stays unconfirmed keeps `gating: false`.
+§Business rules — this review is that confirmation for the rules it
+lists. On confirm (or fix, then confirm), write `status: confirmed` and the
+reviewer's own name in `confirmed_by` on the rule in profile.yaml; strike
+deletes it with a dated findings.md line. Never headless, never an agent's
+name or relay. The other rules wait for discover's interview.
 
 **First session** (start's step 4): do not stop for this pass before the
 run — a stop ends the turn and its pre-approvals. List the batch (id,
@@ -226,16 +228,17 @@ labeling. generation-method.md says why each of these three matters.
 
 **The generator emits `gating: false` on every case** (its rule 3): an
 unreviewed label must not close a gate. A reviewer who accepts a case flips
-`gating` to true in the same edit, or keeps it false as a capability case.
+`gating` to true in the same edit, unless a rule it names is still
+unconfirmed (then no `gating: true`, no `canary`), or keeps it false as a
+capability case.
 Before validating, set `gating: false` on every case this delegation just
 wrote whose `gating` is not `false` (an absent key means true; never touch
 one a human accepted) and list their ids in chat. The validator's
 `gating_unreviewed` is the backstop, not the instruction.
 
-The handover always says how many cases gate. **No reviewer in the
-session** (headless, or the user said not to ask): every case stays
-`pending` and `gating: false`; say so as the handover's last line and under
-a free-text `review:` key in `dataset.yaml`: "N cases, 0 accepted: this
+The handover says how many cases gate. **No reviewer** (headless, or
+told not to ask): every case stays `pending` and `gating: false`; say so
+last in the handover and under a free-text `review:` key in `dataset.yaml`: "N cases, 0 accepted: this
 suite cannot fail a build until a human accepts cases and flips `gating`."
 (The validator's `nothing_gates`.) Never edit a warning away without
 naming, case by case, what changed and why.

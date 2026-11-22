@@ -431,9 +431,12 @@ class TestFirstSessionFlow(unittest.TestCase):
         generate = self.read("skills", "generate", "SKILL.md")
         for phrase in ("ride the same review", "`unconfirmed_rule_gates`",
                        "confirm / fix / strike", "interview.md`",
-                       "never an agent's relay",
-                       "the rest wait for its interview",
-                       "keeps `gating: false`"):
+                       "write `status: confirmed` and the reviewer's own "
+                       "name in `confirmed_by`",
+                       "this review is that confirmation",
+                       "Never headless, never an agent's name or relay",
+                       "The other rules wait for discover's interview",
+                       "unless a rule it names is still unconfirmed"):
             self.assertIn(phrase, generate)
         start = self.read("skills", "start", "SKILL.md")
         self.assertIn("plus confirming the rules those cases cover", start)
@@ -447,6 +450,8 @@ class TestFirstSessionFlow(unittest.TestCase):
         m = re.search(r"`git -C <app> status --porcelain ([^`]*)`", discover)
         self.assertIsNotNone(m, "discover step 5's dirtiness check moved")
         self.assertIn(":(exclude).evalup", m.group(1))
+        self.assertEqual(discover.count("status --porcelain"), 1,
+                         "a second, bare dirtiness check")
         if shutil.which("git") is None:
             self.skipTest("git is not installed")
         tail = shlex.split(m.group(1))

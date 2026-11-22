@@ -64,7 +64,7 @@ app changed: follow [references/rerun.md](references/rerun.md).
 
 Write three artifacts to the state location (default `<app>/.evalup/`, or
 the adapter's `state_location`). **Before the first of those writes, one line
-in chat saying where they go** — and, when `git -C <app> status --porcelain`
+in chat saying where they go** — and, when step 5's `status` check
 was non-empty or the repo is read-only, that `state_location` can point
 outside the app instead (headless: take the default and say so). The user
 finds out where their eval state lives before it exists, not after.
