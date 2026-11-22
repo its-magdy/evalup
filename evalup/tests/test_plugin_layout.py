@@ -130,6 +130,24 @@ class TestPluginLayout(unittest.TestCase):
                 seen |= found
         self.assertIn("run-cases", seen)
 
+    def test_findings_and_report_are_written_through_the_script(self):
+        # #106: in a Claude Code subagent the harness refuses Write on
+        # findings.md and report.md by name (probed 2026-11-22; a draft,
+        # other .md files and an Edit are allowed). The two steps that
+        # create them go through write_artifact.py, whose --help holds the
+        # draft-then-write steps and the fallback.
+        for skill, artifact in (("discover", "`findings.md`"),
+                                ("run", "`report.md`")):
+            text = (ROOT / "skills" / skill / "SKILL.md").read_text(
+                encoding="utf-8")
+            with self.subTest(skill=skill):
+                self.assertRegex(
+                    text, re.escape(artifact) + r"[^.]*`evalup write-artifact`")
+        helptext = (ROOT / "scripts" / "write_artifact.py").read_text(
+            encoding="utf-8")
+        for phrase in ("Subagents", "drafts/", "--move", "final message"):
+            self.assertIn(phrase, helptext)
+
     def test_every_skill_pre_approves_the_plugins_own_scripts(self):
         # Without this every script call is a permission prompt (~13 before a
         # first score). One rule covers every script through bin/evalup.

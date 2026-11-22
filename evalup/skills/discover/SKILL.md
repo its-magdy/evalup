@@ -251,7 +251,8 @@ rules, good answers, the domain arbiter, `safe_to_attack` — and record the
 answers where it says.
 
 ### 8. Report findings
-`findings.md`: design gaps (no OOS route, overlapping route targets, vague tool
+`findings.md`, written with `evalup write-artifact` (read its `--help`):
+design gaps (no OOS route, overlapping route targets, vague tool
 descriptions, missing confirmation on destructive tools), each with evidence and
 a suggested fix; each ranked risk also goes in `risks:`. Present the top 3 in chat, and list the probe's `env_vars`:
 every one must be exported wherever generate and run will run.
@@ -261,16 +262,15 @@ where it came from: `[observed: <the request, response or trace>]` when a
 live call showed it, `[from code: <file:line>]` when it was read. A claim read
 from code states the conditions it needs, pipeline order included: "the guard
 throws and maps to 500 `[from code: …]` — reached only after an earlier step
-has accepted the request". A code reading that skips that clause turns into a
-user-facing claim a real request contradicts. Findings are the SHOULD source
+has accepted the request". A code reading that skips that clause becomes a
+claim a real request contradicts. Findings are the SHOULD source
 analyze and the trace-analyzer cite, so an untagged code reading gets
 repeated as behaviour.
 
 ## Capability matrix (write into profile.yaml)
 Give every layer an `enabled`, and when false a named `blocked_by`. The layers
 and their preconditions are profile-schema.md's `capability_matrix:` block —
-work down it and check each precondition against what steps 1–7 actually found,
-rather than restating the block from memory.
+work down it and check each precondition against what steps 1–7 actually found.
 
 Three calls that block leaves to you:
 - The step 2 enum drives routing and trajectory mechanically, not by convention:

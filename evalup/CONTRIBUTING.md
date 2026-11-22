@@ -54,7 +54,7 @@ script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
-There are **23** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **24** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`,
 `_rubric.py`, `_sse.py` and `_exec.py` are shared modules, not CLIs: they have
 no argparse, so `python _common.py --help` exits 0 having printed nothing,
@@ -136,6 +136,16 @@ it is Linux-only.
   is only on PATH inside Claude Code: a README or CI command outside it
   keeps `python3 scripts/<name>.py`. `CLAUDE_PLUGIN_ROOT` is not set for the
   Bash tool, so the dispatcher finds `scripts/` from its own path.
+- **`findings.md` and a run's `report.md` are created through
+  `evalup write-artifact`, never Write** (#106). In a Claude Code subagent
+  the harness refuses Write on those two names ("Subagents should return
+  findings as text"); a probe on 2026-11-22 found a draft
+  (`drafts/findings.txt`), other `.md` files and an Edit to an existing one
+  allowed. So discover and run Write a draft and hand it to the script,
+  whose `--help` is the one place the steps and the fallback (the full text
+  in the final message) are written; later changes are Edits. It writes
+  `.md` files inside `--state-dir` only, so it cannot become a way around
+  a run's records. `tests/test_plugin_layout.py` pins both call sites.
 - **A skill that loads another lists it as `Skill(evalup:<name>)`** in its
   `allowed-tools` — loading a skill that has its own `allowed-tools` needs
   approval, and headless a prompt is a silent denial. Pinned by the same test.

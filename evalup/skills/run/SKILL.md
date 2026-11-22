@@ -234,7 +234,7 @@ subset, exactly what `stats.py` pairs), and, when they apply,
 `routing_report.json` (a non-canary case's routing was scored),
 `reliability.json` (k > 1, so never under `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
 number you quote comes from those. You add `report.md`
-beside them.
+beside them, written with `evalup write-artifact` (read its `--help`).
 
 - **The judge pass, then business rules.** The runner scores neither the
   **judged** layer (`expect.answer.rubric`, row `unjudged (…)`) nor

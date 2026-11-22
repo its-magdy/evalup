@@ -11,7 +11,7 @@ documents named below, not here.
 ## Layout
 
 - **`evalup/`** — the plugin (v0.1.0). 7 skills (`start`, `discover`,
-  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 23 CLI scripts
+  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 24 CLI scripts
   in `scripts/`, specs in `docs/`, the worked example in `examples/quickstart/`,
   five `claude plugin eval` cases in `evals/`.
 - **`EVAL-DESIGN-RECOMMENDATION.md`** + **`research/`** — why the plugin works

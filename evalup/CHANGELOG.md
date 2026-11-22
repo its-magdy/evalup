@@ -18,6 +18,14 @@ says when a release bumps it.
 
 ## [Unreleased]
 
+### Added
+- **`evalup write-artifact`** (#106). In a Claude Code subagent the harness
+  refuses Write on `findings.md` and `report.md`, so a skill driven that way
+  lost them and later steps lost their input. discover and run now Write a
+  draft and hand it to the script, which writes a `.md` file inside
+  `--state-dir` only (stdin or `--from`, replaced atomically, `--move` drops
+  the draft). If that is denied too, the full text goes in the final message.
+
 ### Changed
 - **Cached tokens are priced on an AG-UI stream** (#105, cost half).
   `normalize_trace.py` keeps the cache-read and cache-write counts it used to
