@@ -36,14 +36,21 @@ nobody dates. It is also NOT in `adapter.yaml`, `profile.yaml` or `plan.json`:
 declaration with no reader, which this package does not add.
   Shape (see PRICE_SCHEMA): {"schema", "as_of", "currency": "USD", "source",
   "models": {"<gen_ai.request.model>": {"input_per_mtok": "2.50",
-  "output_per_mtok": "10.00"}}, "aliases": {"<seen>": "<declared>"}}.
+  "output_per_mtok": "10.00", "cache_read_per_mtok": "0.25",
+  "cache_write_per_mtok": "3.125"}}, "aliases": {"<seen>": "<declared>"}}.
+  The two cache tiers are OPTIONAL and come as a pair (one alone is exit 2);
+  a table without them prices exactly as it did before they existed. They
+  are read only where the trace source declares its cache accounting -- see
+  CACHED TOKENS below. No default prices ship, cache tiers included.
   `as_of` and `source` are REQUIRED. The output carries `age_days` so a figure
   copied out of here carries its own staleness with it.
   Prices are DECIMAL STRINGS and are parsed into integer pico-USD per token, so
   every dollar figure below is exact integer arithmetic until it is rendered.
   A float price would make two runs of the same tokens differ in the last bits
   and a paired difference of two floats is not reliably zero when it should be.
-MODEL MATCH IS EXACT, on `gen_ai.request.model` verbatim. No prefix match, no
+MODEL MATCH IS EXACT, on `gen_ai.request.model` verbatim (a call without one
+is `<model attribute absent>`, which `traces.source: response` always is;
+alias that string to price it). No prefix match, no
 family fallback, no "close enough": decision D2's rule is that inference must
 be DECLARED per app, and `gpt-4o` and `gpt-4o-2024-08-06` are different prices.
 A model the table does not name goes in `unpriced_models` and the run's dollar
@@ -71,21 +78,24 @@ run (SS10), so every run gets the latency half, priced or not.
 
 WHAT IS NOT MEASURED, stated in the payload and not only here, because a number
 copied into a report loses its docstring:
-  - CACHED TOKENS. `normalize_trace.py` reads `gen_ai.usage.input_tokens` and
-    `gen_ai.usage.output_tokens` and nothing else. Cache counts do exist in
-    two places -- an AG-UI stream's in `response.json`, and on the chat spans
-    `traces.source: response` writes (`gen_ai.usage.cache_read.input_tokens`,
-    `.cache_creation.input_tokens`, #46) -- but `normalize_trace.py` drops
-    them, so the trajectory this scorer reads has none. So an app using
-    prompt caching is priced at the full input rate for tokens it was billed
-    a fraction of, and the error is LARGE -- a cached read is commonly a
-    tenth of the input price, a cache write more than the input price. The
-    direction is not even reliably one-sided: whether it over- or
-    under-counts depends on whether the exporter counts cached tokens inside
-    `input_tokens` or beside it, which the convention does not fix. This is
-    a DECLARED LIMIT, not a build: the trajectory carries no cache field, so
-    a price table with cache tiers would be a declaration with no reader.
-    `cache_accounting: "none"` rides in the output.
+  - CACHED TOKENS, PARTLY (#105). `normalize_trace.py` keeps a chat span's
+    `gen_ai.usage.cache_read.input_tokens` / `.cache_creation.input_tokens`
+    as the call's `cache_read_input_tokens` / `cache_write_input_tokens`
+    when the span carried them, and they are reported here as tokens. Whether
+    a cache count is a PART of `input_tokens` or an addition to it is the
+    source's accounting, which the convention does not fix, so the price is
+    split only where it is DECLARED: an AG-UI stream read as its own trace
+    (runner-contract.md SS2b says its cache counts are parts of
+    inputTokens; `cache_counts_are_parts` reads that off the manifest).
+    There, a call with cache counts priced against a model with both cache
+    tiers costs (input - cache_read - cache_write) at the input rate plus
+    each cache count at its tier, and the run says `cache_accounting:
+    "priced"`. With the tiers absent the call prices exactly as before, at
+    the full input rate, and the run says `"unpriced"` with a
+    `cache_warning` naming the missing keys -- the error that hides is LARGE
+    (a cached read is commonly a tenth of the input price, a cache write
+    more than it). Every other source stays `"none"`, with a `cache_note`
+    when it did report cache counts, until its accounting is declared.
   - TTFT. Nothing measures it. `latency_s` (`run_cases.py`) is whole-request
     wall clock, spans carry `duration_ms` and no first-token timestamp, and
     the adapter has no `streaming:` declaration. It is
@@ -153,7 +163,8 @@ are clustered, `stats.py`'s own first declared limit); the RATIO -- the
 observed ratio is reported as a description with no interval, because
 inverting a test for a ratio needs a different pivot and this file will not
 imply an interval it did not compute; anything about the k-1 unobserved
-repeats; and cache-corrected prices, per the limit above. There is no
+repeats; and cache-corrected prices outside the one declared source, per
+the limit above. There is no
 multiplicity correction across the metrics tested, matching `stats.py`.
 
 OUTPUT: JSON on stdout, or to `-o PATH`. Nothing is written into a run
@@ -202,6 +213,16 @@ RESULTS = "results.json"
 TRAJECTORY = "trajectory.json"
 
 PRICE_SCHEMA = "evalup/price-table/1"
+# #105: optional per model, both or neither. Additive to schema 1: a table
+# without them reads, and prices, exactly as before.
+CACHE_PRICE_FIELDS = ("cache_read_per_mtok", "cache_write_per_mtok")
+# The trajectory's per-call cache keys (normalize_trace.py CACHE_ATTRS), present
+# only when the trace reported them.
+CACHE_USAGE_KEYS = ("cache_read_input_tokens", "cache_write_input_tokens")
+# What a call with no gen_ai.request.model is reported, and priced, under. A
+# table may name it in `aliases` (or `models`), which is a declaration: every
+# such call in the run is then the model the user says it is.
+ABSENT_MODEL = "<model attribute absent>"
 # Prices are per MILLION tokens, so USD-per-token is p / 1e6 and pico-USD per
 # token is p * 1e6. Integral for any price with at most six decimal places,
 # which is four more than any published table uses.
@@ -306,9 +327,23 @@ def load_prices(path):
         if not isinstance(entry, dict):
             die(f"price table: models.{model} must be an object with "
                 "input_per_mtok and output_per_mtok")
-        table[model] = tuple(
-            pico_per_token(f, model, entry.get(f))
-            for f in ("input_per_mtok", "output_per_mtok"))
+        rate = [pico_per_token(f, model, entry.get(f))
+                for f in ("input_per_mtok", "output_per_mtok")]
+        # #105: the two cache tiers are optional, and come as a PAIR. One
+        # alone is refused: half a tier leaves the other cache count priced at
+        # some rate nobody declared, which is the guess this table exists to
+        # stop. A provider that bills cache writes at the input price declares
+        # cache_write_per_mtok equal to input_per_mtok.
+        present = [f for f in CACHE_PRICE_FIELDS if f in entry]
+        if len(present) == 1:
+            missing = next(f for f in CACHE_PRICE_FIELDS if f not in present)
+            die(f"price table: models.{model} declares {present[0]} without "
+                f"{missing}; declare both cache tiers or neither (a provider "
+                "with no cache-write surcharge sets cache_write_per_mtok to "
+                "its input_per_mtok)")
+        rate.extend(pico_per_token(f, model, entry[f]) if present else None
+                    for f in CACHE_PRICE_FIELDS)
+        table[model] = tuple(rate)
     aliases = doc.get("aliases") or {}
     if not isinstance(aliases, dict):
         die("price table: 'aliases' must be an object mapping a model string "
@@ -385,7 +420,13 @@ def case_usage(run_dir, case_id, row=None):
 
 def trajectory_usage(path):
     """The LLM calls in one trajectory.json, or None when it is absent or
-    unreadable."""
+    unreadable.
+
+    One tuple per call: (model, input, output, bad_count, cache_read,
+    cache_write). A cache count is None when the trace did not report it,
+    which is not the same as zero; one that is not a whole number is a bad
+    count like any other.
+    """
     if not os.path.isfile(path):
         return None
     try:
@@ -403,8 +444,16 @@ def trajectory_usage(path):
         usage = usage if isinstance(usage, dict) else {}
         n_in = token_count(usage.get("input_tokens"))
         n_out = token_count(usage.get("output_tokens"))
-        calls.append((call.get("model"), n_in or 0, n_out or 0,
-                      n_in is None or n_out is None))
+        bad = n_in is None or n_out is None
+        cache = []
+        for key in CACHE_USAGE_KEYS:
+            if key not in usage:
+                cache.append(None)
+                continue
+            count = token_count(usage[key])
+            bad = bad or count is None
+            cache.append(count or 0)
+        calls.append((call.get("model"), n_in or 0, n_out or 0, bad, *cache))
     return calls
 
 
@@ -435,54 +484,144 @@ def token_count(value):
     return None
 
 
-def price_run(run_dir, cases, prices):
+def cache_counts_are_parts(manifest):
+    """True when the run's trace source DECLARES its cache accounting as parts
+    of input_tokens. Today that is one source: an AG-UI stream read as its own
+    trace (`invocation.response_format: sse`, `sse.protocol: ag-ui`,
+    `traces.source: response`; runner-contract.md SS2b). Every other source
+    -- a JSON body's usage, an OTLP store -- leaves open whether a cache
+    count sits inside input_tokens or beside it, so its cache counts are
+    reported and NOT used to split the price (`cache_accounting: "none"`)
+    until that source's accounting is declared too.
+    """
+    if not isinstance(manifest, dict):
+        return False
+    invocation = manifest.get("invocation")
+    traces = manifest.get("traces")
+    if not isinstance(invocation, dict) or not isinstance(traces, dict):
+        return False
+    sse = invocation.get("sse")
+    return (traces.get("source") == "response"
+            and invocation.get("response_format") == "sse"
+            and isinstance(sse, dict) and sse.get("protocol") == "ag-ui")
+
+
+def price_run(run_dir, cases, prices, cache_parts=False):
     """Per-case pico-USD and the model rollup, or the reason there is none.
 
     Returns (per_case_pico, block). `per_case_pico` is None whenever the run's
     dollar figure is withheld, so the paired comparison cannot accidentally
     difference a partial total against a complete one.
+
+    `cache_parts` (cache_counts_are_parts) turns on the #105 split. A call
+    that reported a cache count, priced against a model whose entry declares
+    both cache tiers, costs uncached input (input minus both cache counts) at
+    the input rate, each cache count at its own tier, and output as before.
+    The split is ALL OR NOTHING per run: when any cache-reporting call's
+    model lacks the tiers, every call is priced exactly as before and the
+    run says `cache_accounting: "unpriced"`, naming the missing keys. A
+    blend of split and unsplit calls would be a figure that is neither the
+    old price nor the corrected one -- the partial total this script
+    withholds for an unknown model.
     """
     by_model, per_case, with_trace, unpriced = {}, {}, 0, set()
     tokens_in = tokens_out = unusable = 0
+    cache_tokens = {key: 0 for key in CACHE_USAGE_KEYS}
+    cache_calls = cache_over_input = 0
+    no_cache_tier = set()
+    # Both prices, per case: the old formula (every input token at the input
+    # rate) and the split. The run publishes one of them, never a blend.
+    per_case_split = {}
     for case_id in cases:
         calls = case_usage(run_dir, case_id, cases[case_id])
         if calls is None:
             continue
         with_trace += 1
-        pico = 0
-        for model, n_in, n_out, bad_count in calls:
+        pico = pico_split = 0
+        for model, n_in, n_out, bad_count, c_read, c_write in calls:
             unusable += bad_count
             tokens_in += n_in
             tokens_out += n_out
-            key = model if isinstance(model, str) else None
+            # A model that is not a string is the sentinel; "" stays "",
+            # which is how the table looked it up before #105.
+            name = model if isinstance(model, str) else ABSENT_MODEL
             entry = by_model.setdefault(
-                key or "<model attribute absent>",
+                name,
                 {"calls": 0, "input_tokens": 0, "output_tokens": 0,
                  "priced": False})
             entry["calls"] += 1
             entry["input_tokens"] += n_in
             entry["output_tokens"] += n_out
+            reported = c_read is not None or c_write is not None
+            if reported:
+                cache_calls += 1
+                for field, count in zip(CACHE_USAGE_KEYS, (c_read, c_write)):
+                    if count is not None:
+                        cache_tokens[field] += count
+                        entry[field] = entry.get(field, 0) + count
             if prices is None:
                 continue
-            resolved = prices["aliases"].get(key, key)
+            # Resolved by the name the output reports, so the "<model
+            # attribute absent>" that unpriced_models names can be declared
+            # like any other: a `traces.source: response` span carries no
+            # gen_ai.request.model at all, and before #105 no table could
+            # price one.
+            resolved = prices["aliases"].get(name, name)
             rate = prices["table"].get(resolved)
             if rate is None:
-                unpriced.add(key or "<model attribute absent>")
+                unpriced.add(name)
                 continue
             entry["priced"] = True
-            pico += n_in * rate[0] + n_out * rate[1]
+            old = n_in * rate[0] + n_out * rate[1]
+            pico += old
+            if not (cache_parts and reported):
+                pico_split += old
+                continue
+            if rate[2] is None:
+                no_cache_tier.add(resolved)
+                continue
+            c_read, c_write = c_read or 0, c_write or 0
+            uncached = n_in - c_read - c_write
+            if uncached < 0:
+                # The declared accounting says these are PARTS of
+                # input_tokens; a part larger than its whole is a count this
+                # scorer cannot price, withheld like any unusable one.
+                cache_over_input += 1
+                continue
+            pico_split += (uncached * rate[0] + c_read * rate[2]
+                           + c_write * rate[3] + n_out * rate[1])
         per_case[case_id] = pico
+        per_case_split[case_id] = pico_split
     without_trace = len(cases) - with_trace
 
+    tokens = {"input": tokens_in, "output": tokens_out,
+              "total": tokens_in + tokens_out}
+    if cache_calls:
+        # Measured, so reported whatever the source. Not added into total:
+        # under the one declared accounting they are already inside input.
+        tokens.update({"cache_read_input": cache_tokens[CACHE_USAGE_KEYS[0]],
+                       "cache_write_input": cache_tokens[CACHE_USAGE_KEYS[1]],
+                       "calls_reporting_cache": cache_calls})
     block = {
         "cases_with_trace": with_trace,
         "cases_without_trace": without_trace,
-        "tokens": {"input": tokens_in, "output": tokens_out,
-                   "total": tokens_in + tokens_out},
+        "tokens": tokens,
         "models": {name: {k: v for k, v in entry.items() if k != "priced"}
                    for name, entry in sorted(by_model.items())},
         "cache_accounting": "none",
     }
+    if cache_calls and not cache_parts:
+        block["cache_note"] = (
+            f"{cache_calls} LLM call(s) reported cache counts, but this run's "
+            "trace source does not declare whether they are parts of "
+            "input_tokens or additions to it (only an AG-UI stream read with "
+            "traces.source: response does), so input is priced at the input "
+            "rate as recorded and the cache counts are reported, not split "
+            "out.")
+    elif cache_calls:
+        # Not split out of any published price. "priced" is set below, and
+        # only where the split total is the one published.
+        block["cache_accounting"] = "unpriced"
     if with_trace == 0:
         # NOT reported as zero tokens: a run with no trace did not spend
         # nothing, it recorded nothing, and a zero in a token column is
@@ -511,6 +650,18 @@ def price_run(run_dir, cases, prices):
             "zero would read exactly like a cheap run. The token totals above "
             "EXCLUDE them. Fix the exporter or the traces.mapping_shim.")
         return None, block
+    # Only when the split is the figure to publish: with a tier missing the
+    # run prices as before, and the old formula needs no cache count.
+    if cache_over_input and not no_cache_tier:
+        block["status"] = "unpriced"
+        block["calls_with_cache_over_input"] = cache_over_input
+        block["reason"] = (
+            f"{cache_over_input} LLM call(s) reported cache counts larger "
+            "than their input_tokens. This source's declared accounting makes "
+            "a cache count a PART of input_tokens, so the uncached remainder "
+            "would be negative; the dollar total is withheld rather than "
+            "priced from a count that contradicts its own accounting.")
+        return None, block
     if unpriced:
         block["status"] = "unpriced"
         block["unpriced_models"] = sorted(unpriced)[:MAX_REPORTED]
@@ -524,6 +675,19 @@ def price_run(run_dir, cases, prices):
             "declared one.")
         return None, block
 
+    if cache_calls and cache_parts:
+        if no_cache_tier:
+            block["cache_warning"] = (
+                "the price table declares no {} for {}, so every call is "
+                "priced as before, cache-read and cache-write tokens at the "
+                "input rate. On a cached agent that figure can be far off -- "
+                "a cache read usually costs a tenth of input, a write more "
+                "than input; add both keys to split them out.".format(
+                    " / ".join(CACHE_PRICE_FIELDS),
+                    ", ".join(sorted(no_cache_tier)[:MAX_REPORTED])))
+        else:
+            per_case = per_case_split
+            block["cache_accounting"] = "priced"
     total_pico = sum(per_case.values())
     block["status"] = "priced"
     block["usd"] = usd(total_pico)
@@ -974,17 +1138,20 @@ def declared_limits(runs):
     ks = sorted({r["meta"].get("k") for r in runs})
     return {
         "cache_accounting": (
-            "NONE. normalize_trace.py records gen_ai.usage.input_tokens and "
-            "gen_ai.usage.output_tokens and drops any cache-read or "
-            "cache-write count, so this scorer cannot price one. An AG-UI "
-            "stream's cache counts are kept in response.json and on the "
-            "response-built chat spans (gen_ai.usage.cache_read / "
-            "cache_creation .input_tokens), unread here. An app using prompt "
-            "caching is priced at the full input rate for tokens it was "
-            "billed a fraction of, and the sign of the error depends on "
-            "whether the exporter counts cached tokens inside input_tokens "
-            "or beside it. RESERVED: the trajectory has no cache field to "
-            "read."),
+            "cost.cache_accounting says which applies. 'priced': the trace "
+            "source declares cache counts as parts of input_tokens (an "
+            "AG-UI stream read with traces.source: response) and the price "
+            "table has cache_read_per_mtok and cache_write_per_mtok for the "
+            "model, so uncached input, cache reads, cache writes and output "
+            "are priced separately. 'unpriced': the same source reported "
+            "cache counts, but a model lacks those keys (or no table was "
+            "given, or the dollars were withheld for the reason stated), so no "
+            "published figure splits them out; with cache_warning, the "
+            "figure prices cached tokens at the full input rate -- on a "
+            "cached agent a large error, in either direction. 'none': "
+            "no cache count was reported, or the source does not declare "
+            "whether they sit inside input_tokens or beside it, so they are "
+            "reported as tokens and not split out of the price."),
         "ttft": (
             "NOT MEASURED. latency_s is whole-request wall clock; spans carry "
             "duration_ms and no first-token timestamp. Step 10 removed the "
@@ -1010,7 +1177,8 @@ def declared_limits(runs):
         "list_price": (
             "a dollar figure here is the DECLARED table's list price over the "
             "tokens the trace reported. It is not an invoice: negotiated "
-            "rates, provider discounts, batch tiers and the cache limit above "
+            "rates, provider discounts, batch tiers and any cache count left "
+            "unsplit (cache_accounting other than 'priced') "
             "are all outside it."),
     }
 
@@ -1044,7 +1212,9 @@ def main():
 
     prices = load_prices(a.prices) if a.prices else None
     cand = load_run(a.run)
-    cand_cost, cand_block = price_run(cand["dir"], cand["cases"], prices)
+    cand_cost, cand_block = price_run(
+        cand["dir"], cand["cases"], prices,
+        cache_counts_are_parts(cand["manifest"]))
 
     out = {
         "harness_version": HARNESS_VERSION,
@@ -1056,7 +1226,9 @@ def main():
     if a.baseline:
         base = load_run(a.baseline)
         runs.append(base)
-        base_cost, base_block = price_run(base["dir"], base["cases"], prices)
+        base_cost, base_block = price_run(
+            base["dir"], base["cases"], prices,
+            cache_counts_are_parts(base["manifest"]))
         out["baseline"] = {"run": base["meta"], "cost": base_block,
                            "latency": latency_block(base["cases"])}
         out["paired"] = compare(base, cand, base_cost, cand_cost, a)

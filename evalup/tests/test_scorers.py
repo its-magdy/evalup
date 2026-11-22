@@ -1360,6 +1360,59 @@ class TestNormalizeTraceValues(ScorerTest):
         self.assertEqual(traj["usage"],
                          {"input_tokens": 16, "output_tokens": 10})
 
+    def test_cache_counts_are_kept_only_when_reported(self):
+        """#105: dropping them priced a cached agent at the full input
+        rate. Kept per call, per agent and in the total, and absent (not
+        zero) where no span reported one."""
+        def chat(span_id, start, n_in, **cache):
+            attrs = [
+                {"key": "gen_ai.request.model", "value": {"stringValue": "m"}},
+                {"key": "gen_ai.usage.input_tokens",
+                 "value": {"intValue": str(n_in)}},
+                {"key": "gen_ai.usage.output_tokens", "value": {"intValue": 1}}]
+            attrs += [{"key": f"gen_ai.usage.{k}.input_tokens",
+                       "value": {"intValue": v}} for k, v in cache.items()]
+            return self.span("t1", span_id, "chat", parent="a", start=start,
+                             extra_attrs=attrs)
+        spans = [self.span("t1", "a", "invoke_agent"),
+                 chat("b", 2, 100, cache_read=80),
+                 chat("c", 3, 50, cache_creation="20"),
+                 chat("d", 4, 10)]
+        rc, out, _ = run_script("normalize_trace.py", self.doc(spans),
+                                "--trace-id", "t1")
+        traj = out["trajectory"]
+        self.assertEqual([c["usage"] for c in traj["llm_calls"]], [
+            {"input_tokens": 100, "output_tokens": 1,
+             "cache_read_input_tokens": 80},
+            {"input_tokens": 50, "output_tokens": 1,
+             "cache_write_input_tokens": 20},
+            {"input_tokens": 10, "output_tokens": 1}])
+        total = {"input_tokens": 160, "output_tokens": 3,
+                 "cache_read_input_tokens": 80,
+                 "cache_write_input_tokens": 20}
+        self.assertEqual(traj["usage"], total)
+        self.assertEqual(traj["agents"][0]["usage"], total)
+
+    def test_a_cache_count_that_is_not_one_is_kept_raw_not_zeroed(self):
+        """int_or_zero would turn "lots" into 0 and 80.5 into 80, and
+        score_cost.py would split the price on a count nobody reported."""
+        for raw in ({"stringValue": "lots"}, {"doubleValue": 80.5},
+                    {"intValue": "-3"}):
+            with self.subTest(raw=raw):
+                spans = [self.span("t1", "b", "chat", extra_attrs=[
+                    {"key": "gen_ai.usage.input_tokens",
+                     "value": {"intValue": "100"}},
+                    {"key": "gen_ai.usage.cache_read.input_tokens",
+                     "value": raw}])]
+                rc, out, _ = run_script("normalize_trace.py",
+                                        self.doc(spans), "--trace-id", "t1")
+                traj = out["trajectory"]
+                value = next(iter(raw.values()))
+                self.assertEqual(
+                    traj["llm_calls"][0]["usage"]["cache_read_input_tokens"],
+                    value)
+                self.assertNotIn("cache_read_input_tokens", traj["usage"])
+
 
 class TestScoreAnswer(ScorerTest):
     def answer(self, text):

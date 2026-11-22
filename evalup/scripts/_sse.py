@@ -292,7 +292,7 @@ def tool_calls_to_otlp(calls, trace_id, usage=None, agent_name=None):
     JSON body's) or a list of them (a stream's `run_usage`, one per
     RUN_FINISHED / RUN_ERROR), so normalize_trace.py sees one llm_calls entry
     per call. Cache counts ride on the span as gen_ai.usage.cache_read /
-    cache_creation .input_tokens; normalize_trace.py does not read them.
+    cache_creation .input_tokens, which normalize_trace.py keeps (#105).
     No timestamps: the response gives none per call, and an invented one
     would be a latency nobody measured.
     normalize_trace.py sorts stably, so the calls keep the response's order,

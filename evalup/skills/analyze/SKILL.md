@@ -234,8 +234,9 @@ exactly, adding an `aliases` entry rather than hoping a prefix matches. A model
 the table does not name withholds the **dollars** and keeps the **tokens**.
 A **trace-less app cannot be priced at all** — `cases/<id>/trajectory.json` is
 the only token source — and its latency block is still complete. Quote
-`declared_limits` with any figure: cached tokens are not accounted for, TTFT is
-not measured, and at `k > 1` the cost is one representative repeat's.
+`declared_limits` with any figure: cached tokens are split out only when
+`cost.cache_accounting` is `priced`, TTFT is not measured, and at `k > 1`
+the cost is one representative repeat's.
 
 ### Rules and risks with no case — report them every time
 Every case names the profile's rule and risk ids it is for in `covers`
