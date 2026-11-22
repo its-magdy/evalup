@@ -540,6 +540,65 @@ class TestRunError(SSERunnerCase):
         self.assertEqual(body["partial_text"], "ok, half")
 
 
+INTERRUPT = dict(FINISHED, outcome={"type": "interrupt", "interrupts": []})
+
+
+class TestApprovalInterrupt(SSERunnerCase):
+    """#103: a proposal that ends the run on an approval interrupt. Only the
+    answer layer's reason names the interrupt; no verdict moves."""
+
+    body = agent_run(tool_call("c1", "apply_changes", "{}"), end=INTERRUPT)
+
+    def case(self):
+        case = make_case("c-0001")
+        case["expect"]["tools"] = {"subset": ["apply_changes"]}
+        return case
+
+    def verdict_for(self, body, out):
+        self.body = body
+        plan = self.sse_plan([self.case()])
+        out = out / plan["run_id"]
+        out.parent.mkdir()
+        rc, _, proc = self.invoke(plan, out=out)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        return json.loads((out / "cases" / "c-0001" / "verdict.json")
+                          .read_text(encoding="utf-8"))
+
+    def test_no_text_is_unscored_and_says_why(self):
+        rc, _, proc = self.invoke(self.sse_plan([self.case()]))
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        layers = self.read("cases", "c-0001", "verdict.json")["layers"]
+        self.assertEqual(layers["answer"]["verdict"], "unscored")
+        self.assertEqual(layers["answer"]["reason"],
+                         "the run ended on an approval interrupt with no "
+                         "text; no answer to score")
+        self.assertEqual(layers["trajectory"]["verdict"], "pass")
+
+    def test_the_verdict_is_what_a_plain_finish_gets(self):
+        """The interrupt run against the same run without the interrupt,
+        which the runner scored before #103: byte-identical but the
+        reason."""
+        no_text = agent_run(tool_call("c1", "apply_changes", "{}"))
+        plain = self.verdict_for(no_text, self.tmp / "plain")
+        interrupted = self.verdict_for(type(self).body, self.tmp / "interrupted")
+        self.assertNotEqual(plain["layers"]["answer"]["reason"],
+                            interrupted["layers"]["answer"]["reason"])
+        for verdict in (plain, interrupted):
+            verdict["layers"]["answer"].pop("reason")
+            verdict.pop("latency_s")
+        self.assertEqual(plain, interrupted)
+        self.assertEqual(interrupted["layers"]["answer"]["verdict"],
+                         "unscored")
+
+    def test_text_before_the_interrupt_is_scored(self):
+        verdict = self.verdict_for(agent_run(
+            text_message("m1", "ok, I propose this change."),
+            tool_call("c1", "apply_changes", "{}"), end=INTERRUPT),
+            self.tmp / "with-text")
+        self.assertEqual(verdict["layers"]["answer"]["verdict"], "pass")
+        self.assertEqual(verdict["layers"]["trajectory"]["verdict"], "pass")
+
+
 class TestJsonErrorUnderSse(SSERunnerCase):
     status = 403
     content_type = "application/json"

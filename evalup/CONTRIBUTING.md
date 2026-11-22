@@ -216,8 +216,10 @@ it is Linux-only.
   per-seal noise pair). Bump it when a file's layout changes,
   and teach `validate_cases.check_schema_version` the migration it names.
   Its findings, and `stage_renamed` (a pre-#42 stage name, read as the
-  new one), are the WARNs `--strict` does not promote: both are migrations. `plan.json` keeps
-  its own `plan_version` and is rebuilt every run, so it carries none.
+  new one), are the WARNs `--strict` does not promote: both are migrations.
+  So is `answer_after_interrupt` (#103), which may describe a case written
+  right. `plan.json` keeps its own `plan_version` and is rebuilt every
+  run, so it carries none.
 
 ## Path convention
 

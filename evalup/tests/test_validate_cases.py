@@ -1195,6 +1195,94 @@ class TestAdapterCrossCheck(ValidateTest):
             {"invocation": {}, "environment": {"safe_to_attack": True}}))
         self.assertNotIn("attack_category_will_skip", self.codes(out))
 
+    # #103: an approval interrupt with no text leaves `answer` unscored.
+    AG_UI = {"invocation": {"response_format": "sse",
+                            "sse": {"protocol": "ag-ui"}},
+             "tools": [{"name": "apply_changes", "side_effects": "needs-mock"},
+                       {"name": "send_email", "side_effects": "never-live"},
+                       {"name": "search_docs", "side_effects": "safe-live"}]}
+
+    def proposal(self, tools, answer=None):
+        return good_case(expect={
+            "tools": tools,
+            "answer": {"must_not_contain": ["/(?i:done)/"]}
+            if answer is None else answer})
+
+    def test_an_answer_beside_a_gated_tool_warns_under_ag_ui(self):
+        for tools in ({"subset": ["apply_changes"]},
+                      {"order": ["search_docs", "send_email"]},
+                      {"any_of": [["search_docs"], ["apply_changes"]]}):
+            with self.subTest(tools=tools):
+                finding = self.assert_finds(
+                    "answer_after_interrupt", [self.proposal(tools)],
+                    *self.adapter(self.AG_UI), severity="WARN")
+                self.assertIn("safe-live", finding["message"])
+                self.assertIn("unscored", finding["message"])
+
+    def test_the_interrupt_warning_stays_a_warning_under_strict(self):
+        rc, out, _ = self.validate(
+            [self.proposal({"subset": ["apply_changes"]})],
+            *self.adapter(self.AG_UI), "--strict")
+        finding = next(f for f in out["findings"]
+                       if f["code"] == "answer_after_interrupt")
+        self.assertEqual(finding["severity"], "WARN")
+
+    def test_no_interrupt_warning_without_all_three(self):
+        json_adapter = dict(self.AG_UI, invocation={})
+        data_path = dict(self.AG_UI, invocation={
+            "response_format": "sse",
+            "sse": {"protocol": "data-path", "text_path": "t"}})
+        quiet = (
+            ([self.proposal({"subset": ["search_docs"]})], self.AG_UI),
+            ([self.proposal({"forbidden": ["apply_changes"]})], self.AG_UI),
+            ([self.proposal({"subset": ["unknown_tool"]})], self.AG_UI),
+            ([self.proposal({"subset": ["apply_changes"]},
+                            answer={"must_contain": []})], self.AG_UI),
+            ([self.proposal({"subset": ["apply_changes"]})], json_adapter),
+            ([self.proposal({"subset": ["apply_changes"]})], data_path),
+        )
+        for cases, adapter in quiet:
+            with self.subTest(cases=cases, adapter=adapter["invocation"]):
+                rc, out, _ = self.validate(cases, *self.adapter(adapter))
+                self.assertNotIn("answer_after_interrupt", self.codes(out))
+
+    def test_a_conversation_turn_or_every_turn_counts(self):
+        ag_ui = dict(self.AG_UI, invocation=dict(
+            self.AG_UI["invocation"], conversation={"memory": "session"}))
+        on_turn = conversation(turns=[
+            {"user": "change it", "expect": {
+                "tools": {"subset": ["apply_changes"]},
+                "answer": {"must_not_contain": ["done"]}}},
+            {"user": "thanks"}])
+        every = conversation(
+            "c-convo-0002",
+            turns=[{"user": "change it",
+                    "expect": {"tools": {"subset": ["apply_changes"]}}},
+                   {"user": "thanks"}],
+            every_turn={"answer": {"must_not_contain": ["done"]}})
+        two = [{"user": "change it"}, {"user": "thanks"}]
+        # The runner overlays every_turn on each turn (conversation_turns),
+        # so a tool required only there is on the scored block too.
+        tool_on_every = conversation(
+            "c-convo-0003", turns=two,
+            every_turn={"tools": {"subset": ["apply_changes"]}},
+            expect={"answer": {"must_not_contain": ["done"]}})
+        both_on_every = conversation(
+            "c-convo-0004", turns=two, expect={},
+            every_turn={"tools": {"order": ["apply_changes"]},
+                        "answer": {"must_not_contain": ["done"]}})
+        answer_on_checkpoint = conversation(
+            "c-convo-0005",
+            turns=[{"user": "change it", "expect": {
+                "answer": {"must_not_contain": ["done"]}}},
+                {"user": "thanks"}],
+            every_turn={"tools": {"any_of": [["apply_changes"]]}})
+        for case in (on_turn, every, tool_on_every, both_on_every,
+                     answer_on_checkpoint):
+            with self.subTest(case=case["id"]):
+                self.assert_finds("answer_after_interrupt", [case],
+                                  *self.adapter(ag_ui), severity="WARN")
+
     def test_the_attack_categories_match_the_runner(self):
         sys.path.insert(0, str(SCRIPT.parent))
         try:

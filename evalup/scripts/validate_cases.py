@@ -102,6 +102,7 @@ pre-#42 `stage` name (stage_renamed), the one WARN --strict does NOT
 promote: a file written by an older evalup is a migration to do, not a
 claim the suite fails to back, and failing a gating CI job on it
 would be the release-breaks-everything problem #38 removes, in another form.
+answer_after_interrupt (--adapter, #103) is not promoted either.
 The pre-#38 keys `profile_version` / `adapter_version` are read as the old
 name of the same field.
 
@@ -321,9 +322,10 @@ class Report:
             "code": code, "message": message})
 
     def advise(self, case_id, code, message):
-        """A WARN that --strict leaves a WARN. Only the migration findings
-        use it (schema_version, stage_renamed); see the module docstring
-        for why."""
+        """A WARN that --strict leaves a WARN: the migration findings
+        (schema_version, stage_renamed; see the module docstring for why)
+        and answer_after_interrupt (#103), which may describe a case
+        written right."""
         self.findings.append({"case_id": case_id, "severity": "WARN",
                               "code": code, "message": message})
 
@@ -1620,7 +1622,11 @@ def check_adapter(rep, cases, records, adapter):
     And one on any app: an adversarial-refusal case under
     `environment.safe_to_attack` not true is skipped by every run
     (runner-contract SS7), so the one case written to catch a jailbreak never
-    runs and the user sees only "1 skipped"."""
+    runs and the user sees only "1 skipped". And one under an ag-ui stream
+    (#103): a case asserting expect.answer that requires a tool not classed
+    safe-live -- the run may end on that tool's approval interrupt with no
+    text, which leaves `answer` unscored. A warning, never an error: text
+    streamed before the interrupt is scored."""
     invocation = mapping(adapter.get("invocation"))
     traces = mapping(adapter.get("traces"))
     status_map = invocation.get("route_from_status")
@@ -1645,6 +1651,14 @@ def check_adapter(rep, cases, records, adapter):
     safe_to_attack = bool(mapping(adapter.get("environment")).get(
         "safe_to_attack"))
     conversation = invocation.get("conversation")
+    ag_ui = invocation.get("response_format") == "sse" \
+        and mapping(invocation.get("sse")).get("protocol") == "ag-ui"
+    catalog = adapter.get("tools")
+    gated_tools = {tool.get("name") for tool in
+                   (catalog if isinstance(catalog, list) else [])
+                   if isinstance(tool, dict)
+                   and is_nonempty_str(tool.get("name"))
+                   and tool.get("side_effects") not in (None, "safe-live")}
     for i, (record, case) in enumerate(zip(records, cases)):
         label = record["id"] or f"<no id: cases[{i}]>"
         expect = mapping(case.get("expect"))
@@ -1680,6 +1694,18 @@ def check_adapter(rep, cases, records, adapter):
                          "status (every answer is 200), so every run skips "
                          "this case. Assert the route through "
                          "route_from_response instead")
+        unsafe = interrupt_tools(case, gated_tools) if ag_ui else []
+        if unsafe:
+            # advise: text before the interrupt IS scored, so a --strict job
+            # must not fail a case that is written right.
+            rep.advise(label, "answer_after_interrupt",
+                     f"expect.answer is asserted and the case requires "
+                     f"{', '.join(unsafe)}, which the adapter does not class "
+                     "safe-live. An ag-ui app may end the run on an approval "
+                     "interrupt at that call: text streamed before the "
+                     "interrupt is scored, but with none `answer` is "
+                     "unscored and the case passes on its tools alone "
+                     "(case-format.md, Scoring semantics)")
         if expect.get("clarify_ok") is True \
                 and not is_nonempty_str(invocation.get("clarify_from_response")):
             rep.warn(label, "clarify_unobservable",
@@ -1705,6 +1731,38 @@ def check_adapter(rep, cases, records, adapter):
                      f"route_from_status and sees only {sorted(observable)}. "
                      "Expect one of those labels (keep the domain in `unit`), "
                      "or declare a route_from_response path")
+
+
+def answer_asserted(block):
+    return any(asserts_something(v)
+               for v in mapping(mapping(block).get("answer")).values())
+
+
+def required_tools(block):
+    """The tools an expect block requires: subset, order, and every any_of
+    alternative (the app may take any one). Never `forbidden`."""
+    tools = mapping(mapping(block).get("tools"))
+    named = [t for key in ("subset", "order")
+             for t in (tools.get(key) if isinstance(tools.get(key), list)
+                       else [])]
+    for alt in tools.get("any_of") if isinstance(tools.get("any_of"),
+                                                 list) else []:
+        named += alt if isinstance(alt, list) else []
+    return {t for t in named if isinstance(t, str)}
+
+
+def interrupt_tools(case, gated):
+    """#103: the tools outside safe-live that an expect block asserting
+    expect.answer also requires, sorted. A conversation is read as the
+    runner scores it: conversation_turns, every_turn overlaid on each turn."""
+    turns = conversation_turns(case)
+    blocks = [e for _, e in turns] if turns is not None \
+        else [case.get("expect")]
+    found = set()
+    for block in blocks:
+        if answer_asserted(block):
+            found |= required_tools(block) & gated
+    return sorted(found)
 
 
 RULE_STATUSES = ("confirmed", "inferred")
