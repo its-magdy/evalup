@@ -1260,7 +1260,25 @@ class TestAdapterCrossCheck(ValidateTest):
                     "expect": {"tools": {"subset": ["apply_changes"]}}},
                    {"user": "thanks"}],
             every_turn={"answer": {"must_not_contain": ["done"]}})
-        for case in (on_turn, every):
+        two = [{"user": "change it"}, {"user": "thanks"}]
+        # The runner overlays every_turn on each turn (conversation_turns),
+        # so a tool required only there is on the scored block too.
+        tool_on_every = conversation(
+            "c-convo-0003", turns=two,
+            every_turn={"tools": {"subset": ["apply_changes"]}},
+            expect={"answer": {"must_not_contain": ["done"]}})
+        both_on_every = conversation(
+            "c-convo-0004", turns=two, expect={},
+            every_turn={"tools": {"order": ["apply_changes"]},
+                        "answer": {"must_not_contain": ["done"]}})
+        answer_on_checkpoint = conversation(
+            "c-convo-0005",
+            turns=[{"user": "change it", "expect": {
+                "answer": {"must_not_contain": ["done"]}}},
+                {"user": "thanks"}],
+            every_turn={"tools": {"any_of": [["apply_changes"]]}})
+        for case in (on_turn, every, tool_on_every, both_on_every,
+                     answer_on_checkpoint):
             with self.subTest(case=case["id"]):
                 self.assert_finds("answer_after_interrupt", [case],
                                   *self.adapter(ag_ui), severity="WARN")

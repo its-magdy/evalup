@@ -1752,18 +1752,15 @@ def required_tools(block):
 
 
 def interrupt_tools(case, gated):
-    """#103: the tools outside safe-live that a block asserting
-    expect.answer also requires, sorted. `every_turn`'s answer applies to
-    each turn's block."""
-    turns = mapping(case.get("input")).get("turns")
-    blocks = [case.get("expect")] + [
-        mapping(t).get("expect")
-        for t in (turns if isinstance(turns, list) else [])]
-    every = answer_asserted(case.get("every_turn")) \
-        if isinstance(turns, list) else False
+    """#103: the tools outside safe-live that an expect block asserting
+    expect.answer also requires, sorted. A conversation is read as the
+    runner scores it: conversation_turns, every_turn overlaid on each turn."""
+    turns = conversation_turns(case)
+    blocks = [e for _, e in turns] if turns is not None \
+        else [case.get("expect")]
     found = set()
     for block in blocks:
-        if every or answer_asserted(block):
+        if answer_asserted(block):
             found |= required_tools(block) & gated
     return sorted(found)
 

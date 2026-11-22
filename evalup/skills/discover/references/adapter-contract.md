@@ -167,7 +167,8 @@ invocation:
   response_format: json        # | sse: a text/event-stream reply becomes {text,
   # tool_calls, error, finished, usage}; mark '{"text": "<answer>"}'. A failed
   # stream is `unscored`, as is `answer` after an approval interrupt with no
-  # text (case-format.md). runner-contract.md §4 item 2b.
+  # text; text before it is scored, so assert that (case-format.md).
+  # runner-contract.md §4 item 2b.
   # sse: {protocol: ag-ui}       # | {protocol: data-path, text_path: a.b, done: "[DONE]"}
   timeout_s: 60
   max_concurrency: 1           # serial. > 1 is REFUSED (exit 2), never
