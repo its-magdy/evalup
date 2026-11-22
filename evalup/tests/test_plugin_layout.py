@@ -472,6 +472,15 @@ class TestFirstSessionFlow(unittest.TestCase):
                               "interview.md")
         self.assertIn("or in generate §3's label review for the rules its "
                       "cases cover", interview)
+        analyze = self.read("skills", "analyze", "SKILL.md")
+        self.assertIn("only the discover interview or generate §3's label "
+                      "review does", analyze)
+        schema = self.read("skills", "discover", "references",
+                           "profile-schema.md")
+        self.assertIn("confirmed_by (interview, label review)", schema)
+        # prelook_fix.py's record lives in dataset.yaml (#120): the
+        # example an agent copies keeps the key.
+        self.assertIn("prelook_fixes: []", generate)
 
     def test_the_label_review_never_reads_a_sealed_case(self):
         # #115 seals a share of each addition's new cases, #120's pre-look

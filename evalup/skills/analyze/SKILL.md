@@ -250,7 +250,8 @@ gaps, and name a risk with only one case as thin. A cluster that violates
 a rule nobody has confirmed is a finding to put to the owner, not a
 regression: an inferred rule never gates (only `gate.py --min-pass-rate`
 counts its `gating: false` cases), and nothing here may flip a rule to
-`confirmed` — only the discover interview does, with a human's name. A label fix that drops a
+`confirmed` — only the discover interview or generate §3's label review
+does, with a human's name. A label fix that drops a
 case's last link reopens a gap; say so.
 
 ## `--label` — judge calibration, 15 minutes at a time

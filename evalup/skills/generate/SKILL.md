@@ -287,21 +287,21 @@ adapter maps the HTTP status, the observed route is the map's value,
 `unit`. Re-run both after ANY later hand-edit to a case file: `--manifest`
 catches a stale `dataset.yaml`.
 
-`datasets/dataset.yaml` is the suite's hand-written summary, and it is
-optional (absent → `dataset_version` 1, nothing cross-checked). Every key is
-optional too; the scripts read all of these but `rules`, and each count is
-checked against the case files:
+`datasets/dataset.yaml` is the suite's hand-written summary, optional
+(absent → `dataset_version` 1, nothing cross-checked), as is every key; the
+scripts read all but `rules` and check each count against the case files:
 
 ```yaml
 schema_version: 1           # every state file declares it; validate_cases.py warns without it
 dataset_version: 1          # int; make_plan.py pins it into the run manifest
 label_fixes: []             # fixes awaiting the owner (label-lifecycle.md)
+prelook_fixes: []           # written by prelook-fix only
 cases: 12                   # total case files
 splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
     billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
-  rules: { plain-text: all, refund-cap: "judge-only" }   # all = every case; no script reads it
+  rules: { plain-text: all, refund-cap: "judge-only" }   # all = every case
 ```
 
 ## 5. Suite adequacy (periodic, not per-generate)

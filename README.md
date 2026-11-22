@@ -210,7 +210,7 @@ diffs, and a stated Bayesian keep rule over a measured noise floor.
 
 | Path | Contents |
 |---|---|
-| `evalup/` | The plugin: 7 skills, 3 agents, 21 CLI scripts, specs in `docs/`, the worked example in `examples/quickstart/` |
+| `evalup/` | The plugin: 7 skills, 3 agents, 25 CLI scripts, specs in `docs/`, the worked example in `examples/quickstart/` |
 | `evalup/evals/` | `claude plugin eval` cases |
 | `.claude-plugin/marketplace.json` | The marketplace that `claude plugin marketplace add` reads |
 | `EVAL-DESIGN-RECOMMENDATION.md`, `research/` | Why the plugin works the way it does |

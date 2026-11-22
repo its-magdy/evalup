@@ -153,7 +153,7 @@ business_rules:                  # versioned like the cases; reported by id (#26
     source: "prompts/router.md:4"   # code: the FRAGMENT's file:line; doc: path or URL + §section
     date: 2026-11-21             # the source's own date, else the day it was read
     status: inferred             # inferred | confirmed. Only a human confirms, by name in
-    confirmed_by: null           # confirmed_by (the interview); unconfirmed: `gating: false`, no canary
+    confirmed_by: null           # confirmed_by (interview, label review); unconfirmed: `gating: false`, no canary
     check: { must_not_contain: ['/(?m)^[ \t]*[-*]/'] }   # a script checks it; else a judge (rubric `rule:`)
     # contradiction: "<the other side, with its source>"   when docs and code disagree
     # outside: true + quote_in: local   a source outside the app repo (interview.md)
