@@ -3668,11 +3668,36 @@ class TestUnicodeNormalization(ScorerTest):
         self.assertEqual(out["verdict"], "fail")
         self.assertIn("not in NFC form", out["checks"][0]["note"])
 
-    def test_an_ascii_regex_still_gets_the_plain_note(self):
+    def test_no_note_when_normalization_changed_nothing(self):
+        # #109: the note fired on every regex, ASCII included. An NFC answer
+        # and an NFC pattern ran exactly as written, so there is nothing to
+        # say — ASCII or not.
+        for answer, pattern in (("total: 42 units", "/\\d+ units/"),
+                                (f"visited {self.NFC} today",
+                                 f"/{self.NFC}/")):
+            with self.subTest(pattern=pattern):
+                rc, out, err = self.answer_case(
+                    answer, {"answer": {"must_contain": [pattern]}})
+                self.assertEqual(out["verdict"], "pass")
+                self.assertNotIn("note", out["checks"][0])
+
+    def test_an_ascii_regex_on_a_decomposed_answer_keeps_the_plain_note(self):
+        # Normalization changed the text the pattern ran against, which an
+        # ASCII pattern can see too (`cafe$` matches the NFD bytes, not the
+        # NFC ones), so the note stays — without the WARNING.
         rc, out, err = self.answer_case(
-            "total: 42 units", {"answer": {"must_contain": ["/\\d+ units/"]}})
+            f"visited {self.NFD}: 42 units",
+            {"answer": {"must_contain": ["/\\d+ units/"]}})
         self.assertEqual(out["verdict"], "pass")
+        self.assertIn("NFC-normalized", out["checks"][0]["note"])
         self.assertNotIn("WARNING", out["checks"][0]["note"])
+
+    def test_plain_string_entries_never_carry_the_regex_note(self):
+        rc, out, err = self.answer_case(
+            f"visited {self.NFD} today",
+            {"answer": {"must_contain": [self.NFC]}})
+        self.assertEqual(out["verdict"], "pass")
+        self.assertNotIn("note", out["checks"][0])
 
     def test_json_schema_enum_and_required_key_normalize(self):
         rc, out, err = self.answer_case(
