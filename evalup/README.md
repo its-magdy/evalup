@@ -324,7 +324,7 @@ and edit the lines marked `EDIT`:
   deterministic layers only, and judged verdicts never gate.
 
 It checks out your app, fetches the plugin at **`EVALUP_REF`**, a release
-tag (`v0.1.0`; releases are immutable, so a tag never moves; a commit SHA also works),
+tag (`v0.1.0`; an immutable release keeps its tag on one commit; a commit SHA also works),
 installs PyYAML for `convert_suite.py` alone (everything else is stdlib, on
 Python 3.9 or later), validates the suite, runs a `regression` run at `EVALUP_K` (default 3),
 gates it, and uploads the run directory as the `evalup-run` artifact. Under

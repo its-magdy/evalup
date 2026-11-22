@@ -52,8 +52,10 @@ class TestTemplateText(unittest.TestCase):
             self.assertEqual(ci.get(action), pin, action)
 
     def test_the_plugin_is_pinned_to_this_versions_release_tag(self):
-        # A version bump moves the pin in the same commit, and the release
-        # tag is cut on that commit, so a copied template names a release.
+        # A version bump moves the pin in the same commit; publishing the
+        # release on that commit, once it is on main, creates the tag. So a
+        # template copied from main names a release (CI never fetches it:
+        # run_template.py pins HEAD).
         version = json.loads((ROOT / ".claude-plugin" / "plugin.json")
                              .read_text(encoding="utf-8"))["version"]
         self.assertRegex(self.text,

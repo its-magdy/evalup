@@ -16,6 +16,8 @@ says when a release bumps it.
 [semver]: https://semver.org/spec/v2.0.0.html
 [0.1.0]: https://github.com/its-magdy/evalup/releases/tag/v0.1.0
 
+## [Unreleased]
+
 ## [0.1.0] — 2026-11-22
 
 The first release, tagged `v0.1.0`. There is no earlier release to upgrade
@@ -425,8 +427,8 @@ change; fixes below are bugfixes inside the runner freeze.
   keeps its already-finished cases as written: their k>1 verdicts used the
   old fold, and they carry no `repeated_5xx`, so the summary undercounts it.
   `--verify` cannot see either (it recounts, it does not re-fold). Re-run
-  rather than resume across this change; the harness version is unchanged
-  because 0.1.0 is unreleased.
+  rather than resume across this change; the harness version stayed 0.1.0
+  because nothing had been released yet.
 - **One run, four denominators.** `run_history.py` divided passes by
   `summary.n`, which counts skipped and infra cases, and printed 0.6 for a
   3-pass, 1-fail, 1-skipped run (and labelled `n` "cases_scored");
@@ -1234,16 +1236,6 @@ flaky case, and `gate.py` closed on it.
 A gate policy over verdicts the runner already wrote: no verdict, the pass^k
 fold and `SCORING_VERSION` (still 1) are unchanged.
 
-### Changed — the first release tag (2026-11-22)
-
-- **The CI template pins a release tag.** `ci/github-actions.yml` fetches
-  the plugin at `EVALUP_REF: v0.1.0` instead of a commit SHA. The repo's
-  releases are immutable, so the tag cannot move; a SHA still works.
-  `tests/test_ci_template.py` now requires the pin to be the tag of
-  `plugin.json`'s version, so a version bump moves the pin in the same
-  commit (#40, item 3).
-- **README §Installation** clones the tag.
-
 ### Removed — the `full` run mode (2026-11-21)
 
 - **`--full` is gone** (#42, item 1). It was always two runs and never one
@@ -1346,8 +1338,8 @@ no verdict, retry rule or `SCORING_VERSION` (still 1) changes.
 wiring four scripts by hand.
 
 - **`ci/github-actions.yml`**, a GitHub Actions workflow to copy into the
-  app's repository: it fetches the plugin at a pinned commit SHA (a release
-  tag replaces it once one exists, #40 item 3), starts the app and waits
+  app's repository: it fetches the plugin at `EVALUP_REF` (now the release
+  tag `v0.1.0`; see "the first release tag" below), starts the app and waits
   for it, runs `convert_suite.py` → `make_plan.py --mode regression` →
   `run_cases.py`, gates with `gate.py` (`--baseline reports/baseline.json`
   when the repository holds one, plus `--min-pass-rate` and
@@ -1423,9 +1415,9 @@ graded the app against itself.
   CI workflow template (#82) runs it in `run the suite` before the plan,
   and `tests/run_template.py` adds a fourth pass, a gating case on the
   quickstart's inferred rule, which must fail the job before any run.
-  The template's `EVALUP_REF` pin predates #25: there the validator
-  passes with a `schema_version_missing` warning and enforces nothing
-  until the pin moves past this merge.
+  The template's commit pin at the time predated #25, so the validator only
+  warned `schema_version_missing`; the `v0.1.0` pin includes this merge
+  and enforces it.
 - **generate, the test-generator and analyze** link every case, keep an
   unconfirmed rule out of the gate, and report the gaps; the trace-analyzer
   reads only confirmed rules as a SHOULD.
@@ -1575,6 +1567,17 @@ this makes a run say, by rule id, which rules it checked and which failed.
   `unscored`, every verdict is byte-identical, and `SCORING_VERSION` and
   `JUDGE_VERSION` stay 1; no `schema_version` bump (`check:` and `rule:`
   are optional keys).
+
+### Changed — the first release tag (2026-11-22)
+
+- **The CI template pins a release tag.** `ci/github-actions.yml` fetches
+  the plugin at `EVALUP_REF: v0.1.0` instead of a commit SHA. The repo's
+  releases are immutable: while the release exists its tag stays on one
+  commit, and the name cannot be reused. A SHA still works.
+  `tests/test_ci_template.py` now requires the pin to be the tag of
+  `plugin.json`'s version, so a version bump moves the pin in the same
+  commit (#40, item 3).
+- **README §Installation** clones the tag.
 
 ### Fixed — the 2026-09-21 shape audit
 

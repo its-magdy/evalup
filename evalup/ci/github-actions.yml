@@ -44,8 +44,9 @@ defaults:
     shell: bash
 
 env:
-  # The plugin, at a release tag. evalup's releases are immutable, so the
-  # tag cannot be moved to another commit. A commit SHA works here too.
+  # The plugin, at a release tag. evalup's releases are immutable: while the
+  # release exists its tag stays on one commit, and the name is never
+  # reused. A commit SHA works here too.
   # Bump it on purpose, and re-pin your baseline when the new version's
   # scoring_version differs (gate.py --baseline refuses the pair).
   EVALUP_REPO_URL: https://github.com/its-magdy/evalup.git

@@ -83,7 +83,7 @@ same facts for a dashboard. Deterministic-only CI needs no
 (`${CLAUDE_PLUGIN_ROOT}/examples/quickstart/demo.py` is that pipeline,
 runnable, and `${CLAUDE_PLUGIN_ROOT}/ci/github-actions.yml` is it as a
 GitHub Actions workflow to copy into the app's repository, plugin pinned by
-commit SHA, `--baseline` used when `reports/baseline.json` is committed with
+`EVALUP_REF` (the release tag `v0.1.0`; a commit SHA also works), `--baseline` used when `reports/baseline.json` is committed with
 its run directory; README "CI workflow template" lists what to edit). The
 validate step stops the job on a non-zero exit; it is what
 refuses a gating case or canary covering a business rule no human
