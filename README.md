@@ -1,18 +1,43 @@
 # evalup
 
-> A Claude Code plugin that measures what your LLM chat or agent app gets wrong, and which prompt to fix.
+> Point it at an AI feature and, in one session, see which answers are wrong, with evidence you can check, and which prompt to fix.
 
 [![ci](https://github.com/its-magdy/evalup/actions/workflows/ci.yml/badge.svg)](https://github.com/its-magdy/evalup/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-0.1.0-blue)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-evalup reads your app's code, writes test cases for it, runs them, and scores
-each answer in layers: routing, tool use, answer checks. A failure points at
-one prompt or tool description, not at "the model".
+evalup is a Claude Code plugin for LLM chat and agent apps. It reads your
+app's code, writes test cases, runs them against the app, and scores each
+answer in layers, so a failure points at one prompt or tool description, not
+at "the model". Claude does the judgment work; stdlib-only Python scripts do
+the scoring, so CI can gate on the numbers without Claude.
 
-Claude Code does the judgment work: profiling the app, writing cases,
-diagnosing failures, proposing edits. Stdlib-only Python scripts do the
-scoring, so every number is reproducible and CI can gate on it without Claude.
+What it is built around:
+
+- **Deterministic, layered scores.** Routing F1 with a confusion matrix, tool
+  and trajectory matching, answer checks, execution accuracy against a
+  read-only oracle, authorization read from the tool-call log. Scripts
+  produce every gated number, so the same replies always score the same.
+- **Business rules with their sources.** `discover` records each rule with a
+  quote, source and date; a run reports by rule id which rules passed,
+  checked by script where a script can check them.
+- **Runs it can compare.** Canaries, a fixed subset with versioned answers,
+  abort a run when one fails, so drift stops the run instead of skewing it.
+  A diff against a baseline with another dataset, scoring version, repeat
+  count or judge is refused.
+- **A keep/revert gate on a sealed holdout.** `/evalup:optimize` edits one
+  prompt at a time in your app's own source and keeps the edit only if, on a
+  holdout it never tuned on, the posterior probability that it is better is
+  at least 0.95 and it moved more cases than re-running the unchanged app
+  does. Otherwise git reverts it. You approve every kept edit.
+
+**Not proven yet:** the live proof
+([#27](https://github.com/its-magdy/evalup/issues/27)) is still running. The
+tool-use layers have produced their first verdicts on a live app; the
+run-time judge and a full optimize loop have not. Judged verdicts are
+provisional and never gate. Known gaps are in
+[`evalup/README.md`](evalup/README.md#limits); how evalup sits beside
+deepeval, promptfoo, RELAI and evals-skills is [below](#neighbours).
 
 ---
 
@@ -20,7 +45,7 @@ scoring, so every number is reproducible and CI can gate on it without Claude.
 - [Installation](#installation)
 - [Usage](#usage)
 - [Commands](#commands)
-- [Compared with evals-skills](#compared-with-evals-skills)
+- [Neighbours](#neighbours)
 - [Repository layout](#repository-layout)
 - [Running tests](#running-tests)
 - [Contributing](#contributing)
@@ -164,19 +189,20 @@ Flags, run modes, the scored layers and known limits are in
 
 ---
 
-## Compared with evals-skills
+## Neighbours
 
-[`ai-evals-course/evals-skills`](https://github.com/ai-evals-course/evals-skills)
-(which replaced the deprecated `hamelsmu/evals-skills`) is a close
-neighbour: Claude Code skills for eval methodology.
+Checked 2026-11-22. Each of these also ships as a Claude Code plugin or skills.
 
-| | evals-skills | evalup |
-|---|---|---|
-| Error analysis, synthetic data, judge prompts | Yes | Yes |
-| Runs cases against your app | No | Yes |
-| Deterministic scorers (routing, tools, trajectory, answer) | No | Yes |
-| Statistics (pass^k, confidence gates) and a sealed holdout | No | Yes |
-| CI gate that needs no LLM | No | Yes |
+| Project | What it is |
+|---|---|
+| [deepeval](https://github.com/confident-ai/deepeval) | A Python evaluation framework: metrics, many of them LLM-judged, run like unit tests; an official plugin for evals and tracing. |
+| [promptfoo](https://github.com/promptfoo/promptfoo) | Declarative-config evals and red-teaming from the command line and CI; an official plugin. evalup does no red-teaming and points to promptfoo for it. |
+| [RELAI agent-eval-loop](https://github.com/relai-ai/agent-eval-loop) | The closest neighbour: a Claude Code and Codex plugin that discovers risks, builds frozen end-to-end evals (Harbor or native runners) with reviewed graders, and improves an agent on a branch with before-and-after scores and optional held-out evals. |
+| [ai-evals-course/evals-skills](https://github.com/ai-evals-course/evals-skills) | Skills for eval methodology: error analysis, synthetic data, judge prompts (replaces the deprecated `hamelsmu/evals-skills`). It does not run cases against an app. |
+
+evalup's difference is in the list at the top: script-only gated scores in
+named layers, rules scored by id against their sources, canaries and refused
+diffs, and a stated Bayesian keep rule over a measured noise floor.
 
 ---
 

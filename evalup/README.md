@@ -1,16 +1,24 @@
 # evalup
 
-> A Claude Code plugin that measures what your LLM chat or agent app gets wrong, and which prompt to fix.
+> Point it at an AI feature and, in one session, see which answers are wrong, with evidence you can check, and which prompt to fix.
 
-evalup reads your app's code, writes test cases for it, runs them, and scores
-each answer in layers — routing, tool use, answer checks — so a failure points
-at one prompt or tool description. It works on anything it can call: a single
-chat endpoint, a router→executor, a multi-agent orchestrator.
+evalup, a Claude Code plugin, reads your app's code, writes test cases for
+it, runs them, and scores each answer in layers — routing, tool use, answer
+checks — so a failure points at one prompt or tool description. It works on
+anything it can call: a single chat endpoint, a router→executor, a
+multi-agent orchestrator.
 
 Claude Code does the judgment work: profiling the app, writing cases,
 diagnosing failures, proposing edits. Stdlib-only Python scripts do the
 scoring, so every number is cheap, fast and reproducible, and CI can gate on
 it without Claude.
+
+On top of the layered scores: business rules scored by id against their
+sources, canaries that abort a drifting run, refused diffs between runs that
+cannot be compared, and an optimizer that edits prompts in your app's own
+source behind a keep/revert gate on a sealed holdout (not yet proven on a
+live app, #27). How that sits beside deepeval, promptfoo, RELAI and
+evals-skills is in the [repository README](../README.md#neighbours).
 
 ---
 
