@@ -107,7 +107,8 @@ No mode flag behaves as `regression` (full suite, hard gate). There is no
   listed only by id+hash in reports, never displayed case-by-case; unsealing
   for human inspection is `analyze --unseal`, a deliberately inconvenient,
   logged, counted action — see `${CLAUDE_PLUGIN_ROOT}/skills/analyze/SKILL.md`
-  §"`--unseal`").
+  §"`--unseal`"). A check fix before the seal's first look is
+  `evalup prelook-fix` instead (generate §4).
 - **k**: 3 by default (`--k N` overrides), pass^k per case — the keep/revert
   call reads these folded verdicts, and at k=1 one flaky retry could decide
   a keep.

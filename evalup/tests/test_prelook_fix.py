@@ -163,6 +163,21 @@ class TestPrelookFix(unittest.TestCase):
         self.assertIn("# bumped on review", (self.state / "datasets" /
                       "dataset.yaml").read_text(encoding="utf-8"))
 
+    def test_only_the_expect_block_of_a_case_file_is_rewritten(self):
+        # A diff of a sealed file must show the check, never the input.
+        path = self.state / "datasets" / "c-ho1.yaml"
+        old = path.read_text(encoding="utf-8").splitlines()
+        rc, out, _ = self.run_fix("--apply", "--approved-by", "o")
+        self.assertEqual(rc, 0, out)
+        new = path.read_text(encoding="utf-8").splitlines()
+        start = old.index("expect:")
+        end = old.index("gating: true")
+        self.assertEqual(new[:start], old[:start])
+        self.assertEqual(new[start + 1:], old[end:])
+        self.assertTrue(new[start].startswith("expect: {"))
+        self.assertIn(SECRET_INPUT, "\n".join(new[:start]))
+        self.assertNotIn(SECRET_INPUT, new[start])
+
     def test_a_second_fix_appends_and_bumps_again(self):
         rc, out, _ = self.run_fix("--apply", "--approved-by", "owner")
         self.assertEqual(rc, 0, out)
@@ -194,6 +209,54 @@ class TestPrelookFix(unittest.TestCase):
                     self.assertIn("ledger", json.loads(out)["error"])
                     self.assertIn("1 line", json.loads(out)["error"])
                 self.assertEqual(self.snapshot(), before)
+
+    def test_an_override_ledger_cannot_hide_the_default_one(self):
+        (self.state / "datasets" / "holdout-looks.jsonl").write_text(
+            '{"run_id": "holdout-20261122T100000Z"}\n', encoding="utf-8")
+        rc, out, _ = self.run_fix("--holdout-ledger", "datasets/other.jsonl")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("1 line", json.loads(out)["error"])
+        (self.state / "datasets" / "holdout-looks.jsonl").unlink()
+        (self.state / "datasets" / "other.jsonl").write_text(
+            '{"run_id": "holdout-20261122T100000Z"}\n', encoding="utf-8")
+        rc, out, _ = self.run_fix("--holdout-ledger", "datasets/other.jsonl")
+        self.assertEqual(rc, 2, out)
+
+    def test_a_holdout_run_at_this_version_is_a_look_without_a_ledger(self):
+        run = self.state / "reports" / "holdout-20261122T100000Z"
+        run.mkdir(parents=True)
+        manifest = {"mode": "holdout", "selecting_split": "holdout",
+                    "dataset_version": 3}
+        (run / "manifest.yaml").write_text(json.dumps(manifest),
+                                           encoding="utf-8")
+        rc, out, _ = self.run_fix()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("holdout-20261122T100000Z", json.loads(out)["error"])
+        # A holdout run on an earlier seal (before the reseal's bump) is not.
+        manifest["dataset_version"] = 2
+        (run / "manifest.yaml").write_text(json.dumps(manifest),
+                                           encoding="utf-8")
+        rc, out, _ = self.run_fix()
+        self.assertEqual(rc, 0, out)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "root ignores directory permissions")
+    def test_a_failed_write_restores_every_case_file(self):
+        # Cases in a subdirectory, dataset.yaml's directory read-only: the
+        # case file is written first, then dataset.yaml fails.
+        d = self.state / "datasets"
+        (d / "cases").mkdir()
+        for p in d.glob("c-*.yaml"):
+            p.rename(d / "cases" / p.name)
+        before = self.snapshot()
+        os.chmod(d, 0o555)
+        self.addCleanup(os.chmod, d, 0o755)
+        rc, out, err = self.run_fix("--apply", "--approved-by", "o")
+        os.chmod(d, 0o755)
+        self.assertEqual(rc, 2, out + err)
+        self.assertNotIn("Traceback", err)
+        self.assertIn("every file was restored", json.loads(out)["error"])
+        self.assertEqual(self.snapshot(), before)
 
     def test_an_empty_or_blank_ledger_is_zero_looks(self):
         (self.state / "datasets" / "holdout-looks.jsonl").write_text(
@@ -231,12 +294,18 @@ class TestPrelookFix(unittest.TestCase):
         for case_id, needle in (("c-ho1", "sealed"),
                                 ("c-pending", "not accepted"),
                                 ("c-train2", "does not already carry"),
+                                ("c-train", "does not already carry"),
                                 ("c-nope", "not a case")):
             with self.subTest(case_id=case_id):
+                # c-train has no expect.args at all: "the key is absent" is
+                # not evidence that it was ever deleted there.
+                fix = self.fix if case_id != "c-train" else {
+                    "statement": "s", "op": "delete",
+                    "path": "expect.args.search", "from": {"q": "x"}}
                 proc = subprocess.run(
                     [sys.executable, str(SCRIPTS / "prelook_fix.py"),
                      str(self.state), "--transformation",
-                     json.dumps(self.fix), "--motivated-by", case_id],
+                     json.dumps(fix), "--motivated-by", case_id],
                     capture_output=True, text=True, timeout=120,
                     env=dict(os.environ, EVALUP_NO_UV="1"))
                 self.assertEqual(proc.returncode, 2, proc.stdout)
@@ -265,6 +334,30 @@ class TestPrelookFix(unittest.TestCase):
         self.assertRegex(doc["sealed_templates"][0]["sha256"],
                          r"^[0-9a-f]{64}$")
         self.assertEqual(doc["mixed_templates"], [])
+
+    def test_templates_mode_prints_hashes_never_content(self):
+        nested = self.state / "datasets" / "templates" / "deep"
+        nested.mkdir()
+        (nested / "ho_nested.yaml").write_text(
+            f"oracle: {{fact: {SECRET_ORACLE}}}\n", encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "convert_suite.py"),
+             str(self.state), "--templates"], capture_output=True, text=True,
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assert_no_case_text(proc.stdout + proc.stderr)
+        ids = [t["template_id"] for t in json.loads(proc.stdout)["templates"]]
+        self.assertEqual(ids, ["ho_nested", "ho_shifts", "t_shifts"])
+        # A broken sealed template: the parser's message quotes the line.
+        (nested / "ho_nested.yaml").write_text(
+            f"oracle: {{fact: {SECRET_ORACLE}\n", encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "convert_suite.py"),
+             str(self.state), "--templates"], capture_output=True, text=True,
+            timeout=60)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("withheld", json.loads(proc.stdout)["error"])
+        self.assert_no_case_text(proc.stdout + proc.stderr)
 
     def test_a_convert_error_is_not_relayed(self):
         # A YAML error message quotes the line; that line can be sealed.

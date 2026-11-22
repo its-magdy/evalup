@@ -107,7 +107,9 @@ that, it is `analyze --unseal` and a reseal.
    `evalup prelook-fix <state-dir> --transformation <fix.json>
    --motivated-by <training id>`, then the same with
    `--apply --approved-by <owner>`. It applies the fix to every case it
-   matches, in every split, and refuses once the ledger has a line.
+   matches, in every split, and refuses once the ledger has a line or
+   `reports/` holds a holdout run at this `dataset_version`. It rewrites
+   only each case's `expect:` block, so a diff never shows an input.
 3. It prints ids and hashes, never case text, and records each changed case
    in `dataset.yaml`'s `prelook_fixes:` (id, old and new hash, date,
    approver, transformation, motivating case) with one `dataset_version`

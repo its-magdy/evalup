@@ -81,10 +81,11 @@ parses no YAML either. A state directory with a rubrics/ folder adds the same
 list to the combined document as `rubrics`, and --split-dir writes it as
 rubrics.json (validate_cases.py --rubrics); without one, both stay absent.
 
---templates, with a state dir, converts only the generation templates
-(datasets/**/templates/*.yaml) as {"templates": [{"template_id", "file",
-"template"}]}, the id being the file's stem. prelook_fix.py reads it to list
-a sealed holdout's templates by id and hash; their content is never shown.
+--templates, with a state dir, lists only the generation templates (every
+*.yaml under a templates/ dir in datasets/) as {"templates": [{"template_id",
+"file", "sha256"}]}, the id being the file's stem: hashes, never content, and
+a parse error names the file only, since a holdout template is sealed.
+prelook_fix.py --list reads it.
 
 Usage:
   convert_suite.py <state-dir> [-o converted.json] [--split-dir <dir>]
@@ -233,19 +234,41 @@ def case_files(datasets_dir):
 
 
 def template_entries(yaml, loader, datasets_dir):
-    """Every templates/*.yaml under `datasets_dir`, sorted by path."""
+    """Every *.yaml at any depth under a templates/ dir in `datasets_dir`
+    (the files case_files() skips), sorted by path, as id + file + hash.
+
+    Never the content, and never a YAML error's text: a holdout template
+    is sealed (generate SS4), and an error message quotes its line. The
+    hash is run_cases.sha256_of over the template as JSON -- the same
+    canonical form a case is hashed in."""
+    from run_cases import sha256_of
     found = []
     for root, dirs, files in os.walk(datasets_dir):
         dirs.sort()
-        if os.path.basename(root) != "templates":
+        rel = os.path.relpath(root, datasets_dir).split(os.sep)
+        if "templates" not in rel:
             continue
         found.extend(os.path.join(root, name) for name in sorted(files)
                      if name.endswith((".yaml", ".yml")))
     base = os.path.dirname(os.path.abspath(datasets_dir))
-    return [{"template_id": os.path.splitext(os.path.basename(path))[0],
-             "file": os.path.relpath(path, base),
-             "template": load_mapping(yaml, loader, path)}
-            for path in sorted(found)]
+    entries = []
+    for path in sorted(found):
+        try:
+            doc = yaml.load(load_text(path), Loader=loader)  # noqa: S506 - a SafeLoader subclass
+        except yaml.YAMLError:
+            die(f"bad input: {os.path.relpath(path, base)}: not valid YAML "
+                "(the parser's message is withheld: it quotes the line, and "
+                "a template can be sealed)")
+        try:
+            plain = json.loads(json.dumps(doc, default=jsonable,
+                                          allow_nan=False))
+        except (TypeError, ValueError):
+            die(f"bad input: {os.path.relpath(path, base)}: a value has no "
+                "JSON form")
+        entries.append({
+            "template_id": os.path.splitext(os.path.basename(path))[0],
+            "file": os.path.relpath(path, base), "sha256": sha256_of(plain)})
+    return entries
 
 
 def rubric_entries(yaml, loader, rubrics_dir):
@@ -322,9 +345,9 @@ def main():
                          "frontmatter and sha256) -- what judge_run.py plan "
                          "reads")
     ap.add_argument("--templates", action="store_true",
-                    help="with a state_dir, convert only the generation "
-                         "templates under datasets/ -- what prelook_fix.py "
-                         "reads")
+                    help="with a state_dir, list only the generation "
+                         "templates under datasets/ by id and sha256 (never "
+                         "their content) -- what prelook_fix.py reads")
     ap.add_argument("-o", "--output", help="write the combined document here "
                                            "(default: stdout)")
     ap.add_argument("--split-dir", help="also write suite.json, "

@@ -39,13 +39,22 @@ THE TRANSFORMATION is a JSON object (a file path, or the object inline):
   delete        {"from": X}           the key at path, when its value == X, goes
 A case matches when the op would change it. The motivating case must be a
 non-holdout case whose review.status is `accepted`, which the op leaves
-unchanged and which already shows the fixed form (the list holds `to` and not
-`from`; it lacks `value`; the path holds `to`; the key is absent).
+unchanged and which already shows the fixed form on the same shape (the list
+holds `to` and not `from`; a non-empty list lacks `value`; the key holds `to`;
+the key is absent from a non-empty mapping). The post-state is all a script
+can see: that the training case was fixed by hand in its review is the
+approver's word, recorded with their name.
 
-Case files are YAML, and this script is stdlib-only, so it writes a changed
-case file back as JSON (which is YAML), losing that file's comments, and edits
-dataset.yaml as text. It then re-reads everything through convert_suite.py and
-restores every file it wrote unless each hash is the one it computed.
+Looks are read from the default ledger, any --holdout-ledger beside it, and
+reports/*/manifest.yaml: a holdout run at the current dataset_version is a
+look even when no ledger line survives.
+
+Case files are YAML, and this script is stdlib-only, so it replaces only a
+changed case file's top-level `expect:` block, as one JSON flow mapping
+(which is YAML; the block's comments go), and edits dataset.yaml as text. A
+diff of a sealed file therefore shows the check, never the input. It then
+re-reads everything through convert_suite.py and restores every file it wrote
+unless each hash is the one it computed.
 
 Usage:
   prelook_fix.py <state-dir> --list
@@ -89,8 +98,9 @@ def convert(state_dir, *flags):
         # that line can be a sealed case's.
         die(f"convert_suite.py refused {state_dir} (exit {proc.returncode}); "
             "its message is withheld because it can quote a sealed case "
-            "file. Fix the suite first: `evalup convert-suite` on it shows "
-            "why")
+            "file or template. Fix the suite first: `evalup convert-suite` "
+            "on it (with --templates for a template) shows why -- read it "
+            "yourself; never paste it into a review of a sealed case")
     try:
         return loads_strict(proc.stdout)
     except BadJSON:
@@ -113,9 +123,9 @@ def is_holdout(case):
 
 
 def template_ids(entries):
-    """[{template_id, sha256}] for convert_suite.py --templates' entries."""
-    return [{"template_id": e["template_id"],
-             "sha256": sha256_of(e["template"])} for e in entries]
+    """[{template_id, sha256}] from convert_suite.py --templates."""
+    return [{"template_id": e["template_id"], "sha256": e["sha256"]}
+            for e in entries]
 
 
 def seal_listing(cases, templates):
@@ -139,16 +149,53 @@ def seal_listing(cases, templates):
     }
 
 
-def ledger_lines(state_dir, ledger):
-    path = ledger if os.path.isabs(ledger) else os.path.join(state_dir, ledger)
-    if not path.endswith(".jsonl"):
-        die(f"--holdout-ledger must be a .jsonl file (got {ledger!r})")
-    if not os.path.exists(path):
-        return path, 0
-    # Every non-blank line is a look, malformed or not: the runner counts
-    # lines the same way, and a line nobody can parse is still a look.
-    return path, sum(1 for line in load_text(path).splitlines()
-                     if line.strip())
+def ledger_lines(state_dir, ledgers):
+    """(paths, looks) over the default ledger and any --holdout-ledger: an
+    override can only add a file to read, never hide the default one."""
+    paths, looks = [], 0
+    for ledger in ledgers:
+        path = ledger if os.path.isabs(ledger) \
+            else os.path.join(state_dir, ledger)
+        if not path.endswith(".jsonl"):
+            die(f"--holdout-ledger must be a .jsonl file (got {ledger!r})")
+        if path in paths:
+            continue
+        paths.append(path)
+        if os.path.exists(path):
+            # Every non-blank line is a look, malformed or not: the runner
+            # counts lines the same way, and a line nobody can parse is
+            # still a look.
+            looks += sum(1 for line in load_text(path).splitlines()
+                         if line.strip())
+    return paths, looks
+
+
+def holdout_runs(state_dir, dataset_version):
+    """Run ids under reports/ that touched the seal at this dataset_version.
+
+    A second witness beside the ledger: a holdout run's manifest records the
+    dataset_version, and a reseal bumps it, so a holdout run at the current
+    version is a look at this seal even if a ledger was lost or moved. A
+    manifest that cannot be read is counted, not skipped."""
+    reports = os.path.join(state_dir, "reports")
+    found = []
+    if not os.path.isdir(reports):
+        return found
+    for name in sorted(os.listdir(reports)):
+        path = os.path.join(reports, name, "manifest.yaml")
+        if not os.path.isfile(path):
+            continue
+        try:
+            manifest = loads_strict(load_text(path))
+        except BadJSON:
+            found.append(name)
+            continue
+        sealed = isinstance(manifest, dict) and "holdout" in (
+            manifest.get("mode"), manifest.get("selecting_split"))
+        if not isinstance(manifest, dict) or (sealed and manifest.get(
+                "dataset_version") in (dataset_version, None)):
+            found.append(name)
+    return found
 
 
 # -- the transformation ---------------------------------------------------------
@@ -219,6 +266,11 @@ def apply(spec, keys, case):
 
 
 def shows_fixed_form(spec, keys, case):
+    """The motivating case shows the fixed form AND the shape the fix acts
+    on: a non-empty list where an item was replaced or removed, the key
+    itself where a value was set, the enclosing mapping where a key was
+    deleted. That is as far as a post-state can go; that the training case
+    was edited by hand in its review is the approver's word, recorded."""
     parent = parent_of(case, keys)
     if parent is None:
         return False
@@ -228,10 +280,11 @@ def shows_fixed_form(spec, keys, case):
         return isinstance(value, list) and spec["to"] in value \
             and spec["from"] not in value
     if op == "remove_item":
-        return isinstance(value, list) and spec["value"] not in value
+        return isinstance(value, list) and bool(value) \
+            and spec["value"] not in value
     if op == "set":
         return present and value == spec["to"]
-    return not present
+    return not present and bool(parent)
 
 
 def check_motivation(cases, case_id, spec, keys):
@@ -292,28 +345,63 @@ def bump_manifest_text(text, old_version, entries):
     return text[:match.start()] + "prelook_fixes:\n" + block + items + rest
 
 
-def case_file_text(case, date):
-    return ("# Rewritten as JSON (which is YAML) by `evalup prelook-fix` on "
-            f"{date}; datasets/dataset.yaml's prelook_fixes says why.\n"
-            + json.dumps(case, indent=2, ensure_ascii=False) + "\n")
+EXPECT_BLOCK = re.compile(r"(?m)^expect:[^\n]*\n(?:(?:[ \t]+[^\n]*|[ \t]*)\n)*")
+
+
+def case_file_text(text, fixed):
+    """The case file with only its top-level `expect:` block replaced (as
+    one JSON flow mapping, which is YAML), so a diff of a sealed file shows
+    the check that changed and never its input. None when that block cannot
+    be found exactly once: the fix is then refused, never a whole-file
+    rewrite."""
+    blocks = list(EXPECT_BLOCK.finditer(text if text.endswith("\n")
+                                        else text + "\n"))
+    if len(blocks) != 1:
+        return None
+    text = text if text.endswith("\n") else text + "\n"
+    m = blocks[0]
+    line = "expect: " + json.dumps(fixed["expect"], ensure_ascii=False) + "\n"
+    # Blank lines the block swallowed at its end stay where they were.
+    tail = m.group(0)[len(m.group(0).rstrip("\n")) + 1:]
+    return text[:m.start()] + line + tail + text[m.end():]
 
 
 def write_all(state_dir, writes):
-    """Write every (path, text); return the old bytes (None = new file)."""
+    """Write every (path, text); return the old text (None = new file).
+    A write that fails restores what was written before it and exits 2:
+    a sealed case must never be left changed without its record."""
     saved = {}
     for path, text in writes:
         full = os.path.join(state_dir, path)
-        saved[full] = load_text(full) if os.path.exists(full) else None
-        atomic_write(full, text)
+        old = load_text(full) if os.path.exists(full) else None
+        try:
+            atomic_write(full, text)
+        except OSError as exc:
+            with_tmp = f"{full}.tmp.{os.getpid()}"
+            if os.path.exists(with_tmp):
+                os.remove(with_tmp)
+            problems = restore(saved)
+            die(f"refused: cannot write {path} ({exc.strerror or exc}); "
+                + ("every file was restored" if not problems else
+                   "COULD NOT RESTORE " + ", ".join(problems)
+                   + " -- restore them from git before anything else"))
+        saved[full] = old
     return saved
 
 
 def restore(saved):
+    """Put back every saved file; the paths that could not be restored."""
+    problems = []
     for full, text in saved.items():
-        if text is None:
-            os.remove(full)
-        else:
-            atomic_write(full, text)
+        try:
+            if text is None:
+                if os.path.exists(full):
+                    os.remove(full)
+            else:
+                atomic_write(full, text)
+        except OSError:
+            problems.append(full)
+    return problems
 
 
 def main():
@@ -338,12 +426,14 @@ def main():
                     help="the human who approved the fix (required with "
                          "--apply)")
     ap.add_argument("--holdout-ledger", default=DEFAULT_LEDGER,
-                    help=f"relative to state_dir (default: {DEFAULT_LEDGER})")
+                    help="the run plan's paths.holdout_ledger, relative to "
+                         f"state_dir; read in addition to {DEFAULT_LEDGER}")
     a = ap.parse_args()
 
     if not os.path.isdir(a.state_dir):
         die(f"bad input: {a.state_dir}: not a directory")
-    ledger_path, looks = ledger_lines(a.state_dir, a.holdout_ledger)
+    ledger_paths, looks = ledger_lines(a.state_dir,
+                                       [DEFAULT_LEDGER, a.holdout_ledger])
     if a.list:
         if a.transformation or a.apply:
             ap.error("--list changes nothing: it takes no --transformation "
@@ -351,7 +441,10 @@ def main():
         doc = convert(a.state_dir)
         listing = seal_listing(suite_cases(doc),
                                convert(a.state_dir, "--templates")["templates"])
-        print(json.dumps({"ledger_lines": looks, **listing}, indent=2))
+        version = (doc.get("manifest") or {}).get("dataset_version", 1)
+        print(json.dumps({"ledger_lines": looks,
+                          "holdout_runs": holdout_runs(a.state_dir, version),
+                          **listing}, indent=2))
         return
     if not a.transformation or not a.motivated_by:
         ap.error("--transformation and --motivated-by are required (or "
@@ -360,18 +453,24 @@ def main():
         ap.error("--apply needs --approved-by: the human who approved the fix")
     spec, keys = load_transformation(a.transformation)
     if looks:
-        die(f"refused: the holdout ledger {ledger_path} has {looks} line(s): "
-            "this seal has been looked at (a noise-pair run counts), so a "
-            "pre-look fix is no longer possible. The path is `analyze "
-            "--unseal` and a reseal")
+        die(f"refused: the holdout ledger ({', '.join(ledger_paths)}) has "
+            f"{looks} line(s): this seal has been looked at (a noise-pair "
+            "run counts), so a pre-look fix is no longer possible. The path "
+            "is `analyze --unseal` and a reseal")
 
     doc = convert(a.state_dir)
     cases, sources = suite_cases(doc), doc.get("sources") or {}
-    check_motivation(cases, a.motivated_by, spec, keys)
     manifest = doc.get("manifest") or {}
     old_version = manifest.get("dataset_version", 1)
     if not isinstance(old_version, int) or isinstance(old_version, bool):
         die("refused: datasets/dataset.yaml's dataset_version is not an int")
+    runs = holdout_runs(a.state_dir, old_version)
+    if runs:
+        die(f"refused: reports/ holds {len(runs)} holdout run(s) at "
+            f"dataset_version {old_version} ({', '.join(runs)}): this seal "
+            "has been looked at even though the ledger is empty. The path "
+            "is `analyze --unseal` and a reseal")
+    check_motivation(cases, a.motivated_by, spec, keys)
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     changed = []
@@ -417,7 +516,14 @@ def main():
     manifest_full = os.path.join(a.state_dir, MANIFEST)
     manifest_text = load_text(manifest_full) \
         if os.path.exists(manifest_full) else "schema_version: 1\n"
-    writes = [(sources[c["id"]], case_file_text(f, date)) for c, f in changed]
+    writes = []
+    for c, f in changed:
+        text = case_file_text(load_text(os.path.join(a.state_dir,
+                                                     sources[c["id"]])), f)
+        if text is None:
+            die(f"refused: case {c['id']!r}'s file has no single top-level "
+                "`expect:` block to replace; nothing was written")
+        writes.append((sources[c["id"]], text))
     writes.append((MANIFEST, bump_manifest_text(manifest_text, old_version,
                                                 entries)))
     before = {c["id"]: sha256_of(c) for c in cases}
@@ -442,8 +548,9 @@ def main():
         elif meta.get("prelook_fixes") != [*prior, *entries]:
             problem = "dataset.yaml's prelook_fixes did not re-read"
     if problem:
-        restore(saved)
-        die(f"refused: {problem}; every file was restored")
+        failed = restore(saved)
+        die(f"refused: {problem}; " + ("every file was restored" if not failed
+            else "COULD NOT RESTORE " + ", ".join(failed)))
     out.update(applied=True, approved_by=a.approved_by.strip(), date=date,
                next="convert and validate (run/SKILL.md SS1), then re-pin: "
                     "the baseline is on the old dataset_version")

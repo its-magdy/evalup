@@ -45,7 +45,8 @@ Arguments, when the user typed any: `$ARGUMENTS`
 Precondition: `profile.yaml` exists with its core entries verified
 (`architecture.kind`, the invocation shape, one route target or tool seen
 live — discover §4 defines the set). If not, stop and route to discover; route
-targets still `verified: false` are normal after a lean first session. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
+targets still `verified: false` are normal after a lean first session, no
+reason to bounce. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
 when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases by default, ~12 the minimum — what
@@ -93,8 +94,8 @@ in case-format.md. `category` is the input flavor, and it sub-divides MFT
 because those flavors share one oracle. Author each case against
 case-format.md's whole schema, not just its grid cell.
 
-The grid maps risk, not a quota: cover every UNIT once, then give costly or
-frequent paths depth and rare ones one case or none. Show the grid with counts before generating so the user can
+The grid maps risk, not a quota: cover every UNIT at least once, then give
+costly or frequent paths depth and rare ones one case or none. Show the grid with counts before generating so the user can
 rebalance, and list uncovered cells in the metadata as known gaps. Report
 coverage BY COLUMN too: a suite can cover every unit and still be 40%
 happy-path MFT with no INV (`validate_cases.py` warns above 40% in a category).
@@ -257,10 +258,9 @@ on that.
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
-  templates are sealed too: realize it from templates of its own, named
-  `ho_<id>`, and never open one. Before its first look, a check fix already
-  made in a training review is `evalup prelook-fix` (label-lifecycle.md),
-  never a hand edit.
+  templates are its own, named `ho_<id>`, and sealed: never open one.
+  Before its first look, a check fix made in training review is
+  `evalup prelook-fix` (label-lifecycle.md), never a hand edit.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary
