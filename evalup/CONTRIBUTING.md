@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1308 tests, ~4.5 min (263 s measured 2026-11-22), the blessed command.
+1320 tests, ~4.5 min (279 s measured 2026-11-22), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,12 +43,12 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1288 passed, 20 skipped, 997 subtests.
+whatever `python3` happens to be. Expect 1300 passed, 20 skipped, 1024 subtests.
 All twenty skips need PyYAML (thirteen are `convert_suite.py`'s, rubric
 files included, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check, four
 read the CI workflow template); add
-`--with pyyaml` and they run (1308 passed, none
+`--with pyyaml` and they run (1320 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -161,8 +161,9 @@ it is Linux-only.
   which it is read; prose that is not needed on a first session goes into
   a reference read on that condition, not into the skills.
 - **`docs/runner-contract.md` is the runner's spec and it WINS** over any skill
-  prose. Its nine decisions were confirmed 2026-09-08 with their trade-offs
-  recorded; don't reopen one without reading it. **Four tests read that file at
+  prose. It holds rules only (≤ 15,000 tokens, `tests/test_prose_budget.py`); the reasons (its nine 2026-09-08 decisions
+  among them) are in its git history — `git log -p docs/runner-contract.md`,
+  before the #42 trim — so read that before reopening one. **Four tests read that file at
   run time** — they exec §9(b)'s python block, parse §6's `# only when:`
   markers, pin `--oos-route`'s precondition, and assert §5.7 still names
   `score_cost.py` — so editing those passages fails the suite until the code
@@ -198,7 +199,9 @@ it is Linux-only.
 - **A release is one commit, then a tag on it.** That commit bumps
   `plugin.json` and `_common.HARNESS_VERSION`, renames the CHANGELOG's
   `[Unreleased]` section to the dated version (leaving a fresh, empty
-  `[Unreleased]` above it), and moves `ci/github-actions.yml`'s `EVALUP_REF`
+  `[Unreleased]` above it) and condenses it to what the release contains
+  (≤ 2,000 tokens, `tests/test_prose_budget.py`; the long form stays in
+  git history), and moves `ci/github-actions.yml`'s `EVALUP_REF`
   to `v<version>` (`test_ci_template` refuses anything else). Once it is on
   `main`, publish a GitHub release `v<version>` on that commit, in the same
   sitting: until then, a template copied from `main` fails at `git fetch`.
