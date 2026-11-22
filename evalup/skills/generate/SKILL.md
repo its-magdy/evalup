@@ -258,9 +258,9 @@ on that.
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
-  templates are its own, named `ho_<id>`, and sealed: never open one.
-  Before its first look, a check fix made in training review is
-  `evalup prelook-fix` (label-lifecycle.md), never a hand edit.
+  templates (`ho_<id>`) are sealed: never open one. Before its first look,
+  a training-review check fix is `evalup prelook-fix` (label-lifecycle.md),
+  not a hand edit.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary
