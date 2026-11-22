@@ -50,7 +50,7 @@ scope.
 
 **Lean mode** — when `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first
 session sent you here: do steps 1–4 and 8 (plus step 5's one sentence on the
-state location before the first write), set `stage: pre-stability`, and list
+state location before the first write), set `stage: early`, and list
 steps 5 and 7, step 6's maturity question and step 3's side-effect
 confirmation under `deferred:` in findings.md
 with what each unlocks — step 7 includes `environment.safe_to_attack`, which
@@ -233,7 +233,7 @@ For every patch declined or not offered:
 ### 6. Assess maturity → set the stage
 Ask the user, and check git history: are the app's route-target and tool
 boundaries stable, or still changing week to week?
-- Churning → `stage: pre-stability`. Every layer applies, trajectory
+- Churning → `stage: early`. Every layer applies, trajectory
   included: invariants, answer checks, routing, tool arguments, and which
   tools were called or must not be. Only tool **order** waits (the
   validator refuses `expect.tools.order`): a sequence rots within a week,

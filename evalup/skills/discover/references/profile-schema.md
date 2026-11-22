@@ -14,9 +14,9 @@ schema_version: 1                # evalup state-file layout; validate_cases.py w
 generated: 2026-07-18            # updated by discover; --diff compares against this
 app_git_sha: abc1234             # code state this profile describes
 
-stage: pre-stability | stable | traffic | production
-# pre-stability: every layer, but expect.tools.order is a validator ERROR. stable: + order.
-# traffic: + trace mining/real-seeded data. production: + online evals.
+stage: early | stable
+# early: every layer, but expect.tools.order is a validator ERROR. stable: + order.
+# Old names: pre-stability = early; traffic, production = stable.
 
 architecture:
   kind: single_llm | tool_agent | router_executor | multi_agent | workflow
@@ -114,7 +114,7 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # SS5.2); per-target numbers need route_from_response
                                        # or traces.
   tool_selection:  { enabled: true }
-  trajectory:      { enabled: true }   # every stage; off for single_llm or when
+  trajectory:      { enabled: true }   # both stages; off for single_llm or when
                                        # no tool call is observable
   multi_turn:      { enabled: false, blocked_by: "adapter declares no invocation.conversation -- discover writes it once it finds how the app keeps a conversation; until then input.turns cases are skipped" }
                                        # enabled: true when the adapter declares

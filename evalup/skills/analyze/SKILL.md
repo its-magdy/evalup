@@ -84,7 +84,8 @@ accepts it) — which is `generate`'s "real seeds first" done literally.
 Bump `dataset_version` in `dataset.yaml` when you promote; the pinned
 baseline then stops being comparable (run/SKILL.md §4): say so, and re-pin
 after (`pin_baseline.py`, never by hand). This is not `--mine`: that queries a live trace
-backend and needs `stage: traffic`; this reads files the user already has.
+backend (the adapter's `traces` config) holding real traffic; this reads
+files the user already has.
 
 ## First run — no prior data
 Check before clustering, labeling or mining an empty set, and name which empty
@@ -96,8 +97,8 @@ out the state that only *looks* empty before calling it a start.
 - **No rubric or judge** — `judge.status` absent, no case carries `rubric:`.
   `--label` has nothing to calibrate; point at rubric-format.md rather than
   launching the judge on zero cases.
-- **`--mine` finds nothing.** Say which: no trace backend wired, stage is
-  pre-`traffic`, or wired and genuinely nothing new.
+- **`--mine` finds nothing.** Say which: no trace backend wired, no real
+  traffic in it yet, or wired and genuinely nothing new.
 
 ## `--cluster` (default after a run)
 Read the latest run's failed cases from `reports/<run-id>/`, never the holdout
@@ -308,7 +309,7 @@ Claude Code open — takes the viewer instead, built with
 `-a <calibration.jsonl>`. Its export panel produces exactly the JSONL this
 flow consumes.
 
-## `--mine` — real traffic → dataset (stage: traffic+)
+## `--mine` — real traffic → dataset (needs a trace backend)
 Query the trace backend for recent conversations (adapter `traces` config).
 Surface: failures users hit, routing flip-flops, tool loops, latency outliers,
 and ordinary conversations unlike anything in the dataset (embedding distance).

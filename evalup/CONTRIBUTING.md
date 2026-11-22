@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1272 tests, ~4.5 min (260 s measured 2026-11-21), the blessed command.
+1274 tests, ~4.5 min (245 s measured 2026-11-22), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,12 +43,12 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1252 passed, 20 skipped, 976 subtests.
+whatever `python3` happens to be. Expect 1254 passed, 20 skipped, 982 subtests.
 All twenty skips need PyYAML (thirteen are `convert_suite.py`'s, rubric
 files included, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check, four
 read the CI workflow template); add
-`--with pyyaml` and they run (1272 passed, none
+`--with pyyaml` and they run (1274 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
@@ -193,7 +193,8 @@ it is Linux-only.
   manifest, `reports/baseline.json`, `reports/holdout-seal.json` (optimize's
   per-seal noise pair). Bump it when a file's layout changes,
   and teach `validate_cases.check_schema_version` the migration it names.
-  Its findings are the one WARN `--strict` does not promote. `plan.json` keeps
+  Its findings, and `stage_renamed` (a pre-#42 stage name, read as the
+  new one), are the WARNs `--strict` does not promote: both are migrations. `plan.json` keeps
   its own `plan_version` and is rebuilt every run, so it carries none.
 
 ## Path convention

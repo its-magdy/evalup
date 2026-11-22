@@ -50,10 +50,13 @@ whose tools get renamed weekly produces only maintenance pain.
 
 | Stage | What runs |
 |---|---|
-| `pre-stability` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool args, and trajectory for which tools were called (`subset`, `any_of`, `forbidden`) |
+| `early` | Invariants (crash rate, responds-always, format, loops, refusals), answer checks, routing, tool args, and trajectory for which tools were called (`subset`, `any_of`, `forbidden`) |
 | `stable` | + tool order (`expect.tools.order`; the validator refuses it before) |
-| `traffic` | + real-trace mining |
-| `production` | + online sampling, monitoring-window release validation |
+
+Two stages since #42; a profile written earlier still reads
+(`pre-stability` → `early`, `traffic`/`production` → `stable`), with a
+validator WARN naming the new value. Trace mining (`analyze --mine`) is not a
+stage: it needs a wired trace backend, and online sampling is not built.
 
 Judge calibration (`analyze --label`) is not a stage: it has no stage
 prerequisite and can start whenever a rubric exists. Judged layers are not

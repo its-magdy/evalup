@@ -97,9 +97,10 @@ every WARN to ERROR for a gating CI job.
 STATE-FILE SCHEMA VERSIONS (#38). Every state file evalup writes declares
 `schema_version` (_common.SCHEMA_VERSION): each case, adapter.yaml,
 profile.yaml (--profile), datasets/dataset.yaml (--manifest). A missing,
-older or newer value is a WARN that names the migration -- and the one WARN
---strict does NOT promote: a file written by an older evalup is a migration
-to do, not a claim the suite fails to back, and failing a gating CI job on it
+older or newer value is a WARN that names the migration -- and, with a
+pre-#42 `stage` name (stage_renamed), the one WARN --strict does NOT
+promote: a file written by an older evalup is a migration to do, not a
+claim the suite fails to back, and failing a gating CI job on it
 would be the release-breaks-everything problem #38 removes, in another form.
 The pre-#38 keys `profile_version` / `adapter_version` are read as the old
 name of the same field.
@@ -273,8 +274,9 @@ class Report:
             "code": code, "message": message})
 
     def advise(self, case_id, code, message):
-        """A WARN that --strict leaves a WARN. Only the schema_version
-        findings use it; see the module docstring for why."""
+        """A WARN that --strict leaves a WARN. Only the migration findings
+        use it (schema_version, stage_renamed); see the module docstring
+        for why."""
         self.findings.append({"case_id": case_id, "severity": "WARN",
                               "code": code, "message": message})
 
@@ -633,15 +635,46 @@ def check_any_of(rep, case_id, tools):
                       "trajectory, which makes the whole any_of vacuous")
 
 
-# The stages at or past `stable` (profile-schema.md). Order is asserted only
-# there: the stage exists because a tool SEQUENCE churns before it, while
+# The two stages (profile-schema.md, #42). Order is asserted only at
+# `stable`: the stage exists because a tool SEQUENCE churns before it, while
 # which tools were called (subset, forbidden, any_of) does not depend on it.
-ORDER_STAGES = ("stable", "traffic", "production")
+STAGES = ("early", "stable")
+# The four stages before #42, and the one each became. `traffic` and
+# `production` gated nothing beyond `stable` (nothing was built behind them),
+# so mapping them there leaves every check where it was.
+LEGACY_STAGES = {"pre-stability": "early", "traffic": "stable",
+                 "production": "stable"}
+
+
+def check_stage(rep, stage):
+    """Map profile.yaml's `stage` onto STAGES and return it (None when the
+    profile has none). A pre-#42 value is read as the stage it became, with
+    a WARN naming the rename -- one --strict leaves a WARN, like
+    schema_version's (module docstring): an old profile is a migration to
+    do, not a claim the suite fails to back. A value that is neither is a
+    plain WARN, and is treated as `early`, the stage that checks more."""
+    if stage is None:
+        return None
+    if stage in STAGES:
+        return stage
+    if isinstance(stage, str) and stage in LEGACY_STAGES:
+        new = LEGACY_STAGES[stage]
+        rep.advise(None, "stage_renamed",
+                   f"profile.yaml says stage: {stage}, a pre-#42 name; the "
+                   f"stages are now `early` and `stable`, and {stage} reads "
+                   f"as `{new}` -- change it to `stage: {new}`, or let "
+                   "/evalup:discover rewrite it (CHANGELOG.md, #42)")
+        return new
+    rep.warn(None, "unknown_stage",
+             f"profile.yaml says stage: {stage!r}, which is not one of "
+             f"{', '.join(STAGES)}; it is read as `early`")
+    return "early"
 
 
 def check_order_stage(rep, cases, stage):
-    """expect.tools.order before `stage: stable` is an ERROR (#51)."""
-    if stage is None or stage in ORDER_STAGES:
+    """expect.tools.order before `stage: stable` is an ERROR (#51). `stage`
+    is check_stage's value, so a legacy name has been mapped already."""
+    if stage is None or stage == "stable":
         return
     for i, case in enumerate(cases):
         if not isinstance(case, dict):
@@ -1983,7 +2016,8 @@ def main():
             # `rubrics`: the one file serves --cases, --profile, --rubrics.
             profile = profile["profile"]
         check_schema_version(rep, profile, "profile")
-        check_order_stage(rep, cases, profile.get("stage"))
+        check_order_stage(rep, cases,
+                          check_stage(rep, profile.get("stage")))
         traceability = check_traceability(rep, cases, profile)
     elif any(isinstance(c, dict) and "covers" in c for c in cases):
         rep.warn(None, "covers_unchecked",
