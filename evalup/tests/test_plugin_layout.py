@@ -464,6 +464,33 @@ class TestFirstSessionFlow(unittest.TestCase):
             self.assertIn(phrase, generate)
         start = self.read("skills", "start", "SKILL.md")
         self.assertIn("plus confirming the rules those cases cover", start)
+        # The interview is no longer the only place a rule is confirmed.
+        interview = self.read("skills", "discover", "references",
+                              "interview.md")
+        self.assertIn("or in generate §3's label review for the rules its "
+                      "cases cover", interview)
+
+    def test_the_label_review_never_reads_a_sealed_case(self):
+        # #115 seals a share of each addition's new cases, #120's pre-look
+        # fix rests on no sealed case being read, and the bulk accept and
+        # optimize precondition 2 already leave holdout cases out: §3's
+        # review must too, and must say the fix path instead.
+        generate = self.read("skills", "generate", "SKILL.md")
+        self.assertIn("Never a case §4 seals: choose the holdout first; "
+                      "leave it out", generate)
+        self.assertIn("`evalup prelook-fix`", generate)
+        lifecycle = self.read("skills", "generate", "references",
+                              "label-lifecycle.md")
+        self.assertIn("Leave out every `holdout` case", lifecycle)
+
+    def test_labelling_from_a_judge_pass_includes_the_failing_cases(self):
+        # #116: the judge pass skips already-failing cases by default;
+        # analyze --label starts from judged.json, so it must say how to get
+        # the cases a scripted check failed into the sample.
+        analyze = self.read("skills", "analyze", "SKILL.md")
+        self.assertIn("re-plan it with `--restart --include-failed`", analyze)
+        judge_pass = self.read("skills", "run", "references", "judge-pass.md")
+        self.assertIn("`/evalup:analyze --label`", judge_pass)
 
     def test_discover_dirty_check_ignores_evalups_own_state(self):
         # #101: the default state dir sits untracked inside the app, so a

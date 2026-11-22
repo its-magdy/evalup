@@ -195,7 +195,9 @@ become a permanent noise floor. Send only three kinds: hard-negative and OOS
 labels (`review.status: quarantined`, `gating: false`: it runs and is
 reported but cannot close the gate until a human accepts it and flips
 `gating`; no script drops it), cases the generator marked uncertain, and cases a cheap probe
-run shows the app disagreeing with. Present each as the message, the
+run shows the app disagreeing with. Never a case §4 seals: choose the
+holdout first; leave it out (its check fixes: `evalup prelook-fix`,
+label-lifecycle.md). Present each as the message, the
 expected label and a one-line why — accept / fix / delete — and write the
 review status per case. A human accepting many at once: label-lifecycle.md
 §Accepting in bulk.
@@ -203,7 +205,7 @@ review status per case. A human accepting many at once: label-lifecycle.md
 **The rules its cases cover ride the same review.** A lean discover
 confirms none, and a case naming an unconfirmed rule (`covers`,
 `expect.answer.rules`) can neither gate nor be a canary
-(`unconfirmed_rule_gates`). So list each such rule once — id, quote,
+(`unconfirmed_rule_gates`). List each such rule once — id, quote,
 source — for confirm / fix / strike, per
 `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/interview.md`
 §Business rules — this review is that confirmation for the rules it
@@ -217,11 +219,10 @@ run — a stop ends the turn and its pre-approvals. List the batch (id,
 label, one-line why, then its rules) in the handover and leave every case
 `pending`. Canary candidates join it untagged until accepted: a canary
 `fail` aborts the run, reviewed or not. Start offers the review after the
-first result, when the smoke run has become the probe that finds the third
-kind.
+first result, whose smoke run is the probe that finds the third kind.
 
 **Only a human may set `review.status: accepted`, and `review.by` must be that
-human's name** — not "generate-review", not the agent, not the skill.
+human's name** — never the generator, an agent or a delegate's relay.
 Everything the generator produces starts `pending`. **Never derive an
 expectation by reading the app's source**, and prefer probing the app BEFORE
 labeling. generation-method.md says why each of these three matters.
@@ -234,7 +235,7 @@ capability case.
 Before validating, set `gating: false` on every case this delegation just
 wrote whose `gating` is not `false` (an absent key means true; never touch
 one a human accepted) and list their ids in chat. The validator's
-`gating_unreviewed` is the backstop, not the instruction.
+`gating_unreviewed` is only the backstop.
 
 The handover says how many cases gate. **No reviewer** (headless, or
 told not to ask): every case stays `pending` and `gating: false`; say so
@@ -258,8 +259,7 @@ on that.
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
-  templates (`ho_<id>`) are sealed: never open one. Before its first look,
-  a training-review check fix is `evalup prelook-fix` (label-lifecycle.md).
+  templates (`ho_<id>`) are sealed: never open one.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary

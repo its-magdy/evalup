@@ -223,8 +223,9 @@ MACHINE_REVIEWER = re.compile(
     r"^(generate|generate-review|test-generator|auto|machine)", re.I)
 # Who may confirm a business rule: a person, by name. Stricter than
 # MACHINE_REVIEWER, which only knows the generator's stamps: a rule is
-# confirmed in discover's interview, so an agent's own names are refused
-# too, as whole words of the name ("claude-code", "gpt-4o", "evalup bot").
+# confirmed in discover's interview or generate's label review, so an
+# agent's own names are refused too, as whole words of the name
+# ("claude-code", "gpt-4o", "evalup bot").
 # A person who shares one writes a handle that does not.
 #
 # #100: a name a model relayed is not a human's either. "<owner> (delegate:

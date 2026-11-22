@@ -274,6 +274,11 @@ agreements too, not only disagreements**: a sample of only contested cases
 makes TPR and TNR meaningless. An `unjudged` case still carries the
 criteria that came back a checked `pass`/`fail`: label those too (only
 `unknown` ones have nothing to pair), or the sample loses the hard cases.
+A pass run without `--include-failed` judged no case a scripted check
+failed (reason `already failing`): before labelling from it, re-plan
+it with `--restart --include-failed`
+(`${CLAUDE_PLUGIN_ROOT}/skills/run/references/judge-pass.md` step 1), or the
+sample holds only cases the scripts passed.
 
 The judge grades per node (or per criterion), so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:
