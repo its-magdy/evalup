@@ -94,7 +94,10 @@ Rules:
    expectation is `http: 200` asserts only that the app did not crash, and
    is not a case to emit. Assert something in an enabled layer
    (`expect.result`, `expect.authz`, `expect.answer`) or say the case cannot
-   be authored yet.
+   be authored yet. Where no regex can decide the expected behaviour (an
+   ambiguous-name reply, a decline, "nothing is scheduled"), also pin a
+   `form: criteria` rubric with its `self_test`, written per
+   `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md` §The criteria form.
 6. INV/DIR variants: derive perturbed copies of a parent case
    (paraphrase/typos/irrelevant detail) with `test_type: INV`,
    `metamorphic_parent` set, and the same expectations — no new labeling, which

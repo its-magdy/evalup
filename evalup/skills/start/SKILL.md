@@ -63,15 +63,15 @@ is what the second session is for, and the user asks for it by name. When check
 1 below matches (or 4/5 resume it), run the steps in this shape, in ONE
 session, without stopping between them:
 
-0. **Ask nothing before the first result.** Every stop ends the turn, this
-   skill's pre-approvals end with it, and a headless session then cannot
-   continue. So do not ask about real conversations up front: **if the user's
-   message already names some** (exported chats, support logs, saved traces,
-   bug reports), run `analyze --transcripts <path>` FIRST (it needs no
-   profile, no cases and no run; you code trace-analyzer's critiques, provisional, asking nothing:
-   its no-reviewer path) — its failure taxonomy is a result in its
-   own right, and its conversations seed step 4 in place of synthetic cases.
-   Otherwise go straight to step 1; step 2 says what real ones would add.
+0. **Ask nothing before the first result.** Every stop ends the turn and
+   this skill's pre-approvals with it; headless, the session cannot
+   continue. **If the user's message already names real conversations**
+   (exported chats, support logs, saved traces, bug reports), run
+   `analyze --transcripts <path>` FIRST (no profile, cases or run needed;
+   you code trace-analyzer's critiques, provisional, asking nothing: its
+   no-reviewer path) — its failure taxonomy is a result in its own right,
+   and its conversations seed step 4 in place of synthetic cases.
+   Otherwise go straight to step 1.
 1. **`discover`, lean** — its Lean mode paragraph says which steps run and
    which wait under `deferred:` in findings.md. Before its first write, one sentence on where state goes — Procedure step
    1 below; a dirty or read-only tree makes the out-of-tree location the
@@ -89,11 +89,10 @@ session, without stopping between them:
    after the first result.
 3. **Show the top 3 design findings now.** They are often worth more than the
    eval, they cost the user nothing, and they are the reason to keep going.
-4. **`generate`, small: ~12 cases** (that skill's stated minimum), no holdout
-   (it says to skip one below 25), smoke only: no case is tagged `canary` until
-   a human accepts it, since a canary `fail` aborts the run. If the user has real
-   messages or transcripts to hand, take them first — 10 real ones beat 30
-   synthetic. **No review before the run**: every case stays `pending` and
+4. **`generate`, small: ~12 cases**, no holdout (skipped below 25), smoke
+   only: no case is tagged `canary` until a human accepts it, since a canary
+   `fail` aborts the run. Real messages or transcripts to hand go first — 10
+   real ones beat 30 synthetic. **No review before the run**: every case stays `pending` and
    `gating: false`, and generate lists the targeted review batch (hard-negative
    and OOS labels, cases marked uncertain, canary candidates) for step 6 to offer.
 5. **`run --smoke`** on those unreviewed cases — wait for the runner as
@@ -105,13 +104,14 @@ session, without stopping between them:
    baseline.
 6. **Close with the menu, not a lecture**: what unlocks next and what each
    costs — first the stops this session skipped: the targeted label review
-   (accept/fix/delete, ~15 min; then accepted cases gate, canary candidates get
-   their tag, and a `regression` run pins the baseline), real conversations
-   (`analyze --transcripts`), and `/evalup:discover` for findings.md's
-   `deferred:` list (side-effect classes to confirm, patches, the
-   interview). Then tracing (tool/trajectory/cost layers), the interview's
-   business rules and rubric, a full suite with a sealed holdout (regression gating),
-   judge calibration (groundwork: judged layers are not scored at run time yet; then `optimize`). One line each. Be
+   (accept/fix/delete, ~15 min, plus confirming the rules those cases cover —
+   a case gates only on confirmed rules; then accepted cases gate, canary
+   candidates get their tag, and a `regression` run pins the baseline), real
+   conversations (`analyze --transcripts`), and `/evalup:discover` for
+   findings.md's `deferred:` list (side-effect classes, patches, the
+   interview's other rules). Then tracing (tool/trajectory/cost layers), a
+   full suite with a sealed holdout (regression gating), judge calibration
+   (judged verdicts stay provisional until then; then `optimize`). One line each. Be
    straight about the distance to `optimize`: it needs ~100 cases, a sealed
    holdout and a stable app — several sessions away from a 12-case first run.
 
@@ -139,13 +139,12 @@ but not run until `python3` imports `yaml` or `uv` is on PATH. Then carry on.
    its state location and the plugin** — discover's opening paragraph has the
    whole scope rule, and it holds from this step on. Check for an existing state location
    (default `<app>/.evalup/`, or the adapter's `state_location`).
-   Before anything is written, say where state will go (the default is
+   Before anything is written, say where state will go (default
    `<app>/.evalup/`) and, in the same sentence, that a read-only repo, a
-   change freeze or a dirty tree can keep it out of the app entirely: the
-   adapter's `state_location` takes any external path, and discover runs
-   without patching (`repo_access: read-only`). A statement, not a question
-   — the first session stays interview-free; discover step 5 makes the
-   offer when the tree is dirty or read-only.
+   change freeze or a dirty tree can keep it out of the app: `state_location`
+   takes any external path, and discover runs without patching
+   (`repo_access: read-only`). A statement, not a question; discover step 5
+   makes the offer.
 
 2. **Route by state.** Run these checks **in order** and act on the first one
    that matches: a state dir can satisfy several rows, and the checks that can
@@ -157,8 +156,8 @@ but not run until `python3` imports `yaml` or `uv` is on PATH. Then carry on.
    |---|---|---|
    | 0 | A `reports/<run-id>/` directory with a `manifest.yaml` but no `results.json`, or whose `results.json` has `summary.status: "running"` | **An interrupted run.** A killed session leaves exactly this. Say so, and offer `run --resume` under the SAME run id (run/SKILL.md §2) before anything else — routing on to a fresh run abandons the cases already paid for. If the user declines, leave the directory alone and continue down the table. |
    | 1 | No state location at all | Step 1: the first session, above — `discover` (load it and follow it), lean. |
-   | 2 | State location exists but no `profile.yaml` | Treat as step 1 — an interrupted or partial setup. List what is already there and confirm before running `discover`, since you do not know whether it will reuse or overwrite an existing `adapter.yaml`. Offer to back it up first; don't promise it survives. |
-   | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores (from that run's `reports/<run-id>/results.json` — the pointer holds no verdicts), dataset size, judge calibration status and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). That directory missing → say the pinned run was deleted and offer a fresh pin; never read some other run instead. Compare the pointer's `dataset_version`/`scoring_version` with today's dataset and the `(scoring N)` any script's `--version` prints (a pointer with only `harness_version` predates the field: release 0.1.0 counts as scoring 1); only if they differ, say its scores are not comparable and a fresh pin is needed (`run` §4 would refuse the diff anyway, so this saves a wasted run). |
+   | 2 | State location exists but no `profile.yaml` | Treat as step 1, a partial setup. List what is there and confirm before running `discover`, which may reuse or overwrite an existing `adapter.yaml`: offer to back it up first; don't promise it survives. |
+   | 3 | `reports/baseline.json` exists (it names the pinned run-id) | Steady state: summarize current scores (from that run's `reports/<run-id>/results.json`; the pointer holds no verdicts), dataset size, judge calibration status and stage; suggest the most valuable next action (usually `analyze` on recent failures, or labeling if the judge is PROVISIONAL). That directory missing → say the pinned run was deleted and offer a fresh pin; never read another run instead. If the pointer's `dataset_version`/`scoring_version` differ from today's dataset and the `(scoring N)` any script's `--version` prints (a pointer with only `harness_version` is 0.1.0, scoring 1), say its scores are not comparable and a fresh pin is needed (`run` §4 would refuse the diff). |
    | 4 | Datasets exist, no baseline | No `reports/<run-id>/results.json` yet → resume the first session at step 5 (the smoke run on the pending cases), no stop. Otherwise step 3: `run --regression` pins the baseline — after the targeted review if no case is accepted yet (run §4 never pins an unreviewed run). |
    | 5 | `profile.yaml` exists, no datasets | Step 2: `generate`. With no scored run yet, that is the first session resumed at step 4 — small, then step 5, no interview, no stop. |
 
@@ -175,11 +174,11 @@ but not run until `python3` imports `yaml` or `uv` is on PATH. Then carry on.
    blocker; `${CLAUDE_PLUGIN_ROOT}/docs/concepts.md` §Staged rigor is the long
    form, for a user who asks). Frame locks as "unlocks when X," never as missing features.
 
-   Naming the stage is not enough on its own: always spell out the one or
-   two things it currently gates. Do this in your first reply and in any
-   reply where the stage changes — including one that routes to a blocked or
-   broken state (check 2 and a dangling baseline pointer in 3), since that is
-   when a user decides how much more to invest. Otherwise do not repeat it.
+   Always spell out the one or two things the stage currently gates, in
+   your first reply and in any reply where the stage changes — including
+   one that routes to a blocked or broken state (check 2, a dangling
+   baseline pointer in 3), when a user decides how much more to invest.
+   Otherwise do not repeat it.
 
 4. **First-session extras** (only when the state location was just created):
    - Tell the user where everything was written and that it should be

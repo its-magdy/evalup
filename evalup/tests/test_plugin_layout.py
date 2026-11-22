@@ -16,6 +16,10 @@ because the suite must pass on a machine without the CLI.
 import json
 import os
 import re
+import shlex
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -391,6 +395,73 @@ class TestPluginLayout(unittest.TestCase):
         self.assertEqual(msgs, r + 3 * h)
         self.assertEqual(worst, msgs * 3)
         self.assertGreater(min(r, h), per, "a run the example says is over L")
+
+
+class TestFirstSessionFlow(unittest.TestCase):
+    """#97, #101, #102: what the #27 re-proof's first session tripped on."""
+
+    @staticmethod
+    def read(*parts):
+        return " ".join(ROOT.joinpath(*parts).read_text(
+            encoding="utf-8").split())
+
+    def test_start_does_not_call_the_judge_unbuilt(self):
+        # #97: the run-time judge shipped in #23; start's menu still said
+        # judged layers were not scored at run time.
+        start = self.read("skills", "start", "SKILL.md")
+        self.assertNotIn("not scored at run time", start)
+        self.assertIn("judged verdicts stay provisional", start)
+
+    def test_generate_offers_a_criteria_rubric_with_its_self_test(self):
+        # #97: the generator was never told to write a rubric, so the judge
+        # pass had nothing to grade on a first session.
+        generate = self.read("skills", "generate", "SKILL.md")
+        agent = self.read("agents", "test-generator.md")
+        for text in (generate, agent):
+            for phrase in ("`form: criteria`", "`self_test`",
+                           "ambiguous-name reply", "a decline",
+                           '"nothing is scheduled"',
+                           "rubric-format.md` §The criteria form"):
+                self.assertIn(phrase, text)
+
+    def test_the_label_review_confirms_the_rules_its_cases_cover(self):
+        # #102: an accepted case on an unconfirmed rule cannot gate, and a
+        # lean discover confirms none, so the review asks for exactly
+        # those rules; only a human confirms one.
+        generate = self.read("skills", "generate", "SKILL.md")
+        for phrase in ("ride the same review", "`unconfirmed_rule_gates`",
+                       "confirm / fix / strike", "interview.md`",
+                       "never an agent's relay",
+                       "the rest wait for its interview",
+                       "keeps `gating: false`"):
+            self.assertIn(phrase, generate)
+        start = self.read("skills", "start", "SKILL.md")
+        self.assertIn("plus confirming the rules those cases cover", start)
+
+    def test_discover_dirty_check_ignores_evalups_own_state(self):
+        # #101: the default state dir sits untracked inside the app, so a
+        # bare `status --porcelain` was never empty after a first session.
+        # Run the skill's own command on a repo holding only that dir.
+        discover = ROOT.joinpath("skills", "discover", "SKILL.md").read_text(
+            encoding="utf-8")
+        m = re.search(r"`git -C <app> status --porcelain ([^`]*)`", discover)
+        self.assertIsNotNone(m, "discover step 5's dirtiness check moved")
+        self.assertIn(":(exclude).evalup", m.group(1))
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+        tail = shlex.split(m.group(1))
+        with tempfile.TemporaryDirectory() as app:
+            def status():
+                return subprocess.run(
+                    ["git", "-c", "status.showUntrackedFiles=normal", "-C", app,
+                     "status", "--porcelain", *tail],
+                    capture_output=True, text=True, check=True).stdout
+            subprocess.run(["git", "init", "-q", app], check=True)
+            os.makedirs(os.path.join(app, ".evalup", "reports"))
+            Path(app, ".evalup", "profile.yaml").write_text("x: 1\n", encoding="utf-8")
+            self.assertEqual(status(), "", "evalup's state read as dirty")
+            Path(app, "main.py").write_text("print(1)\n", encoding="utf-8")
+            self.assertIn("main.py", status(), "user work was hidden")
 
 
 if __name__ == "__main__":
