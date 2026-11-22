@@ -75,7 +75,9 @@ says when a release bumps it.
   matches runner processes on whole tokens (#111).
 - `--dry-run --cost-from <cost.json>` adds an `estimate`: dollars only at a
   priced run's measured cost per message, else messages and the models
-  seen; its cache caveat follows that run's `cache_accounting`. No price
+  seen (never score_cost's `<model attribute absent>` key, which every
+  `traces.source: response` run has, in place of the declared
+  `app.model`); its cache caveat follows that run's `cache_accounting`. No price
   table ships (part of #105). No verdict changes.
 - `score_answer.py` attaches its regex NFC note only when normalization
   touched the check: the answer changed under NFC, or the pattern is not in

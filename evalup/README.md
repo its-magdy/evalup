@@ -495,7 +495,7 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
 ```
 
 The third command is the only conclusive check of the Python 3.9 floor. Expect
-1209 passed and 20 skipped; add `--with pyyaml` to run the skipped twenty.
+1394 passed and 36 skipped; add `--with pyyaml` to run the skipped 36.
 
 `python3 tests/run_shards.py` runs the first one as CI's four shards side by
 side (~50 s) for a faster loop; the serial command stays the conclusive one.
