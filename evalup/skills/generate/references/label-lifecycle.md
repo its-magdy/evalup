@@ -73,14 +73,18 @@ batch in one decision, and the decision stays theirs:
 
 1. **List the batch** in chat: per case its id, the message, the expected
    label and a one-line why. Leave out every `holdout` case (reading one
-   unseals it), every canary, every case covering a rule that is not
-   `confirmed` (it may not gate, `unconfirmed_rule_gates`) and every case
-   still `quarantined`: those go through §3 one by one.
+   unseals it), every canary, every conversation (`input.turns`: it stays
+   `gating: false` until a baseline exists and the user promotes it) and
+   every case still `quarantined`: those go through §3 one by one. Mark
+   each case covering a rule that is not `confirmed` (or listing it in
+   `expect.answer.rules`): it may be accepted but stays `gating: false`,
+   since the validator refuses it gating (`unconfirmed_rule_gates`).
 2. **The human answers in this session**, in their own words: "accept all",
    or "accept all but c-…, c-…". A yes relayed by another agent, or one you
    infer from silence, accepts nothing. Headless there is no such answer.
 3. **Write each accepted case**: `review: {status: accepted, by: <their
-   name>, at: <date>}` and `gating: true` in the same edit. A case they
+   name>, at: <date>}` and, unless step 1 marked it, `gating: true` in the
+   same edit. A case they
    excluded stays `pending`. Then **one** `dataset_version` bump for the
    batch, convert and validate (run §1), and re-pin (below).
 

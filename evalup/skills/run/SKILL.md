@@ -25,7 +25,8 @@ allowed-tools: >-
 > (`evalup run-cases` is `run_cases.py`; `evalup --help` lists them): never
 > `python3`, no `cd`, no `&&` or `; echo $?` tail. The pre-approval is
 > `Bash(evalup *)`, and it lapses when the user next replies — a prompt
-> after that is expected, not a fault. If a script call is **denied**, stop and tell
+> after that is expected, not a fault. On `evalup: command not found`, stop; the
+> README (§Permissions) has the fallback. If a script call is **denied**, stop and tell
 > the user which permission is missing; never work around it by hand.
 >
 > **Every shell call, not only script calls.** One plain command per Bash

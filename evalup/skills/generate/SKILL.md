@@ -149,7 +149,7 @@ on obvious junk. Drop a case, logging the reason in the template's `rejected:`
 list, when it is:
 
 1. **not self-contained** — score it, retry a fixed few times, then drop it;
-2. **not grounded** — no oracle (a seeded fixture counts) for the
+2. **not grounded** — no oracle (a seeded fixture's data counts) for the
    expectation, so none gets invented:
    drop the case or demote it to `pending`;
 3. **a near-duplicate** — ROUGE-L ≥ 0.7 against any existing case;

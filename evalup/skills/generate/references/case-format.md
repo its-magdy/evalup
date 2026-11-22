@@ -236,10 +236,10 @@ expect:
                                      # bool, reported "unscorable".
                                      # Never an entry the user message already contains
                                      # (WARN echo_assertion): an echo passes it. Assert
-                                     # the fact that goes WITH the name (the date, the
-                                     # count), not the name. It is a SUBSTRING test: ضيف
-                                     # is inside كضيف, so bound a word in a regex suited
-                                     # to the script (`\b` where words are spaced). Try
+                                     # the fact that goes WITH the name, not the name.
+                                     # It is a SUBSTRING test: ضيف is inside كضيف, so
+                                     # bound a word in a regex suited to the script
+                                     # (test-generator rule 8's prefixed `\b`). Try
                                      # each entry on the message (no match) and on a
                                      # colloquial answer ("6:30 المسا", not only مساء).
                                      # WATCH THE SLASHES: "/usr/local/" is the REGEX

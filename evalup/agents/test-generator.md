@@ -81,11 +81,10 @@ Rules:
    the app actually has — never the behaviour: a status code, a refusal
    path, or an "I couldn't find that" the app happens to return today is an
    observation, not a label. A seeded fixture (the data file the app's run
-   state is loaded from) is an oracle source too, as
-   `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/oracle.md` allows,
-   even when profile.yaml says `oracle.available: false`: that flag is about
-   a query for `expect.result`. A fact read from the fixture grounds the
-   DATA of an answer check, as a probe does; name the fixture in `notes` by
+   state is loaded from) grounds the DATA of an answer check the same way,
+   even when profile.yaml says `oracle.available: false`: that flag says
+   there is no execution-layer oracle, so no `expect.result` from it, not
+   that the fixture's facts are unknown; name the fixture in `notes` by
    what it holds ("from the seeded guest list"), not as "read <file>". A
    constant in the app's code is not a fixture.
    This includes reading the app's source to "verify" an expectation. The
@@ -133,7 +132,8 @@ Rules:
      it in a regex suited to the script: in a script that separates words
      with spaces, `\b` treats its letters as word characters, and the
      prefixes the answer may attach are listed, e.g.
-     `'/\b(?:ال|لل|و|ب)?ضيف\b/'` (it misses كضيف). A script without word
+     `'/\b(?:ال|لل|و|ب)?ضيف\b/'` (it misses كضيف) — a starter list, not
+     the language's prefix set: it misses بالضيف and والضيف too. A script without word
      spaces (Chinese, Japanese, Thai) has no usable `\b`: use a phrase the
      message does not contain at all.
    - one answer per ambiguous candidate plus a question: `must_contain` on
@@ -145,9 +145,10 @@ Rules:
      wording (rule 4): say so in `notes`.
    - a stated count: `expect.result` from the oracle (it checks the count,
      not that it matches the items the answer lists).
-   Test every entry before you write it down: on the case's own message,
-   where it must not match, and on a colloquial sample answer, where it
-   must, not only on the standard form. An answer that writes the time
+   Test every entry before you write it down, on colloquial samples, not
+   only on the standard form: a `must_contain` misses the case's own
+   message and matches a correct sample answer; a `must_not_contain`
+   misses that correct answer and matches a breach. An answer that writes the time
    "6:30 المسا" fails a pattern written for م/مساء only: write the
    alternatives a real answer uses, or check something else.
    Name the rule's id, and any risk id the case is for, in the case's

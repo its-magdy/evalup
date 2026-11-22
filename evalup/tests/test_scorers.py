@@ -3683,8 +3683,8 @@ class TestUnicodeNormalization(ScorerTest):
 
     def test_an_ascii_regex_on_a_decomposed_answer_keeps_the_plain_note(self):
         # Normalization changed the text the pattern ran against, which an
-        # ASCII pattern can see too (`cafe$` matches the NFD bytes, not the
-        # NFC ones), so the note stays — without the WARNING.
+        # ASCII pattern can see too (`cafe\b` matches the NFD form, not the
+        # NFC one), so the note stays — without the WARNING.
         rc, out, err = self.answer_case(
             f"visited {self.NFD}: 42 units",
             {"answer": {"must_contain": ["/\\d+ units/"]}})
