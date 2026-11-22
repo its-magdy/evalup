@@ -13,6 +13,9 @@ line-length = 88
 # folklore a future edit can quietly drop.
 preview = true
 
+# bin/evalup has no .py suffix (it is a command on PATH), so ruff would skip it.
+extend-include = ["bin/evalup"]
+
 [lint]
 # A deliberately small set, not a wide sweep: every rule below either catches a
 # real defect class or is one the code already argues for in a comment.
