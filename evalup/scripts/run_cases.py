@@ -4858,8 +4858,8 @@ def traced_messages(state_dir, run_id):
     results.json carries no holdout row."""
     run_dir = os.path.join(state_dir, "reports", run_id)
     try:
-        with open(os.path.join(run_dir, "results.json"),
-                  encoding="utf-8") as fh:
+        path = os.path.join(run_dir, "results.json")
+        with open(path, encoding="utf-8") as fh:
             results = loads_strict(fh.read())
     except (OSError, BadJSON):
         return None
