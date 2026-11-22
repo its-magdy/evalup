@@ -5366,8 +5366,9 @@ def probe_report(adapter, problems, warnings=(), **fields):
         report["error"] = "probe did not verify the adapter: " \
             + "; ".join(problems)
     elif warnings:
-        report["error"] = "the app refused the request: " \
-            + "; ".join(warnings)
+        status = _mapping(report.get("response")).get("status")
+        report["error"] = (f"the app refused the request with HTTP {status}; "
+                           "not an adapter failure (see warnings)")
     return report
 
 

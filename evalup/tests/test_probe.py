@@ -454,6 +454,7 @@ class TestAppRefusedWithA4xx(ProbeCase):
         self.assertIn("HTTP 400: the app answered", report["warnings"][0])
         self.assertIn("in-scope question", report["warnings"][0])
         self.assertNotIn("check auth", report["error"])
+        self.assertIn("refused the request with HTTP 400", report["error"])
         self.assertEqual(report["response"]["status"], 400)
         self.assertEqual(report["response"]["answer"],
                          "I only help with invoices and shifts")
