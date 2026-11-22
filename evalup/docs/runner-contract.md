@@ -238,7 +238,10 @@ beyond the health check.
    was), and `traces.source: response` writes one chat span per entry, so
    `llm_calls` counts the calls. Cache counts (`cached_input_tokens`,
    `cache_write_input_tokens`, parts of `input_tokens` in AG-UI's
-   accounting) appear only when the stream reported them. `response_body` marks the answer in that body,
+   accounting) appear only when the stream reported them; `normalize_trace.py`
+   keeps them in the trajectory as `cache_read_input_tokens` /
+   `cache_write_input_tokens`, and this source is the one whose cache counts
+   `score_cost.py` splits out of the input price (§5.7). `response_body` marks the answer in that body,
    usually `{"text": "<answer>"}`. Any other content type parses as JSON exactly
    as without the block, so an app's JSON 4xx still reaches the `http` layer.
    `text` is null unless the run finished without an error (`RUN_FINISHED` for
@@ -695,9 +698,16 @@ recorded on every run, traced or not.
 runner does not write reports). It reads a finished run directory — plus a
 second one for the paired diff, and a **declared price-table sidecar**, which
 is not in `plan.json`. Its output goes to stdout or `-o`, never into a run
-directory, so §6's tree is unchanged. TTFT and cached-token accounting are
-**reserved**, not built; the script's docstring states both limits and
-carries them in its payload.
+directory, so §6's tree is unchanged. TTFT is **reserved**, not built.
+**Cached tokens (#105):** a model's table entry may add
+`cache_read_per_mtok` and `cache_write_per_mtok` (both or neither; none
+ship). Only where the trace source declares cache counts to be parts of
+`input_tokens` — today an AG-UI stream with `traces.source: response`
+(§2b) — does a call cost uncached input, cache reads, cache writes and
+output at their own rates (`cache_accounting: "priced"`); with the keys
+absent it prices as before and says `"unpriced"` with a warning. Other
+sources report their cache counts as tokens and stay `"none"`. The
+script's docstring states each limit and its payload carries it.
 
 ---
 

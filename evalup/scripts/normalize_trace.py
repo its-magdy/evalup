@@ -29,6 +29,16 @@ checks.spans_missing_duration. Token usage is recorded per LLM call and
 rolled up to the nearest ancestor invoke_agent span, so per-stage cost is
 derivable from the output.
 
+CACHE COUNTS (#105). A chat span's `gen_ai.usage.cache_read.input_tokens` and
+`gen_ai.usage.cache_creation.input_tokens` are kept as `cache_read_input_tokens`
+and `cache_write_input_tokens` beside `input_tokens`, in the call's usage, the
+agent rollup and the trajectory total -- and ONLY when some span carried the
+attribute, so "not reported" stays distinct from zero (the rule `_sse._usage`
+applies one step earlier). This script records them and does not interpret
+them: whether a cache count is a part of `input_tokens` or an addition to it is
+the trace source's accounting, not the convention's, and `score_cost.py` reads
+the run's manifest to decide.
+
 WHAT IS NOT ATTRIBUTED, since the rollup above makes it look like it might be:
 tool_calls carry name/call_id/args/result/error/duration and NO owning agent,
 no span_id and no parent, and llm_calls carry no prompt or response text. The
@@ -184,6 +194,20 @@ def int_or_zero(v):
         return 0
 
 
+# gen_ai span attribute -> the trajectory's usage key. Recorded only when the
+# span carried the attribute (see the module docstring).
+CACHE_ATTRS = (("gen_ai.usage.cache_read.input_tokens", "cache_read_input_tokens"),
+               ("gen_ai.usage.cache_creation.input_tokens",
+                "cache_write_input_tokens"))
+
+
+def add_usage(total, call_usage):
+    """Add one call's usage into a total, a cache key only when the call
+    reported it -- so a total holds a cache key iff some call did."""
+    for k, v in call_usage.items():
+        total[k] = total.get(k, 0) + v
+
+
 def load_spans_file(path, fail):
     """One JSON document, or JSON Lines -- one document per line.
 
@@ -308,20 +332,21 @@ def main():
                 "input_tokens": int_or_zero(at.get("gen_ai.usage.input_tokens")),
                 "output_tokens": int_or_zero(at.get("gen_ai.usage.output_tokens")),
             }
+            for attr, key in CACHE_ATTRS:
+                if at.get(attr) is not None:
+                    call_usage[key] = int_or_zero(at.get(attr))
             llm_calls.append({
                 "model": at.get("gen_ai.request.model"),
                 "duration_ms": duration_ms(s),
                 "usage": call_usage,
             })
-            for k in usage:
-                usage[k] += call_usage[k]
+            add_usage(usage, call_usage)
             # Attribute to the nearest ancestor agent stage.
             parent, hops = s.get("parentSpanId"), set()
             while parent and parent in by_id and parent not in hops:
                 hops.add(parent)
                 if parent in agent_entry_by_id:
-                    for k in usage:
-                        agent_entry_by_id[parent]["usage"][k] += call_usage[k]
+                    add_usage(agent_entry_by_id[parent]["usage"], call_usage)
                     break
                 parent = by_id[parent].get("parentSpanId")
 

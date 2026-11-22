@@ -1199,6 +1199,39 @@ class TestNormalizeTraceValues(ScorerTest):
         self.assertEqual(traj["usage"],
                          {"input_tokens": 16, "output_tokens": 10})
 
+    def test_cache_counts_are_kept_only_when_reported(self):
+        """#105: dropping them priced a cached agent at the full input
+        rate. Kept per call, per agent and in the total, and absent (not
+        zero) where no span reported one."""
+        def chat(span_id, start, n_in, **cache):
+            attrs = [
+                {"key": "gen_ai.request.model", "value": {"stringValue": "m"}},
+                {"key": "gen_ai.usage.input_tokens",
+                 "value": {"intValue": str(n_in)}},
+                {"key": "gen_ai.usage.output_tokens", "value": {"intValue": 1}}]
+            attrs += [{"key": f"gen_ai.usage.{k}.input_tokens",
+                       "value": {"intValue": v}} for k, v in cache.items()]
+            return self.span("t1", span_id, "chat", parent="a", start=start,
+                             extra_attrs=attrs)
+        spans = [self.span("t1", "a", "invoke_agent"),
+                 chat("b", 2, 100, cache_read=80),
+                 chat("c", 3, 50, cache_creation="20"),
+                 chat("d", 4, 10)]
+        rc, out, _ = run_script("normalize_trace.py", self.doc(spans),
+                                "--trace-id", "t1")
+        traj = out["trajectory"]
+        self.assertEqual([c["usage"] for c in traj["llm_calls"]], [
+            {"input_tokens": 100, "output_tokens": 1,
+             "cache_read_input_tokens": 80},
+            {"input_tokens": 50, "output_tokens": 1,
+             "cache_write_input_tokens": 20},
+            {"input_tokens": 10, "output_tokens": 1}])
+        total = {"input_tokens": 160, "output_tokens": 3,
+                 "cache_read_input_tokens": 80,
+                 "cache_write_input_tokens": 20}
+        self.assertEqual(traj["usage"], total)
+        self.assertEqual(traj["agents"][0]["usage"], total)
+
 
 class TestScoreAnswer(ScorerTest):
     def answer(self, text):

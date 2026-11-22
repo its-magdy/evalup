@@ -673,6 +673,193 @@ class TestNotADecision(CostCase):
         self.assertEqual(payload["cost"]["cache_accounting"], "none")
 
 
+# -- cache accounting (#105) ------------------------------------------------
+
+# What a run's manifest says when its trace is an AG-UI stream read as its own
+# trace: the one source whose cache counts are declared parts of input_tokens.
+AG_UI = {"invocation": {"response_format": "sse",
+                        "sse": {"protocol": "ag-ui"}},
+         "traces": {"source": "response"}}
+CACHE_TIERS = {"cache_read_per_mtok": "0.25", "cache_write_per_mtok": "3.125"}
+
+
+class TestCacheAccounting(CostCase):
+    """A cached agent was priced about 2x low (#105): normalize_trace.py
+    dropped the cache counts, so every input token cost the input rate.
+    The split is opt-in per model, and only where the source declares it."""
+
+    def cached_run(self, run_id, usage, model="m-1", **manifest_extra):
+        """One case whose single LLM call has exactly this usage dict."""
+        out = self.write_run(run_id, [("c-1", "pass", 1.0, 0, 0)],
+                             **manifest_extra)
+        self.write_json(out / "cases" / "c-1" / "trajectory.json", {
+            "status": "ok",
+            "trajectory": {"trace_id": "t", "agents": [], "tool_calls": [],
+                           "llm_calls": [{"model": model, "duration_ms": 10,
+                                          "usage": usage}],
+                           "usage": usage},
+            "checks": {}})
+        return out
+
+    # 1M input, of which 600k cache reads and 100k cache writes; 100k output.
+    USAGE = {"input_tokens": 1_000_000, "output_tokens": 100_000,
+             "cache_read_input_tokens": 600_000,
+             "cache_write_input_tokens": 100_000}
+
+    def tiered(self, **extra):
+        models = {"m-1": dict(PRICES["models"]["m-1"], **CACHE_TIERS)}
+        return self.prices(models=models, **extra)
+
+    def test_both_tiers_price_each_part_separately(self):
+        run = self.cached_run("smoke-20260901T120000Z", self.USAGE, **AG_UI)
+        rc, payload, err = run_script(run, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        cost = payload["cost"]
+        self.assertEqual(cost["status"], "priced")
+        self.assertEqual(cost["cache_accounting"], "priced")
+        # 300k uncached x 2.50 + 600k x 0.25 + 100k x 3.125 + 100k x 10.00
+        # = 0.75 + 0.15 + 0.3125 + 1.00
+        self.assertEqual(cost["usd"], 2.2125)
+        self.assertEqual(cost["tokens"], {
+            "input": 1_000_000, "output": 100_000, "total": 1_100_000,
+            "cache_read_input": 600_000, "cache_write_input": 100_000,
+            "calls_reporting_cache": 1})
+        self.assertEqual(cost["models"]["m-1"]["cache_read_input_tokens"],
+                         600_000)
+        self.assertNotIn("cache_warning", cost)
+
+    def test_absent_tiers_price_as_before_and_say_so(self):
+        run = self.cached_run("smoke-20260901T120000Z", self.USAGE, **AG_UI)
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        cost = payload["cost"]
+        self.assertEqual(cost["status"], "priced")
+        # Every input token at the input rate, exactly today's figure.
+        self.assertEqual(cost["usd"], 3.5)
+        self.assertEqual(cost["cache_accounting"], "unpriced")
+        for key in ("cache_read_per_mtok", "cache_write_per_mtok", "m-1"):
+            self.assertIn(key, cost["cache_warning"])
+
+    def test_a_table_without_the_new_keys_prices_exactly_as_before(self):
+        """The same run, with and without cache counts, against the old
+        table: the same dollars to the pico-USD, and a run with no cache
+        counts carries no cache field at all. A tiered table does not move
+        a run that reported no cache counts either."""
+        plain = self.write_run("smoke-20260901T120000Z",
+                               [("c-1", "pass", 1.0, 1_000_000, 100_000)],
+                               **AG_UI)
+        cached = self.cached_run("smoke-20260902T120000Z", self.USAGE,
+                                 **AG_UI)
+        old = self.prices()
+        _, before, _ = run_script(plain, "--prices", old)
+        _, after, _ = run_script(cached, "--prices", old)
+        _, tiered, _ = run_script(plain, "--prices", self.tiered())
+        self.assertEqual(before["cost"]["usd"], 3.5)
+        self.assertEqual(after["cost"]["usd"], before["cost"]["usd"])
+        self.assertEqual(tiered["cost"]["usd"], before["cost"]["usd"])
+        self.assertEqual(before["cost"]["cache_accounting"], "none")
+        self.assertEqual(before["cost"]["tokens"],
+                         {"input": 1_000_000, "output": 100_000,
+                          "total": 1_100_000})
+        self.assertFalse({"cache_warning", "cache_note"} & set(before["cost"]))
+
+    def test_an_undeclared_source_reports_cache_counts_and_does_not_split(self):
+        """An OTLP store (or a JSON body) does not say whether a cache count
+        sits inside input_tokens or beside it, so the split is not made."""
+        for manifest in ({}, {"traces": {"source": "otlp-file"}},
+                         {"invocation": {"response_format": "json"},
+                          "traces": {"source": "response"}}):
+            with self.subTest(manifest=manifest):
+                shutil.rmtree(self.reports)
+                self.reports.mkdir()
+                run = self.cached_run("smoke-20260901T120000Z", self.USAGE,
+                                      **manifest)
+                rc, payload, err = run_script(run, "--prices", self.tiered())
+                self.assertEqual(rc, 0, err)
+                cost = payload["cost"]
+                self.assertEqual(cost["usd"], 3.5)
+                self.assertEqual(cost["cache_accounting"], "none")
+                self.assertIn("cache_note", cost)
+                self.assertEqual(cost["tokens"]["cache_read_input"], 600_000)
+
+    def test_one_tier_alone_is_refused(self):
+        for field in CACHE_TIERS:
+            with self.subTest(field=field):
+                models = {"m-1": dict(PRICES["models"]["m-1"],
+                                      **{field: CACHE_TIERS[field]})}
+                run = self.simple("smoke-20260901T120000Z")
+                rc, payload, _ = run_script(run, "--prices",
+                                            self.prices(models=models))
+                shutil.rmtree(run)
+                self.assertEqual(rc, 2)
+                for key in CACHE_TIERS:
+                    self.assertIn(key, payload["error"])
+
+    def test_a_float_tier_is_refused_like_any_price(self):
+        models = {"m-1": dict(PRICES["models"]["m-1"],
+                              cache_read_per_mtok=0.25,
+                              cache_write_per_mtok="3.125")}
+        rc, payload, _ = run_script(self.simple("smoke-20260901T120000Z"),
+                                    "--prices", self.prices(models=models))
+        self.assertEqual(rc, 2)
+        self.assertIn("cache_read_per_mtok", payload["error"])
+
+    def test_cache_counts_larger_than_input_withhold_the_dollars(self):
+        usage = dict(self.USAGE, cache_read_input_tokens=950_000)
+        run = self.cached_run("smoke-20260901T120000Z", usage, **AG_UI)
+        rc, payload, err = run_script(run, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        cost = payload["cost"]
+        self.assertEqual(cost["status"], "unpriced")
+        self.assertNotIn("usd", cost)
+        self.assertEqual(cost["calls_with_cache_over_input"], 1)
+
+    def test_a_bad_cache_count_is_an_unusable_count(self):
+        usage = dict(self.USAGE, cache_write_input_tokens="lots")
+        run = self.cached_run("smoke-20260901T120000Z", usage, **AG_UI)
+        rc, payload, err = run_script(run, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["cost"]["status"], "unpriced")
+        self.assertEqual(payload["cost"]["calls_with_unusable_token_count"], 1)
+
+    def test_one_reported_tier_is_split_and_the_other_counts_zero(self):
+        usage = {"input_tokens": 1_000_000, "output_tokens": 0,
+                 "cache_read_input_tokens": 400_000}
+        run = self.cached_run("smoke-20260901T120000Z", usage, **AG_UI)
+        rc, payload, err = run_script(run, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        # 600k x 2.50 + 400k x 0.25 = 1.50 + 0.10
+        self.assertEqual(payload["cost"]["usd"], 1.6)
+        self.assertEqual(payload["cost"]["tokens"]["cache_write_input"], 0)
+
+    def test_the_absent_model_can_be_declared_by_the_name_reported(self):
+        """A `traces.source: response` span carries no gen_ai.request.model,
+        so every such call is reported as `<model attribute absent>`. Naming
+        that string in `aliases` prices it; before #105 nothing could."""
+        run = self.cached_run("smoke-20260901T120000Z", self.USAGE,
+                              model=None, **AG_UI)
+        rc, payload, _ = run_script(run, "--prices", self.tiered())
+        self.assertEqual(payload["cost"]["unpriced_models"],
+                         ["<model attribute absent>"])
+        rc, payload, err = run_script(run, "--prices", self.tiered(
+            aliases={"<model attribute absent>": "m-1"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["cost"]["status"], "priced")
+        self.assertEqual(payload["cost"]["usd"], 2.2125)
+
+    def test_a_paired_diff_uses_each_runs_own_split(self):
+        base = self.cached_run("smoke-20260901T120000Z", self.USAGE, **AG_UI)
+        cand = self.cached_run("smoke-20260902T120000Z", dict(
+            self.USAGE, cache_read_input_tokens=0,
+            cache_write_input_tokens=0), **AG_UI)
+        rc, payload, err = run_script(cand, "--baseline", base,
+                                      "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        paired = payload["paired"]["cost"]
+        self.assertEqual(paired["baseline_total_usd"], 2.2125)
+        self.assertEqual(paired["candidate_total_usd"], 3.5)
+
+
 # -- against the real runner ----------------------------------------------
 
 class TestAgainstTheRealRunner(unittest.TestCase):

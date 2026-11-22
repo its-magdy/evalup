@@ -312,12 +312,17 @@ class TestSpans(unittest.TestCase):
              "--trace-id", "ab" * 16], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)["trajectory"]
+        # #105: the cache counts survive into the trajectory, per call.
         self.assertEqual([c["usage"] for c in out["llm_calls"]], [
-            {"input_tokens": 100, "output_tokens": 10},
+            {"input_tokens": 100, "output_tokens": 10,
+             "cache_read_input_tokens": 80},
             {"input_tokens": 200, "output_tokens": 20},
-            {"input_tokens": 300, "output_tokens": 30}])
+            {"input_tokens": 300, "output_tokens": 30,
+             "cache_write_input_tokens": 5}])
         self.assertEqual(out["usage"],
-                         {"input_tokens": 600, "output_tokens": 60})
+                         {"input_tokens": 600, "output_tokens": 60,
+                          "cache_read_input_tokens": 80,
+                          "cache_write_input_tokens": 5})
         self.assertEqual([t["name"] for t in out["tool_calls"]],
                          ["lookup", "lookup"])
 
@@ -436,7 +441,32 @@ class TestRunnerSumsEveryModelCall(SSERunnerCase):
                                "trajectory.json")["trajectory"]
         self.assertEqual(len(trajectory["llm_calls"]), 3)
         self.assertEqual(trajectory["usage"],
-                         {"input_tokens": 600, "output_tokens": 60})
+                         {"input_tokens": 600, "output_tokens": 60,
+                          "cache_read_input_tokens": 250})
+
+    def test_score_cost_splits_the_cache_off_this_runs_own_tree(self):
+        """#105 end to end: stream -> manifest -> normalize_trace ->
+        score_cost. The manifest is the runner's, so the split is made on
+        what the run actually recorded about its source."""
+        rc, _, proc = self.invoke(self.sse_plan())
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        table = self.tmp / "prices.json"
+        table.write_text(json.dumps({
+            "schema": "evalup/price-table/1", "as_of": "2026-09-01",
+            "source": "test", "aliases": {"<model attribute absent>": "m"},
+            "models": {"m": {"input_per_mtok": "2", "output_per_mtok": "10",
+                             "cache_read_per_mtok": "0.2",
+                             "cache_write_per_mtok": "2.5"}}}),
+            encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "score_cost.py"),
+             str(self.out_dir()), "--prices", str(table)],
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        cost = json.loads(proc.stdout)["cost"]
+        self.assertEqual(cost["cache_accounting"], "priced")
+        # 350 uncached x 2 + 250 x 0.2 + 60 x 10, per million tokens.
+        self.assertEqual(cost["usd"], round((700 + 50 + 600) / 1e6, 6))
 
 
 class TestRunnerReadsStreams(SSERunnerCase):
