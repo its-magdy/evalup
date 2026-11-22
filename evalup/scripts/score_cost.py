@@ -517,26 +517,34 @@ def price_run(run_dir, cases, prices, cache_parts=False):
     that reported a cache count, priced against a model whose entry declares
     both cache tiers, costs uncached input (input minus both cache counts) at
     the input rate, each cache count at its own tier, and output as before.
-    A model without the tiers prices that call exactly as before and the run
-    says `cache_accounting: "unpriced"`, naming the missing keys.
+    The split is ALL OR NOTHING per run: when any cache-reporting call's
+    model lacks the tiers, every call is priced exactly as before and the
+    run says `cache_accounting: "unpriced"`, naming the missing keys. A
+    blend of split and unsplit calls would be a figure that is neither the
+    old price nor the corrected one -- the partial total this script
+    withholds for an unknown model.
     """
     by_model, per_case, with_trace, unpriced = {}, {}, 0, set()
     tokens_in = tokens_out = unusable = 0
     cache_tokens = {key: 0 for key in CACHE_USAGE_KEYS}
     cache_calls = cache_over_input = 0
     no_cache_tier = set()
+    # Both prices, per case: the old formula (every input token at the input
+    # rate) and the split. The run publishes one of them, never a blend.
+    per_case_split = {}
     for case_id in cases:
         calls = case_usage(run_dir, case_id, cases[case_id])
         if calls is None:
             continue
         with_trace += 1
-        pico = 0
+        pico = pico_split = 0
         for model, n_in, n_out, bad_count, c_read, c_write in calls:
             unusable += bad_count
             tokens_in += n_in
             tokens_out += n_out
-            key = model if isinstance(model, str) else None
-            name = key or ABSENT_MODEL
+            # A model that is not a string is the sentinel; "" stays "",
+            # which is how the table looked it up before #105.
+            name = model if isinstance(model, str) else ABSENT_MODEL
             entry = by_model.setdefault(
                 name,
                 {"calls": 0, "input_tokens": 0, "output_tokens": 0,
@@ -564,12 +572,13 @@ def price_run(run_dir, cases, prices, cache_parts=False):
                 unpriced.add(name)
                 continue
             entry["priced"] = True
-            split = cache_parts and reported
-            if split and rate[2] is None:
+            old = n_in * rate[0] + n_out * rate[1]
+            pico += old
+            if not (cache_parts and reported):
+                pico_split += old
+                continue
+            if rate[2] is None:
                 no_cache_tier.add(resolved)
-                split = False
-            if not split:
-                pico += n_in * rate[0] + n_out * rate[1]
                 continue
             c_read, c_write = c_read or 0, c_write or 0
             uncached = n_in - c_read - c_write
@@ -579,9 +588,10 @@ def price_run(run_dir, cases, prices, cache_parts=False):
                 # scorer cannot price, withheld like any unusable one.
                 cache_over_input += 1
                 continue
-            pico += (uncached * rate[0] + c_read * rate[2]
-                     + c_write * rate[3] + n_out * rate[1])
+            pico_split += (uncached * rate[0] + c_read * rate[2]
+                           + c_write * rate[3] + n_out * rate[1])
         per_case[case_id] = pico
+        per_case_split[case_id] = pico_split
     without_trace = len(cases) - with_trace
 
     tokens = {"input": tokens_in, "output": tokens_out,
@@ -608,21 +618,10 @@ def price_run(run_dir, cases, prices, cache_parts=False):
             "traces.source: response does), so input is priced at the input "
             "rate as recorded and the cache counts are reported, not split "
             "out.")
-    elif cache_calls and prices is None:
-        block["cache_accounting"] = "unpriced"
-    elif cache_calls and (no_cache_tier or unpriced):
-        block["cache_accounting"] = "unpriced"
-        if no_cache_tier:
-            block["cache_warning"] = (
-                "the price table declares no {} for {}, so their cache-read "
-                "and cache-write tokens are priced at the input rate. On a "
-                "cached agent that figure can be far off -- a cache read "
-                "usually costs a tenth of input, a write more than input; "
-                "add both keys to price them.".format(
-                    " / ".join(CACHE_PRICE_FIELDS),
-                    ", ".join(sorted(no_cache_tier)[:MAX_REPORTED])))
     elif cache_calls:
-        block["cache_accounting"] = "priced"
+        # Not split out of any published price. "priced" is set below, and
+        # only where the split total is the one published.
+        block["cache_accounting"] = "unpriced"
     if with_trace == 0:
         # NOT reported as zero tokens: a run with no trace did not spend
         # nothing, it recorded nothing, and a zero in a token column is
@@ -651,7 +650,9 @@ def price_run(run_dir, cases, prices, cache_parts=False):
             "zero would read exactly like a cheap run. The token totals above "
             "EXCLUDE them. Fix the exporter or the traces.mapping_shim.")
         return None, block
-    if cache_over_input:
+    # Only when the split is the figure to publish: with a tier missing the
+    # run prices as before, and the old formula needs no cache count.
+    if cache_over_input and not no_cache_tier:
         block["status"] = "unpriced"
         block["calls_with_cache_over_input"] = cache_over_input
         block["reason"] = (
@@ -674,6 +675,19 @@ def price_run(run_dir, cases, prices, cache_parts=False):
             "declared one.")
         return None, block
 
+    if cache_calls and cache_parts:
+        if no_cache_tier:
+            block["cache_warning"] = (
+                "the price table declares no {} for {}, so every call is "
+                "priced as before, cache-read and cache-write tokens at the "
+                "input rate. On a cached agent that figure can be far off -- "
+                "a cache read usually costs a tenth of input, a write more "
+                "than input; add both keys to split them out.".format(
+                    " / ".join(CACHE_PRICE_FIELDS),
+                    ", ".join(sorted(no_cache_tier)[:MAX_REPORTED])))
+        else:
+            per_case = per_case_split
+            block["cache_accounting"] = "priced"
     total_pico = sum(per_case.values())
     block["status"] = "priced"
     block["usd"] = usd(total_pico)
@@ -1131,8 +1145,10 @@ def declared_limits(runs):
             "model, so uncached input, cache reads, cache writes and output "
             "are priced separately. 'unpriced': the same source reported "
             "cache counts, but a model lacks those keys (or no table was "
-            "given), so cached tokens are priced at the full input rate -- "
-            "on a cached agent a large error, in either direction. 'none': "
+            "given, or the dollars were withheld for the reason stated), so no "
+            "published figure splits them out; with cache_warning, the "
+            "figure prices cached tokens at the full input rate -- on a "
+            "cached agent a large error, in either direction. 'none': "
             "no cache count was reported, or the source does not declare "
             "whether they sit inside input_tokens or beside it, so they are "
             "reported as tokens and not split out of the price."),

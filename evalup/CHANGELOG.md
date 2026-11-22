@@ -19,6 +19,15 @@ says when a release bumps it.
 ## [Unreleased]
 
 ### Changed
+- **Cached tokens are priced on an AG-UI stream** (#105, cost half).
+  `normalize_trace.py` keeps the cache-read and cache-write counts it used to
+  drop. `prices.json` takes optional `cache_read_per_mtok` and
+  `cache_write_per_mtok` per model, both or neither. No default prices ship.
+  With both keys, `score_cost.py` prices uncached input, cache reads, cache
+  writes and output separately and says `cache_accounting: "priced"`. Without
+  them it prices as before and says `"unpriced"` with a warning. Other trace
+  sources stay `"none"`. A call with no model can be aliased as
+  `<model attribute absent>`. Cost never gates: `SCORING_VERSION` stays 1.
 - `convert_suite.py` without PyYAML re-runs itself under `uv run --no-project
   --with pyyaml` when `uv` is on PATH, so a stock macOS `python3` needs no
   install (#95's smaller fix). `--self-check` then reports `"via": "uv"`;

@@ -764,11 +764,16 @@ class TestCacheAccounting(CostCase):
         self.assertFalse({"cache_warning", "cache_note"} & set(before["cost"]))
 
     def test_an_undeclared_source_reports_cache_counts_and_does_not_split(self):
-        """An OTLP store (or a JSON body) does not say whether a cache count
-        sits inside input_tokens or beside it, so the split is not made."""
+        """An OTLP store (or a JSON body, or a data-path stream) does not say
+        whether a cache count sits inside input_tokens or beside it, so the
+        split is not made."""
         for manifest in ({}, {"traces": {"source": "otlp-file"}},
                          {"invocation": {"response_format": "json"},
-                          "traces": {"source": "response"}}):
+                          "traces": {"source": "response"}},
+                         {"invocation": {"response_format": "sse",
+                                         "sse": {"protocol": "data-path"}},
+                          "traces": {"source": "response"}},
+                         dict(AG_UI, traces={"source": "otlp-file"})):
             with self.subTest(manifest=manifest):
                 shutil.rmtree(self.reports)
                 self.reports.mkdir()
@@ -781,6 +786,65 @@ class TestCacheAccounting(CostCase):
                 self.assertEqual(cost["cache_accounting"], "none")
                 self.assertIn("cache_note", cost)
                 self.assertEqual(cost["tokens"]["cache_read_input"], 600_000)
+
+    def two_model_run(self, run_id, models):
+        """Two cases, one call each, the same USAGE, on these two models."""
+        out = self.write_run(run_id, [("c-1", "pass", 1.0, 0, 0),
+                                      ("c-2", "pass", 1.0, 0, 0)], **AG_UI)
+        for case_id, model in zip(("c-1", "c-2"), models):
+            self.write_json(out / "cases" / case_id / "trajectory.json", {
+                "status": "ok",
+                "trajectory": {"trace_id": "t", "agents": [],
+                               "tool_calls": [],
+                               "llm_calls": [{"model": model,
+                                              "duration_ms": 10,
+                                              "usage": self.USAGE}],
+                               "usage": self.USAGE},
+                "checks": {}})
+        return out
+
+    def test_one_model_without_tiers_prices_the_whole_run_as_before(self):
+        """All or nothing: m-1 split and m-2 unsplit would publish 5.7125, a
+        figure that is neither the old price (7.0) nor a corrected one."""
+        run = self.two_model_run("smoke-20260901T120000Z", ("m-1", "m-2"))
+        models = {"m-1": dict(PRICES["models"]["m-1"], **CACHE_TIERS),
+                  "m-2": PRICES["models"]["m-1"]}
+        rc, payload, err = run_script(run, "--prices",
+                                      self.prices(models=models))
+        self.assertEqual(rc, 0, err)
+        cost = payload["cost"]
+        self.assertEqual(cost["status"], "priced")
+        self.assertEqual(cost["usd"], 7.0)
+        self.assertEqual(cost["cache_accounting"], "unpriced")
+        self.assertIn("m-2", cost["cache_warning"])
+        self.assertNotIn("m-1,", cost["cache_warning"])
+        # Both tiered: the split, case by case.
+        models["m-2"] = models["m-1"]
+        rc, payload, err = run_script(run, "--prices",
+                                      self.prices(models=models))
+        self.assertEqual(payload["cost"]["usd"], 2 * 2.2125)
+        self.assertEqual(payload["cost"]["cache_accounting"], "priced")
+
+    def test_withheld_dollars_never_say_priced_or_warn(self):
+        """No table, or an unknown model beside a tiered one: no figure
+        was published, so nothing was split out of one."""
+        run = self.two_model_run("smoke-20260901T120000Z", ("m-1", "m-x"))
+        for argv in ((), ("--prices", self.tiered())):
+            with self.subTest(argv=argv):
+                rc, payload, err = run_script(run, *argv)
+                self.assertEqual(rc, 0, err)
+                cost = payload["cost"]
+                self.assertEqual(cost["status"], "unpriced")
+                self.assertEqual(cost["cache_accounting"], "unpriced")
+                self.assertNotIn("cache_warning", cost)
+
+    def test_an_empty_model_string_is_not_the_absent_sentinel(self):
+        run = self.cached_run("smoke-20260901T120000Z", self.USAGE,
+                              model="", **AG_UI)
+        rc, payload, err = run_script(run, "--prices",
+                                      self.tiered(aliases={"": "m-1"}))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["cost"]["usd"], 2.2125)
 
     def test_one_tier_alone_is_refused(self):
         for field in CACHE_TIERS:
@@ -813,6 +877,8 @@ class TestCacheAccounting(CostCase):
         self.assertEqual(cost["status"], "unpriced")
         self.assertNotIn("usd", cost)
         self.assertEqual(cost["calls_with_cache_over_input"], 1)
+        # Withheld dollars split nothing out: never "priced".
+        self.assertEqual(cost["cache_accounting"], "unpriced")
 
     def test_a_bad_cache_count_is_an_unusable_count(self):
         usage = dict(self.USAGE, cache_write_input_tokens="lots")

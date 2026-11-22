@@ -201,11 +201,28 @@ CACHE_ATTRS = (("gen_ai.usage.cache_read.input_tokens", "cache_read_input_tokens
                 "cache_write_input_tokens"))
 
 
+def cache_count(value):
+    """A cache count as an int, or the raw value when it is not a whole
+    non-negative number. Not int_or_zero: a garbage count read as 0 would
+    let score_cost.py split the price on a count nobody reported, where the
+    raw value makes it an unusable count that withholds the dollars. OTLP
+    spells intValue as a JSON string, so a numeric string is still a count."""
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return value
+
+
 def add_usage(total, call_usage):
     """Add one call's usage into a total, a cache key only when the call
-    reported it -- so a total holds a cache key iff some call did."""
+    reported it -- so a total holds a cache key iff some call did. A cache
+    count that is not an int (cache_count) is not summed: the per-call
+    record keeps it for score_cost.py to refuse, and the total stays a sum
+    of real counts."""
     for k, v in call_usage.items():
-        total[k] = total.get(k, 0) + v
+        if isinstance(v, int) and not isinstance(v, bool):
+            total[k] = total.get(k, 0) + v
 
 
 def load_spans_file(path, fail):
@@ -334,7 +351,7 @@ def main():
             }
             for attr, key in CACHE_ATTRS:
                 if at.get(attr) is not None:
-                    call_usage[key] = int_or_zero(at.get(attr))
+                    call_usage[key] = cache_count(at.get(attr))
             llm_calls.append({
                 "model": at.get("gen_ai.request.model"),
                 "duration_ms": duration_ms(s),

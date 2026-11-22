@@ -240,8 +240,9 @@ beyond the health check.
    `cache_write_input_tokens`, parts of `input_tokens` in AG-UI's
    accounting) appear only when the stream reported them; `normalize_trace.py`
    keeps them in the trajectory as `cache_read_input_tokens` /
-   `cache_write_input_tokens`, and this source is the one whose cache counts
-   `score_cost.py` splits out of the input price (§5.7). `response_body` marks the answer in that body,
+   `cache_write_input_tokens`. An `ag-ui` stream read with `traces.source:
+   response` is the one source whose cache counts `score_cost.py` splits out
+   of the input price (§5.7); a `data-path` stream is not. `response_body` marks the answer in that body,
    usually `{"text": "<answer>"}`. Any other content type parses as JSON exactly
    as without the block, so an app's JSON 4xx still reaches the `http` layer.
    `text` is null unless the run finished without an error (`RUN_FINISHED` for

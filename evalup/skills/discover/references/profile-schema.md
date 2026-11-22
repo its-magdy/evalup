@@ -136,7 +136,7 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # off in effect on a trace-less run: no
                                        # trajectory.json means no token count at all.
                                        # Latency needs no trace and is always there.
-                                       # TTFT and cached tokens are RESERVED.
+                                       # TTFT is RESERVED; cached tokens: score_cost.py.
   execution:       { enabled: false, blocked_by: "no oracle configured (see oracle: above) + no case carries expect.result (scalar/rows)" }
   authz:           { enabled: true, blocked_by: "partial: no identity/persona config; the id-leak checks need tool-result capture and a matching record_id_pattern (forbidden_tools needs neither)" }
                                        # Scored from the tool-call log + returned record
