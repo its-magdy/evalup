@@ -415,6 +415,7 @@ def cmd_plan(a):
             die(f"--resume keeps this pass's plan, budget included "
                 f"(--max-calls {plan['max_calls']}); a different cap means "
                 "a different selection, so plan it with --restart")
+        os.makedirs(os.path.join(jdir, "inbox"), exist_ok=True)
         print_plan(plan, run_dir)
         return
     if a.max_calls is None:
@@ -501,7 +502,10 @@ def cmd_plan(a):
             used_rubrics.append(row["rubric_id"])
         row["selected"] = True
 
-    os.makedirs(jdir, exist_ok=True)
+    # The plan names every reply_file under inbox/, so it creates the
+    # directory too: a skill that copies a reply there, rather than using
+    # Write, must not meet "No such file or directory" (#125).
+    os.makedirs(os.path.join(jdir, "inbox"), exist_ok=True)
     launches = []
     for rid in used_rubrics:
         snap = rubrics[rid]
