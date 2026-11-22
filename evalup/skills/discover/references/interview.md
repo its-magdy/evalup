@@ -26,8 +26,12 @@ the answers under `confirmed_by_human:` in profile.yaml:
 in this interview, with their name in `confirmed_by` — never on your own
 reading, and never headless. A model's, an agent's or evalup's name there
 (`claude`, `discover`, `gpt-4o`) is read as unconfirmed, and so is an
-answer a delegate relayed (`<name> (delegate: <model>, <date>)`): record
-that under `confirmed_by_human.answered_by`, and ask the owner in person. An unconfirmed rule never gates:
+answer a delegate relayed (`<name> (delegate: <model>, <date>)`). When a
+delegate answers this interview's other questions for the owner, record
+that signature in `confirmed_by_human.answered_by` (who gave the answers);
+it confirms no rule and accepts no case, so ask the owner in person for
+those, and `validate_cases.py` refuses a delegate's signature in
+`confirmed_by` or a case's `review.by`. An unconfirmed rule never gates:
 `validate_cases.py --profile` refuses a `gating` case or a canary (whose
 fail aborts the run) that `covers` one (`unconfirmed_rule_gates`). One
 exception: `gate.py --min-pass-rate` counts every scored non-canary case,

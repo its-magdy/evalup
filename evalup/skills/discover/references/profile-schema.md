@@ -163,11 +163,7 @@ confirmed_by_human:              # from the discover interview — the app's SHO
     - "cancel subscription → billing (not support)"
   answer_expectations:
     billing: "cites the invoice id it used; no speculation about amounts"
-  answered_by: "<name>"          # who gave these answers. A delegate answering for the
-                                 # owner writes "<name> (delegate: <model>, <date>)".
-                                 # Delegated answers never confirm a rule or accept a
-                                 # case: confirmed_by and review.by take the human's own
-                                 # name, and validate_cases.py refuses a delegate's there.
+  answered_by: "<name>"          # or a delegate's: interview.md
 
 roles:
   domain_arbiter: "<name>"       # the one person whose quality judgment is final
