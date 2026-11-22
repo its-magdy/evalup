@@ -863,6 +863,47 @@ class TestMakePlan(TempDirTest):
             with self.subTest(key=key):
                 self.assertIn(f'extra.get("{key}")', source)
 
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_git_tree_ignores_evalups_own_state(self):
+        """#101 fixed discover's edit gate to leave `.evalup/` out; the
+        manifest's git_tree had the same bare `status --porcelain`, so every
+        run of an app with in-tree state read `dirty`."""
+        sys.path.insert(0, str(SCRIPTS))
+        self.addCleanup(sys.path.remove, str(SCRIPTS))
+        import make_plan
+        repo = self.tmp / "app"
+        (repo / "src").mkdir(parents=True)
+
+        def git(*argv):
+            subprocess.run(["git", "-C", str(repo), *argv], check=True,
+                           capture_output=True)
+        git("init", "-q")
+        (repo / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+        git("add", ".")
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid",
+            "commit", "-qm", "init")
+        state = repo / ".evalup"
+        (state / "reports").mkdir(parents=True)
+        (state / "profile.yaml").write_text("x: 1\n", encoding="utf-8")
+        # The adapter's repo may be a subdirectory: the check still spans
+        # the whole checkout, as before.
+        for where in (repo, repo / "src"):
+            with self.subTest(repo=where.name):
+                self.assertEqual(make_plan.git_state(str(where), str(state))[1],
+                                 "clean")
+                # Without the state dir it is the old, whole-tree check.
+                self.assertEqual(make_plan.git_state(str(where))[1], "dirty")
+        (repo / "src" / "app.py").write_text("x = 2\n", encoding="utf-8")
+        for where in (repo, repo / "src"):
+            with self.subTest(repo=where.name, edited=True):
+                self.assertEqual(make_plan.git_state(str(where), str(state))[1],
+                                 "dirty")
+        # A state dir outside the checkout excludes nothing.
+        outside = self.tmp / "elsewhere"
+        outside.mkdir()
+        self.assertEqual(make_plan.git_state(str(repo), str(outside))[1],
+                         "dirty")
+
     def test_dash_o_prints_the_command_to_run_next(self):
         out_path = self.tmp / "plan.json"
         rc, summary = self.plan("--mode", "regression", "-o", str(out_path))

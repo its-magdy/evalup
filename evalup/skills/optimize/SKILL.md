@@ -108,7 +108,8 @@ it at the single-turn regression run's `usd_per_case_with_trace` (one call)
 With the cost capability off or `status: "unpriced"` (trace-less, no
 `prices.json`, an unknown model) nothing meters dollars: say so, and take the
 budget as app messages or iterations instead (ask which) — never a dollar
-figure guessed from tokens. The budget is a stop condition (step 6), never a
+figure guessed from tokens. A `priced` run with a `cache_warning` priced
+cached tokens at the input rate: quote it beside the figure. The budget is a stop condition (step 6), never a
 gate.
 
 **Estimate an iteration before its first app call** — messages and wall
@@ -116,6 +117,9 @@ time, printed, then "Proceed?" (skipped under a pre-approved budget). Build
 the regression plan (`--single-turn` as step 4 runs it), the plain
 regression plan (step 5's pin run after a keep) and the holdout plan (k = 3)
 as run §1 does, and `run_cases.py --dry-run` each: no app call, no look.
+Against a dollar budget, give each dry run `--cost-from <the last priced
+regression run's cost.json>` and sum the runs' `estimate.usd` (`usd_max`
+worst case) as the messages sum below; judge calls are not in it.
 With R, P and H their `app_calls_planned`:
 - messages = R + 3H on a seal's first iteration (step 4's noise pair plus
   the candidate's look; R + 2H when the seal record holds one noise run),

@@ -909,7 +909,31 @@ class TestDryRunEstimate(RunnerCase):
         self.assertAlmostEqual(est["usd"], 0.60)
         self.assertAlmostEqual(est["usd_max"], 1.20)
         self.assertEqual(est["from_run"], "regression-20261101T000000Z")
-        self.assertIn("cache", est["note"])
+        self.assertIn("no cache count was split out", est["note"])
+
+    def test_the_cache_caveat_follows_the_cost_files_accounting(self):
+        # #117's note was written before #118 made cache_accounting three
+        # values; a priced split must not be told it was not priced.
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001")])
+        cost_path = self.priced_run(0.90)
+        expect = {"priced": "priced at their own rates",
+                  "unpriced": "full input rate",
+                  "none": "no cache count was split out"}
+        for accounting, phrase in expect.items():
+            with self.subTest(accounting=accounting):
+                doc = json.loads(cost_path.read_text(encoding="utf-8"))
+                doc["cost"]["cache_accounting"] = accounting
+                cost_path.write_text(json.dumps(doc), encoding="utf-8")
+                rc, payload, proc = self.invoke(
+                    plan, extra_argv=["--dry-run", "--cost-from",
+                                      str(cost_path)])
+                self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+                est = payload["estimate"]
+                self.assertEqual(est["cache_accounting"], accounting)
+                self.assertIn(phrase, est["note"])
+                if accounting == "priced":
+                    self.assertNotIn("far off", est["note"])
 
     def test_cost_from_is_a_dry_run_flag_and_must_be_cost_output(self):
         plan = make_plan(self.state, self.app.base_url)

@@ -25,8 +25,26 @@ says when a release bumps it.
   draft and hand it to the script, which writes a `.md` file inside
   `--state-dir` only (stdin or `--from`, replaced atomically, `--move` drops
   the draft). If that is denied too, the full text goes in the final message.
+- `prelook_fix.py` (`evalup prelook-fix`): a check fix to a sealed holdout
+  before its first look (#99). It refuses once the look ledger has a line,
+  changes `expect.*` only, applies one generic transformation already on an
+  accepted training case to every case it matches, prints ids and hashes
+  only, and records each change under `dataset.yaml`'s `prelook_fixes:`
+  with a `dataset_version` bump. `--list` names the sealed cases and the
+  seal's templates (`templates/ho_*`) by id and hash; `convert_suite.py
+  --templates` feeds it. No verdict changes.
 
 ### Changed
+- `validate_cases.py` reads a case's `review.by` like a rule's
+  `confirmed_by`: a model's name or a delegate's relayed answer
+  (`<name> (delegate: <model>, <date>)`) neither accepts a case
+  (`machine_accepted`) nor confirms a rule (`rule_confirmed_unattributed`),
+  and `confirmed_by_human.answered_by` records who answered the interview
+  (#100). A first session's cases may pin a `form: criteria` rubric where
+  no regex decides (#97); generate §3's label review confirms the rules
+  its cases cover (#102); discover's dirty-tree check leaves evalup's own
+  state out (#101), and so does the manifest's `app.git_tree`. The sealed
+  holdout stays out of §3's review. No verdict changes.
 - **Cached tokens are priced on an AG-UI stream** (#105, cost half).
   `normalize_trace.py` keeps the cache-read and cache-write counts it used to
   drop. `prices.json` takes optional `cache_read_per_mtok` and
@@ -57,7 +75,8 @@ says when a release bumps it.
   matches runner processes on whole tokens (#111).
 - `--dry-run --cost-from <cost.json>` adds an `estimate`: dollars only at a
   priced run's measured cost per message, else messages and the models
-  seen. No price table ships (part of #105). No verdict changes.
+  seen; its cache caveat follows that run's `cache_accounting`. No price
+  table ships (part of #105). No verdict changes.
 - `score_answer.py` attaches its regex NFC note only when normalization
   touched the check: the answer changed under NFC, or the pattern is not in
   NFC (#109). No verdict changes.
@@ -73,16 +92,6 @@ says when a release bumps it.
   requires a tool not classed `safe-live`; `--strict` never promotes it.
   adapter-contract.md and case-format.md say how to check a proposal's
   wording (#103). No verdict changes.
-
-### Added
-- `prelook_fix.py` (`evalup prelook-fix`): a check fix to a sealed holdout
-  before its first look (#99). It refuses once the look ledger has a line,
-  changes `expect.*` only, applies one generic transformation already on an
-  accepted training case to every case it matches, prints ids and hashes
-  only, and records each change under `dataset.yaml`'s `prelook_fixes:`
-  with a `dataset_version` bump. `--list` names the sealed cases and the
-  seal's templates (`templates/ho_*`) by id and hash; `convert_suite.py
-  --templates` feeds it. No verdict changes.
 
 ## [0.1.0] — 2026-11-22
 

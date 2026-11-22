@@ -250,7 +250,8 @@ gaps, and name a risk with only one case as thin. A cluster that violates
 a rule nobody has confirmed is a finding to put to the owner, not a
 regression: an inferred rule never gates (only `gate.py --min-pass-rate`
 counts its `gating: false` cases), and nothing here may flip a rule to
-`confirmed` — only the discover interview does, with a human's name. A label fix that drops a
+`confirmed` — only the discover interview or generate §3's label review
+does, with a human's name. A label fix that drops a
 case's last link reopens a gap; say so.
 
 ## `--label` — judge calibration, 15 minutes at a time
@@ -274,6 +275,11 @@ agreements too, not only disagreements**: a sample of only contested cases
 makes TPR and TNR meaningless. An `unjudged` case still carries the
 criteria that came back a checked `pass`/`fail`: label those too (only
 `unknown` ones have nothing to pair), or the sample loses the hard cases.
+A pass run without `--include-failed` judged no case a scripted check
+failed (reason `already failing`): before labelling from it, re-plan
+it with `--restart --include-failed`
+(`${CLAUDE_PLUGIN_ROOT}/skills/run/references/judge-pass.md` step 1), or the
+sample holds only cases the scripts passed.
 
 The judge grades per node (or per criterion), so label **per node**. A
 case-level agree/disagree cannot say which criterion drifted. Per case:

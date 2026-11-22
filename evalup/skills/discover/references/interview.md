@@ -23,7 +23,8 @@ the answers under `confirmed_by_human:` in profile.yaml:
 ## Business rules: confirming, outside sources, the local quote file
 
 **Confirming.** A rule becomes `status: confirmed` only when a human says so
-in this interview, with their name in `confirmed_by` — never on your own
+in this interview, or in generate §3's label review for the rules its
+cases cover (#102), with their name in `confirmed_by` — never on your own
 reading, and never headless. A model's, an agent's or evalup's name there
 (`claude`, `discover`, `gpt-4o`) is read as unconfirmed, and so is an
 answer a delegate relayed (`<name> (delegate: <model>, <date>)`). When a
