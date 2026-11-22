@@ -302,6 +302,20 @@ class TestSecondReview(ProbeCase):
         self.assertEqual(report["response"]["answer"], "from function")
         self.assertIn("noise", proc.stderr)
 
+    def test_function_mode_refusing_with_a_400_is_exit_8(self):
+        (self.tmp / "probe_refuse.py").write_text(
+            "def handle(request):\n"
+            "    return {'text': 'only invoices', 'status': 400}\n",
+            encoding="utf-8")
+        adapter = {"app": {"name": "f", "repo": str(self.tmp)},
+                   "invocation": {"mode": "function",
+                                  "entrypoint": "probe_refuse:handle",
+                                  "request_body": '{"message": "<user turn>"}'}}
+        rc, report, proc = self.probe(self.write_adapter(adapter))
+        self.assertEqual(rc, 8, proc.stdout + proc.stderr)
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(report["response"]["answer"], "only invoices")
+
 
 class TestBearerAndUrlSecrets(ProbeCase):
     @staticmethod
@@ -591,6 +605,50 @@ class TestStreams(unittest.TestCase):
         self.assertIn("terminal event", report["error"])
         self.assertEqual(len(report["problems"]), 2)  # gap once, + no answer
         self.assertIsNone(report["response"]["tool_calls"])
+
+
+class TestStreamedRefusal(unittest.TestCase):
+    """#124 through an SSE adapter: a whole 400 stream is the app's
+    refusal (exit 8); a 400 that is not a stream, or one cut short, is an
+    adapter problem (exit 3) whose report carries no "adapter works"
+    warning beside it."""
+
+    status, content_type = 400, EVENT_STREAM
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.body = agent_run(text_message("m1", "out of ", "scope"))
+        self.raw = RawApp(
+            lambda path: (self.status, self.content_type, self.body))
+        self.addCleanup(self.raw.close)
+
+    probe = TestStreams.probe
+
+    def test_a_whole_400_stream_is_exit_8(self):
+        rc, report = self.probe()
+        self.assertEqual(rc, 8, report)
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(report["response"]["answer"], "out of scope")
+        self.assertTrue(report["warnings"])
+
+    def test_a_json_400_to_an_sse_adapter_is_exit_3_with_no_warning(self):
+        self.content_type = "application/json"
+        self.body = json.dumps({"text": "out of scope"})
+        rc, report = self.probe()
+        self.assertEqual(rc, 3, report)
+        self.assertIn("not text/event-stream", report["error"])
+        self.assertEqual(report["warnings"], [])
+
+    def test_a_400_stream_cut_short_is_exit_3_with_no_warning(self):
+        self.body = stream({"type": "RUN_STARTED", "threadId": "t",
+                            "runId": "r"},
+                           *text_message("m1", "partial"))
+        rc, report = self.probe()
+        self.assertEqual(rc, 3, report)
+        self.assertIn("terminal event", report["error"])
+        self.assertEqual(report["warnings"], [])
+        self.assertNotIn("refused the request", report["error"])
 
 
 class TestTraceStore(ProbeCase):

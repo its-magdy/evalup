@@ -5453,7 +5453,9 @@ def probe_send(adapter, adapter_path, message, insecure_tls, timeout_s):
                           "traces.source: response; a trace store is not "
                           "read by the probe")
     problems = probe_problems(response, tool_calls_error, runner.sse)
-    warnings = probe_warnings(response, tool_calls_error)
+    # A refusal's warning says the adapter works: never beside a problem
+    # that says it does not. The status stays on response.status.
+    warnings = [] if problems else probe_warnings(response, tool_calls_error)
     if isinstance(_mapping(adapter.get("invocation")).get("health_check"),
                   dict):
         traces["health_check"] = ("declared, not exercised: a run's "
@@ -5523,12 +5525,14 @@ def main():
                     help="send ONE request (--message) through --adapter and "
                          "print the redacted status, answer and tool calls; "
                          "no plan, no scoring, no writes (discover's live "
-                         "check). Exit 0 verified, 3 not")
+                         "check). Exit 0 verified, 8 the app refused it "
+                         "with a 4xx, 3 not")
     ap.add_argument("--adapter", metavar="PATH",
                     help="with --probe: the state location's adapter.yaml "
                          "(or an adapter JSON)")
     ap.add_argument("--message", metavar="TEXT",
-                    help="with --probe: the one harmless user turn to send")
+                    help="with --probe: the one harmless, in-scope user "
+                         "turn to send")
     ap.add_argument("--insecure-tls", action="store_true",
                     help="with --probe: skip certificate checks (a "
                          "self-signed local host), like the plan's "

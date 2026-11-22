@@ -161,11 +161,12 @@ requests with the runner's probe, one Bash call each:
 `evalup run-cases --probe --adapter <state>/adapter.yaml --message "<a harmless in-scope question>"`
 (plain words: no `$`, backtick, quote or `!`). Never `curl`: headless, a
 command expanding an auth variable is denied. The probe reads auth env vars
-itself, sends as a run does, writes nothing, and prints JSON: `ok`,
+itself, writes nothing, and prints JSON: `ok`,
 `problems`, `response.answer`, `response.tool_calls`, `env_vars`. Exit 3
-names the problem (`missing_env`: ask the user to export them). Exit 8: the
-app refused it with a 4xx; if that is its out-of-scope reply, probe in scope
-and note the status in findings.md for `oos` cases.
+names the problem (`missing_env`: ask the user to export them). Exit 8: a
+4xx the adapter read (`warnings`); only an in-scope probe's exit 0
+verifies. An out-of-scope refusal: note its status in findings.md for
+`oos` cases. A validation error: fix the adapter.
 Compare observed agent and tool names and `invoke_agent` span shape
 (Read the store at the printed `trace_id`) against the profile. Mark
 every profile entry `verified: true|false`, and note each request's latency in
@@ -208,7 +209,7 @@ A "no" is fine — see Read-only mode below.
   internal-function shim or an exec shim, and record which in adapter.yaml.
 - Prompts as string literals or f-strings → offer the one-time extraction
   refactor: prompts to files, code loads them, 2–3 smoke requests to show no
-  behavior change. Pitch it as what unlocks the optimizer later.
+  behavior change: it unlocks the optimizer.
 - **No ground-truth / oracle path** → offer a seeded fixture plus a read-only
   oracle connection, never the app's write connection. Connection, seed and reset
   mechanics are the adapter's job (adapter-contract.md's `environment:` block, and the `oracle:` block in

@@ -167,8 +167,8 @@ a decline, "nothing is scheduled": the case pins a `form: criteria` rubric
 `${CLAUDE_PLUGIN_ROOT}/docs/rubric-format.md` §The criteria form requires.
 Its verdicts stay provisional until it is calibrated, and gate nothing in v1.
 **An `oos` case on a router app** asserts the out-of-scope route and, when
-the app refuses by status, `expect.http.status`; an undocumented status goes
-to §3's review.
+the app refuses by status, `expect.http.status` — even one only observed,
+the case quarantined for §3.
 
 **Conversations** (`input.turns`,
 [references/conversations.md](references/conversations.md) — read it only
