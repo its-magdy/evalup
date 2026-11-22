@@ -18,6 +18,7 @@ criteria:                          # each one a yes/no question; id = the
   - id: no_unsupported_claim
     question: "Is every figure in the answer present in the app's response
                data (response.json body), with nothing added?"
+    rule: grounded-only            # profile.yaml's rule this criterion judges (#26)
 
 self_test:                         # judge-run.md SS3: graded before any case is
   good:

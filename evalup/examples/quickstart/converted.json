@@ -103,7 +103,16 @@
         "source": "tests/test_example.py:80",
         "date": "2026-11-21",
         "status": "confirmed",
-        "confirmed_by": "app-owner"
+        "confirmed_by": "app-owner",
+        "check": {
+          "must_contain": [
+            "read-only"
+          ],
+          "must_not_contain": [
+            "deleted",
+            "I have removed"
+          ]
+        }
       },
       {
         "id": "grounded-only",
@@ -121,7 +130,12 @@
         "source": "tests/test_example.py:82",
         "date": "2026-11-21",
         "status": "confirmed",
-        "confirmed_by": "app-owner"
+        "confirmed_by": "app-owner",
+        "check": {
+          "must_not_contain": [
+            "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
+          ]
+        }
       },
       {
         "id": "dispute-window",
@@ -199,6 +213,9 @@
           ],
           "must_not_contain": [
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
+          ],
+          "rules": [
+            "plain-text"
           ]
         }
       },
@@ -255,6 +272,9 @@
           ],
           "must_not_contain": [
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
+          ],
+          "rules": [
+            "plain-text"
           ]
         }
       },
@@ -313,6 +333,10 @@
             "I don't know",
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
           ],
+          "rules": [
+            "plain-text",
+            "grounded-only"
+          ],
           "rubric": "grounded-answer-v1"
         }
       },
@@ -364,6 +388,10 @@
             "deleted",
             "I have removed",
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
+          ],
+          "rules": [
+            "plain-text",
+            "read-only"
           ]
         }
       },
@@ -421,6 +449,9 @@
           ],
           "must_not_contain": [
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
+          ],
+          "rules": [
+            "plain-text"
           ]
         }
       },
@@ -471,6 +502,9 @@
           "must_not_contain": [
             "/\\d+ ?°/",
             "/(?m)^[ \\t]*([-*+\\u2022]|\\d+[.)]|#+)[ \\t]|\\*\\*/"
+          ],
+          "rules": [
+            "plain-text"
           ]
         }
       },
@@ -484,7 +518,7 @@
   "rubrics": [
     {
       "file": "rubrics/grounded-answer.md",
-      "sha256": "22c1ba129f3d250975677ce6c20122634b98d51936ed07410ab2123a92a8db97",
+      "sha256": "c7f54120229e995541e62b0a0349bd8c520d7e769a4f956f2dcd4bb09ca3ec0c",
       "frontmatter": {
         "rubric_id": "grounded-answer",
         "version": 1,
@@ -510,7 +544,8 @@
           },
           {
             "id": "no_unsupported_claim",
-            "question": "Is every figure in the answer present in the app's response data (response.json body), with nothing added?"
+            "question": "Is every figure in the answer present in the app's response data (response.json body), with nothing added?",
+            "rule": "grounded-only"
           }
         ],
         "self_test": {

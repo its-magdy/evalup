@@ -390,10 +390,16 @@ class TestBusinessRules(unittest.TestCase):
         profile = self.tmp / "profile.json"
         profile.write_text(json.dumps(self.converted["profile"]),
                            encoding="utf-8")
+        # The run skill's §1 passes rubrics.json beside the profile: a rule
+        # only a rubric criterion judges is bound through it (#26).
+        rubrics = self.tmp / "rubrics.json"
+        rubrics.write_text(json.dumps({"rubrics": self.converted["rubrics"]}),
+                           encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(VALIDATOR), "--cases", str(suite),
              "--capabilities", str(caps), "--profile", str(profile),
-             *extra], capture_output=True, text=True)
+             "--rubrics", str(rubrics), *extra],
+            capture_output=True, text=True)
         return proc.returncode, json.loads(proc.stdout)
 
     def quoted_text(self, source):
@@ -780,6 +786,27 @@ class TestDemo(unittest.TestCase):
                 if ": PASS" in line or "cases:" in line]
         for line in gate:
             self.assertIn(line.split(": ", 1)[1], proc.stdout)
+
+    def test_a_planted_rule_violation_fails_by_rule_id_and_source(self):
+        """#26's acceptance check, as a human runs it: --break-rule makes the
+        app answer in bullets, and the rule report names plain-text, its
+        source line and the failing cases. The gate closes through the
+        cases, as it always did."""
+        proc = self.demo("--break-rule")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("gate closed: 6 gating failure(s)", proc.stdout)
+        self.assertRegex(proc.stdout, r"FAIL +plain-text  \[confirmed, "
+                         r"scripted\]  source: tests/test_example\.py:82")
+        self.assertIn("scripted: 6 fail, 0 pass", proc.stdout)
+        self.assertRegex(proc.stdout, r"pass +read-only")
+
+    def test_the_rule_report_runs_after_every_demo(self):
+        proc = self.demo("--judge-replies", str(EXAMPLE / "judge-replies"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("business rules: 4 in profile.yaml, 3 listed",
+                      proc.stdout)
+        self.assertRegex(proc.stdout, r"provisional pass +grounded-only")
+        self.assertRegex(proc.stdout, r"not checked +dispute-window")
 
     def test_a_broken_expectation_closes_the_gate(self):
         proc = self.demo("--break")

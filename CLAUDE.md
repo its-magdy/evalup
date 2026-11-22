@@ -11,7 +11,7 @@ documents named below, not here.
 ## Layout
 
 - **`evalup/`** — the plugin (v0.1.0). 7 skills (`start`, `discover`,
-  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 22 CLI scripts
+  `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 23 CLI scripts
   in `scripts/`, specs in `docs/`, the worked example in `examples/quickstart/`,
   five `claude plugin eval` cases in `evals/`.
 - **`EVAL-DESIGN-RECOMMENDATION.md`** + **`research/`** — why the plugin works
@@ -31,7 +31,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 1274 tests, ~4.5 min
+python3 -m unittest discover -s tests                    # 1308 tests, ~4.5 min
 python3 tests/run_shards.py      # CI's 4 shards in parallel, ~50 s; not conclusive
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q

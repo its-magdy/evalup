@@ -253,11 +253,10 @@ expect:
                                      # that cannot finish in 2s is "unscorable".
                                      # Entries and answers compare in NFC; a regex
                                      # pattern is not normalized, so write it in NFC.
-    rules: [no-uncatalogued-prices]  # business-rule oracle ids from profile.yaml.
-                                     # NOT SCORED TODAY: no script evaluates them and
-                                     # the runner reports the layer `unscored`. Write a
-                                     # rule you can state as must_contain /
-                                     # must_not_contain / json_schema there instead.
+    rules: [no-uncatalogued-prices]  # profile.yaml rule ids this answer is checked
+                                     # against, reported by id (rule_report.py). Each
+                                     # needs the rule's `check:` entries copied above,
+                                     # or a rubric criterion `rule: <id>` (judged).
     rubric: billing-answer-v2        # judged after the run by the judge pass: provisional
                                      # until calibrated, never in a pass rate. Format is
                                      # <rubric_id>-v<version>, resolved against the rubric
@@ -279,7 +278,7 @@ no_op_justification: null            # Expected with `pass` (else WARN no_op_pas
 k: 1                                 # repeats; smoke=1, reliability runs=3+ (reports pass^k)
 covers: [refund-cap, risk-oos]       # profile.yaml business_rules/risks ids. Absent: WARN.
                                      # Unknown id, or a gating case or canary on an
-                                     # unconfirmed rule: ERROR. Linked, never scored.
+                                     # unconfirmed rule: ERROR. `answer.rules` ids count.
 gating: true                         # true = regression; false = never gates (capability)
 notes: ""                            # reviewer's one-liner: why this case exists
 ```

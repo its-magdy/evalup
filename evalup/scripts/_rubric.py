@@ -19,7 +19,12 @@ RUBRIC_ID_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 CRITERION_ID_RE = re.compile(r"[a-z][a-z0-9_]*")
 CRITERIA_FORM = "criteria"
 MAX_CRITERIA = 12
-CRITERION_KEYS = ("id", "question", "reference_guided", "canary_guard")
+CRITERION_KEYS = ("id", "question", "reference_guided", "canary_guard",
+                  "rule")
+# A criterion's `rule:` names the profile.yaml business_rules id it judges
+# (#26). rule_report.py reports the criterion's verdict under that id; it
+# changes nothing the judge is asked or how a case's criteria fold.
+RULE_ID_RE = re.compile(r"\S+")
 SELF_TEST_KEYS = ("user", "answer", "response", "reference", "fails")
 
 
@@ -33,6 +38,17 @@ def split_pin(ref):
 
 def is_criteria_form(front):
     return isinstance(front, dict) and front.get("form") == CRITERIA_FORM
+
+
+def criterion_rules(front):
+    """{criterion id: business rule id} for a criteria-form rubric's
+    criteria that carry `rule:` (#26); {} for anything else."""
+    if not is_criteria_form(front) or not isinstance(front.get("criteria"),
+                                                     list):
+        return {}
+    return {c["id"]: c["rule"] for c in front["criteria"]
+            if isinstance(c, dict) and isinstance(c.get("id"), str)
+            and isinstance(c.get("rule"), str)}
 
 
 def _is_int(value):
@@ -77,7 +93,7 @@ def rubric_findings(front, file_stem=None):
         err("rubric_form", "form: criteria replaces nodes: -- a file holds "
             "one form, not both")
     criteria = front.get("criteria")
-    ids = []
+    ids, rules = [], {}
     if not isinstance(criteria, list) or not 1 <= len(criteria) <= \
             MAX_CRITERIA:
         err("rubric_criteria", f"criteria must be a list of 1-{MAX_CRITERIA} "
@@ -103,6 +119,17 @@ def rubric_findings(front, file_stem=None):
             if flag in crit and not isinstance(crit[flag], bool):
                 err("rubric_criterion", f"{where}.{flag} must be true or "
                     "false")
+        rule = crit.get("rule")
+        if "rule" in crit and not (isinstance(rule, str)
+                                   and RULE_ID_RE.fullmatch(rule)):
+            err("rubric_criterion", f"{where}.rule {rule!r} must be one "
+                "business_rules id from profile.yaml")
+        elif isinstance(rule, str) and rule in rules:
+            err("rubric_criterion", f"{where}.rule {rule!r} is also judged "
+                f"by {rules[rule]}: one criterion per rule, or the rule "
+                "report cannot say which verdict is the rule's")
+        elif isinstance(rule, str):
+            rules[rule] = f"criteria[{i}]"
         extra = sorted(set(crit) - set(CRITERION_KEYS))
         if extra:
             out.append(("WARN", "rubric_criterion_key",

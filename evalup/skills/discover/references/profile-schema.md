@@ -142,7 +142,7 @@ capability_matrix:               # which eval layers apply and what blocks them
                                        # Scored from the tool-call log + returned record
                                        # IDs, never prose. Off only like trajectory.
 
-business_rules:                  # versioned like the cases; no run scores these (#26)
+business_rules:                  # versioned like the cases; reported by id (#26)
   - id: plain-text               # a case's `covers` names it
     rule: "plain text only: no Markdown, no bullet lines"   # distilled
     quote: "Reply in plain text, never in Markdown."   # verbatim, one sentence
@@ -150,6 +150,7 @@ business_rules:                  # versioned like the cases; no run scores these
     date: 2026-11-21             # the source's own date, else the day it was read
     status: inferred             # inferred | confirmed. Only a human confirms, by name in
     confirmed_by: null           # confirmed_by (the interview); unconfirmed: `gating: false`, no canary
+    check: { must_not_contain: ['/(?m)^[ \t]*[-*]/'] }   # a script checks it; else a judge (rubric `rule:`)
     # contradiction: "<the other side, with its source>"   when docs and code disagree
     # outside: true + quote_in: local   a source outside the app repo (interview.md)
 risks:                           # ranked, costliest first; cases `covers` them too

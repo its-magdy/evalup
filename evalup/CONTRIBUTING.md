@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1274 tests, ~4.5 min (245 s measured 2026-11-22), the blessed command.
+1308 tests, ~4.5 min (263 s measured 2026-11-22), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,18 +43,18 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1254 passed, 20 skipped, 982 subtests.
+whatever `python3` happens to be. Expect 1288 passed, 20 skipped, 997 subtests.
 All twenty skips need PyYAML (thirteen are `convert_suite.py`'s, rubric
 files included, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check, four
 read the CI workflow template); add
-`--with pyyaml` and they run (1274 passed, none
+`--with pyyaml` and they run (1308 passed, none
 skipped) — do that before a release too, since it is the only floor check that
 script gets. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
-There are **22** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **23** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`,
 `_rubric.py`, `_sse.py` and `_exec.py` are shared modules, not CLIs: they have
 no argparse, so `python _common.py --help` exits 0 having printed nothing,
@@ -236,21 +236,37 @@ Do not reopen one without reading that commit.
    resampling is DECLINED by name** — never "add a CI" that way; three exact
    tests replaced it.
 
-## Business rules are linked, never scored
+## Business rules are reported by id, never scored anew
 
-A case's `covers` (#25) names profile.yaml `business_rules` / `risks` ids.
-`validate_cases.py --profile` reads it — it resolves the links, refuses a
-gating case or a canary covering a rule that is not `confirmed` with a
-human's `confirmed_by`, and reports the gaps — and nothing else does: no scorer,
-not the runner. Keep it that way until #26 brings a scorer; a rule's
-`status` deciding a verdict would be new scoring semantics. The quickstart's
-rule quotes are checked against the `file:line` their source names, so
-moving the fixture's `SYSTEM_PROMPT_FRAGMENTS` in `tests/test_example.py`
-means updating `profile.yaml` (and regenerating `converted.json`).
-"Never gates" has one exception, by design of `gate.py` (not to be changed
-for this): `--min-pass-rate` counts every scored non-canary case, so a
-`gating: false` case on an unconfirmed rule moves that floor;
-`summary.traceability.unconfirmed_non_gating` lists them.
+A case's `covers` (#25) names profile.yaml `business_rules` / `risks` ids,
+and `validate_cases.py --profile` resolves them, refuses a gating case or a
+canary covering a rule that is not `confirmed` with a human's
+`confirmed_by`, and reports the gaps. `expect.answer.rules` (#26) names the
+rules a case's answer is **checked** against, and counts as covers for that
+refusal. Each listed rule is bound to a check on the case, script first:
+
+- **scripted:** the rule's `check:` in profile.yaml, `must_contain` /
+  `must_not_contain` entries the case carries verbatim (the validator
+  ERRORs `rule_check_missing` otherwise). The runner's answer layer scores
+  them as it scores any entry; nothing new scores anything.
+- **judged:** a `form: criteria` rubric criterion with `rule: <id>` on the
+  case's pinned rubric, graded by the judge pass and provisional like every
+  judged verdict. The tag never reaches the judge's prompt.
+
+`scripts/rule_report.py` reads the finished run (and `judge/judged.json`)
+and attributes those existing verdicts to rule ids in `rules.json`. Keep it
+an attribution: **the runner's `rules` row stays `unscored`**, no rule's
+`status` ever decides a verdict, and nothing on the decision path (`gate.py`,
+`stats.py`, `run_history.py`, the runner, optimize) reads `rules.json`. A
+scripted rule reaches a gate only through its case's own verdict; a judged
+one never does in v1. `SCORING_VERSION` and `JUDGE_VERSION` did not move.
+The quickstart's rule quotes are checked against the `file:line` their
+source names, so moving the fixture's `SYSTEM_PROMPT_FRAGMENTS` in
+`tests/test_example.py` means updating `profile.yaml` (and regenerating
+`converted.json`). "Never gates" has one exception, by design of `gate.py`
+(not to be changed for this): `--min-pass-rate` counts every scored
+non-canary case, so a `gating: false` case on an unconfirmed rule moves
+that floor; `summary.traceability.unconfirmed_non_gating` lists them.
 
 ## Five fields are RESERVED
 

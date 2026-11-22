@@ -435,14 +435,20 @@ versions. Diffs between incomparable runs are refused.
   `provisional` verdicts with their quotes, or `calibrated` ones once
   `/evalup:analyze --label` has measured the rubric on the same judge model,
   but none of them is in a pass rate, `gate.py` or an optimize objective
-  until a live calibration has been measured (#27). Business rules
-  (`expect.answer.rules`) still have no scorer; one that needs a judge
-  becomes a rubric criterion. What exists is bookkeeping: discover records
-  each rule with its quote, source, date and status, every case names the
-  rules and risks it `covers`, `validate_cases.py --profile` reports a rule
-  with no case as a gap, and a gating case or canary on a rule no human
-  confirmed is a validator error (`gate.py --min-pass-rate` still counts a
-  `gating: false` case on one).
+  until a live calibration has been measured (#27).
+- **Business rules are reported by id, script first.** discover records
+  each rule with its quote, source, date and status; a case lists the
+  rules its answer is checked against in `expect.answer.rules`. A rule a
+  script can check carries a `check:` (string or regex entries the case
+  copies, scored by the ordinary answer layer); one that needs a judge is a
+  rubric criterion tagged `rule: <id>`. After the run, `rule_report.py`
+  says which rules were checked and which passed or failed, with each
+  rule's source. A scripted rule's failure is its case's failure, so it
+  gates only through a `gating: true` case; a judged rule is provisional
+  and gates nothing; an `inferred` rule is reported, never gated (a gating
+  case or canary on a rule no human confirmed is a validator error, and
+  `gate.py --min-pass-rate` still counts a `gating: false` case on one).
+  `validate_cases.py --profile` reports a rule with no case as a gap.
 - **Tool expectations are whole-app.** In a multi-agent app, a call made by the
   wrong sub-agent still satisfies `expect.tools`.
 - **No retrieval/RAG scoring.**

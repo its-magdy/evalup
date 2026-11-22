@@ -130,10 +130,21 @@ rule (unconfirmed_non_gating: they close no gate, but gate.py
 --min-pass-rate counts every scored non-canary case). A canary covering an
 unconfirmed rule is the same ERROR as a gating case: its fail aborts the
 run. A gap is a report line, not a finding: a rule with no
-case makes no number untrue -- nothing scores rules (#26) -- and an inferred
-or contradicted rule is meant to wait for its case, which a --strict
-failure would push generate to write. `covers` reaches no scorer and no
-verdict.
+case makes no number untrue -- a rule is only ever reported through its
+cases' checks -- and an inferred or contradicted rule is meant to wait for
+its case, which a --strict failure would push generate to write. `covers`
+reaches no scorer and no verdict.
+
+RULE BINDINGS (--profile, #26). `expect.answer.rules` lists the rules a
+case's answer is checked against; its ids count as covers, so the gating
+refusal above reads them too. Each listed rule must be checked by
+something on the case, or rule_report.py would report a check the run
+never made: the rule's `check:` in profile.yaml, every entry of it copied
+into the case's must_contain / must_not_contain (rule_check_missing), or a
+criterion with `rule: <id>` on the case's pinned rubric (seen only with
+--rubrics: rule_binding_unchecked without it). A rule with neither is
+rule_unbound; an off-shape `check:` is bad_rule_check; a rubric criterion
+judging a rule the case does not list WARNs rule_judged_unlisted.
 
 Usage: validate_cases.py --cases <file.json|->
                          (--capabilities <file.json> | --no-capabilities)
@@ -162,7 +173,7 @@ from _common import (
     run_bounded,
     unsafe_case_id,
 )
-from _rubric import rubric_findings, split_pin
+from _rubric import criterion_rules, rubric_findings, split_pin
 
 CATEGORIES = ("happy", "multistep", "edge", "ambiguous", "oos",
               "adversarial-refusal", "noise")
@@ -754,6 +765,14 @@ def check_answer_entries(rep, case_id, expect):
     `must_not_contain: "zebra"` manufactures a failure on any answer containing
     the letter "a". It must never reach a run."""
     answer = mapping(expect.get("answer"))
+    rules = answer.get("rules")
+    if rules is not None and not (
+            isinstance(rules, list) and rules
+            and all(is_nonempty_str(r) for r in rules)):
+        rep.error(case_id, "bad_answer_rules",
+                  f"expect.answer.rules must be a non-empty list of "
+                  f"business_rules ids from profile.yaml, got {rules!r}; "
+                  "rule_report.py would report no rule for this case")
     for field in ("must_contain", "must_not_contain"):
         entries = answer.get(field)
         if entries is None:
@@ -1661,11 +1680,39 @@ PATH_SHAPED = re.compile(
 
 
 def case_covers(case):
-    """The ids a case's `covers` names, when it is a list of strings."""
+    """The ids a case's `covers` names, when it is a list of strings, then
+    any rule only its `expect.answer.rules` names (#26): a rule a case
+    checks is a rule it covers, so the unconfirmed-rule gating check
+    reads both."""
     covers = case.get("covers") if isinstance(case, dict) else None
-    if not isinstance(covers, list):
+    out = [c.strip() for c in covers if is_nonempty_str(c)] \
+        if isinstance(covers, list) else []
+    for rid in case_rule_ids(case):
+        if rid not in out:
+            out.append(rid)
+    return out
+
+
+def case_rule_expects(case):
+    """[expect] the case's rule ids can sit in: the top-level expect, and
+    every turn's for a conversation (an earlier turn's checkpoint too)."""
+    if not isinstance(case, dict):
         return []
-    return [c.strip() for c in covers if is_nonempty_str(c)]
+    turns = conversation_turns(case)
+    if turns is not None:
+        return [expect for _, expect in turns]
+    return [mapping(case.get("expect"))]
+
+
+def case_rule_ids(case):
+    """The ids the case's `expect.answer.rules` name, in order, once each."""
+    out = []
+    for expect in case_rule_expects(case):
+        rules = mapping(expect.get("answer")).get("rules")
+        for rid in rules if isinstance(rules, list) else []:
+            if is_nonempty_str(rid) and rid.strip() not in out:
+                out.append(rid.strip())
+    return out
 
 
 def check_covers_shape(rep, label, case):
@@ -1820,7 +1867,8 @@ def check_traceability(rep, cases, profile):
                     by_id[rid].append(label)
             else:
                 rep.error(label, "dangling_cover",
-                          f"covers names {rid!r}, which is no id in "
+                          f"covers or expect.answer.rules names {rid!r}, "
+                          "which is no id in "
                           "profile.yaml's business_rules or risks; the "
                           "coverage report would credit a rule that does "
                           "not exist")
@@ -1894,7 +1942,7 @@ def check_rubrics(rep, cases, path):
     if not isinstance(entries, list):
         die(f"{path}: expected {{\"rubrics\": [...]}} (convert_suite.py "
             "--split-dir writes rubrics.json)")
-    versions = {}
+    versions, judged_rules = {}, {}
     for entry in entries:
         if not isinstance(entry, dict):
             die(f"{path}: a rubrics entry is not an object")
@@ -1907,6 +1955,7 @@ def check_rubrics(rep, cases, path):
                 None, code, f"{file}: {message}")
         if isinstance(front, dict) and isinstance(front.get("rubric_id"), str):
             versions[front["rubric_id"]] = front.get("version")
+            judged_rules[front["rubric_id"]] = criterion_rules(front)
     for case in cases:
         if not isinstance(case, dict):
             continue
@@ -1925,6 +1974,130 @@ def check_rubrics(rep, cases, path):
                      f"answer.rubric {ref!r} pins v{pin}, the file is "
                      f"v{versions[rid]}: judged on the file's version, it "
                      "can never be calibrated -- re-pin it")
+    return judged_rules
+
+
+RULE_CHECK_KEYS = ("must_contain", "must_not_contain")
+
+
+def rule_check(rule):
+    """A business rule's scripted check (#26): {kind: [entries]} in
+    score_answer.py's grammar, or None when the rule declares none or an
+    off-shape one (bad_rule_check reports that)."""
+    check = rule.get("check") if isinstance(rule, dict) else None
+    if not isinstance(check, dict) or not check \
+            or set(check) - set(RULE_CHECK_KEYS):
+        return None
+    for entries in check.values():
+        if not isinstance(entries, list) or not entries \
+                or not all(is_nonempty_str(e) for e in entries):
+            return None
+    return check
+
+
+def profile_rules(profile):
+    """{id: rule entry} for profile.yaml's business_rules, first id wins
+    (duplicate_rule_id reports the second)."""
+    rules = profile.get("business_rules") if isinstance(profile, dict) \
+        else None
+    out = {}
+    for entry in rules if isinstance(rules, list) else []:
+        rid = entry.get("id") if isinstance(entry, dict) else None
+        if is_nonempty_str(rid) and rid.strip() not in out:
+            out[rid.strip()] = entry
+    return out
+
+
+def check_rule_bindings(rep, cases, profile, judged_rules):
+    """#26: every rule a case lists in `expect.answer.rules` must be checked
+    by something on that case, or rule_report.py would report a rule the
+    run never checked as checked. Two bindings:
+
+    - scripted: the rule's `check:` in profile.yaml; the case's
+      expect.answer carries each of its entries verbatim, so the runner's
+      unchanged answer layer scores them and the report finds them by entry;
+    - judged: the case's pinned rubric has a criterion with `rule: <id>`
+      (the top-level expect only: the judge grades the deciding turn).
+
+    `judged_rules` is check_rubrics' {rubric_id: {criterion: rule}}, or None
+    without --rubrics, when a judged binding cannot be seen."""
+    rules = profile_rules(profile)
+    for rid, rule in rules.items():
+        if "check" in rule and rule_check(rule) is None:
+            rep.error(None, "bad_rule_check",
+                      f"profile.yaml business_rules {rid!r}: check must map "
+                      f"{' and/or '.join(RULE_CHECK_KEYS)} to non-empty lists "
+                      f"of strings (score_answer.py's entries), got "
+                      f"{rule['check']!r}; no case can be scored on it")
+    known_judged = {r for crit in (judged_rules or {}).values()
+                    for r in crit.values()}
+    for rid in sorted(known_judged - set(rules)):
+        rep.warn(None, "criterion_rule_unknown",
+                 f"a rubric criterion judges rule {rid!r}, which is no id in "
+                 "profile.yaml's business_rules; rule_report.py reports it "
+                 "under no rule")
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        label = case.get("id") if is_nonempty_str(case.get("id")) else None
+        top = mapping(mapping(case.get("expect")).get("answer"))
+        ref = top.get("rubric")
+        rubric_id = split_pin(nfc(ref.strip()))[0] \
+            if is_nonempty_str(ref) else None
+        judged = (judged_rules or {}).get(rubric_id, {})
+        listed = case_rule_ids(case)
+        unlisted = sorted({r for r in judged.values() if r not in listed})
+        if unlisted:
+            rep.warn(label, "rule_judged_unlisted",
+                     f"its rubric {rubric_id!r} judges "
+                     f"{', '.join(repr(r) for r in unlisted)}, which "
+                     "expect.answer.rules does not list, so the rule report "
+                     "leaves that criterion out: list the rule, or drop the "
+                     "criterion's `rule:`")
+        expects = case_rule_expects(case)
+        for index, expect in enumerate(expects):
+            # The last expect is the deciding one, the judge's: for a
+            # conversation it is the top-level expect, overlaid, so it is
+            # never the same object as `top`.
+            deciding = index == len(expects) - 1
+            answer = mapping(expect.get("answer"))
+            ids = answer.get("rules")
+            for rid in ids if isinstance(ids, list) else []:
+                if not is_nonempty_str(rid) or rid.strip() not in rules:
+                    continue            # bad_answer_rules / dangling_cover
+                rid = rid.strip()
+                check = rule_check(rules[rid])
+                if check is not None:
+                    missing = [f"{kind} {entry!r}"
+                               for kind, entries in check.items()
+                               for entry in entries
+                               if entry not in (answer.get(kind) or [])]
+                    if missing:
+                        rep.error(label, "rule_check_missing",
+                                  f"expect.answer.rules lists {rid!r}, whose "
+                                  "check in profile.yaml this expect does "
+                                  f"not carry: {'; '.join(missing)}. Copy "
+                                  "the entries verbatim, or the rule report "
+                                  "would credit a check the run never made")
+                    continue
+                if deciding and rid in judged.values():
+                    continue
+                if deciding and rubric_id and judged_rules is None:
+                    rep.warn(label, "rule_binding_unchecked",
+                             f"expect.answer.rules lists {rid!r}, which has "
+                             "no check in profile.yaml; whether rubric "
+                             f"{rubric_id!r} judges it was not checked (pass "
+                             "--rubrics)")
+                    continue
+                rep.error(label, "rule_unbound",
+                          f"expect.answer.rules lists {rid!r}, and nothing on "
+                          "this case checks it: the rule has no `check:` in "
+                          "profile.yaml"
+                          + (f", and rubric {rubric_id!r} has no criterion "
+                             f"with `rule: {rid}`" if rubric_id
+                             else ", and the case pins no rubric")
+                          + ". Give the rule a check (a script first), or a "
+                            "rubric criterion that judges it")
 
 
 def main():
@@ -2033,8 +2206,15 @@ def main():
         adapter = load_json_object(a.adapter, "the adapter")
         check_schema_version(rep, adapter, "adapter")
         check_adapter(rep, cases, records, adapter)
-    if a.rubrics:
-        check_rubrics(rep, cases, a.rubrics)
+    judged_rules = check_rubrics(rep, cases, a.rubrics) if a.rubrics \
+        else None
+    if a.profile:
+        check_rule_bindings(rep, cases, profile, judged_rules)
+    elif any(case_rule_ids(c) for c in cases if isinstance(c, dict)):
+        rep.warn(None, "rules_unchecked",
+                 "cases list expect.answer.rules but no --profile was given, "
+                 "so no rule was resolved and nothing checked that each one "
+                 "has a check on its case; pass the profile")
     open_fixes = None
     if a.manifest:
         text = sys.stdin.read() if a.manifest == "-" else load_text(a.manifest)

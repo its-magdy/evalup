@@ -28,9 +28,11 @@ listed in the check's note — passing this check is not full JSON Schema
 compliance. The answer is parsed as bare JSON first, then from a markdown
 code fence if that fails (wrapping is recorded in the note).
 
-Business-rule oracles (expect.answer.rules) and state-diff assertions are
-NOT scored here: rules need the profile's rule definitions and state-diff
-needs environment snapshots — the run skill orchestrates both separately.
+Business rules (expect.answer.rules) and state-diff assertions are NOT
+scored here. A rule a script can check is ordinary must_contain /
+must_not_contain entries on the case (its profile.yaml `check:`), scored
+above like any entry; rule_report.py attributes those checks to the rule's
+id after the run (#26). State-diff needs environment snapshots (RESERVED).
 Judged dimensions (expect.answer.rubric) belong to the judge agent.
 
 Usage: score_answer.py <answer.txt> <case_expect.json>

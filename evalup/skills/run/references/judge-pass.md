@@ -73,8 +73,9 @@ Add one section to `report.md`, after the scripted results, headed
   case also shows the sidecar's TPR/TNR — nothing else.
 - Each `unjudged` case, one line with its `reason`. Holdout cases are a
   count only (`holdout_not_judged`); never name one.
-- Business rules (`expect.answer.rules`) are still "not measured in this
-  run": a rule that needs a judge belongs in a rubric's criteria.
+- A criterion with `rule: <id>` judges that business rule: `rule_report.py`
+  (run SKILL.md §5) reports its verdict under the rule's id, provisional
+  like the rest of this section.
 
 Every provisional verdict is a calibration label waiting to happen:
 `/evalup:analyze --label` reads `judged.json` and pre-fills it.
