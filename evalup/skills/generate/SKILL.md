@@ -211,7 +211,7 @@ source — for confirm / fix / strike, per
 §Business rules — this review is that confirmation for the rules it
 lists. On confirm (or fix, then confirm), write `status: confirmed` and the
 reviewer's own name in `confirmed_by` on the rule in profile.yaml; strike
-deletes it with a dated findings.md line (an Edit). Never headless, never an agent's
+deletes it with a dated findings.md line. Never headless, never an agent's
 name or relay. The other rules wait for discover's interview.
 
 **First session** (start's step 4): do not stop for this pass before the

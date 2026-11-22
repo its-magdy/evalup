@@ -230,7 +230,7 @@ endpoint: fix `invocation.headers`, auth or endpoint, re-run before quoting.
 
 The runner always leaves `manifest.yaml`, `results.json`, `verdicts.jsonl` (the
 durable per-case record) and `verdicts_for_stats.jsonl` (its `pass`/`fail`
-subset, exactly what `stats.py` pairs), and, when they apply,
+subset, what `stats.py` pairs), and, when they apply,
 `routing_report.json` (a non-canary case's routing was scored),
 `reliability.json` (k > 1, never `smoke`) and `comparison.json` (`--baseline-verdicts` was given). Every
 number you quote comes from those. You add `report.md`
@@ -280,7 +280,7 @@ beside them with `evalup write-artifact` (see `--help`).
   pass^k gap, and `reliability.json`'s `excluded_cases`.
 - Deltas read "improved / worsened / within noise (n=52 can only detect ~14pp)",
   never a bare percentage. Read `comparison.json`'s attrition warning **before**
-  the verdict: crashed cases are exactly the ones a paired diff drops, so
+  the verdict: crashed cases are the ones a paired diff drops, so
   "improved" can mean "improved on the cases that survived".
 - **Zero failures is a result, not a broken step.** Skip the clusters only
   when no case failed, gating or not: state "0 failures (n=<N>)" and still

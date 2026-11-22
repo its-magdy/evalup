@@ -80,18 +80,16 @@ def check_movable(state_dir, src):
 
 
 def read_text(src):
-    """The text verbatim: bytes decoded as utf-8, newlines untouched (a
-    universal-newline read would turn a CRLF draft into LF)."""
+    """The text verbatim, as utf-8 with newlines untouched (newline="":
+    a universal-newline read would turn a CRLF draft into LF)."""
     name = src if src is not None else "stdin"
     try:
         if src is not None:
-            with open(src, "rb") as f:
-                raw = f.read()
-        else:
-            if sys.stdin is None or sys.stdin.isatty():
-                die("bad input: no --from and no text on stdin")
-            raw = sys.stdin.buffer.read()
-        return raw.decode("utf-8")
+            with open(src, encoding="utf-8", newline="") as f:
+                return f.read()
+        if sys.stdin is None or sys.stdin.isatty():
+            die("bad input: no --from and no text on stdin")
+        return sys.stdin.buffer.read().decode("utf-8")
     except UnicodeDecodeError as e:
         die(f"bad input: {name}: not valid utf-8 text: {e}")
     except OSError as e:
