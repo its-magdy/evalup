@@ -17,7 +17,7 @@ them — see the bottom of this file.
 ```sh
 python3 -m unittest discover -s tests
 ```
-1428 tests, ~5 min (308 s measured 2026-11-22), the blessed command.
+1430 tests, ~5 min (308 s measured 2026-11-22), the blessed command.
 `test_run_cases.py` is most of that: a real HTTP server per test, and one test
 kills a runner mid-run.
 
@@ -43,12 +43,12 @@ ignored silently.**
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
 ```
 The only conclusive 3.9 floor check — the blessed `unittest` command runs on
-whatever `python3` happens to be. Expect 1392 passed, 36 skipped, 7249 subtests.
+whatever `python3` happens to be. Expect 1394 passed, 36 skipped, 7249 subtests.
 All thirty-six skips need PyYAML (thirteen are `convert_suite.py`'s, rubric
 files included, sixteen `prelook_fix.py`'s, two are the
 probe's `adapter.yaml` path, one is the example's fidelity check, four
 read the CI workflow template); add
-`--with pyyaml` and they run (1428 passed, none
+`--with pyyaml` and they run (1430 passed, none
 skipped) — do that before a release too, since it is the only floor check those
 two scripts get. Eleven review-viewer tests also skip when `node` is absent: they
 boot the page's JS, so check the skip count on a machine without it.

@@ -38,6 +38,7 @@ RUN_ID = "smoke-20260908T120000Z"
 
 sys.path.insert(0, str(SCRIPTS))
 import run_cases  # noqa: E402  - imported for its declared constants only
+import score_cost  # noqa: E402  - its ABSENT_MODEL, pinned against ours
 
 
 def contract_block(after, fence="```"):
@@ -842,7 +843,7 @@ class TestDryRunEstimate(RunnerCase):
     per message; with none, messages only, the models named, no rate."""
 
     def priced_run(self, usd, status="priced", traced=("c-a", "c-b"),
-                   conversation=None):
+                   conversation=None, models=("claude-sonnet-5-5",)):
         run_id = "regression-20261101T000000Z"
         run_dir = self.state / "reports" / run_id
         rows = []
@@ -864,7 +865,7 @@ class TestDryRunEstimate(RunnerCase):
         (run_dir / "results.json").write_text(
             json.dumps({"run_id": run_id, "cases": rows}), encoding="utf-8")
         cost = {"status": status, "cache_accounting": "none",
-                "models": {"claude-sonnet-5-5": {"calls": 9}}}
+                "models": {m: {"calls": 9} for m in models}}
         if status == "priced":
             cost.update(usd=usd, price_table={"as_of": "2026-11-01"})
         else:
@@ -934,6 +935,24 @@ class TestDryRunEstimate(RunnerCase):
                 self.assertIn(phrase, est["note"])
                 if accounting == "priced":
                     self.assertNotIn("far off", est["note"])
+
+    def test_an_unnamed_model_keeps_the_declared_one(self):
+        """A `traces.source: response` run's calls name no model, so
+        score_cost.py keys them `<model attribute absent>`: nothing a user
+        could price. The declared app.model stays (quickstart e2e)."""
+        cost = self.priced_run(0.90, models=(run_cases.ABSENT_MODEL_KEY,))
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001")])
+        plan["manifest_extra"]["app"] = {"model": "gpt-x"}
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(cost)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual(est["models"], ["gpt-x"])
+        self.assertIsNotNone(est["usd"])
+
+    def test_the_absent_model_key_is_score_costs(self):
+        self.assertEqual(run_cases.ABSENT_MODEL_KEY, score_cost.ABSENT_MODEL)
 
     def test_cost_from_is_a_dry_run_flag_and_must_be_cost_output(self):
         plan = make_plan(self.state, self.app.base_url)

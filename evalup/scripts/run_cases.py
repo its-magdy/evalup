@@ -4812,8 +4812,11 @@ def estimate_block(runner, report, cost_from):
                   "`run` and `cost` objects)")
     run_id = run_meta.get("run_id")
     block["from_run"] = run_id
+    # score_cost.py keys a call whose span names no model as
+    # ABSENT_MODEL_KEY, which every `traces.source: response` run is; that
+    # names nothing a user could price, so the declared app.model stays.
     seen = sorted(m for m in (cost.get("models") or {})
-                  if isinstance(m, str))
+                  if isinstance(m, str) and m != ABSENT_MODEL_KEY)
     if seen:
         block["models"] = seen
     block["cache_accounting"] = cost.get("cache_accounting")
@@ -4847,6 +4850,11 @@ def estimate_block(runner, report, cost_from):
             f"limits: {caveat}. "
             "Judge calls are not counted")})
     return block
+
+
+# score_cost.py's `model attribute absent` key (its ABSENT_MODEL), pinned
+# equal by a test.
+ABSENT_MODEL_KEY = "<model attribute absent>"
 
 
 # The estimate's cache caveat, by the cost file's cache_accounting (#118's
