@@ -18,6 +18,12 @@ says when a release bumps it.
 
 ## [Unreleased]
 
+### Changed
+- `convert_suite.py` without PyYAML re-runs itself under `uv run --no-project
+  --with pyyaml` when `uv` is on PATH, so a stock macOS `python3` needs no
+  install (#95's smaller fix). `--self-check` then reports `"via": "uv"`;
+  `EVALUP_NO_UV=1` turns it off. No verdict changes.
+
 ## [0.1.0] — 2026-11-22
 
 The first release, tagged `v0.1.0`. Pin it in CI with `EVALUP_REF: v0.1.0`

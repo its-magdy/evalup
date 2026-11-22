@@ -959,8 +959,14 @@ class TestConvertSuiteSelfCheck(TempDirTest):
     """#11: /evalup:start and the README's install check run --self-check so
     a missing PyYAML shows in minute one, not at generate's conversion."""
 
-    def self_check(self, hide_yaml):
+    def self_check(self, hide_yaml, path=None, **extra_env):
         env = dict(os.environ)
+        # No uv on PATH unless a test puts its fake there: the real one
+        # would fetch PyYAML from the network.
+        env["PATH"] = path if path is not None else str(self.tmp / "no-bin")
+        env.pop("EVALUP_NO_UV", None)
+        env.pop("EVALUP_PYYAML_VIA_UV", None)
+        env.update(extra_env)
         if hide_yaml:
             # A `yaml` package ahead of site-packages whose import fails is
             # what a Python without PyYAML looks like to the script.
@@ -991,6 +997,82 @@ class TestConvertSuiteSelfCheck(TempDirTest):
         self.assertIs(doc["ok"], True)
         self.assertTrue(doc["pyyaml"])
         self.assertEqual(doc["python"], sys.executable)
+
+    def fake_uv(self, probe_fails=False, rerun_has_yaml=True):
+        """A `uv` on PATH that logs its argv and runs `python ...` on this
+        interpreter. "Providing PyYAML" is a stub `yaml` put ahead of the
+        test's shadow, so no test needs the network or a real PyYAML."""
+        bin_dir = self.tmp / "bin"
+        stub = self.tmp / "stub"
+        (stub / "yaml").mkdir(parents=True, exist_ok=True)
+        (stub / "yaml" / "__init__.py").write_text("__version__ = 'stub'\n",
+                                                   encoding="utf-8")
+        bin_dir.mkdir(exist_ok=True)
+        log = self.tmp / "uv.log"
+        uv = bin_dir / "uv"
+        # A /bin/sh wrapper, because a shebang cannot hold a path with a
+        # space in it (a checkout under "Open Source/", say).
+        uv.write_text(f'#!/bin/sh\nexec "{sys.executable}" '
+                      f'"{bin_dir / "fake_uv.py"}" "$@"\n', encoding="utf-8")
+        (bin_dir / "fake_uv.py").write_text(
+            "import json, os, sys\n"
+            f"with open({str(log)!r}, 'a') as fh:\n"
+            "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "args = sys.argv[1:]\n"
+            "rest = args[args.index('python') + 1:]\n"
+            "probe = rest[:1] == ['-c']\n"
+            f"if probe and {probe_fails!r}:\n"
+            "    sys.stderr.write('error: no network\\n'); sys.exit(1)\n"
+            f"if probe or {rerun_has_yaml!r}:\n"
+            f"    os.environ['PYTHONPATH'] = {str(stub)!r}\n"
+            f"os.execv({sys.executable!r}, [{sys.executable!r}] + rest)\n",
+            encoding="utf-8")
+        uv.chmod(0o755)
+        return str(bin_dir), log
+
+    def calls(self, log):
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in
+                log.read_text(encoding="utf-8").splitlines()]
+
+    def test_without_pyyaml_it_reruns_itself_under_uv(self):
+        path, log = self.fake_uv()
+        rc, out, err = self.self_check(hide_yaml=True, path=path)
+        self.assertEqual(rc, 0, out + err)
+        doc = json.loads(out)
+        self.assertEqual((doc["ok"], doc["pyyaml"], doc["via"]),
+                         (True, "stub", "uv"))
+        probe, rerun = self.calls(log)
+        script = str(SCRIPTS / "convert_suite.py")
+        head = ["run", "--no-project", "--quiet", "--python", sys.executable,
+                "--with", "pyyaml", "python"]
+        self.assertEqual(probe, head + ["-c", "import yaml"])
+        self.assertEqual(rerun, head + [script, "--self-check"])
+
+    def test_a_uv_that_cannot_provide_pyyaml_is_the_hint_plus_its_error(self):
+        path, log = self.fake_uv(probe_fails=True)
+        rc, out, err = self.self_check(hide_yaml=True, path=path)
+        self.assertEqual(rc, 2, out + err)
+        message = json.loads(out)["error"]
+        self.assertIn("pip install --user pyyaml", message)
+        self.assertIn("could not provide PyYAML: error: no network", message)
+        self.assertEqual(len(self.calls(log)), 1)
+
+    def test_a_rerun_that_still_lacks_pyyaml_stops_instead_of_looping(self):
+        path, log = self.fake_uv(rerun_has_yaml=False)
+        rc, out, err = self.self_check(hide_yaml=True, path=path)
+        self.assertEqual(rc, 2, out + err)
+        self.assertIn("Already re-run under uv", json.loads(out)["error"])
+        self.assertEqual(len(self.calls(log)), 2)  # one probe, one re-run
+
+    def test_evalup_no_uv_turns_the_fallback_off(self):
+        path, log = self.fake_uv()
+        rc, out, err = self.self_check(hide_yaml=True, path=path,
+                                       EVALUP_NO_UV="1")
+        self.assertEqual(rc, 2, out + err)
+        self.assertIn("needs PyYAML", json.loads(out)["error"])
+        self.assertEqual(self.calls(log), [])
 
     def test_no_state_dir_and_no_self_check_is_a_usage_error(self):
         rc, _, err = run("convert_suite.py")
