@@ -656,8 +656,9 @@ class TestStatsHoldoutPower(ScorerTest):
 
     def test_the_noise_floor_reaches_the_n_needed_when_it_binds(self):
         # Issue #142 said D never moved holdout_cases_needed; it does,
-        # through fewest_fixed_to_keep, once f + b > D is what binds. At
-        # D = 2 the posterior's 4 fixed already clears it, so it stays 31.
+        # through fewest_fixed_to_keep (breaks allowed), once the floor
+        # lifts that count past what the MDE term already needs. At D = 2
+        # the posterior's 4 fixed already clears it, so it stays 31.
         def needed(d):
             return self.power(28, "--headroom", 5.6, "--noise-disagreements",
                               d)["holdout_cases_needed"]
@@ -894,11 +895,9 @@ class TestOptimizeReadsWhatExists(ScorerTest):
                                        "`candidates/*/outcome.md`"))
         self.assertIn("before step 3's draft**", optimize)
         self.assertIn("C = (H − Q) × R", optimize)
-        self.assertIn("`unusable_by_split.holdout.review_quarantined`",
-                      optimize)
-        validator = (SCRIPTS / "validate_cases.py").read_text(encoding="utf-8")
-        self.assertIn('"unusable_by_split"', validator)
-        self.assertIn('f"review_{status}"', validator)
+        self.assertIn("`unusable_by_split.holdout.review_quarantined`, 0 "
+                      "when the key is\n   absent", optimize)
+        self.assertIn("Only once the power check has not refused", optimize)
         self.assertIn("one more regression run in the unlock's cost",
                       optimize)
         gate = (SCRIPTS / "gate.py").read_text(encoding="utf-8")

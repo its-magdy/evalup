@@ -171,6 +171,25 @@ class TestCleanSuite(ValidateTest):
                 n, summary["usable_by_split"][name]
                 + sum(summary["unusable_by_split"][name].values()))
 
+    def test_a_quarantined_sealed_case_is_counted_apart(self):
+        """optimize step 4 takes Q, the holdout cases out of its headroom,
+        from `unusable_by_split.holdout.review_quarantined` (#142): every
+        sealed case is pending, so the key is absent until one is
+        quarantined, and a pending one is never in it."""
+        sealed = {"split": ["holdout"], "gating": False}
+        cases = [good_case("a-sealed-1", review={"status": "pending"},
+                           **sealed),
+                 good_case("b-sealed-2", review={"status": "pending"},
+                           **sealed)]
+        _, out, _ = self.validate(cases)
+        self.assertEqual(out["summary"]["unusable_by_split"]["holdout"],
+                         {"review_pending": 2})
+        cases[1] = good_case("b-sealed-2", review={"status": "quarantined"},
+                             **sealed)
+        _, out, _ = self.validate(cases)
+        self.assertEqual(out["summary"]["unusable_by_split"]["holdout"],
+                         {"review_pending": 1, "review_quarantined": 1})
+
     def test_accepts_jsonl_and_wrapper_and_stdin(self):
         case = good_case()
         caps = self.write_json("all-enabled.json", ALL_LAYERS_ENABLED)
