@@ -50,10 +50,16 @@ Usage: stats.py <baseline.jsonl> <candidate.jsonl> [--alpha 0.05]
                 [--candidate-looks N]
        stats.py --holdout-power H --headroom C [--noise-disagreements D]
                 [--alpha 0.05] [--bayes-threshold 0.95]
+       stats.py --holdout-power 0 --cluster-rate R
+                [--alpha 0.05] [--bayes-threshold 0.95]
 The second form (issue #110) is planning only, before any look: the MDE at
 the discordance a whole-cluster fix would produce, and the fewest fixed /
 smallest net fixed-minus-broken that keep_decision could keep at H, searched
-with keep_decision itself. It changes no number the first form prints.
+with keep_decision itself. It changes no number the first form prints. The
+third (issue #130) is the same question with no holdout yet: nothing can
+keep (`can_keep: false`, no MDE), and `holdout_cases_needed` is the
+smallest holdout at which the second form, given C = H x R, says both
+`can_keep` and `powered`.
 Rows: {"case_id": ..., "verdict": "pass"|"fail"}. Any other verdict is a hard
 error: infra verdicts must be excluded upstream, never counted as failures.
 
@@ -298,6 +304,63 @@ def smallest_keeps(n, threshold, noise=0):
     return out
 
 
+def fewest_fixed_clean(threshold, cap=10000):
+    """The fewest fixed cases, none broken and no noise floor, that
+    keep_decision keeps: a property of the bar alone, the same at every
+    holdout of at least that many cases. None when no count up to `cap`
+    clears it (a threshold of 1: the posterior never reaches it)."""
+    for f in range(1, cap + 1):
+        if keep_decision(posterior_prob_improvement(f, 0), 1.0, threshold)[0]:
+            return f
+    return None
+
+
+def no_holdout_power(rate, alpha, threshold):
+    """`--holdout-power 0` (issue #130): no sealed case, so no look can keep
+    and there is no MDE to state; what can be said is how big a holdout this
+    cluster needs. `rate` is the cluster's failing share of the gating,
+    non-canary training cases (optimize step 4). A holdout of m cases then
+    holds m x rate cluster cases; it needs that to reach the clean fewest
+    fixed, and m >= z^2 / rate for the MDE: the second form's own
+    holdout_cases_needed formula, without its `>= n` term, so
+    `--holdout-power m --headroom m*rate` says can_keep and powered."""
+    f0 = fewest_fixed_clean(threshold)
+    needed = None
+    if rate > 0 and f0 is not None:
+        needed = max(math.ceil(f0 / rate),
+                     math.ceil(z_sum(alpha, 0.8) ** 2 / rate))
+    keeps = smallest_keeps(needed, threshold) if needed else []
+    fewest = min(keeps, key=lambda k: (k["fixed"], k["broken"]), default=None)
+    net = min(keeps, key=lambda k: (k["net"], k["broken"]), default=None)
+    verdict = "NO HOLDOUT: no case is sealed, so no look can keep anything"
+    if needed:
+        verdict += (
+            f"; at this cluster's rate ({rate:.0%} of the gating training "
+            f"cases) a holdout of ~{needed} case(s) would hold the fewest "
+            f"fixed to keep ({f0}) and bring the minimum detectable effect "
+            f"down to the expected {rate:.0%} (fewest_fixed_to_keep and "
+            f"smallest_net_to_keep are at that size)")
+    return {
+        "mode": "holdout_power",
+        "holdout_cases": 0,
+        "headroom": 0,
+        "cluster_rate": rate,
+        "noise_disagreements": 0,
+        "threshold": threshold,
+        "expected_effect": round(rate, 3),
+        "min_detectable_effect": None,
+        "fewest_fixed_to_keep": fewest,
+        "smallest_net_to_keep": net,
+        "can_keep": False,
+        "powered": False,
+        "holdout_cases_needed": needed,
+        "explained": verdict + (
+            ". Planning estimate: the MDE is a normal approximation and "
+            "the rate an estimate from the training split; the keep rule is "
+            "the exact one."),
+    }
+
+
 def holdout_power(n, headroom, noise, alpha, threshold):
     """Before a holdout look: can a candidate on this cluster keep at all?
 
@@ -406,6 +469,10 @@ def main():
                     help="with --holdout-power: the noise pair's "
                          "disagreements once measured (default: 0, before "
                          "the pair)")
+    ap.add_argument("--cluster-rate", type=float, metavar="R",
+                    help="with --holdout-power 0: the cluster's failing "
+                         "share of the gating, non-canary training cases "
+                         "(0-1), for a holdout that does not exist yet")
     a = ap.parse_args()
     # Out of range, --alpha reached NormalDist().inv_cdf and exited with a
     # StatisticsError traceback (see _common.require_range for why this is not
@@ -418,8 +485,24 @@ def main():
         if a.baseline or a.noise_floor or a.candidate_looks is not None:
             die("--holdout-power is a planning mode: it takes no verdict "
                 "files, --noise-floor or --candidate-looks")
-        if a.holdout_power < 1:
-            die(f"--holdout-power must be >= 1 (got {a.holdout_power})")
+        if a.holdout_power < 0:
+            die(f"--holdout-power must be >= 0 (got {a.holdout_power})")
+        if a.holdout_power == 0:
+            if a.headroom is not None or a.noise_disagreements:
+                die("--holdout-power 0 has no sealed case, so no headroom "
+                    "and no noise pair: pass --cluster-rate R (the "
+                    "cluster's failing share of the gating training cases)")
+            if a.cluster_rate is None:
+                die("--holdout-power 0 needs --cluster-rate R (optimize "
+                    "step 4 says how to compute it)")
+            require_range("--cluster-rate", a.cluster_rate, 0, 1,
+                          note=" (it is a share of cases)")
+            print(json.dumps(no_holdout_power(
+                a.cluster_rate, a.alpha, a.bayes_threshold), indent=2))
+            return
+        if a.cluster_rate is not None:
+            die("--cluster-rate belongs to --holdout-power 0; with a holdout "
+                "of H cases pass --headroom H x R")
         if a.headroom is None:
             die("--holdout-power needs --headroom C (optimize step 4 says "
                 "how to estimate it)")
@@ -432,8 +515,10 @@ def main():
             a.holdout_power, a.headroom, a.noise_disagreements, a.alpha,
             a.bayes_threshold), indent=2))
         return
-    if a.headroom is not None or a.noise_disagreements:
-        die("--headroom and --noise-disagreements belong to --holdout-power")
+    if (a.headroom is not None or a.noise_disagreements
+            or a.cluster_rate is not None):
+        die("--headroom, --noise-disagreements and --cluster-rate belong to "
+            "--holdout-power")
     if not a.candidate:
         die("two verdict files are required (baseline, candidate), or "
             "--holdout-power H for the planning mode")

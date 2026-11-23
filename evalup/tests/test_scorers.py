@@ -616,6 +616,50 @@ class TestStatsHoldoutPower(ScorerTest):
                          {"fixed": 9, "broken": 3, "net": 6})
         self.assertEqual(out["fewest_fixed_to_keep"]["fixed"], 9)
 
+    def test_no_holdout_states_the_n_needed(self):
+        # Issue #130: the #27 re-run had 9 usable cases, no holdout, and a
+        # cluster failing 2 of them. `--holdout-power 0` exited 2 there.
+        out = self.power(0, "--cluster-rate", 2 / 9)
+        self.assertEqual(out["holdout_cases"], 0)
+        self.assertFalse(out["can_keep"])
+        self.assertFalse(out["powered"])
+        self.assertIsNone(out["min_detectable_effect"])
+        self.assertEqual(out["holdout_cases_needed"], 28)
+        self.assertEqual(out["fewest_fixed_to_keep"],
+                         {"fixed": 4, "broken": 0, "net": 4})
+        self.assertIn("NO HOLDOUT", out["explained"])
+        # The re-run's own figure, 2 of 12 rows (canaries counted), was 38.
+        self.assertEqual(
+            self.power(0, "--cluster-rate", 2 / 12)["holdout_cases_needed"],
+            38)
+
+    def test_the_n_needed_is_one_the_holdout_form_keeps_at(self):
+        # The figure must be one the H >= 1 form calls keepable and powered,
+        # the same one it gives at that rate from a smaller holdout, and the
+        # smallest such holdout.
+        for num, den in ((1, 2), (2, 9), (1, 6), (3, 46), (1, 20), (1, 1)):
+            rate = num / den
+            needed = self.power(0, "--cluster-rate", rate)[
+                "holdout_cases_needed"]
+            with self.subTest(rate=rate):
+                at = self.power(needed, "--headroom", needed * num / den)
+                self.assertTrue(at["can_keep"])
+                self.assertTrue(at["powered"])
+                small = self.power(4, "--headroom", 4 * num / den)
+                self.assertEqual(small["holdout_cases_needed"], needed)
+                if rate == 1:
+                    # min_detectable_effect caps at 1, so at a rate of 1
+                    # any holdout reads as powered: not the smallest there.
+                    continue
+                less = self.power(needed - 1, "--headroom",
+                                  (needed - 1) * num / den)
+                self.assertFalse(less["can_keep"] and less["powered"])
+
+    def test_no_holdout_with_no_cluster_needs_nothing(self):
+        out = self.power(0, "--cluster-rate", 0)
+        self.assertIsNone(out["holdout_cases_needed"])
+        self.assertFalse(out["can_keep"])
+
     def test_the_two_forms_do_not_mix(self):
         b = self.write_jsonl("b.jsonl", [{"case_id": "a", "verdict": "pass"}])
         self.assert_clean_error("stats.py", "--holdout-power", 13)
@@ -623,6 +667,17 @@ class TestStatsHoldoutPower(ScorerTest):
                                 "--headroom", 14)
         self.assert_clean_error("stats.py", "--holdout-power", 0,
                                 "--headroom", 0)
+        self.assert_clean_error("stats.py", "--holdout-power", 0)
+        self.assert_clean_error("stats.py", "--holdout-power", -1,
+                                "--cluster-rate", 0.2)
+        self.assert_clean_error("stats.py", "--holdout-power", 0,
+                                "--cluster-rate", 1.5)
+        self.assert_clean_error("stats.py", "--holdout-power", 0,
+                                "--cluster-rate", 0.2,
+                                "--noise-disagreements", 2)
+        self.assert_clean_error("stats.py", "--holdout-power", 13,
+                                "--headroom", 2, "--cluster-rate", 0.2)
+        self.assert_clean_error("stats.py", b, b, "--cluster-rate", 0.2)
         self.assert_clean_error("stats.py", "--holdout-power", 13,
                                 "--headroom", 2, b, b)
         self.assert_clean_error("stats.py", b, b, "--headroom", 2)
@@ -704,6 +759,43 @@ class TestOptimizeReadsWhatExists(ScorerTest):
                     with self.subTest(e=e, h0=h0, needed=needed):
                         self.assertGreaterEqual(h0 + sealed, needed)
                         self.assertGreaterEqual(h0 + sealed, 0.2 * (e + n))
+
+    def test_a_power_target_keeps_the_usable_floor(self):
+        # Issue #130: N >= T alone left the #27 re-run at 9 + 38 = 47 usable
+        # cases, under precondition 2's 50. The formula adds F - U.
+        optimize = self.text("skills/optimize/SKILL.md")
+        self.assertIn("N = max(T, ⌈E/4⌉, F − U)", optimize)
+        self.assertIn("≥ ~50 when every objective is deterministic", optimize)
+        # The headroom's denominator is the cluster's population (#130).
+        self.assertNotIn("÷ the rows of that run's\n   `verdicts_for_stats",
+                         optimize)
+        self.assertIn("`gating`\n   true, `canary` false", optimize)
+        for floor in (50, 100):
+            for u in range(0, 60, 3):
+                for e in (u, u + 3):
+                    for h0 in range(0, u // 3 + 1, 2):
+                        for needed in range(h0, h0 + 40, 7):
+                            t = needed - h0
+                            n = max(t, math.ceil(e / 4), floor - u)
+                            share = max(0, math.ceil(0.2 * (e + n)) - h0)
+                            sealed = min(n, max(share, t))
+                            with self.subTest(floor=floor, u=u, e=e, h0=h0,
+                                              needed=needed):
+                                self.assertGreaterEqual(h0 + sealed, needed)
+                                # every new case sealed or accepted:
+                                self.assertGreaterEqual(u + n, floor)
+                                self.assertGreaterEqual(e + n, 25)
+        # The skill's worked example: 9 usable of 12, 2 of the 9 failing.
+        e, u, h0, floor = 12, 9, 0, 50
+        rc, out, err = run_script("stats.py", "--holdout-power", 0,
+                                  "--cluster-rate", 2 / 9)
+        self.assertEqual(rc, 0, err)
+        t = out["holdout_cases_needed"] - h0
+        n = max(t, math.ceil(e / 4), floor - u)
+        self.assertEqual((t, n), (28, 41))
+        self.assertIn(f"N = max({t}, {math.ceil(e / 4)}, {floor - u}) = {n}",
+                      optimize)
+        self.assertEqual(math.ceil(0.2 * (e + n)), 11)  # share < T: 28 sealed
 
 
 class TestNoOpKeepRate(unittest.TestCase):
