@@ -48,6 +48,24 @@ DB): compute `expected` two independent ways (e.g. raw SQL vs. an ORM/pandas
 query) and keep the case only if both agree — disagreement means the question
 is ambiguous and belongs back in generate, not in the dataset.
 
+### Fixture dump — before generate's §2, when code builds the seed
+
+A seeded fixture grounds an expectation only as data the generator can read.
+When it is a data file (JSON, CSV, SQL inserts), name that file in the grid
+assignment. When code builds it (a seed script, a factory, a migration that
+inserts rows), dump it once before generation, into
+`<state-dir>/oracle/fixture-dump.json`: the owner runs the app's own seed or
+export path, or the read-only oracle connection above reads the seeded
+tables — never the app under test answering questions about its data. Its
+top-level keys record `source` (the command or query), `git_sha` (the app's commit)
+and `dumped_at`, and generate names it in the grid assignment. Reading a
+seed script and copying its rows is a dump only when every row is a
+literal: a computed value (a date relative to today, a random draw, a
+running total) is not readable from the code, so dump it, or leave the
+cases that depend on it `pending`. Headless, with no one to run the dump,
+copy the literal rows only and say which data is missing. Re-dump whenever
+the seed changes, and regenerate every `expected` built from it (below).
+
 ---
 
 ## Result-extraction contract — how `actual` reaches the scorer

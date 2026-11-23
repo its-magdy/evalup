@@ -108,7 +108,9 @@ Rules:
    there is no execution-layer oracle, so no `expect.result` from it, not
    that the fixture's facts are unknown; name the fixture in `notes` by
    what it holds ("from the seeded guest list"), not as "read <file>". A
-   constant in the app's code is not a fixture.
+   fixture dump the assignment names counts as one
+   (`${CLAUDE_PLUGIN_ROOT}/skills/discover/references/oracle.md` §Fixture
+   dump); a constant in the app's code is not a fixture.
    This includes reading the app's source to "verify" an expectation. The
    trap has a signature: an assertion that restates an implementation
    constant — a `must_not_contain` listing the exact strings a guard already
