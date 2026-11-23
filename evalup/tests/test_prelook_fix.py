@@ -334,6 +334,46 @@ class TestPrelookFix(unittest.TestCase):
         self.assertRegex(doc["sealed_templates"][0]["sha256"],
                          r"^[0-9a-f]{64}$")
         self.assertEqual(doc["mixed_templates"], [])
+        self.assertEqual(doc["missing_templates"], [])
+        self.assertNotIn("error", doc)
+
+    def test_list_fails_on_a_sealed_case_whose_template_has_no_file(self):
+        # #133: a sealed case's template the listing never saw is outside
+        # the seal; --list says so and exits 2, the listing still printed.
+        (self.state / "datasets" / "templates" / "ho_shifts.yaml").unlink()
+        rc, out, err = self.run_fix("--list", fix=False)
+        self.assertEqual(rc, 2, out + err)
+        self.assert_no_case_text(out + err)
+        doc = json.loads(out)
+        self.assertEqual(doc["missing_templates"], ["ho_shifts"])
+        self.assertEqual(doc["sealed_templates"], [])
+        self.assertIn("datasets/templates/", doc["error"])
+        self.assertEqual(len(doc["sealed_cases"]), 2)
+
+    def test_templates_at_the_state_root_are_listed_too(self):
+        # #133: a first session wrote <state>/templates/; it is listed (so
+        # sealed) rather than missed.
+        root = self.state / "templates"
+        root.mkdir()
+        shutil.move(str(self.state / "datasets" / "templates" /
+                        "ho_shifts.yaml"), str(root / "ho_shifts.yaml"))
+        rc, out, err = self.run_fix("--list", fix=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assert_no_case_text(out + err)
+        doc = json.loads(out)
+        self.assertEqual(doc["missing_templates"], [])
+        self.assertEqual([t["template_id"] for t in doc["sealed_templates"]],
+                         ["ho_shifts"])
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "convert_suite.py"),
+             str(self.state), "--templates"], capture_output=True, text=True,
+            timeout=60, check=True)
+        files = {t["template_id"]: t["file"]
+                 for t in json.loads(proc.stdout)["templates"]}
+        self.assertEqual(files["ho_shifts"],
+                         os.path.join("templates", "ho_shifts.yaml"))
+        self.assertEqual(files["t_shifts"],
+                         os.path.join("datasets", "templates", "t_shifts.yaml"))
 
     def test_templates_mode_prints_hashes_never_content(self):
         nested = self.state / "datasets" / "templates" / "deep"

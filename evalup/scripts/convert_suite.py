@@ -82,9 +82,11 @@ list to the combined document as `rubrics`, and --split-dir writes it as
 rubrics.json (validate_cases.py --rubrics); without one, both stay absent.
 
 --templates, with a state dir, lists only the generation templates (every
-*.yaml under a templates/ dir in datasets/) as {"templates": [{"template_id",
-"file", "sha256"}]}, the id being the file's stem: hashes, never content, and
-a parse error names the file only, since a holdout template is sealed.
+*.yaml under a templates/ dir in datasets/, where generate writes them, and
+under <state>/templates/, where #133 found them) as {"templates":
+[{"template_id", "file", "sha256"}]}, the id being the file's stem: hashes,
+never content, and a parse error names the file only, since a holdout
+template is sealed.
 prelook_fix.py --list reads it.
 
 Usage:
@@ -233,9 +235,14 @@ def case_files(datasets_dir):
     return found
 
 
-def template_entries(yaml, loader, datasets_dir):
-    """Every *.yaml at any depth under a templates/ dir in `datasets_dir`
-    (the files case_files() skips), sorted by path, as id + file + hash.
+def template_entries(yaml, loader, state_dir):
+    """Every *.yaml at any depth under a templates/ dir in datasets/ (the
+    files case_files() skips), and under <state>/templates/ too, sorted by
+    path, as id + file + hash.
+
+    datasets/templates/ is where generate writes them; <state>/templates/
+    is listed as well because a first session once wrote them there (#133),
+    and a sealed template the listing misses is outside the seal.
 
     Never the content, and never a YAML error's text: a holdout template
     is sealed (generate SS4), and an error message quotes its line. The
@@ -243,14 +250,16 @@ def template_entries(yaml, loader, datasets_dir):
     canonical form a case is hashed in."""
     from run_cases import sha256_of
     found = []
-    for root, dirs, files in os.walk(datasets_dir):
-        dirs.sort()
-        rel = os.path.relpath(root, datasets_dir).split(os.sep)
-        if "templates" not in rel:
-            continue
-        found.extend(os.path.join(root, name) for name in sorted(files)
-                     if name.endswith((".yaml", ".yml")))
-    base = os.path.dirname(os.path.abspath(datasets_dir))
+    for top, nested in (("datasets", True), ("templates", False)):
+        top = os.path.join(state_dir, top)
+        for root, dirs, files in os.walk(top):
+            dirs.sort()
+            rel = os.path.relpath(root, top).split(os.sep)
+            if nested and "templates" not in rel:
+                continue
+            found.extend(os.path.join(root, name) for name in sorted(files)
+                         if name.endswith((".yaml", ".yml")))
+    base = os.path.abspath(state_dir)
     entries = []
     for path in sorted(found):
         try:
@@ -392,9 +401,8 @@ def main():
     if a.templates:
         if a.split_dir:
             ap.error("--templates takes no --split-dir")
-        datasets = os.path.join(a.state_dir, "datasets")
-        dump({"templates": template_entries(yaml, loader, datasets)
-              if os.path.isdir(datasets) else []}, a.output)
+        dump({"templates": template_entries(yaml, loader, a.state_dir)},
+             a.output)
         return
 
     def at(*parts):

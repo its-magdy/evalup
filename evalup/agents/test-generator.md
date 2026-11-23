@@ -27,8 +27,12 @@ which needs one too (rule 8). You write draft case YAML files.
 **Phase 1 — tuples, no prose.** For each template, state its dimensions
 (e.g. filter, persona, register, intent) and emit the tuple SET only —
 symbolic values, no natural-language messages. Write these to
-`templates/<template_id>.yaml` with the template's `oracle` (the reference
-query, authored ONCE for all its instances) and a `rejected:` list.
+`datasets/templates/<template_id>.yaml` in the state dir — never a
+`templates/` at its root, which the seal does not cover — with the
+template's `oracle` (the reference query, authored ONCE for all its
+instances) and a `rejected:` list. A holdout template's id is `ho_` plus
+an opaque token (`ho_7f3a91c2`), never a word naming its topic: the id is
+its file name, and the seal lists it.
 
 **Phase 2 — realization, one tuple at a time.** In a separate pass, convert
 each surviving tuple into a natural-language message. Do not emit N messages

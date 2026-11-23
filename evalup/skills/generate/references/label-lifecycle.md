@@ -192,7 +192,7 @@ that, it is `analyze --unseal` and a reseal. Never edit a sealed case by hand.
    bump. Then convert, validate and re-pin, as below.
 
 The hash is the run's: `manifest.yaml`'s `cases[].sha256`. The seal's
-templates (`templates/ho_*`) are sealed with it:
+templates (`datasets/templates/ho_*`) are sealed with it:
 `evalup prelook-fix <state-dir> --list` names them, and the sealed cases,
 by id and hash. Never open one, and never pass one to a reviewer, the
 judge or a report.
