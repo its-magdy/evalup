@@ -132,7 +132,7 @@ metadata too.
 ### 2a. Two phases, always — tuples first, prose second
 Never let the generator emit finished case prose straight from a grid cell.
 **Phase 1** names a template's dimensions (e.g. `persona`, `intent`),
-hand-writes the first ~20 tuples, then expands the tuple SET — still
+hand-writes ~20 tuples, then expands the tuple SET — still
 symbolic, into `datasets/templates/<template_id>.yaml`. **Phase 2** realizes
 one tuple at a time as a natural-language message, **in a separate prompt**.
 Each realized case then carries `template_id` + `instantiation_params`, its
@@ -264,7 +264,7 @@ on that.
   once, listed only by id+hash in reports, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
-  templates (`ho_<opaque-hex>`, naming no topic) are sealed: never open one.
+  templates (`ho_<opaque-hex>`) are sealed: never open one.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary
