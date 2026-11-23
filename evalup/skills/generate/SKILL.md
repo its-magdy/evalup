@@ -215,7 +215,7 @@ for confirm / fix / strike, per
 lists. On confirm (or fix, then confirm), write `status: confirmed` and the
 reviewer's own name in `confirmed_by` on the rule in profile.yaml; strike
 deletes it with a dated findings.md line. Never headless, never an agent's
-name or relay. The rest wait for discover's interview. Changed
+name or relay. The other rules wait for discover's interview. Changed
 `covers`: refresh `notes`.
 
 **First session** (start's step 4): do not stop for this pass before the
