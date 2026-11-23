@@ -39,6 +39,23 @@ says when a release bumps it.
   manifest declares a budget and with the run's `--baseline-verdicts` (a
   resume without it dropped the comparison), and says a resume spends no
   new holdout look. Pacing is unchanged.
+- **`evalup candidate`, `evalup seal-record`, `evalup cluster-failures`**
+  (#143). optimize pre-approves only `evalup *`, yet its loop ran git in the
+  shell to snapshot and revert a prompt file, appended to
+  `reports/holdout-seal.json` with ad-hoc Python, and clustered failures in
+  its head when no analyze session had written `clusters.json`. Now
+  `candidate begin|diff|revert` copies the surface files with their sha256
+  before the edit, writes `diff.patch` after it, and restores and verifies
+  them (refusing a path outside the app or inside the state location, a
+  hard-linked file, a symlink on a recorded or snapshot path, a second
+  snapshot over an edit, and a revert over someone else's change), and
+  `candidate gate` runs the holdout decision and saves `holdout-gate.json`;
+  `seal-record noise|candidate|keep|show` writes the record with the
+  versions copied from the holdout run's manifest, reading no case file;
+  `cluster-failures` writes `clusters.json` from a non-holdout run's
+  `verdicts.jsonl` with the population optimize's power check divides by.
+  The prompt edit itself is still an Edit that asks. No verdict changes;
+  28 CLIs.
 - **`summary.unusable_by_split`** in `validate-cases` (#132): per split, why
   each case `usable_by_split` leaves out is out (`canary`, `review_pending`,
   `review_quarantined`, `machine_signed`, `not_gating`). Additive; the
