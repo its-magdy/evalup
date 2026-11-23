@@ -18,7 +18,9 @@ Five groups carry the weight:
   TestWhichRunsPrice  -- a trace-less run has no cost input at all and a full
                          latency block. This is the field test's shape.
   TestHoldoutSeal     -- ids come from results.json.cases only; cases/ is
-                         indexed, never listed.
+                         indexed, never listed. TestHoldoutAggregate (#141)
+                         prices the sealed cases as totals, never per case,
+                         and withholds a total over too few to hide one.
   TestNotADecision    -- there is exactly ONE keep rule in this package and it
                          is stats.py's. This output may not contain a second.
 
@@ -612,12 +614,295 @@ class TestHoldoutSeal(CostCase):
         self.assertEqual(payload["cost"]["tokens"]["input"], 1000)
         self.assertEqual(payload["run"]["holdout_excluded"], 2)
 
-    def test_the_two_files_carrying_holdout_ids_are_never_opened(self):
+    def test_the_files_carrying_holdout_ids_are_opened_in_one_place(self):
+        """#141 reads verdicts.jsonl for the sealed aggregate, and only
+        there: sealed_rows() alone opens it, sealed_cost() alone calls that,
+        and nothing lists a directory."""
         source = SCRIPT.read_text(encoding="utf-8")
         body = source.split('"""', 2)[2]
-        for name in ("verdicts.jsonl", "verdicts_for_stats.jsonl",
-                     "holdout-looks"):
+        for name in ("verdicts_for_stats.jsonl", "holdout-looks", "listdir",
+                     "scandir", "glob", "os.walk"):
             self.assertNotIn(name, body, name)
+        self.assertEqual(body.count('"verdicts.jsonl"'), 1)
+        functions = body.split("\ndef ")
+        readers = [f.split("(", 1)[0] for f in functions[1:]
+                   if "VERDICTS)" in f]
+        self.assertEqual(readers, ["sealed_rows"])
+        callers = [f.split("(", 1)[0] for f in functions[1:]
+                   if "sealed_rows(" in f.split(":", 1)[1]]
+        self.assertEqual(callers, ["sealed_cost"])
+
+
+class TestHoldoutAggregate(CostCase):
+    """#141: a holdout run's every case is sealed, so `cost` priced nothing
+    and the meter charged an estimate. cost.holdout_aggregate prices the
+    sealed cases as totals, and withholds a total that would be one case's."""
+
+    HOLDOUT_RUN = "holdout-20260901T120000Z"
+
+    def sealed_run(self, sealed, visible=(), k=1, verdict_holdout=True,
+                   summary_n=None, **manifest):
+        """A run whose `sealed` cases [(id, input, output), ...] have case
+        directories and verdicts.jsonl rows but no results.json row."""
+        n = len(sealed) if summary_n is None else summary_n
+        out = self.write_run(
+            self.HOLDOUT_RUN, list(visible), k=k, mode="holdout",
+            selecting_split="holdout",
+            holdout={"n": n, "passes": n, "failures": 0,
+                     "gating_failures": 0, "looks_recorded": 1},
+            **manifest)
+        rows = [{"case_id": c[0], "verdict": c[1], "set": "holdout",
+                 "canary": False, "gating": True, "layers": {},
+                 "multi_turn": False, "turns_sent": 1, "failed_turn": None}
+                for c in visible]
+        for case_id, n_in, n_out in sealed:
+            rows.append({"case_id": case_id, "verdict": "pass",
+                         "set": "holdout", "canary": False, "gating": True,
+                         "layers": {}, "multi_turn": False, "turns_sent": 1,
+                         "failed_turn": None})
+            case = out / "cases" / case_id
+            self.write_json(case / "verdict.json", {
+                "case_id": case_id, "verdict": "pass",
+                "holdout": verdict_holdout, "k": k})
+            if n_in is not None:
+                self.write_json(case / "trajectory.json", {
+                    "status": "ok", "trajectory": {"llm_calls": [{
+                        "model": "m-1", "usage": {
+                            "input_tokens": n_in,
+                            "output_tokens": n_out}}]}})
+        (out / "verdicts.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        return out
+
+    def five(self):
+        return [(f"sealed-{i}", 1000 * (i + 1), 100) for i in range(5)]
+
+    def assert_no_sealed_id(self, payload, sealed):
+        blob = json.dumps(payload)
+        for case_id, *_ in sealed:
+            self.assertNotIn(case_id, blob)
+
+    def test_a_holdout_run_is_priced_as_one_total(self):
+        sealed = self.five()
+        rc, payload, err = run_script(self.sealed_run(sealed),
+                                      "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        agg = payload["cost"]["holdout_aggregate"]
+        self.assertEqual(agg["status"], "priced")
+        self.assertEqual(agg["n"], 5)
+        self.assertEqual(agg["cases_with_usage"], 5)
+        # 15k input at 2.50 + 500 output at 10.00 per Mtok.
+        self.assertEqual(agg["tokens"],
+                         {"input": 15000, "output": 500, "total": 15500})
+        self.assertEqual(agg["usd"], round(0.0375 + 0.005, 6))
+        # Totals only: no per-case row or mean, no model, no id.
+        for key in ("models", "usd_per_case_with_trace", "unpriced_models"):
+            self.assertNotIn(key, agg)
+        self.assert_no_sealed_id(payload, sealed)
+        # The visible block says why it is empty, not "trace-less".
+        self.assertEqual(payload["cost"]["status"], "unpriced")
+        self.assertIn("every case in this run is sealed",
+                      payload["cost"]["reason"])
+        self.assertIn("holdout_aggregate",
+                      payload["declared_limits"]["holdout"])
+
+    def test_the_visible_cases_stay_out_of_the_aggregate(self):
+        sealed = self.five()
+        run = self.sealed_run(sealed,
+                              visible=[("canary-1", "pass", 1.0, 7, 3)])
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["cost"]["tokens"]["total"], 10)
+        self.assertEqual(
+            payload["cost"]["holdout_aggregate"]["tokens"]["total"], 15500)
+        self.assertNotIn("reason", payload["cost"])
+
+    def test_a_total_over_too_few_cases_is_withheld(self):
+        """A one-case total IS that case's usage; below the floor nothing
+        but the count is said, tokens included."""
+        for sealed in ([("sealed-only", 123457, 89)],
+                       self.five()[:4],
+                       self.five()[:4] + [("sealed-untraced", None, None)]):
+            with self.subTest(n=len(sealed)):
+                shutil.rmtree(self.reports / self.HOLDOUT_RUN, True)
+                rc, payload, err = run_script(self.sealed_run(sealed),
+                                              "--prices", self.prices())
+                self.assertEqual(rc, 0, err)
+                agg = payload["cost"]["holdout_aggregate"]
+                self.assertEqual(agg["status"], "withheld")
+                self.assertEqual(set(agg), {"n", "floor", "status",
+                                            "reason", "cases_with_usage",
+                                            "note"})
+                self.assertEqual(agg["floor"],
+                                 score_cost.HOLDOUT_AGGREGATE_FLOOR)
+                self.assert_no_sealed_id(payload, sealed)
+                self.assertNotIn("123457", json.dumps(payload))
+
+    def test_the_floor_counts_only_cases_that_spent_something(self):
+        """Five sealed traces, four empty, zero or unusable: the "total"
+        would be the fifth case's own usage (Grok's review of #149)."""
+        empties = {
+            "no llm call": [],
+            "zero tokens": [{"model": "m-1", "usage": {
+                "input_tokens": 0, "output_tokens": 0}}],
+            "unusable count": [{"model": "m-1", "usage": {
+                "input_tokens": 1.5, "output_tokens": 1}}],
+        }
+        for name, calls in empties.items():
+            with self.subTest(name):
+                shutil.rmtree(self.reports / self.HOLDOUT_RUN, True)
+                sealed = [("sealed-big", 123457, 89)] + [
+                    (f"sealed-{i}", 1, 1) for i in range(4)]
+                run = self.sealed_run(sealed)
+                for case_id, *_ in sealed[1:]:
+                    self.write_json(
+                        run / "cases" / case_id / "trajectory.json",
+                        {"status": "ok",
+                         "trajectory": {"llm_calls": calls}})
+                rc, payload, err = run_script(run, "--prices", self.prices())
+                self.assertEqual(rc, 0, err)
+                agg = payload["cost"]["holdout_aggregate"]
+                self.assertEqual(agg["status"], "withheld")
+                self.assertEqual(agg["cases_with_usage"], 1)
+                self.assertNotIn("123457", json.dumps(payload))
+
+    def test_no_model_name_or_per_case_mean_is_published(self):
+        sealed = self.five()
+        run = self.sealed_run(sealed)
+        self.write_json(run / "cases" / "sealed-0" / "trajectory.json", {
+            "status": "ok", "trajectory": {"llm_calls": [{
+                "model": "only-sealed-model", "usage": {
+                    "input_tokens": 10, "output_tokens": 1}}]}})
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        agg = payload["cost"]["holdout_aggregate"]
+        self.assertEqual(agg["status"], "unpriced")
+        self.assertEqual(agg["unpriced_model_count"], 1)
+        self.assertNotIn("only-sealed-model", json.dumps(payload))
+        self.assertNotIn("usd", agg)
+
+    def test_a_sealed_conversation_is_priced_over_its_turns(self):
+        sealed = self.five()
+        run = self.sealed_run(sealed)
+        rows = [json.loads(line) for line in
+                (run / "verdicts.jsonl").read_text(
+                    encoding="utf-8").splitlines()]
+        rows[0].update(multi_turn=True, turns_sent=2)
+        (run / "verdicts.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        for turn in (1, 2):
+            self.write_json(
+                run / "cases" / "sealed-0" / "turns" / str(turn)
+                / "trajectory.json",
+                {"status": "ok", "trajectory": {"llm_calls": [{
+                    "model": "m-1", "usage": {"input_tokens": 500,
+                                              "output_tokens": 50}}]}})
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        # sealed-0's 1000/100 single trajectory is replaced by 2 x 500/50.
+        self.assertEqual(
+            payload["cost"]["holdout_aggregate"]["tokens"]["total"], 15500)
+
+    def test_a_sealed_set_it_cannot_reconcile_is_withheld_by_count(self):
+        cases = {
+            "not marked holdout": dict(verdict_holdout=False),
+            "count disagrees": dict(summary_n=6),
+        }
+        for name, kw in cases.items():
+            with self.subTest(name):
+                shutil.rmtree(self.reports / self.HOLDOUT_RUN, True)
+                sealed = self.five()
+                rc, payload, err = run_script(self.sealed_run(sealed, **kw),
+                                              "--prices", self.prices())
+                self.assertEqual(rc, 0, err)
+                agg = payload["cost"]["holdout_aggregate"]
+                self.assertEqual(agg["status"], "withheld")
+                self.assertIn("could not be reconciled", agg["reason"])
+                self.assertNotIn("tokens", agg)
+                self.assert_no_sealed_id(payload, sealed)
+
+    def test_an_unreadable_record_withholds_and_names_no_id(self):
+        sealed = self.five()
+        run = self.sealed_run(sealed)
+        for text in ("not json\n", '{"case_id": "../x"}\n'):
+            with self.subTest(text=text):
+                (run / "verdicts.jsonl").write_text(text, encoding="utf-8")
+                rc, payload, err = run_script(run, "--prices", self.prices())
+                self.assertEqual(rc, 0, err)
+                agg = payload["cost"]["holdout_aggregate"]
+                self.assertEqual(agg["status"], "withheld")
+                self.assert_no_sealed_id(payload, sealed)
+        (run / "verdicts.jsonl").unlink()
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["cost"]["holdout_aggregate"]["status"],
+                         "withheld")
+
+    def test_a_run_that_sealed_nothing_has_no_aggregate(self):
+        rc, payload, err = run_script(self.simple("smoke-20260901T120000Z"),
+                                      "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("holdout_aggregate", payload["cost"])
+
+    def test_every_repeat_of_the_sealed_cases_is_totalled(self):
+        """k = 3 under traces.source: response, the holdout plan's shape:
+        all_repeats is the look's spend, the number the meter wants."""
+        sealed = [(f"sealed-{i}", 100_000, 1_000) for i in range(5)]
+        run = self.sealed_run(sealed, k=3, **AG_UI)
+        for case_id, *_ in sealed:
+            case = run / "cases" / case_id
+            for n, usage in enumerate(REPEAT_USAGE, 1):
+                self.write_json(case / "repeats" / str(n) / "response.json",
+                                {"case_id": case_id, "repeat": n,
+                                 "body": sse_body(*usage)})
+            verdict = json.loads((case / "verdict.json").read_text(
+                encoding="utf-8"))
+            verdict["repeats"] = [{"n": n, "verdict": "pass", "layers": {}}
+                                  for n in (1, 2, 3)]
+            self.write_json(case / "verdict.json", verdict)
+        prices = self.prices(
+            models={"m-1": dict(PRICES["models"]["m-1"], **CACHE_TIERS)},
+            aliases={"<model attribute absent>": "m-1"})
+        rc, payload, err = run_script(run, "--prices", prices)
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["holdout_aggregate"]["all_repeats"]
+        self.assertEqual(every["status"], "priced")
+        self.assertEqual(every["repeats_sent"], 15)
+        self.assertEqual(every["cases_with_usage"], 5)
+        # The all-sealed run's visible figures say where the spend is.
+        self.assertIn("every case in this run is sealed",
+                      payload["cost"]["all_repeats"]["reason"])
+        self.assertIn("holdout_aggregate",
+                      payload["declared_limits"]["repeats"])
+        self.assertNotIn("not priced here",
+                         payload["declared_limits"]["repeats"])
+        self.assertEqual(every["messages_with_usage"], 15)
+        # 0.47 per case (TestEveryRepeat's arithmetic), five cases.
+        self.assertEqual(every["usd"], 2.35)
+        self.assertEqual(every["usd_per_message"], 0.156667)
+        self.assertNotIn("models", every)
+        self.assert_no_sealed_id(payload, sealed)
+        # A stream that wrote no trajectory.json still leaves each repeat's
+        # usage: the representative figure is withheld, all_repeats is not.
+        for case_id, *_ in sealed:
+            (run / "cases" / case_id / "trajectory.json").unlink()
+        rc, payload, err = run_script(run, "--prices", prices)
+        self.assertEqual(rc, 0, err)
+        agg = payload["cost"]["holdout_aggregate"]
+        self.assertEqual(agg["status"], "withheld")
+        self.assertEqual(agg["all_repeats"]["usd"], 2.35)
+        self.assertIn("all_repeats.usd", agg["note"])
+        # Below the floor the all-repeats figure is withheld as well.
+        shutil.rmtree(run / "cases" / "sealed-4" / "repeats")
+        verdict = run / "cases" / "sealed-4" / "verdict.json"
+        doc = json.loads(verdict.read_text(encoding="utf-8"))
+        doc["repeats"] = [{"n": n, "verdict": "pass"} for n in (1, 2, 3)]
+        self.write_json(verdict, doc)
+        rc, payload, err = run_script(run, "--prices", prices)
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["holdout_aggregate"]["all_repeats"]
+        self.assertEqual(every["status"], "withheld")
+        self.assertNotIn("usd", every)
 
 
 # -- one keep rule ---------------------------------------------------------
@@ -1155,6 +1440,66 @@ class TestAgainstTheRealRunner(unittest.TestCase):
                          {"input": 1000, "output": 100, "total": 1100})
         self.assertEqual(payload["cost"]["usd"], round(0.0025 + 0.001, 6))
         self.assertEqual(payload["latency"]["n"], 1)
+
+    def test_a_real_holdout_run_is_priced_in_aggregate_only(self):
+        """#141 on the runner's own artifacts: the sealed ids come from
+        verdicts.jsonl, are confirmed by verdict.json, and stay unsaid."""
+        from test_run_cases import FakeApp, make_case, make_plan, otlp, span
+
+        trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        state = tmp / ".evalup"
+        (state / "reports").mkdir(parents=True)
+        spans = tmp / "spans.json"
+        spans.write_text(json.dumps(otlp([
+            span(trace_id, "aaaaaaaaaaaaaaa1", "invoke_agent", "units"),
+            span(trace_id, "aaaaaaaaaaaaaaa2", "chat", "llm",
+                 **{"gen_ai.request.model": "m-1",
+                    "gen_ai.usage.input_tokens": 1000,
+                    "gen_ai.usage.output_tokens": 100}),
+        ])), encoding="utf-8")
+        app = FakeApp(lambda path, body, headers:
+                      (200, {"message": "ok", "traceId": trace_id}, {}))
+        self.addCleanup(app.close)
+        run_id = "holdout-20260901T120000Z"
+        sealed = [f"sealed-{i:04d}" for i in range(5)]
+        plan = make_plan(state, app.base_url, run_id=run_id, mode="holdout",
+                         selecting_split="holdout",
+                         cases=[make_case(c, split=["holdout"])
+                                for c in sealed])
+        plan["adapter"]["traces"] = {
+            "source": "otlp-file", "convention": "gen_ai",
+            "correlation": "response-field:traceId", "location": str(spans),
+            "completeness": {"quiescence_ms": 10, "max_wait_s": 2}}
+        plan["adapter"]["invocation"]["health_check"] = {
+            "method": "POST", "path": "/api/chat/ask", "expect_status": [200]}
+        plan["capability_matrix"] = {"routing": {"enabled": True},
+                                     "cost_latency": {"enabled": True}}
+        plan_path = tmp / "plan.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        import os
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "run_cases.py"),
+             "--plan", str(plan_path),
+             "--out", str(state / "reports" / run_id)],
+            capture_output=True, text=True,
+            env=dict(**os.environ, EVAL_USER_ID="1"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+        table = tmp / "prices.json"
+        table.write_text(json.dumps(PRICES), encoding="utf-8")
+        rc, payload, err = run_script(state / "reports" / run_id,
+                                      "--prices", table)
+        self.assertEqual(rc, 0, err)
+        agg = payload["cost"]["holdout_aggregate"]
+        self.assertEqual(agg["status"], "priced", agg)
+        self.assertEqual(agg["tokens"],
+                         {"input": 5000, "output": 500, "total": 5500})
+        self.assertEqual(agg["usd"], round(5 * (0.0025 + 0.001), 6))
+        blob = json.dumps(payload)
+        for case_id in sealed:
+            self.assertNotIn(case_id, blob)
 
     def test_cost_latency_is_declared_but_is_not_a_per_case_layer(self):
         """The Step 10 question, answered the other way. cost_latency is

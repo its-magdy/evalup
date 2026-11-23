@@ -19,6 +19,17 @@ says when a release bumps it.
 ## [Unreleased]
 
 ### Added
+- **`cost.holdout_aggregate`** in `score-cost` (#141). A holdout run's cases
+  are all sealed, so it priced nothing and optimize's meter charged a holdout
+  look at a one-repeat, cache-write-heavy rate (54–70% high on #27's third
+  run). The sealed cases are now priced as totals only (no per-case row, id,
+  path, model name or per-model breakdown), and each figure is withheld
+  below five sealed cases with usable, non-zero usage, where a total would
+  be one case's own usage. optimize charges a holdout run that block's
+  `all_repeats.usd`, else the holdout plan's dry-run estimate, which names its
+  source run (`estimate.from_run`, the latest priced regression run, not the
+  pinned baseline). No verdict
+  changes; `SCORING_VERSION` is unchanged.
 - **`summary.unusable_by_split`** in `validate-cases` (#132): per split, why
   each case `usable_by_split` leaves out is out (`canary`, `review_pending`,
   `review_quarantined`, `machine_signed`, `not_gating`). Additive; the

@@ -103,9 +103,16 @@ edit.
 **What `--budget $N` meters**: dollars, from `score_cost.py`'s `cost.usd` for
 each run (analyze §What it cost): `cost.all_repeats.usd` when it is priced
 (every repeat), else `cost.usd` × the run's `k` — one representative
-repeat times k, which overstates a cached app. A holdout run's cases are `holdout_excluded`, so charge
-it at the single-turn regression run's `usd_per_case_with_trace` (one call)
-× H, the holdout plan's app calls below (turns and `k` included).
+repeat times k, which overstates a cached app. A holdout run's cases are
+all sealed, so its `cost` is always unpriced; its spend is
+`cost.holdout_aggregate` (#141, totals only): charge its
+`all_repeats.usd` when that is priced (at k = 1, its `usd`). Otherwise
+(`withheld` under five sealed cases with usage, `unpriced`, or no
+per-repeat usage) charge the holdout plan's dry-run `estimate.usd` below:
+H × the per-message rate of the run its `--cost-from` named,
+`estimate.from_run` (every repeat's
+`all_repeats.usd / messages_with_usage` when priced). Name that run beside
+the figure.
 With the cost capability off or `status: "unpriced"` (trace-less, no
 `prices.json`, an unknown model) nothing meters dollars: say so, and take the
 budget as app messages or iterations instead (ask which) — never a dollar
@@ -118,8 +125,8 @@ time, printed, then "Proceed?" (skipped under a pre-approved budget). Build
 the regression plan (`--single-turn` as step 4 runs it), the plain
 regression plan (step 5's pin run after a keep) and the holdout plan (k = 3)
 as run §1 does, and `run_cases.py --dry-run` each: no app call, no look.
-Against a dollar budget, give each dry run `--cost-from <the last priced
-regression run's cost.json>` and sum the runs' `estimate.usd` (`usd_max`
+Against a dollar budget, give each dry run `--cost-from <the latest priced
+regression run's cost.json>` (by run id; not the pinned baseline) and sum the runs' `estimate.usd` (`usd_max`
 worst case) as the messages sum below; judge calls are not in it.
 With R, P and H their `app_calls_planned`:
 - messages = R + 3H on a seal's first iteration (step 4's noise pair plus

@@ -242,6 +242,10 @@ the only token source — and its latency block is still complete. Quote
 `cost.usd` is one representative repeat's: the run's spend is
 `cost.all_repeats.usd` (every repeat, `traces.source: response` only), and
 k × `cost.usd` overstates a cached app (`declared_limits.repeats`).
+`cost` leaves out the sealed cases; a holdout run's spend on them is
+`cost.holdout_aggregate` (#141; its `all_repeats.usd` at k > 1): totals
+only, never a per-case row or a model name, and `withheld` below five
+sealed cases with usage, where a total would be one case's.
 
 ### Rules and risks with no case — report them every time
 Every case names the profile's rule and risk ids it is for in `covers`
