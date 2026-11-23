@@ -58,8 +58,9 @@ The error-analysis-first entry, and the one branch that needs **no profile, no
 cases and no run**: a user with exported chats, support logs or a folder of
 saved traces can learn what is broken today. **The raw conversations are read
 by the read-only `trace-analyzer` agent (`evalup:trace-analyzer`; with no
-such type, judge-pass.md step 2's stand-in reading
-`${CLAUDE_PLUGIN_ROOT}/agents/trace-analyzer.md`), not by you**: launch it per batch of ~10 files, named by absolute path, and say that
+such type, the stand-in in
+`${CLAUDE_PLUGIN_ROOT}/skills/run/references/judge-pass.md` step 2), not by
+you**: launch it per batch of ~10 files, named by absolute path, and say that
 no case or expectation exists. It returns one block per conversation (id,
 user message, the app's reply quoted as data, tool calls, a one-line
 critique). Work from those blocks: write one viewer
@@ -131,7 +132,8 @@ asked in the closing question below, and keep them out of what `optimize`
 gets until answered. This flags a question; no verdict changes.
 
 Launch the `trace-analyzer` agent (registered as `evalup:trace-analyzer` when
-the plugin is installed) per failed case, on its normalized trajectory
+the plugin is installed; with no such type, the stand-in in
+`${CLAUDE_PLUGIN_ROOT}/skills/run/references/judge-pass.md` step 2) per failed case, on its normalized trajectory
 (raw spans when that view is insufficient) and its violated expectations.
 Name every file by absolute path in the assignment: the case directory
 `reports/<run-id>/cases/<id>/`, and the state dir's `adapter.yaml`,

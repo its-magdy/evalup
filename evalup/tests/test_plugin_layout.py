@@ -543,23 +543,33 @@ class TestFirstSessionFlow(unittest.TestCase):
     def test_every_agent_launch_names_a_stand_in(self):
         # #146: a subagent following the skills without the plugin loaded
         # has no `evalup:<agent>` type; one judge launch errored "agent type
-        # not found". Every skill file that launches an agent by its plugin
-        # type (frontmatter aside) must say what to launch instead.
+        # not found". Every place a skill names an agent by its plugin type
+        # (frontmatter aside) points, right there, at the one stand-in rule.
         types = re.compile(r"evalup:(judge|test-generator|trace-analyzer)\b")
-        launching = []
+        rule = "skills/run/references/judge-pass.md"
+        sites = 0
         for path in sorted(ROOT.joinpath("skills").rglob("*.md")):
+            rel = path.relative_to(ROOT).as_posix()
             text = path.read_text(encoding="utf-8")
             if text.startswith("---\n"):
                 text = text[text.index("\n---\n", 4) + 5:]
-            if types.search(text):
-                launching.append(path.relative_to(ROOT).as_posix())
-                self.assertIn("stand-in", text, path)
-        self.assertIn("skills/run/references/judge-pass.md", launching)
+            text = " ".join(text.split())
+            if rel == rule:
+                continue
+            for m in types.finditer(text):
+                sites += 1
+                near = text[m.end():m.end() + 160]
+                self.assertIn("stand-in", near, f"{rel}: {m.group(0)}")
+                self.assertIn("${CLAUDE_PLUGIN_ROOT}/" + rule, near,
+                              f"{rel}: {m.group(0)}")
+        self.assertGreaterEqual(sites, 4)
         judge_pass = self.read("skills", "run", "references", "judge-pass.md")
         for phrase in ("`subagent_type: general-purpose`",
+                       "`<plugin root>/agents/<name>.md`",
+                       "(`judge`, `test-generator`, `trace-analyzer`)",
                        "agent type not found",
-                       "A not-found launch reached no judge and spent "
-                       "nothing: do not record it."):
+                       "a not-found launch reached no judge and spent "
+                       "nothing, so do not record it"):
             self.assertIn(phrase, judge_pass)
 
     def test_discover_dirty_check_ignores_evalups_own_state(self):

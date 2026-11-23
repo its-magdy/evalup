@@ -46,20 +46,23 @@ run skill: one plain command per call, the script path written out.
    reported its total tokens). `record` prints `self_test: pass` or `fail`
    once both of a rubric's replies are in.
 
-   **No `evalup:judge` type** (the skills followed without the plugin
-   loaded: the type is not in the Agent tool's list, or a launch errors
-   "agent type not found"): launch a stand-in instead, for every launch of
-   the pass. `subagent_type: general-purpose`, `model` as above, or else
-   the agent file's own `model:` (judge.md's is `opus`), and the prompt
-   "Read `<plugin root>/agents/judge.md` (read `${CLAUDE_PLUGIN_ROOT}` in
+   **A stand-in, when an agent type is missing.** Followed without the
+   plugin loaded, a skill finds no `evalup:<name>` type for a plugin agent
+   (`judge`, `test-generator`, `trace-analyzer`): the type is not in the
+   Agent tool's list, or a launch errors "agent type not found". Launch a
+   stand-in for every launch of that agent instead: `subagent_type:
+   general-purpose`, `model` as the skill sets it, or else the agent file's
+   own `model:` (`judge.md` `opus`, the other two `sonnet`), and the prompt
+   "Read `<plugin root>/agents/<name>.md` (read `${CLAUDE_PLUGIN_ROOT}` in
    it as `<plugin root>`) and act as that agent: use only the tools its
    `tools:` line names. Your assignment:" — the plugin root written out as
-   an absolute path — then the launch's `prompt`, verbatim. A not-found
-   launch reached no judge and spent nothing: do not record it. A
-   stand-in's reply is written and recorded like the judge's and checked
-   the same way; say in the report's judged section that a stand-in judged
-   the pass. It is still a Claude model, so merge's same-family note, which
-   is about the app's model, does not change.
+   an absolute path — then the assignment the skill would have sent,
+   verbatim. For the judge here: a not-found launch reached no judge and
+   spent nothing, so do not record it; a stand-in's reply is written,
+   recorded and checked like the judge's; and the report's judged section
+   says that a stand-in judged the pass. It is still a Claude model, so
+   merge's same-family note, which is about the app's model, does not
+   change.
 3. **Cases.** Launch the `case` entries only for rubrics whose self-test
    printed `pass` — a failed self-test spends no case call — up to four per
    message, each recorded as in step 2. Stop when `record` reports
