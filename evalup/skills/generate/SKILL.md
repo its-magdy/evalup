@@ -45,8 +45,9 @@ Arguments, when the user typed any: `$ARGUMENTS`
 Precondition: `profile.yaml` exists with its core entries verified
 (`architecture.kind`, the invocation shape, one route target or tool seen
 live — discover §4 defines the set). If not, stop and route to discover; route
-targets still `verified: false` after a lean first session are normal. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`
-when the plugin is installed);
+targets still `verified: false` after a lean first session are normal. Delegate bulk generation to the `test-generator` agent (`evalup:test-generator`;
+else
+`${CLAUDE_PLUGIN_ROOT}/skills/run/references/judge-pass.md` step 2's stand-in);
 this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases by default, ~12 the minimum — what
 `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for.
@@ -59,9 +60,8 @@ Four documents own what they name; this file never restates them:
 [case-format.md](references/case-format.md) (schema + `validate_cases.py`'s
 error/warning line), [suite-sizing.md](references/suite-sizing.md) (quotas, and
 what a suite this size may claim),
-[generation-method.md](references/generation-method.md) (the evidence behind
-§0–§3 — rationale, not instructions: read it only when a rule here is
-challenged or a case falls outside it),
+[generation-method.md](references/generation-method.md) (§0–§3's evidence:
+read only when a rule here is challenged or a case falls outside it),
 `${CLAUDE_PLUGIN_ROOT}/agents/test-generator.md` (per-case authoring).
 
 ## 0. Prefer a different model family than the app under test
@@ -123,7 +123,7 @@ every tool, never mostly the one record a probe grounded.
 
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
 of the suite size plus a floor**, never a fixed count. Apply them to the size
-actually being generated — the holdout to the suite after it (§4) — and note
+being generated — the holdout to the suite after it (§4) — and note
 when a floor overrode its ratio. suite-sizing.md holds the numbers and the size caveat, which goes in the
 metadata too.
 
@@ -146,7 +146,9 @@ on obvious junk. Drop a case, logging the reason in the template's `rejected:`
 list, when it is:
 
 1. **not self-contained** — score it, retry a fixed few times, then drop it;
-2. **not grounded** — no oracle (a seeded fixture's data counts) for the
+2. **not grounded** — no oracle (a seeded fixture's data counts,
+   dumped before §2 when code builds it:
+   `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/oracle.md`) for the
    expectation, so none gets invented:
    drop the case or demote it to `pending`;
 3. **a near-duplicate** — ROUGE-L ≥ 0.7 against any existing case;

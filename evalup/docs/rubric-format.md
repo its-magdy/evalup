@@ -184,6 +184,7 @@ frontmatter, and only the criteria form's fields are read at run time):
 ---
 rubric_id: billing-answer          # stable forever; see Ids above
 version: 2                         # integer; bump on every criterion change
+                                   # (never for a self_test edit: §The criteria form)
 last_calibrated: 2026-07-15        # record-keeping; null before calibration
 calibration_notes: >               # record-keeping one-line changelog
   v2 split "accurate AND concise" into correct_amount + explanation_clarity
@@ -282,6 +283,23 @@ judge's resolved model id** — so a version bump, or a new model behind the
 alias, sends a rubric back to provisional until it is recalibrated. No judged
 verdict gates in v1 (judge-run.md §8). A case pin older than the file is
 judged on the file's version and can never be `calibrated`: re-pin it.
+
+**What a bump is for, in the criteria form.** Bump `version` for any change
+to what a case is graded on: a criterion added, removed or renamed, a
+`question` reworded, `reference_guided` or `canary_guard` changed. Then
+re-pin every case that cites the rubric (`<rubric_id>-v<new>`), and the
+rubric is provisional again until it is recalibrated at that version. An
+edit to **`self_test` alone** — a clearer good answer, a bad one that fails
+the criterion it names — is not a bump and needs no re-pin: the self-test is
+graded before any case, at every pass, and a calibration measures the
+criteria on cases, not on it. Record the edit in `calibration_notes`. The
+file's sha256 still changes, so `judge-run diff` refuses to compare a pass
+before the edit with one after (judge-run.md §7), and a pass already
+planned keeps its snapshot: the edit takes effect at the next `plan` (or
+`--restart`). The same holds for the frontmatter's record-keeping fields
+and the body. A criterion's `rule:` tag never reaches the judge's prompt,
+so moving it changes `rule_report.py`'s attribution, never a verdict: no
+bump either.
 
 The quickstart ships one: `examples/quickstart/.evalup/rubrics/grounded-answer.md`.
 

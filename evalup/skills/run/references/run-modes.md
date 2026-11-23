@@ -58,6 +58,14 @@ No mode flag behaves as `regression` (full suite, hard gate). There is no
   verdicts (also emits pass@k and the pass@k−pass^k flakiness gap). `--k` may
   override with any k ≥ 1 and nothing warns; below 3, pass^k loses meaning,
   so say so in the report.
+- **A pass is not an answer checked.** Each repeat rolls up on its own
+  (runner-contract §10's rollup, rule 5): a repeat that ended on approval
+  cards with no text has its `answer` row `unscored` (#103) and still passes
+  on its tools, so the case counts as a pass in pass^k. `gate.py`'s `unscored`
+  counts cases whose verdict is `unscored`, never layer rows, so it can read 0
+  beside such a repeat. Read `verdict.json`'s `repeats[].layers` and say in
+  the report how many passing cases had an `unscored` `answer` row in any
+  repeat, with its reason: "passed with the answer unchecked".
 - **Gate**: hard. The CI step exits nonzero on gating failures — this is the
   mode CI runs pre-merge/nightly (SKILL.md §6; the runner itself always exits 0
   on a red suite).

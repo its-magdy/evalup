@@ -57,8 +57,9 @@ Arguments, when the user typed any: `$ARGUMENTS`
 The error-analysis-first entry, and the one branch that needs **no profile, no
 cases and no run**: a user with exported chats, support logs or a folder of
 saved traces can learn what is broken today. **The raw conversations are read
-by the read-only `trace-analyzer` agent (`evalup:trace-analyzer`), not by
-you**: launch it per batch of ~10 files, named by absolute path, and say that
+by the read-only `trace-analyzer` agent (`evalup:trace-analyzer`; with no
+such type, judge-pass.md step 2's stand-in reading
+`${CLAUDE_PLUGIN_ROOT}/agents/trace-analyzer.md`), not by you**: launch it per batch of ~10 files, named by absolute path, and say that
 no case or expectation exists. It returns one block per conversation (id,
 user message, the app's reply quoted as data, tool calls, a one-line
 critique). Work from those blocks: write one viewer
@@ -262,7 +263,9 @@ short sessions until the numbers hold, so optimize for low friction per case.
 Run rubric-format.md's two passes: discovery, ~30 cases, then a stratified
 validation pass of ~100–200. Take every number from there — TPR and TNR and
 Cohen's κ, never raw accuracy, ≥90% on a slice the judge prompt never saw.
-Launch the `judge` agent (`evalup:judge` when installed) with profile.yaml's
+Launch the `judge` agent (`evalup:judge` when installed; with no such type,
+the stand-in in `${CLAUDE_PLUGIN_ROOT}/skills/run/references/judge-pass.md`
+step 2) with profile.yaml's
 `judge.model` as the model override (agents/judge.md), and record that model
 in the calibration notes: calibration must measure the model a judged run would
 use, not the agent's default.

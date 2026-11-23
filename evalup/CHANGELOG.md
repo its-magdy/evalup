@@ -42,6 +42,22 @@ says when a release bumps it.
   --templates` feeds it. No verdict changes.
 
 ### Changed
+- **Guidance gaps from the #27 re-run** (#146). Prose only; no verdict,
+  judge rule or script changes. With no `evalup:judge` (or
+  `evalup:test-generator`, `evalup:trace-analyzer`) agent type, as when the
+  skills are followed without the plugin loaded, judge-pass.md step 2 now
+  says how to launch a `general-purpose` stand-in that reads the agent file,
+  and that a not-found launch is not recorded. run-modes.md says why a
+  repeat that ended on approval cards with no text passes on its tools while
+  `gate.py` reads 0 unscored (it counts cases, not layer rows), and asks the
+  report to count such cases. rubric-format.md says what bumps a criteria
+  rubric's `version` (a criterion change: re-pin, recalibrate) and what does
+  not (a `self_test` edit, record-keeping, a `rule:` tag). oracle.md
+  §Fixture dump adds the step that exports a seed built by code before
+  generation; generate and the test-generator point to it.
+  At k > 1 the judged section of the report now says each verdict covers
+  the representative repeat only; judging every repeat stays out of v1, by
+  the owner's decision (about 3× the calls).
 - **An owner who is not in the skill's session has a route to sign off**
   (#131). A relayed answer still accepts nothing (#114); label-lifecycle.md
   §The owner is not in this session now says what the skill does then (stop,

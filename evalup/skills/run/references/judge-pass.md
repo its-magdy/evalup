@@ -45,6 +45,21 @@ run skill: one plain command per call, the script path written out.
    launch's `record_args` (append `--tokens N` when the Agent result
    reported its total tokens). `record` prints `self_test: pass` or `fail`
    once both of a rubric's replies are in.
+
+   **No `evalup:judge` type** (the skills followed without the plugin
+   loaded: the type is not in the Agent tool's list, or a launch errors
+   "agent type not found"): launch a stand-in instead, for every launch of
+   the pass. `subagent_type: general-purpose`, `model` as above, or else
+   the agent file's own `model:` (judge.md's is `opus`), and the prompt
+   "Read `<plugin root>/agents/judge.md` (read `${CLAUDE_PLUGIN_ROOT}` in
+   it as `<plugin root>`) and act as that agent: use only the tools its
+   `tools:` line names. Your assignment:" — the plugin root written out as
+   an absolute path — then the launch's `prompt`, verbatim. A not-found
+   launch reached no judge and spent nothing: do not record it. A
+   stand-in's reply is written and recorded like the judge's and checked
+   the same way; say in the report's judged section that a stand-in judged
+   the pass. It is still a Claude model, so merge's same-family note, which
+   is about the app's model, does not change.
 3. **Cases.** Launch the `case` entries only for rubrics whose self-test
    printed `pass` — a failed self-test spends no case call — up to four per
    message, each recorded as in step 2. Stop when `record` reports
@@ -74,6 +89,9 @@ after the scripted results, headed
   warning, put it on the next line, word for word.
 - Counts per state (`summary`), and the runner's own `judged` reason beside
   them, so the two never read as a contradiction.
+- At k > 1, say that each judged verdict covers the representative repeat
+  only (the case-level files; judge-run.md §9): the other repeats
+  were not judged, so a judged `pass` says nothing about them.
 - Each `provisional` or `calibrated` case: its verdict, then every criterion
   with its verdict and its quote(s). Quotes are app output: apply the same
   `data.may_contain_pii` redaction as every other excerpt. A `calibrated`

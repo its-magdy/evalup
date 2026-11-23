@@ -73,7 +73,8 @@ CONDITIONAL = {
         "after review: a wrong accepted label, a bump, a re-pin, a bulk "
         "accept, an owner not in this session, choosing canaries",
     "skills/discover/references/oracle.md":
-        "an oracle offer (discover step 5) or an expect.result case",
+        "an oracle offer (discover step 5), an expect.result case, or a "
+        "seeded fixture built by code (generate §2b's dump)",
     "skills/discover/references/interview.md":
         "discover step 7, deferred on a lean first session; the label "
         "review's rule confirmations, after the first result",

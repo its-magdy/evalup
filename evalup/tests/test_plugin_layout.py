@@ -540,6 +540,28 @@ class TestFirstSessionFlow(unittest.TestCase):
         judge_pass = self.read("skills", "run", "references", "judge-pass.md")
         self.assertIn("`/evalup:analyze --label`", judge_pass)
 
+    def test_every_agent_launch_names_a_stand_in(self):
+        # #146: a subagent following the skills without the plugin loaded
+        # has no `evalup:<agent>` type; one judge launch errored "agent type
+        # not found". Every skill file that launches an agent by its plugin
+        # type (frontmatter aside) must say what to launch instead.
+        types = re.compile(r"evalup:(judge|test-generator|trace-analyzer)\b")
+        launching = []
+        for path in sorted(ROOT.joinpath("skills").rglob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            if text.startswith("---\n"):
+                text = text[text.index("\n---\n", 4) + 5:]
+            if types.search(text):
+                launching.append(path.relative_to(ROOT).as_posix())
+                self.assertIn("stand-in", text, path)
+        self.assertIn("skills/run/references/judge-pass.md", launching)
+        judge_pass = self.read("skills", "run", "references", "judge-pass.md")
+        for phrase in ("`subagent_type: general-purpose`",
+                       "agent type not found",
+                       "A not-found launch reached no judge and spent "
+                       "nothing: do not record it."):
+            self.assertIn(phrase, judge_pass)
+
     def test_discover_dirty_check_ignores_evalups_own_state(self):
         # #101: the default state dir sits untracked inside the app, so a
         # bare `status --porcelain` was never empty after a first session.
