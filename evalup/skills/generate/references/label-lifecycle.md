@@ -1,8 +1,9 @@
 # After review: fixing a label, bumping the version, re-pinning
 
 Read this when an **accepted** case looks wrong, when you edit any case
-after its review, when `reports/baseline.json` must change, or when a human
-wants to accept many cases at once. Review *before* acceptance is generate
+after its review, when `reports/baseline.json` must change, when a human
+wants to accept many cases at once, or when the owner is not in this
+session (a relay, headless) or canaries are to be chosen. Review *before* acceptance is generate
 §3; this is what comes after.
 
 ## What the hash and `dataset_version` cover
@@ -91,6 +92,73 @@ batch in one decision, and the decision stays theirs:
 Say in the handover how many were accepted this way. A bulk accept is a
 lighter review than §3's, so a wrong label found later is fixed as above
 (Correcting an accepted label), not by un-accepting the batch.
+
+## The owner is not in this session
+
+Read this when the owner's answers reach you through someone else: a
+coordinating agent that drives the skills, a delegate, a brief or message
+that quotes the owner (verbatim or not), or a headless run. Each is a
+relay, and a relay accepts no case, confirms no rule and chooses no canary
+(#114). Quoting it more exactly changes nothing.
+
+**What you do.** Stop the review. Write no `accepted`, no `confirmed`, no
+`canary` tag and no owner's name: leave every case and rule as it is. Then
+tell whoever you report to that the sign-off is the owner's, name the two
+routes below, and list, per case and per rule, exactly what the owner would
+write (the shapes below, with their name and date left for them). Carry on
+with what needs no sign-off; a run on `pending` cases is still a run.
+
+**Route 1: the owner edits the state themselves**, by hand or with a
+script they run themselves (an agent's write in their name is the relay
+again). Per case they accept, in its case file:
+
+```yaml
+review: { status: accepted, by: <their name>, at: <YYYY-MM-DD> }
+gating: true        # leave false if a rule it covers is still unconfirmed
+```
+
+A case they reject: fix it, or delete the file. A `quarantined` case is
+accepted the same way. Per canary they choose (an accepted case only, never
+a conversation or a `holdout` case): add `smoke` and `canary` to its
+`split`, e.g. `split: [full, smoke, canary]`. Per rule they confirm, in
+profile.yaml's `business_rules`:
+
+```yaml
+status: confirmed
+confirmed_by: <their name>
+```
+
+A struck rule is deleted, with a dated line in findings.md. Then one
+`dataset_version` bump in `datasets/dataset.yaml`, then
+`evalup convert-suite` and `evalup validate-cases` as run §1 spells them.
+The bump, the convert and the validate sign
+nothing, so you may run them once the owner says the edit is done; then
+re-pin (below).
+
+**Route 2: the owner runs the review in their own Claude Code session**
+in the app's repo (`/evalup:generate` §3, or §Accepting in bulk above),
+answering in person. That session writes the fields above itself.
+
+**What the validator accepts.** `review.status` is `accepted`, `pending` or
+`quarantined`. `review.by` and `confirmed_by` must be a person's name or
+handle, a non-empty string. Refused, case by case: empty or null; a
+generator's stamp (starting `generate`, `test-generator`, `auto`,
+`machine`); and any whole word naming an agent, a model or a relay
+(`agent`, `assistant`, `bot`, `ai`, `llm`, `model`, `evalup`, `discover`,
+`system`, `delegate`, `relayed`, `proxy`, `on behalf`, `subagent`,
+`claude`, `gpt`, `gemini`, `fable`, …). A refused `review.by` on an accepted
+case warns `machine_accepted`; a refused `confirmed_by` warns
+`rule_confirmed_unattributed` and the rule is read as inferred, so a
+gating case or a canary covering it is an ERROR (`unconfirmed_rule_gates`).
+Nothing reads `review.at`; write the date anyway.
+
+## Choosing canaries is the owner's
+
+A canary's `fail` aborts the run, so the tag acts as a gate: choosing one
+is the owner's, like accepting a case. You propose candidates (generate §3
+lists them with the review batch); only the owner adds `canary`, in this
+session or by their own edit (Route 1). No script records who chose a
+canary, so this rule is yours to keep.
 
 ## A sealed holdout case, before its first look
 

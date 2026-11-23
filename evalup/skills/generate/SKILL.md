@@ -50,9 +50,9 @@ when the plugin is installed);
 this skill owns the plan, the review pass, and the splits. Size the suite to
 the budget: ~30 cases by default, ~12 the minimum — what
 `${CLAUDE_PLUGIN_ROOT}/skills/start/SKILL.md`'s first session asks for.
-`--count N` sets that size instead (§1's quotas still apply as ratios plus
-floors). `--layer routing|tools|answer` limits §1's grid to the cases that
-exercise that layer, to extend a suite where one layer is thin; the new
+`--count N` sets that size (quotas stay ratios plus floors).
+`--layer routing|tools|answer` limits §1's grid to the cases that exercise
+that layer, to extend a suite where one layer is thin; the new
 cases go beside the old ones and no existing case changes.
 
 Four documents own what they name; this file never restates them:
@@ -138,7 +138,7 @@ one tuple at a time as a natural-language message, **in a separate prompt**.
 Each realized case then carries `template_id` + `instantiation_params`, its
 tuple; a one-off writes `template_id: null` and never omits the key. The split
 is load-bearing because diversity is only checkable in the tuple space
-(generation-method.md, with the two expansion strategies).
+(generation-method.md).
 
 ### 2b. Filter before review — assume half the goldens are junk
 Filter mechanically BEFORE the human pass in §3; those 15 minutes must not go
@@ -201,8 +201,9 @@ run shows the app disagreeing with. Never a case §4 seals: choose the
 holdout first; leave it out (its check fixes: `evalup prelook-fix`,
 label-lifecycle.md). Present each as the message, the
 expected label and a one-line why — accept/fix/delete — and write the
-review status per case. Bulk acceptance: label-lifecycle.md
-§Accepting in bulk.
+review status per case. Add canary candidates per §4, untagged: a canary
+`fail` aborts the run, so choosing one is the owner's. Bulk acceptance:
+label-lifecycle.md §Accepting in bulk.
 
 **The rules its cases cover ride the same review.** A lean discover
 confirms none, and a case naming an unconfirmed rule (`covers`,
@@ -219,13 +220,13 @@ name or relay. The other rules wait for discover's interview.
 
 **First session** (start's step 4): do not stop for this pass before the
 run — a stop ends the turn and its pre-approvals. List the batch (id,
-label, one-line why, then its rules) in the handover and leave every case
-`pending`. Canary candidates join it untagged until accepted: a canary
-`fail` aborts the run, reviewed or not. Start offers the review after the
-first result, whose smoke run is the probe that finds the third kind.
+label, one-line why, its rules, its canary candidates) in the handover and
+leave every case `pending`. Start offers the review after the first result,
+whose smoke run is the probe that finds the third kind.
 
 **Only a human may set `review.status: accepted`, and `review.by` must be that
-human's name** — never the generator, an agent or a delegate's relay.
+human's name** — never the generator, an agent or a delegate's relay
+(owner not in this session: label-lifecycle.md).
 Everything the generator produces starts `pending`. **Never derive an
 expectation by reading the app's source**, and prefer probing the app BEFORE
 labeling. generation-method.md says why each of these three matters.
@@ -266,13 +267,13 @@ on that.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary
-  asserts content — `expect.result` or `expect.answer` — because drift shows
-  up in the answer and `http: 200` comes back either way (suite-sizing.md,
-  which also says when the floor applies). **Every canary also carries
-  `smoke`**: a run selects on its mode's split alone, so a canary tagged only
+  asserts content (`expect.result` or `expect.answer`): drift shows in the
+  answer, and `http: 200` comes back either way (suite-sizing.md).
+  **Every canary also carries `smoke`**: a run selects on its mode's split alone, so a canary tagged only
   `[full, canary]` never runs under `--smoke` (the validator warns,
   `canary_not_in_smoke`). Canaries sit outside every denominator; on a smoke
-  run one scoring wrong aborts it (exit 4).
+  run one scoring wrong aborts it (exit 4). The owner tags them from
+  §3's candidates.
 
 Splits are a **field on the case** (`split: [full, smoke]`), not a directory
 copy, and case ids are **opaque and stable** — `c-<hash8>`, encoding neither

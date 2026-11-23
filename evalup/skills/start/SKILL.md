@@ -90,7 +90,7 @@ session, without stopping between them:
 3. **Show the top 3 design findings now.** They are often worth more than the
    eval, they cost the user nothing, and they are the reason to keep going.
 4. **`generate`, small: ~12 cases**, no holdout (skipped below 25), smoke
-   only: no case is tagged `canary` until a human accepts it, since a canary
+   only: no case is tagged `canary` until the owner chooses it, since a canary
    `fail` aborts the run. Real messages or transcripts to hand go first — 10
    real ones beat 30 synthetic. **No review before the run**: every case stays `pending` and
    `gating: false`, and generate lists the targeted review batch (hard-negative
