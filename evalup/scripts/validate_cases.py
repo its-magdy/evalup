@@ -1326,7 +1326,8 @@ def check_case(rep, case, all_ids, enabled, index=None):
     return {"id": case_id, "category": category, "test_type": test_type,
             "split": case.get("split"), "unit": case.get("unit"),
             "layers": layers, "graded": graded, "http_only": http_only,
-            "one_off": declared_one_off, "usable": usable(case)}
+            "one_off": declared_one_off, "usable": usable(case),
+            "unusable_reason": unusable_reason(case)}
 
 
 def usable(case):
@@ -1344,6 +1345,24 @@ def usable(case):
     by = review.get("by")
     return (gates(case) and review.get("status") == "accepted"
             and not machine_signed(by))
+
+
+def unusable_reason(case):
+    """Why usable() is false, one reason per case, first match wins: a
+    canary, a review status short of `accepted` (`review_<status>`, or
+    `review_missing`), an acceptance signed by a machine, a case that does
+    not gate. None when the case is usable. Explains `usable_by_split`'s gap
+    to `by_split`; it decides nothing."""
+    if "canary" in (case.get("split") or []):
+        return "canary"
+    review = mapping(case.get("review"))
+    status = review.get("status")
+    if status != "accepted":
+        return f"review_{status}" if is_nonempty_str(status) \
+            else "review_missing"
+    if machine_signed(review.get("by")):
+        return "machine_signed"
+    return None if gates(case) else "not_gating"
 
 
 def check_manifest(rep, cases, records, manifest):
@@ -2359,6 +2378,18 @@ def main():
             if record["usable"]:
                 key = name if isinstance(name, str) else str(name)
                 usable_counts[key] = usable_counts.get(key, 0) + 1
+    # What `usable_by_split` left out, per split and reason (each case once,
+    # under its first reason): `by_split` minus `usable_by_split`, explained.
+    # Every split is a key, an empty one included.
+    unusable_counts = {name: {} for name in split_counts}
+    for record in records:
+        splits = record["split"] if isinstance(record["split"], list) else []
+        reason = record["unusable_reason"]
+        for name in splits:
+            if reason:
+                key = name if isinstance(name, str) else str(name)
+                bucket = unusable_counts.setdefault(key, {})
+                bucket[reason] = bucket.get(reason, 0) + 1
     summary = {
         "cases": len(cases),
         "by_category": categories,
@@ -2366,6 +2397,8 @@ def main():
                               if r["test_type"] is not None),
         "by_split": dict(sorted(split_counts.items())),
         "usable_by_split": dict(sorted(usable_counts.items())),
+        "unusable_by_split": {k: dict(sorted(v.items())) for k, v in
+                              sorted(unusable_counts.items())},
         "one_off": sum(1 for r in records if r["one_off"]),
         "by_graded_layer": layer_counts,
         "enabled_layers": sorted(enabled),

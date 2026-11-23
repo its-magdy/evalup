@@ -158,6 +158,18 @@ class TestCleanSuite(ValidateTest):
                          {"canary": 1, "full": 7, "holdout": 1, "smoke": 2})
         self.assertEqual(summary["usable_by_split"],
                          {"canary": 0, "full": 1, "holdout": 0, "smoke": 1})
+        # The gap to by_split, explained: one reason per case, per split.
+        self.assertEqual(summary["unusable_by_split"], {
+            "canary": {"canary": 1},
+            "full": {"canary": 1, "machine_signed": 2, "not_gating": 1,
+                     "review_pending": 1, "review_quarantined": 1},
+            "holdout": {"review_pending": 1},
+            "smoke": {"canary": 1},
+        })
+        for name, n in summary["by_split"].items():
+            self.assertEqual(
+                n, summary["usable_by_split"][name]
+                + sum(summary["unusable_by_split"][name].values()))
 
     def test_accepts_jsonl_and_wrapper_and_stdin(self):
         case = good_case()

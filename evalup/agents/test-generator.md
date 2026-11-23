@@ -187,6 +187,9 @@ Rules:
    A rule with no `check:` goes in `expect.answer.rules` only when the
    case pins a rubric with a criterion tagged `rule: <id>` (`rule_unbound`
    otherwise).
+   Tag a rule on one criterion per rubric: the validator rejects a second
+   criterion with the same `rule:` in a rubric (`rubric_criterion`, "one
+   criterion per rule"), so fold the checks into one question.
 
 Your final message lists the files written, counts per grid cell, each
 rule's case ids or the reason it has none, and the cases flagged for review
