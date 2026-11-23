@@ -10,12 +10,14 @@ runner is gone (4), and bad input (2) -- and that it never writes.
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 SCRIPT = SCRIPTS / "wait_run.py"
@@ -109,6 +111,58 @@ class WaitRunTest(unittest.TestCase):
         self.assertEqual(out["last_event"]["event"], "case_start")
         self.assertIn("--resume", out["resume"])
         self.assertLess(out["waited_s"], 10)
+
+    def test_a_rate_limited_resume_carries_not_before_one_window_on(self):
+        # #144: --resume at once would share the killed run's last window.
+        self.write("results.json", results(self.run_id, "running"))
+        self.write("manifest.yaml", {"invocation": {
+            "mode": "http", "rate_limit": {"requests": 20, "window_s": 2400}}})
+        before = datetime.now(timezone.utc).replace(microsecond=0)
+        rc, out, proc = wait_run(self.run_dir, "--timeout-s", "30")
+        after = datetime.now(timezone.utc)
+        self.assertEqual(rc, 4, proc.stdout + proc.stderr)
+        when = datetime.strptime(out["not_before"], "%Y-%m-%dT%H:%M:%SZ") \
+            .replace(tzinfo=timezone.utc)
+        self.assertLessEqual(before + timedelta(seconds=2400), when)
+        self.assertLessEqual(when, after + timedelta(seconds=2401))  # rounded up
+        self.assertEqual(shlex.split(out["resume"]),
+                         ["evalup", "run-cases", "--plan", "<plan.json>",
+                          "--out", str(self.run_dir), "--resume",
+                          "--not-before", out["not_before"]])
+        self.assertIn("no new one", out["holdout_look"])
+
+    def test_the_resume_keeps_the_baseline_and_quotes_its_paths(self):
+        # #144: a resume without --baseline-verdicts rewrites the manifest
+        # with none and scores no comparison; a space must not split a path.
+        spaced = pathlib.Path(self._tmp.name) / "My App" / self.run_id
+        spaced.mkdir(parents=True)
+        self.run_dir = spaced
+        self.write("results.json", results(self.run_id, "running"))
+        baseline = "My App/reports/base/verdicts_for_stats.jsonl"
+        self.write("manifest.yaml", {"baseline_verdicts": baseline,
+                                     "invocation": {"mode": "http"}})
+        rc, out, _ = wait_run(spaced, "--timeout-s", "30")
+        self.assertEqual(rc, 4)
+        argv = shlex.split(out["resume"])
+        self.assertEqual(argv[argv.index("--out") + 1], str(spaced))
+        self.assertEqual(argv[argv.index("--baseline-verdicts") + 1], baseline)
+
+    def test_not_before_rounds_up_to_the_second(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import wait_run as module
+        self.write("manifest.yaml", {"invocation": {
+            "rate_limit": {"min_interval_s": 0.4}}})
+        now = datetime(2026, 11, 23, 10, 0, 0, 700000, tzinfo=timezone.utc)
+        _, when = module.resume_of(str(self.run_dir), now=now)
+        self.assertEqual(when, "2026-11-23T10:00:02Z")
+
+    def test_with_no_budget_the_resume_has_no_not_before(self):
+        self.write("results.json", results(self.run_id, "running"))
+        self.write("manifest.yaml", {"invocation": {"mode": "http"}})
+        rc, out, _ = wait_run(self.run_dir, "--timeout-s", "30")
+        self.assertEqual(rc, 4)
+        self.assertNotIn("--not-before", out["resume"])
+        self.assertNotIn("not_before", out)
 
     def test_returns_0_as_soon_as_the_run_finalizes_during_the_wait(self):
         self.write("results.json", results(self.run_id, "running"))

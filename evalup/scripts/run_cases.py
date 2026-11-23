@@ -79,6 +79,7 @@ from datetime import datetime, timezone
 import _exec
 import _sse
 from _common import (
+    BACKGROUND_CAP_S,
     FULL_MODE_REMOVED,
     HARNESS_VERSION,
     MATRIX_KEY_OF_LAYER,
@@ -93,6 +94,8 @@ from _common import (
     infra_rate,
     loads_strict,
     nfc,
+    resume_command,
+    resume_gap_s,
     run_bounded,
     scoring_comparison,
     secret_forms,
@@ -4668,7 +4671,7 @@ def load_plan(source):
         bad_input(f"plan is not valid JSON: {exc}")
 
 
-def dry_run_report(runner):
+def dry_run_report(runner, plan_path=None):
     """SS1: pre-flight and the resolved inputs, zero app calls, zero writes."""
     plan = runner.plan
     completeness = (runner.adapter.get("traces") or {}).get(
@@ -4741,7 +4744,34 @@ def dry_run_report(runner):
             "latency adds to this; wait_floor_s overlaps it. Paced within "
             "one process: a run started right after another, or a --resume, "
             "may share that run's last window")
+        if report["pace_floor_s"] >= BACKGROUND_CAP_S:
+            report["resume_expected"] = resume_expected(runner, plan_path)
     return report
+
+
+def resume_expected(runner, plan_path):
+    """#144: the pace alone reaches the harness's cap on a backgrounded Bash
+    call, so the runner will likely be killed mid-run and resumed. Said
+    before the run, with the command, so a resume is the plan rather than a
+    surprise. Changes nothing the run does."""
+    gap = resume_gap_s(runner.rate_limit)
+    return {
+        "note": (
+            f"pace_floor_s alone reaches {BACKGROUND_CAP_S} s, Claude Code's "
+            "cap on a Bash call moved to the background, and latency adds to "
+            "it: expect the runner to be killed mid-run and plan to resume "
+            "it. `evalup wait-run` exits 4 when it is, and prints this "
+            f"command with --not-before filled in, {gap:g} s after it found "
+            "the runner gone: a --resume without it shares the killed run's "
+            "last window and hits the limit at once. Resuming spends no new "
+            "holdout look: the ledger holds one row per run id"
+            + ("" if plan_path and plan_path != "-" else
+               "; a plan read from stdin must be in a file to resume")),
+        "gap_s": gap,
+        "command": resume_command(
+            runner.out, plan_path, runner.baseline_verdicts,
+            "<the not_before wait-run exit 4 prints>"),
+    }
 
 
 # --not-before (#111): the longest a runner will wait to start. A rate-limit
@@ -5080,7 +5110,7 @@ def verify_command(out_dir):
 
 
 def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None,
-        not_before=None, cost_from=None):
+        not_before=None, cost_from=None, plan_path=None):
     validate_plan(plan, out_dir)
     baseline_warning = (validate_baseline(plan, baseline_verdicts)
                         if baseline_verdicts else None)
@@ -5090,7 +5120,7 @@ def run(plan, out_dir, resume=False, dry_run=False, baseline_verdicts=None,
 
     if dry_run:
         runner.preflight()
-        report = dry_run_report(runner)
+        report = dry_run_report(runner, plan_path)
         report["estimate"] = estimate_block(runner, report, cost_from)
         if not_before is not None:
             report["not_before"] = not_before.astimezone(
@@ -5622,7 +5652,8 @@ def main():
         return run(load_plan(a.plan), a.out, resume=a.resume,
                    dry_run=a.dry_run,
                    baseline_verdicts=a.baseline_verdicts,
-                   not_before=not_before, cost_from=a.cost_from)
+                   not_before=not_before, cost_from=a.cost_from,
+                   plan_path=a.plan)
     except RunnerExit as exc:
         # Every non-zero exit prints {"error": ...} as JSON on STDOUT, so a
         # caller parses ONE shape regardless of outcome -- the scorers'

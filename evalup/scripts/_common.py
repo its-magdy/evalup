@@ -12,6 +12,7 @@ both work).
 """
 import json
 import re
+import shlex
 import signal
 import sys
 import threading
@@ -451,6 +452,39 @@ def infra_rate(infra_errors, n, skipped, ndigits=4):
     """
     sent = n - skipped
     return round(infra_errors / sent, ndigits) if sent else 0.0
+
+
+# #144: Claude Code kills a Bash call it has moved to the background at
+# thirty minutes, so a run paced past this is expected to need a resume.
+BACKGROUND_CAP_S = 1800
+
+
+def resume_gap_s(rate_limit):
+    """The wait a resume of a killed run owes the app's limiter: one whole
+    `window_s` (or `min_interval_s` with no window), since the new process
+    has no record of the dead one's calls (runner-contract SS7). None with
+    no budget declared. Guidance only: the runner paces as it always did."""
+    if not isinstance(rate_limit, dict):
+        return None
+    gap = max(rate_limit.get("window_s") or 0,
+              rate_limit.get("min_interval_s") or 0)
+    return float(gap) if gap > 0 else None
+
+
+def resume_command(out, plan=None, baseline=None, not_before=None):
+    """#144: the shell command that resumes the run at `out`, every argument
+    quoted. `plan` None (unknown, or a plan read from stdin) prints the
+    placeholder `<plan.json>`: a resume needs the same plan in a file. The
+    baseline is carried over because a resume without it rewrites the
+    manifest with none and scores no comparison."""
+    argv = ["evalup", "run-cases", "--plan",
+            plan if plan and plan != "-" else "<plan.json>",
+            "--out", out, "--resume"]
+    if baseline:
+        argv += ["--baseline-verdicts", baseline]
+    if not_before:
+        argv += ["--not-before", not_before]
+    return " ".join(shlex.quote(str(arg)) for arg in argv)
 
 
 def overlay_expect(every_turn, expect):
