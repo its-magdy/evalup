@@ -139,7 +139,7 @@ on anything unfamiliar. Then estimate, without calling the app by hand:
 time is its `app_calls_planned` × the per-request latency discover §4
 recorded in findings.md, plus the larger of its `wait_floor_s` and
 `pace_floor_s`. Dollars: `--cost-from <last priced run's cost.json>` gives
-`estimate.usd` (+ judge calls; quote its note's cache caveat); with none,
+`estimate.usd` (+ judge calls; quote its note's cache and k caveats); with none,
 give messages and minutes, name `estimate.models`, ask for prices. A start
 time: `--not-before` (`wait-run` exit 3 `not_started`). Under an app-side
 rate limit (findings or adapter), also state `app_calls_max` (every retry)
