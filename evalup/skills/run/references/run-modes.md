@@ -192,8 +192,13 @@ Every flag fills the plan; never hand-edit `plan.json` to change one
 - `--timeout-s N`, `--max-attempts N`, `--backoff-s 5,30` and
   `--insecure-tls` fill `execution`: the retry pair for a throttled provider
   or an app that already retries (the runner's default is 3 tries with 1 s
-  and 4 s waits) — under an app-side rate limit, size `--max-attempts` so
-  the dry run's `app_calls_max` fits it, since a 429 often counts too; the last flag for a self-signed local dev host only —
+  and 4 s waits) — under an app-side rate limit, declare `invocation.rate_limit`: the
+  runner then paces every call, a retry included, so a run longer than one
+  window just spans several (`pace_floor_s` planned, `pace_max_s` with every
+  retry; a 429 often counts too). Size `--max-attempts` to the extra time
+  `pace_max_s` shows you will accept, not to fit `app_calls_max` in one
+  window, which cannot hold once `app_calls_planned` alone exceeds it (36
+  planned against 20 per 10 min); the last flag for a self-signed local dev host only —
   pre-flight otherwise exits 3 with `CERTIFICATE_VERIFY_FAILED`.
 - `--single-turn` leaves conversations out of the selection (refused under
   `holdout`); otherwise a selection with a conversation writes
