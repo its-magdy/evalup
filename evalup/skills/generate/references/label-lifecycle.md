@@ -64,6 +64,14 @@ of a session and say what waits. The arbiter is the owner. Never apply a
 
 Several fixes from one review sitting go in **one** bump, not one each.
 
+## When the review changes a case's `covers`
+
+A case's `notes` may say what it covers or why a rule is "not confirmed, not
+in covers". When a rule's confirm / fix / strike (or a label fix) changes
+`covers` or `expect.answer.rules`, refresh or drop those `notes` lines in the
+same edit: a stale one contradicts the case. A `notes`-only edit does not
+bump `dataset_version` (above).
+
 ## Accepting in bulk
 
 Generate §3 sends a human the few cases worth a look. Optimize needs more:
