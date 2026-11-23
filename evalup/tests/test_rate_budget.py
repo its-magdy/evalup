@@ -300,6 +300,26 @@ class TestPacedRun(RunnerCase):
         self.assertEqual(payload["rate_limit"],
                          {"requests": 2, "window_s": 600})
         self.assertIn("retries included", payload["pace_note"])
+        # #144: 1200 s fits under the 30-minute background cap.
+        self.assertNotIn("resume_expected", payload)
+
+    def test_a_pace_past_the_background_cap_says_a_resume_is_coming(self):
+        # #144: 7 calls at 2 per 600 s is a 1800 s floor -- at the cap, not
+        # past it; 9 calls is 2400 s.
+        at_cap = self.run_with(ArrivalLog(), {"requests": 2, "window_s": 600},
+                               cases=7, extra_argv=["--dry-run"])
+        self.assertEqual(at_cap["pace_floor_s"], 1800)
+        self.assertNotIn("resume_expected", at_cap)
+        payload = self.run_with(ArrivalLog(), {"requests": 2, "window_s": 600},
+                                cases=9, extra_argv=["--dry-run"])
+        self.assertEqual(payload["pace_floor_s"], 2400)
+        block = payload["resume_expected"]
+        self.assertEqual(block["window_s"], 600)
+        self.assertIn(f"--plan {self.tmp / 'plan.json'} ", block["command"])
+        self.assertIn(f"--out {payload['out']} --resume --not-before ",
+                      block["command"])
+        self.assertIn("no new holdout look", block["note"])
+        self.assertIn("600 s", block["note"])
 
     def test_dry_run_without_a_budget_is_unchanged(self):
         payload = self.run_with(ArrivalLog(), None, extra_argv=["--dry-run"])

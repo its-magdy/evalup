@@ -22,6 +22,9 @@ is never backgrounded itself.
   4  still "running" but no run_cases.py process for this run exists: the
      runner was killed. Resume it with `run_cases.py --resume` under the SAME
      run id rather than starting a fresh run over the cases already paid for.
+     The printed `resume` command carries `--not-before` one rate-limit
+     window on when the manifest declares a budget (#144), and a resume
+     spends no new holdout look.
 
 Prints one JSON object on stdout: the run id, the status, the runner's exit
 code when finalized, the last run.log event, and whether a runner process was
@@ -36,8 +39,15 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
-from _common import add_version_flag, die, load_text, require_range
+from _common import (
+    add_version_flag,
+    die,
+    load_text,
+    require_range,
+    resume_gap_s,
+)
 
 STILL_RUNNING = 3
 RUNNER_GONE = 4
@@ -100,6 +110,29 @@ def runner_process(run_dir):
                     else os.path.basename(t) == run_id for t in tokens):
             return "alive"
     return "gone"
+
+
+def resume_command(run_dir, now=None):
+    """#144: the command that resumes a killed run, and the --not-before it
+    carries. Under a declared rate budget (the manifest records it) that is
+    one window after now: the runner is gone by now, so its last call
+    finished earlier, and a resume started at once would share that call's
+    window. Resuming spends no new holdout look (runner-contract SS6)."""
+    command = f"evalup run-cases --plan <plan.json> --out {run_dir} --resume"
+    manifest = load_text(os.path.join(run_dir, "manifest.yaml"),
+                         on_error=lambda _m: None) or ""
+    try:
+        doc = json.loads(manifest)
+    except ValueError:
+        doc = None
+    invocation = doc.get("invocation") if isinstance(doc, dict) else None
+    gap = resume_gap_s(invocation.get("rate_limit")
+                       if isinstance(invocation, dict) else None)
+    if gap is None:
+        return command, None
+    when = ((now or datetime.now(timezone.utc)) + timedelta(seconds=gap)) \
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{command} --not-before {when}", when
 
 
 def started_run(run_dir):
@@ -179,6 +212,7 @@ def main():
             status = status_of(results)
             if status is not None and status != "running":
                 continue
+            command, not_before = resume_command(run_dir)
             print(json.dumps({
                 "run_id": (results or {}).get("run_id")
                 or os.path.basename(os.path.abspath(run_dir)),
@@ -186,8 +220,10 @@ def main():
                 "runner_process": "gone",
                 "last_event": last_log_event(run_dir),
                 "waited_s": round(time.monotonic() - started, 1),
-                "resume": "run_cases.py --plan <plan.json> --out "
-                          f"{run_dir} --resume"}, ensure_ascii=False))
+                "resume": command,
+                **({"not_before": not_before} if not_before else {}),
+                "holdout_look": "a resume spends none: the ledger holds "
+                                "one row per run id"}, ensure_ascii=False))
             return RUNNER_GONE
         if time.monotonic() - started >= a.timeout_s:
             print(json.dumps({

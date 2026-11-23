@@ -142,28 +142,29 @@ recorded in findings.md, plus the larger of its `wait_floor_s` and
 `estimate.usd` (+ judge calls; quote its note's cache and k caveats); with none,
 give messages and minutes, name `estimate.models`, ask for prices. A start
 time: `--not-before` (`wait-run` exit 3 `not_started`). Under an app-side
-rate limit (findings or adapter), state `app_calls_max` (every retry)
-and size `--max-attempts` to `pace_max_s`. Ask "≈ $X, ~Y min.
+rate limit, state `app_calls_max` (every retry)
+and size `--max-attempts` to `pace_max_s`. With `resume_expected`
+(`pace_floor_s` > 1800 s), say a resume will come and quote its `command`. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
 go: a first session must not stop here), under a pre-approved budget, or
-under the headless gate (§6). Resume
-an interrupted run with `--resume` (same run id); re-check a finished one
+under the headless gate (§6). Re-check a finished run
 with `--verify reports/<run-id>`. Conversations are slow (20 five-turn
 ones at k=3 with a trace store ≈ an hour; `app_calls_planned` counts
 turns); headless, expect several `wait_run.py` waits below.
 
 **Wait for the runner; never end the turn on a `running` run.** Launch
 `run_cases.py` in the **foreground** of one Bash call with `timeout` at its
-600000 ms maximum — never `run_in_background`: headless, a background shell is
-killed seconds after the turn ends, and a killed runner leaves `results.json`
-at `summary.status: "running"` with its cases half paid for. If the harness
+600000 ms maximum — never `run_in_background`: headless, a background shell
+dies seconds after the turn ends, leaving `results.json` at
+`summary.status: "running"`, its cases half paid for. If the harness
 moves the call to the background at that cap, do not stop: call
 `evalup wait-run reports/<run-id>` (same
 600000 ms timeout) and repeat it while it exits 3. It exits 0 once the run is
-finalized (printing `summary.status`, the runner's exit code and the last
-`run.log` event — read §3 from that exit code); 4 when the run is still
-`running` but no runner process exists — say so and offer `--resume` under
-the same run id. Report nothing from a run whose status is `running`.
+finalized (read §3 from the runner exit code it prints); 4 when the run is still
+`running` but no runner process exists — launch its printed `resume`
+likewise (offer it unless the estimate foretold one): it carries any
+`--not-before` needed and spends no holdout look.
+Report nothing from a run whose status is `running`.
 
 ## 3. Read the exit code
 

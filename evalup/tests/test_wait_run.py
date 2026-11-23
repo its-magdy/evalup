@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 SCRIPT = SCRIPTS / "wait_run.py"
@@ -109,6 +110,33 @@ class WaitRunTest(unittest.TestCase):
         self.assertEqual(out["last_event"]["event"], "case_start")
         self.assertIn("--resume", out["resume"])
         self.assertLess(out["waited_s"], 10)
+
+    def test_a_rate_limited_resume_carries_not_before_one_window_on(self):
+        # #144: --resume at once would share the killed run's last window.
+        self.write("results.json", results(self.run_id, "running"))
+        self.write("manifest.yaml", {"invocation": {
+            "mode": "http", "rate_limit": {"requests": 20, "window_s": 2400}}})
+        before = datetime.now(timezone.utc).replace(microsecond=0)
+        rc, out, proc = wait_run(self.run_dir, "--timeout-s", "30")
+        after = datetime.now(timezone.utc)
+        self.assertEqual(rc, 4, proc.stdout + proc.stderr)
+        when = datetime.strptime(out["not_before"], "%Y-%m-%dT%H:%M:%SZ") \
+            .replace(tzinfo=timezone.utc)
+        self.assertLessEqual(before + timedelta(seconds=2400), when)
+        self.assertLessEqual(when, after + timedelta(seconds=2400))
+        self.assertEqual(out["resume"],
+                         f"evalup run-cases --plan <plan.json> --out "
+                         f"{self.run_dir} --resume --not-before "
+                         f"{out['not_before']}")
+        self.assertIn("spends none", out["holdout_look"])
+
+    def test_with_no_budget_the_resume_has_no_not_before(self):
+        self.write("results.json", results(self.run_id, "running"))
+        self.write("manifest.yaml", {"invocation": {"mode": "http"}})
+        rc, out, _ = wait_run(self.run_dir, "--timeout-s", "30")
+        self.assertEqual(rc, 4)
+        self.assertNotIn("--not-before", out["resume"])
+        self.assertNotIn("not_before", out)
 
     def test_returns_0_as_soon_as_the_run_finalizes_during_the_wait(self):
         self.write("results.json", results(self.run_id, "running"))

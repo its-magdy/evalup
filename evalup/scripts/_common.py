@@ -453,6 +453,23 @@ def infra_rate(infra_errors, n, skipped, ndigits=4):
     return round(infra_errors / sent, ndigits) if sent else 0.0
 
 
+# #144: Claude Code kills a Bash call it has moved to the background at
+# thirty minutes, so a run paced past this is expected to need a resume.
+BACKGROUND_CAP_S = 1800
+
+
+def resume_gap_s(rate_limit):
+    """The wait a resume of a killed run owes the app's limiter: one whole
+    `window_s` (or `min_interval_s` with no window), since the new process
+    has no record of the dead one's calls (runner-contract SS7). None with
+    no budget declared. Guidance only: the runner paces as it always did."""
+    if not isinstance(rate_limit, dict):
+        return None
+    gap = max(rate_limit.get("window_s") or 0,
+              rate_limit.get("min_interval_s") or 0)
+    return float(gap) if gap > 0 else None
+
+
 def overlay_expect(every_turn, expect):
     """A turn's expect with `every_turn`'s keys copied in (docs/multi-turn.md
     SS1). Returns (merged, collisions).
