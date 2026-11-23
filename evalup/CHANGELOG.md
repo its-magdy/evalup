@@ -52,6 +52,16 @@ says when a release bumps it.
   canary is the owner's, like accepting (prose only: nothing records who
   chose one), and generate §3 now lists canary candidates in the review
   batch, as start promised. No scoring change.
+- **Holdout templates stay inside the seal** (#133). generate §2a and
+  test-generator spelled the template path `templates/`, so a first session
+  wrote it at the state root, outside what `prelook-fix --list` seals. The
+  path is now `datasets/templates/<template_id>.yaml`; `convert-suite
+  --templates` also lists a `<state>/templates/`; `prelook-fix --list`
+  names a sealed case's template with no file under `missing_templates`
+  and exits 2; a holdout template id is `ho_` plus an opaque token.
+  `validate-cases`' `summary.traceability` gives each rule's and risk's
+  sealed cases as a count (`holdout_cases`), never by id, and a rule only
+  a sealed case covers is no gap.
 - **The probe tells the app's refusal from an adapter failure** (#124).
   A 4xx the adapter read an answer from (an out-of-scope 400, say) exits 8
   with a warning, not 3 with "check auth, endpoint and request_body";
