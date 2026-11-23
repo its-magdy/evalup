@@ -125,7 +125,8 @@ date, status) WARNs, as do a case covering a rule that still carries a
 `contradiction:` (covers_contradicted_rule) and rules left under
 confirmed_by_human.business_rules (legacy_rules_location), which nothing
 reads. `summary.traceability` lists each rule's and risk's
-cases, the GAPS (an id with no case), the unconfirmed rules and the
+cases (a sealed holdout case as a count, `holdout_cases`, never by id:
+#133), the GAPS (an id with no case), the unconfirmed rules and the
 contradicted ones, and the `gating: false` cases covering an unconfirmed
 rule (unconfirmed_non_gating: they close no gate, but gate.py
 --min-pass-rate counts every scored non-canary case). A canary covering an
@@ -1966,14 +1967,24 @@ def check_traceability(rep, cases, profile):
                 if is_nonempty_str(entry.get("contradiction")):
                     contradicted.add(rid)
     by_id = {rid: [] for rid in known}
+    # A sealed case is a count here, never an id (#133): an id beside the
+    # rule it covers says what the sealed case is about. rule_report.py
+    # keeps the same line.
+    sealed_by_id = {rid: 0 for rid in known}
+    sealed_ids = {c["id"] for c in cases if isinstance(c, dict)
+                  and is_nonempty_str(c.get("id"))
+                  and isinstance(c.get("split"), list)
+                  and "holdout" in c["split"]}
     non_gating = []
     for case in cases:
         if not isinstance(case, dict):
             continue
         label = case.get("id") if is_nonempty_str(case.get("id")) else None
         covers = case_covers(case)
-        for rid in covers:
-            if rid in by_id:
+        for rid in dict.fromkeys(covers):
+            if rid in by_id and label in sealed_ids:
+                sealed_by_id[rid] += 1
+            elif rid in by_id:
                 if label is not None and label not in by_id[rid]:
                     by_id[rid].append(label)
             else:
@@ -2018,14 +2029,17 @@ def check_traceability(rep, cases, profile):
     rule_rows, risk_rows = {}, {}
     for rid, where in known.items():
         if where.startswith("business_rules"):
-            rule_rows[rid] = {"status": statuses[rid], "cases": by_id[rid]}
+            rule_rows[rid] = {"status": statuses[rid], "cases": by_id[rid],
+                              "holdout_cases": sealed_by_id[rid]}
         else:
-            risk_rows[rid] = {"cases": by_id[rid]}
+            risk_rows[rid] = {"cases": by_id[rid],
+                              "holdout_cases": sealed_by_id[rid]}
     return {
         "rules": rule_rows,
         "risks": risk_rows,
         "gaps": [f"{'rule' if rid in rule_rows else 'risk'} {rid} has no case"
-                 for rid in known if not by_id[rid]],
+                 for rid in known
+                 if not by_id[rid] and not sealed_by_id[rid]],
         "unconfirmed": [rid for rid, row in rule_rows.items()
                         if row["status"] != "confirmed"],
         # `gating: false` cases on an unconfirmed rule: they close no gate,

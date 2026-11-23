@@ -1661,11 +1661,36 @@ class TestTraceability(ValidateTest):
         self.assertEqual((rc, out["findings"]), (0, []))
         trace = out["summary"]["traceability"]
         self.assertEqual(trace["rules"], {"refund-cap": {
-            "status": "confirmed", "cases": ["billing-happy-0000abcd"]}})
+            "status": "confirmed", "cases": ["billing-happy-0000abcd"],
+            "holdout_cases": 0}})
         self.assertEqual(trace["risks"]["risk-1"]["cases"],
                          ["billing-happy-0000abcd"])
         self.assertEqual((trace["gaps"], trace["unconfirmed"],
                           trace["contradictions"]), ([], [], []))
+
+    def test_a_sealed_case_is_a_count_never_an_id(self):
+        # #133: a holdout id beside the rule it covers says what the sealed
+        # case is about; rule_report.py gives counts only, and so does this.
+        sealed = good_case("billing-sealed-0000beef", split=["holdout"],
+                           covers=["refund-cap", "refund-cap", "risk-1"])
+        rc, out = self.lint(
+            [good_case(covers=["refund-cap"]), sealed,
+             good_case("billing-sealed-0000cafe", split=["holdout"],
+                       covers=["plain-text"])],
+            [a_rule(), a_rule("plain-text")],
+            [{"id": "risk-1", "risk": "leaks another tenant's invoice"}])
+        trace = out["summary"]["traceability"]
+        self.assertNotIn("sealed", json.dumps(
+            {k: trace[k] for k in ("rules", "risks", "gaps")}))
+        self.assertEqual(trace["rules"]["refund-cap"],
+                         {"status": "confirmed",
+                          "cases": ["billing-happy-0000abcd"],
+                          "holdout_cases": 1})
+        self.assertEqual(trace["risks"]["risk-1"],
+                         {"cases": [], "holdout_cases": 1})
+        # Covered by a sealed case alone is covered: no gap.
+        self.assertEqual(trace["rules"]["plain-text"]["holdout_cases"], 1)
+        self.assertEqual(trace["gaps"], [])
 
     def test_a_rule_with_no_case_is_a_gap_not_a_finding(self):
         rc, out = self.lint([good_case(covers=["refund-cap"])],
