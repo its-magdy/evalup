@@ -926,6 +926,175 @@ class TestCacheAccounting(CostCase):
         self.assertEqual(paired["candidate_total_usd"], 3.5)
 
 
+# -- every repeat (#129) ----------------------------------------------------
+
+def sse_body(*usages):
+    """A decoded AG-UI response body as response.json records it: one
+    run_usage entry per model call, in _sse's keys."""
+    return {"sse": {"protocol": "ag-ui"}, "text": "ok",
+            "run_usage": list(usages)}
+
+
+# Three repeats of one cached case. Repeat 1 writes the cache, 2 and 3 read
+# it (3 in two model calls). Priced with CACHE_TIERS (input 2.50, output
+# 10.00, read 0.25, write 3.125 per Mtok):
+#   1: 20k uncached 0.05 + 80k write 0.25 + 1k out 0.01 = 0.31
+#   2: 20k uncached 0.05 + 80k read 0.02 + 1k out 0.01 = 0.08
+#   3: 2 x (10k uncached 0.025 + 40k read 0.01 + 500 out 0.005) = 0.08
+REPEAT_USAGE = (
+    [{"input_tokens": 100_000, "output_tokens": 1_000,
+      "cache_write_input_tokens": 80_000}],
+    [{"input_tokens": 100_000, "output_tokens": 1_000,
+      "cached_input_tokens": 80_000}],
+    [{"input_tokens": 50_000, "output_tokens": 500,
+      "cached_input_tokens": 40_000}] * 2,
+)
+
+
+class TestEveryRepeat(CostCase):
+    """#129: a k=3 run on a cached app spent 0.47, not 3 x the 0.31 its
+    representative repeat cost. Every repeat's response.json carries the
+    usage, so it is priced, beside -- never instead of -- the old figure."""
+
+    def tiered(self):
+        return self.prices(models={"m-1": dict(PRICES["models"]["m-1"],
+                                               **CACHE_TIERS)},
+                           aliases={"<model attribute absent>": "m-1"})
+
+    def k3_run(self, run_id="regression-20260901T120000Z", usages=REPEAT_USAGE,
+               **manifest):
+        manifest = dict(AG_UI, **manifest)
+        manifest.setdefault("k", len(usages))
+        out = self.write_run(run_id, [("c-1", "pass", 1.0, 0, 0)],
+                             **manifest)
+        case = out / "cases" / "c-1"
+        # The case-level trajectory is the representative repeat's: repeat 1.
+        first = REPEAT_USAGE[0][0]
+        self.write_json(case / "trajectory.json", {
+            "status": "ok",
+            "trajectory": {"trace_id": "t", "agents": [], "tool_calls": [],
+                           "llm_calls": [{"model": None, "duration_ms": None,
+                                          "usage": {
+                                              "input_tokens": 100_000,
+                                              "output_tokens": 1_000,
+                                              "cache_write_input_tokens":
+                                                  first[
+                                                  "cache_write_input_tokens"]}}],
+                           "usage": {}},
+            "checks": {}})
+        for n, usage in enumerate(usages, 1):
+            body = sse_body(*usage) if usage is not None else None
+            self.write_json(case / "repeats" / str(n) / "response.json",
+                            {"case_id": "c-1", "repeat": n, "body": body})
+        self.write_json(case / "verdict.json", {
+            "case_id": "c-1", "verdict": "pass",
+            "repeats": [{"n": n, "verdict": "pass", "layers": {}}
+                        for n in range(1, len(usages) + 1)]})
+        return out
+
+    def test_every_repeat_is_priced_and_the_representative_is_unchanged(self):
+        rc, payload, err = run_script(self.k3_run(), "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        cost = payload["cost"]
+        # The old figure keeps its meaning: one representative repeat.
+        self.assertEqual(cost["usd"], 0.31)
+        every = cost["all_repeats"]
+        self.assertEqual(every["status"], "priced")
+        self.assertEqual(every["cache_accounting"], "priced")
+        self.assertEqual(every["usd"], 0.47)
+        self.assertEqual((every["k"], every["repeats_sent"],
+                          every["repeats_with_usage"],
+                          every["repeats_without_usage"],
+                          every["messages_with_usage"]), (3, 3, 3, 0, 3))
+        self.assertEqual(every["usd_per_message"], round(0.47 / 3, 6))
+        self.assertEqual(every["tokens"]["cache_read_input"], 160_000)
+        self.assertEqual(every["tokens"]["cache_write_input"], 80_000)
+        self.assertEqual(every["tokens"]["input"], 300_000)
+        limit = payload["declared_limits"]["repeats"]
+        self.assertIn("REPRESENTATIVE", limit)
+        self.assertIn("all 3 repeats", limit)
+        self.assertNotIn("roughly k", limit)
+        self.assertNotIn("scratch directory that is deleted", limit)
+
+    def test_a_repeat_with_no_usage_is_counted_not_priced_at_zero(self):
+        usages = REPEAT_USAGE[:2] + (None,)
+        rc, payload, err = run_script(self.k3_run(usages=usages),
+                                      "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["all_repeats"]
+        self.assertEqual((every["repeats_with_usage"],
+                          every["repeats_without_usage"]), (2, 1))
+        self.assertEqual(every["usd"], 0.39)
+        limit = payload["declared_limits"]["repeats"]
+        self.assertIn("priced 2 of 3 repeats", limit)
+        self.assertIn("upper bound", limit)
+        self.assertIn("cache", limit)
+
+    def test_without_prices_the_tokens_of_every_repeat_still_report(self):
+        rc, payload, err = run_script(self.k3_run())
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["all_repeats"]
+        self.assertEqual(every["status"], "unpriced")
+        self.assertNotIn("usd", every)
+        self.assertEqual(every["tokens"]["input"], 300_000)
+        self.assertIn("withheld", payload["declared_limits"]["repeats"])
+
+    def test_another_trace_source_says_why_and_prices_no_repeat(self):
+        out = self.k3_run(traces={"source": "otlp-file"})
+        rc, payload, err = run_script(out, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["all_repeats"]
+        self.assertEqual(every["status"], "unpriced")
+        self.assertIn("scratch directory", every["reason"])
+        self.assertNotIn("usd", every)
+        limit = payload["declared_limits"]["repeats"]
+        self.assertIn("overstates", limit)
+
+    def test_k1_has_no_all_repeats_block(self):
+        rc, payload, err = run_script(self.simple("smoke-20260901T120000Z"),
+                                      "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("all_repeats", payload["cost"])
+        self.assertIn("sent once", payload["declared_limits"]["repeats"])
+
+    def test_a_conversation_repeat_sums_the_turns_it_sent(self):
+        out = self.k3_run(usages=REPEAT_USAGE[:2])
+        results = json.loads((out / "results.json").read_text())
+        results["cases"][0].update(multi_turn=True, turns_sent=2)
+        self.write_json(out / "results.json", results)
+        case = out / "cases" / "c-1"
+        for t in (1, 2):
+            self.write_json(case / "turns" / str(t) / "trajectory.json",
+                            json.loads((case / "trajectory.json")
+                                       .read_text()))
+        # Repeat 1 sent two turns (0.31 each), repeat 2 one turn (0.08).
+        for n, turns in ((1, (REPEAT_USAGE[0], REPEAT_USAGE[0])),
+                         (2, (REPEAT_USAGE[1],))):
+            for t, usage in enumerate(turns, 1):
+                self.write_json(
+                    case / "repeats" / str(n) / "turns" / str(t)
+                    / "response.json", {"body": sse_body(*usage)})
+        self.write_json(case / "verdict.json", {
+            "case_id": "c-1", "verdict": "pass",
+            "repeats": [{"n": 1, "verdict": "pass", "turns_sent": 2},
+                        {"n": 2, "verdict": "pass", "turns_sent": 1}]})
+        rc, payload, err = run_script(out, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["all_repeats"]
+        self.assertEqual(every["usd"], 0.7)
+        self.assertEqual(every["messages_with_usage"], 3)
+
+    def test_a_skipped_case_sent_no_repeat(self):
+        out = self.k3_run()
+        self.write_json(out / "cases" / "c-1" / "verdict.json",
+                        {"case_id": "c-1", "verdict": "skipped"})
+        rc, payload, err = run_script(out, "--prices", self.tiered())
+        self.assertEqual(rc, 0, err)
+        every = payload["cost"]["all_repeats"]
+        self.assertEqual(every["repeats_sent"], 0)
+        self.assertEqual(every["status"], "unpriced")
+
+
 # -- against the real runner ----------------------------------------------
 
 class TestAgainstTheRealRunner(unittest.TestCase):
