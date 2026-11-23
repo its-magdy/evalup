@@ -53,6 +53,25 @@ says when a release bumps it.
   --templates` feeds it. No verdict changes.
 
 ### Changed
+- **Seal hygiene** (#145). `prelook-fix --list` (and its dry run) lists
+  `sealed_rubrics` by id and hash: a rubric only sealed cases pin (top
+  level, `every_turn` or a checkpoint), or one whose id is `ho-` plus an
+  opaque token, which test-generator now writes for a holdout-only rubric.
+  A rubric a training case pins is never sealed (the training review reads
+  it), and is named under `mixed_rubrics` when a sealed case pins it too.
+  analyze's rubric editing skips a sealed rubric; generate's
+  `coverage_grid.rules` lists a rule's unsealed case ids only, and the
+  generator's final message gives its holdout cases as a count.
+  `validate-cases --manifest` checks `coverage_grid.by_unit` against cases
+  outside the holdout only, so a `dataset.yaml` that counted holdout cases
+  there now fails `manifest_mismatch` until the holdout is taken out of it;
+  with it in, by_unit minus the training cases was the sealed spread by
+  unit. generate §3 sets `gating: false` on unsealed cases only (a sealed
+  one `gating_unreviewed` names goes back to the generator), and
+  test-generator writes each realized case straight to `datasets/`, no
+  scratch copy. `gate` on a holdout run says on its verdict line that it
+  does not decide the look (`evalup stats` does); verdicts and exit codes
+  are unchanged. No scoring change.
 - **Guidance gaps from the #27 re-run** (#146). Prose only; no verdict,
   judge rule or script changes. With no `evalup:judge` (or
   `evalup:test-generator`, `evalup:trace-analyzer`) agent type, as when the

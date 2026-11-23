@@ -384,7 +384,9 @@ mechanical evidence the seal still holds.
 ## Rubric editing (any time)
 Rubrics live in `rubrics/*.md` under the state location (default
 `.evalup/`, or the adapter's `state_location`), versioned. Editing one
-while grading is the expected workflow, not a detour. Criteria drift is what
+while grading is the expected workflow, not a detour — except a sealed
+one (`evalup prelook-fix <state-dir> --list`'s `sealed_rubrics`), which is
+never opened. Criteria drift is what
 grading real cases discovers. Bump the version and record the motivating
 finding in `calibration_notes`. Runs record rubric versions, and a diff across
 two of them is refused. Node kinds, ordering, the canary guard, the authoring

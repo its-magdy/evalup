@@ -113,6 +113,36 @@ class TestGate(TempDirTest):
         self.assertIn("exceeds summary.gating_failures",
                       " ".join(json.loads(out)["reasons"]))
 
+    def test_a_holdout_look_says_the_gate_does_not_decide_it(self):
+        # #145: "PASS" with "3 fail (0 gating)" beside stats' keep: false.
+        # Exit code and verdict unchanged; the first line says whose call
+        # the look is.
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+            run_id="holdout-20260901T120000Z", n=3, passes=0, failures=3,
+            gating_failures=0, canaries=None,
+            holdout={"n": 3, "passes": 0, "failures": 3,
+                     "gating_failures": 0}))
+        self.assertEqual(rc, 0, out)
+        first = out.splitlines()[0]
+        self.assertTrue(first.startswith(
+            "holdout-20260901T120000Z: PASS (3 failure(s)"), first)
+        self.assertIn("this gate does not decide it", first)
+        self.assertIn("evalup stats", first)
+        rc, out, _ = run("gate.py", "--json", "--no-verify", self.write_run(
+            run_id="holdout-20260901T120000Z", canaries=None,
+            holdout={"n": 6, "passes": 6, "failures": 0,
+                     "gating_failures": 0}))
+        self.assertEqual((rc, json.loads(out)["gate"]), (0, "open"))
+        # Not on a closed gate, and never on a run outside the seal.
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run(
+            passes=1, failures=1, gating_failures=1,
+            holdout={"n": 2, "passes": 1, "failures": 1,
+                     "gating_failures": 1}))
+        self.assertEqual(rc, 1)
+        self.assertNotIn("does not decide it", out)
+        rc, out, _ = run("gate.py", "--no-verify", self.write_run())
+        self.assertNotIn("holdout look", out)
+
     def test_zero_failures_from_an_aborted_run_is_not_a_pass(self):
         rc, _, _ = run("gate.py", "--no-verify",
                        self.write_run(status="aborted_infra", exit_code=5))

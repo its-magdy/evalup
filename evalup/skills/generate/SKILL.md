@@ -70,8 +70,7 @@ than the app's when one is available. Record the generator's model and family
 in the dataset metadata either way.
 
 With none, **generate anyway and mitigate**: human review (§3), expectations
-grounded in state or an oracle (§2), the caveat in the metadata. Why this is
-not the judge's hard rule: generation-method.md.
+grounded in state or an oracle (§2), the caveat in the metadata.
 
 ## 1. Build the coverage grid
 The ROW axis is the app's **unit of dispatch** — whatever the app chooses
@@ -118,7 +117,7 @@ stated count, `expect.result`. Every case names its rule and risk ids in
 `covers`; an unconfirmed rule backs no gating case or canary, a
 contradicted one none until the owner decides. Hand over the validator's
 `summary.traceability.gaps`. `coverage_grid.rules` lists every rule with
-its case ids, or why none (judge-only, layer disabled). Spread cases over
+its unsealed case ids, or why none (judge-only, layer disabled). Spread cases over
 every tool, never mostly the one record a probe grounded.
 
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
@@ -232,17 +231,18 @@ human's name** — never the generator, an agent or a delegate's relay
 (owner not in this session: label-lifecycle.md).
 Everything the generator produces starts `pending`. **Never derive an
 expectation by reading the app's source**, and prefer probing the app BEFORE
-labeling. generation-method.md says why each of these three matters.
+labeling.
 
 **The generator emits `gating: false` on every case** (its rule 3): an
 unreviewed label must not close a gate. A reviewer who accepts a case flips
 `gating` to true in the same edit, unless a rule it names is still
 unconfirmed (then no `gating: true`, no `canary`), or keeps it false as a
 capability case.
-Before validating, set `gating: false` on every case this delegation just
-wrote whose `gating` is not `false` (an absent key means true; never touch
-one a human accepted) and list their ids in chat. The validator's
-`gating_unreviewed` is only the backstop.
+Before validating, set `gating: false` on every unsealed case this
+delegation just wrote whose `gating` is not `false` (an absent key means
+true; never touch one a human accepted) and list their ids in chat. Never
+open a sealed one: the validator's `gating_unreviewed` names it for the
+generator to fix.
 
 The handover says how many cases gate. **No reviewer** (headless, or
 told not to ask): every case stays `pending` and `gating: false`; say so
@@ -263,10 +263,11 @@ on that.
   grid cells and phrasings, never random. Used by everyday runs and hooks.
 - `holdout` (20% of the suite after this addition — suite-sizing.md; under
   25 cases after it, skip it and say so): SEALED. Written
-  once, listed only by id+hash in reports, never displayed case-by-case.
+  once, listed only by id+hash, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
-  templates (`ho_<opaque-hex>`) are sealed: never open one.
+  templates (`ho_<opaque-hex>`) and the rubrics only it pins are sealed:
+  never open one.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary
@@ -307,7 +308,7 @@ cases: 12                   # total case files
 splits: { full: 12, smoke: 5 }
 coverage_grid:
   by_unit:
-    billing: { total: 4, MFT: 3, INV: 1 }   # `total`, then test_type values
+    billing: { total: 4, MFT: 3, INV: 1 }   # outside the holdout: `total`, then test_type
   rules: { plain-text: all, refund-cap: "judge-only" }   # all = every case
 ```
 
