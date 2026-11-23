@@ -42,6 +42,16 @@ says when a release bumps it.
   --templates` feeds it. No verdict changes.
 
 ### Changed
+- **An owner who is not in the skill's session has a route to sign off**
+  (#131). A relayed answer still accepts nothing (#114); label-lifecycle.md
+  §The owner is not in this session now says what the skill does then (stop,
+  name the route, list the fields per case and rule, write no name), the
+  owner's two routes (their own edit of `review` / `gating` / `split` /
+  `confirmed_by`, then `convert-suite` and `validate-cases`; or the review
+  in their own session) and the shapes the validator accepts. Choosing a
+  canary is the owner's, like accepting (prose only: nothing records who
+  chose one), and generate §3 now lists canary candidates in the review
+  batch, as start promised. No scoring change.
 - **The probe tells the app's refusal from an adapter failure** (#124).
   A 4xx the adapter read an answer from (an out-of-scope 400, say) exits 8
   with a warning, not 3 with "check auth, endpoint and request_body";

@@ -485,6 +485,39 @@ class TestFirstSessionFlow(unittest.TestCase):
         # example an agent copies keeps the key.
         self.assertIn("prelook_fixes: []", generate)
 
+    def test_an_owner_outside_the_session_has_a_route_and_picks_canaries(self):
+        # #131: the relay refusal (#114) left an owner who answers a
+        # coordinating agent no documented way to sign off, nothing said
+        # who chooses a canary, and the review batch never listed one.
+        lifecycle = self.read("skills", "generate", "references",
+                              "label-lifecycle.md")
+        for phrase in ("## The owner is not in this session",
+                       "a relay accepts no case, confirms no rule and "
+                       "chooses no canary",
+                       "Write no `accepted`, no `confirmed`, no `canary` "
+                       "tag and no owner's name",
+                       "Route 1: the owner edits the state themselves",
+                       "Route 2: the owner runs the review in their own "
+                       "Claude Code session",
+                       "review: { status: accepted, by: <their name>, "
+                       "at: <YYYY-MM-DD> }",
+                       "confirmed_by: <their name>",
+                       "`evalup convert-suite` and `evalup validate-cases`",
+                       "`machine_accepted`", "`rule_confirmed_unattributed`",
+                       "## Choosing canaries is the owner's"):
+            self.assertIn(phrase, lifecycle)
+        generate = self.read("skills", "generate", "SKILL.md")
+        for phrase in ("Add canary candidates per §4, untagged",
+                       "its canary candidates) in the handover",
+                       "owner not in this session: label-lifecycle.md",
+                       "The owner tags them from §3's candidates"):
+            self.assertIn(phrase, generate)
+        interview = self.read("skills", "discover", "references",
+                              "interview.md")
+        self.assertIn("§The owner is not in this session", interview)
+        self.assertIn("canary candidates",
+                      self.read("skills", "start", "SKILL.md"))
+
     def test_the_label_review_never_reads_a_sealed_case(self):
         # #115 seals a share of each addition's new cases, #120's pre-look
         # fix rests on no sealed case being read, and the bulk accept and

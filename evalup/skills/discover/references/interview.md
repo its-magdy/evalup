@@ -31,7 +31,9 @@ answer a delegate relayed (`<name> (delegate: <model>, <date>)`). When a
 delegate answers this interview's other questions for the owner, record
 that signature in `confirmed_by_human.answered_by` (who gave the answers);
 it confirms no rule and accepts no case, so ask the owner in person for
-those, and `validate_cases.py` refuses a delegate's signature in
+those (an owner who is not in this session signs per
+`${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`
+§The owner is not in this session), and `validate_cases.py` refuses a delegate's signature in
 `confirmed_by` or a case's `review.by`. An unconfirmed rule never gates:
 `validate_cases.py --profile` refuses a `gating` case or a canary (whose
 fail aborts the run) that `covers` one (`unconfirmed_rule_gates`). One
