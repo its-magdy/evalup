@@ -393,11 +393,16 @@ class TestPluginLayout(unittest.TestCase):
                        "candidate is kept", "R + 2H when the seal record",
                        "time ≥ runs × W", "never assume one",
                        "**What `--budget $N` meters**", '`status: "unpriced"`',
-                       "`holdout_excluded`", "`usd_per_case_with_trace`",
                        "never a gate",
+                       # #141: a holdout run's sealed total, else the
+                       # estimate, from a named run
+                       "`cost.holdout_aggregate`", "`withheld`",
+                       "`estimate.from_run`",
+                       "`all_repeats.usd / messages_with_usage`",
                        # #117's priced estimate and #118's cache split
-                       "`--cost-from <the last priced regression run's "
-                       "cost.json>`", "`estimate.usd`", "`cache_warning`"):
+                       "`--cost-from <the latest priced regression run's "
+                       "cost.json>` (by run id; not the pinned baseline)",
+                       "`estimate.usd`", "`cache_warning`"):
             self.assertIn(phrase, flat)
         # The keys the text names are the ones the scripts write.
         runner = (ROOT / "scripts" / "run_cases.py").read_text(
@@ -407,8 +412,10 @@ class TestPluginLayout(unittest.TestCase):
         for key in ('"app_calls_planned"', '"app_calls_max"', '"wait_floor_s"',
                     '"max_attempts"', "RETRY_AFTER_CAP_S = 60"):
             self.assertIn(key, runner)
-        for key in ('"usd_per_case_with_trace"', '"holdout_excluded"'):
+        for key in ('"holdout_aggregate"', '"withheld"',
+                    '"messages_with_usage"'):
             self.assertIn(key, cost)
+        self.assertIn('"from_run"', runner)
         # The worked example's arithmetic holds.
         m = re.search(r"(\d+) single-turn training cases and (\d+) sealed, "
                       r"k = (\d): R = (\d+), H = (\d+), so (\d+) messages "
