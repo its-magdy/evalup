@@ -104,11 +104,13 @@ edit.
 each run (analyze §What it cost): `cost.all_repeats.usd` when it is priced
 (every repeat), else `cost.usd` × the run's `k` — one representative
 repeat times k, which overstates a cached app. A holdout run's cases are
-sealed, so its spend is `cost.holdout_aggregate` (#141, totals only):
-charge that block by the same rule. When it is `withheld` (under five
-priced sealed cases) or `unpriced`, charge the holdout plan's dry-run
-`estimate.usd` below: H × the per-message rate of the run its
-`--cost-from` named, `estimate.from_run` (every repeat's
+all sealed, so its `cost` is always unpriced; its spend is
+`cost.holdout_aggregate` (#141, totals only): charge its
+`all_repeats.usd` when that is priced (at k = 1, its `usd`). Otherwise
+(`withheld` under five sealed cases with usage, `unpriced`, or no
+per-repeat usage) charge the holdout plan's dry-run `estimate.usd` below:
+H × the per-message rate of the run its `--cost-from` named,
+`estimate.from_run` (every repeat's
 `all_repeats.usd / messages_with_usage` when priced). Name that run beside
 the figure.
 With the cost capability off or `status: "unpriced"` (trace-less, no

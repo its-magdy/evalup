@@ -131,8 +131,9 @@ place a sealed id is read: sealed_cost() takes the ids from `verdicts.jsonl`
 `holdout: true` and their count by `summary.holdout.n`), prices them by the
 same rules, and returns TOTALS ONLY -- no per-case or per-model row, no id,
 no path, no answer. Every failure inside it is a reason with no id in it.
-Below HOLDOUT_AGGREGATE_FLOOR priced sealed cases the dollars and tokens are
-withheld too: a one-case total is that case's own usage. Like
+Below HOLDOUT_AGGREGATE_FLOOR sealed cases with usable, non-zero usage the
+dollars and tokens are withheld too: a one-case total is that case's own
+usage. Like
 `summary.holdout`'s counts, a total can still be differenced across two runs
 whose seals differ by a few cases; the floor bounds only the single run.
 
@@ -873,7 +874,6 @@ def price_all_repeats(run, prices, cache_parts):
                                 usage=usage)
     messages = sum(len(units[u]) for u in priced)
     block = {"k": k, "repeats_sent": len(units),
-             "cases_with_usage": len({case_id for case_id, _ in priced}),
              "repeats_with_usage": inner.pop("cases_with_trace"),
              "repeats_without_usage": inner.pop("cases_without_trace"),
              "messages_with_usage": messages}
@@ -1204,15 +1204,72 @@ def sealed_rows(run):
     return rows, None
 
 
+def clean_usage(calls):
+    """True when a unit's calls are all usable counts and spent something.
+
+    The floor counts only these: a trace with no LLM call, a zero-token
+    call or an unusable count adds nothing a reader could tell apart from
+    absence, so five sealed traces of which four are empty would otherwise
+    publish the fifth case's own usage as the "total"."""
+    if not calls:
+        return False
+    spent = 0
+    for _model, n_in, n_out, bad, c_read, c_write in calls:
+        if bad:
+            return False
+        spent += n_in + n_out + (c_read or 0) + (c_write or 0)
+    return spent > 0
+
+
+# The keys of a price_run block that are totals or counts over every unit.
+# Left out on purpose: models (a per-model row), usd_per_case_with_trace (a
+# per-case mean), unpriced_models and cache_warning (they name models, and a
+# model one sealed case alone used narrows the total to it).
+SEALED_KEYS = ("status", "reason", "tokens", "cache_accounting",
+               "calls_with_unusable_token_count",
+               "calls_with_cache_over_input", "usd", "price_table")
+SEALED_REPEAT_KEYS = ("k", "status", "reason", "repeats_sent",
+                      "repeats_with_usage", "repeats_without_usage",
+                      "messages_with_usage", "tokens", "cache_accounting",
+                      "calls_with_unusable_token_count",
+                      "calls_with_cache_over_input", "usd",
+                      "usd_per_message")
+
+
+def sealed_totals(raw, keys, cases_with_usage):
+    """Cut one price_run-shaped block to totals, or withhold it whole."""
+    if cases_with_usage < HOLDOUT_AGGREGATE_FLOOR:
+        return {"status": "withheld", "cases_with_usage": cases_with_usage,
+                "reason": (
+                    f"{cases_with_usage} sealed case(s) recorded usable, "
+                    f"non-zero usage, fewer than {HOLDOUT_AGGREGATE_FLOOR}: "
+                    "a total over so few is close to one sealed case's own "
+                    "usage, so its dollars and tokens are not reported.")}
+    out = {key: raw[key] for key in keys if key in raw}
+    out["cases_with_usage"] = cases_with_usage
+    if raw.get("unpriced_models"):
+        out["unpriced_model_count"] = len(raw["unpriced_models"])
+    if raw.get("cache_warning"):
+        out["cache_warning"] = (
+            "the price table lacks a cache tier for a model these calls "
+            "used, so cached tokens are priced at the input rate (the "
+            "model is not named here: see the visible cost block or the "
+            "table).")
+    if raw.get("cache_note"):
+        out["cache_note"] = raw["cache_note"]
+    return out
+
+
 def sealed_cost(run, prices):
     """cost.holdout_aggregate (#141): the sealed cases' spend, totals only.
 
     None when the run sealed nothing. Priced by price_run and
     price_all_repeats, so every rule they apply -- the withheld partial
     total, the cache split, a repeat with no usage -- holds here too; what
-    they return is then cut to totals and counts. No per-case figure, no
-    per-model breakdown (a model one sealed case alone used would narrow the
-    total to it), no id and no path leave this function.
+    they return is then cut to totals and counts (SEALED_KEYS). No per-case
+    figure, no model name, no id and no path leave this function. Each of
+    the two figures has its own floor, counted by clean_usage: a stream
+    that wrote no trajectory.json can still leave every repeat's usage.
     """
     n = run["meta"]["holdout_excluded"]
     if not isinstance(n, int) or isinstance(n, bool) or n < 1:
@@ -1226,40 +1283,27 @@ def sealed_cost(run, prices):
         return block
     cache_parts = cache_counts_are_parts(run["manifest"])
     _, rep = price_run(run["dir"], rows, prices, cache_parts)
-    sealed = dict(run, cases=rows)
-    every = price_all_repeats(sealed, prices, cache_parts)
-    withheld = (
-        "{} sealed case(s) recorded usage, fewer than {}: a total over so "
-        "few is close to one sealed case's own usage, so its dollars and "
-        "tokens are not reported.")
-    if rep["cases_with_trace"] < HOLDOUT_AGGREGATE_FLOOR:
-        block.update(status="withheld", reason=withheld.format(
-            rep["cases_with_trace"], HOLDOUT_AGGREGATE_FLOOR))
-        return block
-    keep = ("status", "reason", "cases_with_trace", "cases_without_trace",
-            "tokens", "cache_accounting", "cache_note", "cache_warning",
-            "calls_with_unusable_token_count", "calls_with_cache_over_input",
-            "unpriced_models", "usd", "usd_per_case_with_trace",
-            "price_table")
-    block.update({key: rep[key] for key in keep if key in rep})
-    if every is not None and "cases_with_usage" in every \
-            and every["cases_with_usage"] < HOLDOUT_AGGREGATE_FLOOR:
-        block["all_repeats"] = {"k": every["k"], "status": "withheld",
-                                "reason": withheld.format(
-                                    every["cases_with_usage"],
-                                    HOLDOUT_AGGREGATE_FLOOR)}
+    used = sum(1 for case_id, row in rows.items()
+               if clean_usage(case_usage(run["dir"], case_id, row)))
+    block.update(sealed_totals(rep, SEALED_KEYS, used))
+    every = price_all_repeats(dict(run, cases=rows), prices, cache_parts)
+    if every is not None and "repeats_sent" not in every:
+        # Another trace source: nothing per repeat is on disk.
+        block["all_repeats"] = {key: every[key]
+                                for key in ("k", "status", "reason")}
     elif every is not None:
-        block["all_repeats"] = {
-            key: every[key] for key in (
-                "k", "status", "reason", "repeats_sent", "cases_with_usage",
-                "repeats_with_usage", "repeats_without_usage",
-                "messages_with_usage", "tokens", "cache_accounting",
-                "cache_warning", "unpriced_models", "usd", "usd_per_message")
-            if key in every}
+        units = repeat_units(run["dir"], rows, every["k"])
+        spent = {case_id for (case_id, _), paths in units.items()
+                 if paths and all(clean_usage(response_usage(path))
+                                  for path in paths)}
+        block["all_repeats"] = sealed_totals(every, SEALED_REPEAT_KEYS,
+                                             len(spent))
     block["note"] = (
         "the sealed cases' spend in this run, as totals: no per-case row, "
-        "id or answer. Add it to cost.usd (or cost.all_repeats.usd) for the "
-        "run's whole spend. A total is withheld below the floor.")
+        "id, model name or answer. usd is one representative repeat per "
+        "case; at k > 1 the run's spend on them is all_repeats.usd, which "
+        "leaves out a repeat that recorded no usage (repeats_without_usage), "
+        "never pricing it at zero. Each figure is withheld below the floor.")
     return block
 
 
@@ -1441,6 +1485,13 @@ def repeats_limit(runs):
         k = run["meta"].get("k")
         block = run.get("all_repeats")
         label = f"{run['meta'].get('run_id')}: " if len(runs) > 1 else ""
+        if run.get("all_sealed"):
+            parts.append(
+                f"{label}k = {k}. Every case is sealed, so cost and "
+                "cost.all_repeats price nothing; the run's spend is "
+                "cost.holdout_aggregate, whose all_repeats block is every "
+                "repeat when k > 1.")
+            continue
         if block is None:
             parts.append(
                 f"{label}k = {k}. Each case was sent once, so the "
@@ -1511,8 +1562,9 @@ def declared_limits(runs):
             "cost and paired are over VISIBLE cases only: results.json.cases "
             "carries no holdout row. holdout_excluded is the count of cases "
             "the gap is, and cost.holdout_aggregate (when the run sealed any) "
-            "is their spend as totals, with no per-case row or id, withheld "
-            f"below {HOLDOUT_AGGREGATE_FLOOR} priced sealed cases."),
+            "is their spend as totals, with no per-case row, id or model "
+            f"name, withheld below {HOLDOUT_AGGREGATE_FLOOR} sealed cases "
+            "with usable, non-zero usage."),
         "list_price": (
             "a dollar figure here is the DECLARED table's list price over the "
             "tokens the trace reported. It is not an invoice: negotiated "
@@ -1531,10 +1583,14 @@ def attach_sealed(run, block, prices):
         return
     block["holdout_aggregate"] = sealed
     if not run["cases"]:
-        block["reason"] = (
-            "every case in this run is sealed, and results.json carries no "
-            "row for a sealed case, so there is no visible case to price "
-            "here. The sealed cases' spend is holdout_aggregate.")
+        run["all_sealed"] = True
+        why = ("every case in this run is sealed, and results.json carries "
+               "no row for a sealed case, so there is no visible case to "
+               "price here. The sealed cases' spend is holdout_aggregate "
+               "(its all_repeats.usd at k > 1).")
+        block["reason"] = why
+        if isinstance(block.get("all_repeats"), dict):
+            block["all_repeats"]["reason"] = why
 
 
 def main():

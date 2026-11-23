@@ -690,13 +690,14 @@ class TestHoldoutAggregate(CostCase):
         agg = payload["cost"]["holdout_aggregate"]
         self.assertEqual(agg["status"], "priced")
         self.assertEqual(agg["n"], 5)
-        self.assertEqual(agg["cases_with_trace"], 5)
+        self.assertEqual(agg["cases_with_usage"], 5)
         # 15k input at 2.50 + 500 output at 10.00 per Mtok.
         self.assertEqual(agg["tokens"],
                          {"input": 15000, "output": 500, "total": 15500})
         self.assertEqual(agg["usd"], round(0.0375 + 0.005, 6))
-        # Totals only: no per-case row, no per-model breakdown, no id.
-        self.assertNotIn("models", agg)
+        # Totals only: no per-case row or mean, no model, no id.
+        for key in ("models", "usd_per_case_with_trace", "unpriced_models"):
+            self.assertNotIn(key, agg)
         self.assert_no_sealed_id(payload, sealed)
         # The visible block says why it is empty, not "trace-less".
         self.assertEqual(payload["cost"]["status"], "unpriced")
@@ -730,11 +731,77 @@ class TestHoldoutAggregate(CostCase):
                 agg = payload["cost"]["holdout_aggregate"]
                 self.assertEqual(agg["status"], "withheld")
                 self.assertEqual(set(agg), {"n", "floor", "status",
-                                            "reason"})
+                                            "reason", "cases_with_usage",
+                                            "note"})
                 self.assertEqual(agg["floor"],
                                  score_cost.HOLDOUT_AGGREGATE_FLOOR)
                 self.assert_no_sealed_id(payload, sealed)
                 self.assertNotIn("123457", json.dumps(payload))
+
+    def test_the_floor_counts_only_cases_that_spent_something(self):
+        """Five sealed traces, four empty, zero or unusable: the "total"
+        would be the fifth case's own usage (Grok's review of #149)."""
+        empties = {
+            "no llm call": [],
+            "zero tokens": [{"model": "m-1", "usage": {
+                "input_tokens": 0, "output_tokens": 0}}],
+            "unusable count": [{"model": "m-1", "usage": {
+                "input_tokens": 1.5, "output_tokens": 1}}],
+        }
+        for name, calls in empties.items():
+            with self.subTest(name):
+                shutil.rmtree(self.reports / self.HOLDOUT_RUN, True)
+                sealed = [("sealed-big", 123457, 89)] + [
+                    (f"sealed-{i}", 1, 1) for i in range(4)]
+                run = self.sealed_run(sealed)
+                for case_id, *_ in sealed[1:]:
+                    self.write_json(
+                        run / "cases" / case_id / "trajectory.json",
+                        {"status": "ok",
+                         "trajectory": {"llm_calls": calls}})
+                rc, payload, err = run_script(run, "--prices", self.prices())
+                self.assertEqual(rc, 0, err)
+                agg = payload["cost"]["holdout_aggregate"]
+                self.assertEqual(agg["status"], "withheld")
+                self.assertEqual(agg["cases_with_usage"], 1)
+                self.assertNotIn("123457", json.dumps(payload))
+
+    def test_no_model_name_or_per_case_mean_is_published(self):
+        sealed = self.five()
+        run = self.sealed_run(sealed)
+        self.write_json(run / "cases" / "sealed-0" / "trajectory.json", {
+            "status": "ok", "trajectory": {"llm_calls": [{
+                "model": "only-sealed-model", "usage": {
+                    "input_tokens": 10, "output_tokens": 1}}]}})
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        agg = payload["cost"]["holdout_aggregate"]
+        self.assertEqual(agg["status"], "unpriced")
+        self.assertEqual(agg["unpriced_model_count"], 1)
+        self.assertNotIn("only-sealed-model", json.dumps(payload))
+        self.assertNotIn("usd", agg)
+
+    def test_a_sealed_conversation_is_priced_over_its_turns(self):
+        sealed = self.five()
+        run = self.sealed_run(sealed)
+        rows = [json.loads(line) for line in
+                (run / "verdicts.jsonl").read_text(
+                    encoding="utf-8").splitlines()]
+        rows[0].update(multi_turn=True, turns_sent=2)
+        (run / "verdicts.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        for turn in (1, 2):
+            self.write_json(
+                run / "cases" / "sealed-0" / "turns" / str(turn)
+                / "trajectory.json",
+                {"status": "ok", "trajectory": {"llm_calls": [{
+                    "model": "m-1", "usage": {"input_tokens": 500,
+                                              "output_tokens": 50}}]}})
+        rc, payload, err = run_script(run, "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        # sealed-0's 1000/100 single trajectory is replaced by 2 x 500/50.
+        self.assertEqual(
+            payload["cost"]["holdout_aggregate"]["tokens"]["total"], 15500)
 
     def test_a_sealed_set_it_cannot_reconcile_is_withheld_by_count(self):
         cases = {
@@ -802,12 +869,29 @@ class TestHoldoutAggregate(CostCase):
         self.assertEqual(every["status"], "priced")
         self.assertEqual(every["repeats_sent"], 15)
         self.assertEqual(every["cases_with_usage"], 5)
+        # The all-sealed run's visible figures say where the spend is.
+        self.assertIn("every case in this run is sealed",
+                      payload["cost"]["all_repeats"]["reason"])
+        self.assertIn("holdout_aggregate",
+                      payload["declared_limits"]["repeats"])
+        self.assertNotIn("not priced here",
+                         payload["declared_limits"]["repeats"])
         self.assertEqual(every["messages_with_usage"], 15)
         # 0.47 per case (TestEveryRepeat's arithmetic), five cases.
         self.assertEqual(every["usd"], 2.35)
         self.assertEqual(every["usd_per_message"], 0.156667)
         self.assertNotIn("models", every)
         self.assert_no_sealed_id(payload, sealed)
+        # A stream that wrote no trajectory.json still leaves each repeat's
+        # usage: the representative figure is withheld, all_repeats is not.
+        for case_id, *_ in sealed:
+            (run / "cases" / case_id / "trajectory.json").unlink()
+        rc, payload, err = run_script(run, "--prices", prices)
+        self.assertEqual(rc, 0, err)
+        agg = payload["cost"]["holdout_aggregate"]
+        self.assertEqual(agg["status"], "withheld")
+        self.assertEqual(agg["all_repeats"]["usd"], 2.35)
+        self.assertIn("all_repeats.usd", agg["note"])
         # Below the floor the all-repeats figure is withheld as well.
         shutil.rmtree(run / "cases" / "sealed-4" / "repeats")
         verdict = run / "cases" / "sealed-4" / "verdict.json"
