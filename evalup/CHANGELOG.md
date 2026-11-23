@@ -32,11 +32,13 @@ says when a release bumps it.
   changes; `SCORING_VERSION` is unchanged.
 - **A resume is planned for, not discovered** (#144). Claude Code kills a
   backgrounded Bash call at 30 minutes, so a rate-limited k=3 run outlasts
-  it. A dry run whose `pace_floor_s` exceeds 1800 s now carries
+  it. A dry run whose `pace_floor_s` reaches 1800 s now carries
   `resume_expected` (a note and the resume command), and the run skill says
-  so in the estimate. `wait-run`'s exit 4 prints the resume command with
-  `--not-before` one rate-limit window on when the manifest declares a
-  budget, and says a resume spends no new holdout look. Pacing is unchanged.
+  so in the estimate. `wait-run`'s exit 4 prints the resume command,
+  shell-quoted, with `--not-before` one rate-limit window on when the
+  manifest declares a budget and with the run's `--baseline-verdicts` (a
+  resume without it dropped the comparison), and says a resume spends no
+  new holdout look. Pacing is unchanged.
 - **`summary.unusable_by_split`** in `validate-cases` (#132): per split, why
   each case `usable_by_split` leaves out is out (`canary`, `review_pending`,
   `review_quarantined`, `machine_signed`, `not_gating`). Additive; the

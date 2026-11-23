@@ -144,7 +144,7 @@ give messages and minutes, name `estimate.models`, ask for prices. A start
 time: `--not-before` (`wait-run` exit 3 `not_started`). Under an app-side
 rate limit, state `app_calls_max` (every retry)
 and size `--max-attempts` to `pace_max_s`. With `resume_expected`
-(`pace_floor_s` > 1800 s), say a resume will come and quote its `command`. Ask "≈ $X, ~Y min.
+(`pace_floor_s` ≥ 1800 s), say a resume will come; quote its `command`. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
 go: a first session must not stop here), under a pre-approved budget, or
 under the headless gate (§6). Re-check a finished run
@@ -162,8 +162,8 @@ moves the call to the background at that cap, do not stop: call
 600000 ms timeout) and repeat it while it exits 3. It exits 0 once the run is
 finalized (read §3 from the runner exit code it prints); 4 when the run is still
 `running` but no runner process exists — launch its printed `resume`
-likewise (offer it unless the estimate foretold one): it carries any
-`--not-before` needed and spends no holdout look.
+likewise, your plan for `<plan.json>` (offer it unless foretold): it
+carries any needed `--not-before`, and spends no new holdout look.
 Report nothing from a run whose status is `running`.
 
 ## 3. Read the exit code

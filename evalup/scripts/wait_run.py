@@ -46,6 +46,7 @@ from _common import (
     die,
     load_text,
     require_range,
+    resume_command,
     resume_gap_s,
 )
 
@@ -112,27 +113,32 @@ def runner_process(run_dir):
     return "gone"
 
 
-def resume_command(run_dir, now=None):
+def resume_of(run_dir, now=None):
     """#144: the command that resumes a killed run, and the --not-before it
     carries. Under a declared rate budget (the manifest records it) that is
-    one window after now: the runner is gone by now, so its last call
-    finished earlier, and a resume started at once would share that call's
-    window. Resuming spends no new holdout look (runner-contract SS6)."""
-    command = f"evalup run-cases --plan <plan.json> --out {run_dir} --resume"
+    one window after now, rounded up to the second: the runner is gone by
+    now, so its last call finished earlier, and a resume started at once
+    would share that call's window. The manifest's baseline is carried
+    over. Resuming spends no new holdout look (runner-contract SS6)."""
     manifest = load_text(os.path.join(run_dir, "manifest.yaml"),
                          on_error=lambda _m: None) or ""
     try:
         doc = json.loads(manifest)
     except ValueError:
         doc = None
-    invocation = doc.get("invocation") if isinstance(doc, dict) else None
+    doc = doc if isinstance(doc, dict) else {}
+    invocation = doc.get("invocation")
     gap = resume_gap_s(invocation.get("rate_limit")
                        if isinstance(invocation, dict) else None)
-    if gap is None:
-        return command, None
-    when = ((now or datetime.now(timezone.utc)) + timedelta(seconds=gap)) \
-        .strftime("%Y-%m-%dT%H:%M:%SZ")
-    return f"{command} --not-before {when}", when
+    baseline = doc.get("baseline_verdicts")
+    baseline = baseline if isinstance(baseline, str) else None
+    when = None
+    if gap is not None:
+        at = (now or datetime.now(timezone.utc)) + timedelta(seconds=gap)
+        if at.microsecond:
+            at = at.replace(microsecond=0) + timedelta(seconds=1)
+        when = at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return resume_command(run_dir, baseline=baseline, not_before=when), when
 
 
 def started_run(run_dir):
@@ -212,7 +218,7 @@ def main():
             status = status_of(results)
             if status is not None and status != "running":
                 continue
-            command, not_before = resume_command(run_dir)
+            command, not_before = resume_of(run_dir)
             print(json.dumps({
                 "run_id": (results or {}).get("run_id")
                 or os.path.basename(os.path.abspath(run_dir)),
@@ -222,8 +228,8 @@ def main():
                 "waited_s": round(time.monotonic() - started, 1),
                 "resume": command,
                 **({"not_before": not_before} if not_before else {}),
-                "holdout_look": "a resume spends none: the ledger holds "
-                                "one row per run id"}, ensure_ascii=False))
+                "holdout_look": "a resume spends no new one: the ledger "
+                                "holds one row per run id"}, ensure_ascii=False))
             return RUNNER_GONE
         if time.monotonic() - started >= a.timeout_s:
             print(json.dumps({

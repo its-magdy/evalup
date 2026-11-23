@@ -12,6 +12,7 @@ both work).
 """
 import json
 import re
+import shlex
 import signal
 import sys
 import threading
@@ -468,6 +469,22 @@ def resume_gap_s(rate_limit):
     gap = max(rate_limit.get("window_s") or 0,
               rate_limit.get("min_interval_s") or 0)
     return float(gap) if gap > 0 else None
+
+
+def resume_command(out, plan=None, baseline=None, not_before=None):
+    """#144: the shell command that resumes the run at `out`, every argument
+    quoted. `plan` None (unknown, or a plan read from stdin) prints the
+    placeholder `<plan.json>`: a resume needs the same plan in a file. The
+    baseline is carried over because a resume without it rewrites the
+    manifest with none and scores no comparison."""
+    argv = ["evalup", "run-cases", "--plan",
+            plan if plan and plan != "-" else "<plan.json>",
+            "--out", out, "--resume"]
+    if baseline:
+        argv += ["--baseline-verdicts", baseline]
+    if not_before:
+        argv += ["--not-before", not_before]
+    return " ".join(shlex.quote(str(arg)) for arg in argv)
 
 
 def overlay_expect(every_turn, expect):

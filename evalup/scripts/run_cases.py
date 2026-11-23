@@ -94,6 +94,7 @@ from _common import (
     infra_rate,
     loads_strict,
     nfc,
+    resume_command,
     resume_gap_s,
     run_bounded,
     scoring_comparison,
@@ -4743,31 +4744,33 @@ def dry_run_report(runner, plan_path=None):
             "latency adds to this; wait_floor_s overlaps it. Paced within "
             "one process: a run started right after another, or a --resume, "
             "may share that run's last window")
-        if report["pace_floor_s"] > BACKGROUND_CAP_S:
+        if report["pace_floor_s"] >= BACKGROUND_CAP_S:
             report["resume_expected"] = resume_expected(runner, plan_path)
     return report
 
 
 def resume_expected(runner, plan_path):
-    """#144: the pace alone outlasts the harness's cap on a backgrounded
-    Bash call, so the runner will likely be killed mid-run and resumed.
-    Said before the run, with the command, so a resume is the plan rather
-    than a surprise. Changes nothing the run does."""
+    """#144: the pace alone reaches the harness's cap on a backgrounded Bash
+    call, so the runner will likely be killed mid-run and resumed. Said
+    before the run, with the command, so a resume is the plan rather than a
+    surprise. Changes nothing the run does."""
     gap = resume_gap_s(runner.rate_limit)
-    plan_arg = plan_path if plan_path and plan_path != "-" else "<plan.json>"
     return {
         "note": (
-            f"pace_floor_s alone is over {BACKGROUND_CAP_S} s, Claude Code's "
-            "cap on a Bash call moved to the background: expect the runner "
-            "to be killed mid-run and plan to resume it. `evalup wait-run` "
-            "exits 4 when it is, and prints this command with --not-before "
-            f"filled in, {gap:g} s (one rate-limit window) after it found "
+            f"pace_floor_s alone reaches {BACKGROUND_CAP_S} s, Claude Code's "
+            "cap on a Bash call moved to the background, and latency adds to "
+            "it: expect the runner to be killed mid-run and plan to resume "
+            "it. `evalup wait-run` exits 4 when it is, and prints this "
+            f"command with --not-before filled in, {gap:g} s after it found "
             "the runner gone: a --resume without it shares the killed run's "
             "last window and hits the limit at once. Resuming spends no new "
-            "holdout look: the ledger holds one row per run id"),
-        "window_s": gap,
-        "command": (f"evalup run-cases --plan {plan_arg} --out {runner.out} "
-                    "--resume --not-before <the time wait-run exit 4 prints>"),
+            "holdout look: the ledger holds one row per run id"
+            + ("" if plan_path and plan_path != "-" else
+               "; a plan read from stdin must be in a file to resume")),
+        "gap_s": gap,
+        "command": resume_command(
+            runner.out, plan_path, runner.baseline_verdicts,
+            "<the not_before wait-run exit 4 prints>"),
     }
 
 
