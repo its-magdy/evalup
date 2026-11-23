@@ -19,6 +19,13 @@ says when a release bumps it.
 ## [Unreleased]
 
 ### Added
+- **`summary.unusable_by_split`** in `validate-cases` (#132): per split, why
+  each case `usable_by_split` leaves out is out (`canary`, `review_pending`,
+  `review_quarantined`, `machine_signed`, `not_gating`). Additive; the
+  existing counts are unchanged. The same nits fix prose: the generator warns
+  against two criteria tagged with one `rule:`, run's retry sizing says what
+  to do when the planned calls alone exceed a rate-limit window, and the label
+  review refreshes a case's coverage `notes` when it changes `covers`.
 - **`evalup write-artifact`** (#106). In a Claude Code subagent the harness
   refuses Write on `findings.md` and `report.md`, so a skill driven that way
   lost them and later steps lost their input. discover and run now Write a

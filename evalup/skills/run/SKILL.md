@@ -142,8 +142,9 @@ recorded in findings.md, plus the larger of its `wait_floor_s` and
 `estimate.usd` (+ judge calls; quote its note's cache caveat); with none,
 give messages and minutes, name `estimate.models`, ask for prices. A start
 time: `--not-before` (`wait-run` exit 3 `not_started`). Under an app-side
-rate limit (findings or adapter), also state `app_calls_max` (every retry)
-and fit `--max-attempts` to it. Ask "≈ $X, ~Y min.
+rate limit (findings or adapter), also state `app_calls_max` (every retry);
+`rate_limit` paces every call across windows, so if `app_calls_planned`
+alone exceeds one, size `--max-attempts` to `pace_max_s`, not a window. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
 go: a first session must not stop here), under a pre-approved budget, or
 under the headless gate (§6). Resume
