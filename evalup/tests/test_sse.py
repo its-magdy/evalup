@@ -469,6 +469,80 @@ class TestRunnerSumsEveryModelCall(SSERunnerCase):
         self.assertEqual(cost["usd"], round((700 + 50 + 600) / 1e6, 6))
 
 
+class TestEveryRepeatIsPriced(SSERunnerCase):
+    """#129 end to end: a k=3 run of a caching app, its first repeat a cache
+    write and the next two cache reads, priced off the runner's own tree.
+    The representative repeat's figure is unchanged; all_repeats is the
+    spend, and the dry-run estimate takes its rate from it."""
+
+    USAGES = (
+        {"inputTokens": 1000, "outputTokens": 100,
+         "cacheWriteInputTokens": 800},
+        {"inputTokens": 1000, "outputTokens": 100, "cachedInputTokens": 800},
+        {"inputTokens": 1000, "outputTokens": 50, "cachedInputTokens": 900},
+    )
+
+    def setUp(self):
+        super().setUp()
+        sent = []
+
+        def respond(path):
+            if not path.endswith("/api/chat/ask"):
+                return 200, "application/json", "{}"
+            sent.append(path)
+            usage = self.USAGES[min(len(sent), 3) - 1]
+            return 200, EVENT_STREAM, agent_run(
+                text_message("m1", "ok"), end=dict(FINISHED, usage=[usage]))
+        self.raw.server.responder = respond
+
+    def test_all_three_repeats_are_priced_from_their_responses(self):
+        plan = self.sse_plan()
+        plan["k"] = 3
+        plan["capability_matrix"]["cost_latency"] = {"enabled": True}
+        rc, _, proc = self.invoke(plan)
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        table = self.tmp / "prices.json"
+        table.write_text(json.dumps({
+            "schema": "evalup/price-table/1", "as_of": "2026-09-01",
+            "source": "test", "aliases": {"<model attribute absent>": "m"},
+            "models": {"m": {"input_per_mtok": "2", "output_per_mtok": "10",
+                             "cache_read_per_mtok": "0.2",
+                             "cache_write_per_mtok": "2.5"}}}),
+            encoding="utf-8")
+        cost_json = self.tmp / "cost.json"
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "score_cost.py"),
+             str(self.out_dir()), "--prices", str(table),
+             "-o", str(cost_json)],
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        cost = json.loads(cost_json.read_text(encoding="utf-8"))["cost"]
+        # Per million tokens:
+        #   1: 200 x 2 + 800 x 2.5 + 100 x 10 = 3400
+        #   2: 200 x 2 + 800 x 0.2 + 100 x 10 = 1560
+        #   3: 100 x 2 + 900 x 0.2 +  50 x 10 =  880
+        verdict = self.read("cases", "c-0001", "verdict.json")
+        n = next(r["n"] for r in verdict["repeats"]
+                 if r["verdict"] == verdict["verdict"])
+        self.assertEqual(cost["usd"],
+                         round((3400, 1560, 880)[n - 1] / 1e6, 6))
+        every = cost["all_repeats"]
+        self.assertEqual(every["cache_accounting"], "priced")
+        self.assertEqual(every["usd"], round((3400 + 1560 + 880) / 1e6, 6))
+        self.assertEqual((every["repeats_with_usage"],
+                          every["messages_with_usage"]), (3, 3))
+        # The estimate for the same plan takes the all-repeats rate.
+        plan["run_id"] = "smoke-20260909T120000Z"
+        rc, payload, proc = self.invoke(
+            plan, out=self.out_dir(plan["run_id"]),
+            extra_argv=["--dry-run", "--cost-from", str(cost_json)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual(est["rate_basis"], "all_repeats")
+        self.assertAlmostEqual(est["usd"], every["usd"], places=4)
+        self.assertNotIn("overstates", est["note"])
+
+
 class TestRunnerReadsStreams(SSERunnerCase):
     def test_the_answer_is_the_joined_text(self):
         rc, _, proc = self.invoke(self.sse_plan(traces=False))

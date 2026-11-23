@@ -843,12 +843,13 @@ class TestDryRunEstimate(RunnerCase):
     per message; with none, messages only, the models named, no rate."""
 
     def priced_run(self, usd, status="priced", traced=("c-a", "c-b"),
-                   conversation=None, models=("claude-sonnet-5-5",)):
+                   conversation=None, models=("claude-sonnet-5-5",), k=None,
+                   all_repeats=None):
         run_id = "regression-20261101T000000Z"
         run_dir = self.state / "reports" / run_id
         rows = []
         for case_id in ("c-a", "c-b", "c-c"):
-            (run_dir / "cases" / case_id).mkdir(parents=True)
+            (run_dir / "cases" / case_id).mkdir(parents=True, exist_ok=True)
             rows.append({"case_id": case_id})
             # c-c's file is one score_cost.py would not price (no
             # `trajectory` object), so it must not join the denominator.
@@ -870,10 +871,66 @@ class TestDryRunEstimate(RunnerCase):
             cost.update(usd=usd, price_table={"as_of": "2026-11-01"})
         else:
             cost["reason"] = "no price table declared"
+        if all_repeats is not None:
+            cost["all_repeats"] = all_repeats
+        meta = {"run_id": run_id}
+        if k is not None:
+            meta["k"] = k
         path = self.tmp / "cost.json"
-        path.write_text(json.dumps({"run": {"run_id": run_id},
-                                    "cost": cost}), encoding="utf-8")
+        path.write_text(json.dumps({"run": meta, "cost": cost}),
+                        encoding="utf-8")
         return path
+
+    def test_a_k1_rate_for_a_k3_plan_says_it_overstates_a_cached_app(self):
+        """#129: $0.93 estimated, $0.56 spent -- the k=1 run's messages were
+        all cache writes. The rate stands; the note says which way it errs."""
+        cost = self.priced_run(0.90, k=1)
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001")])
+        plan["k"] = 3
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(cost)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual((est["source_k"], est["k"], est["rate_basis"]),
+                         (1, 3, "representative"))
+        self.assertAlmostEqual(est["usd_per_message"], 0.45)
+        self.assertIn("ran at k = 1 and this plan at k = 3", est["note"])
+        self.assertIn("overstates a k > 1 run", est["note"])
+        # The same k needs no caveat.
+        plan["k"] = 1
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(cost)])
+        self.assertNotIn("overstates", payload["estimate"]["note"])
+
+    def test_a_k3_run_priced_over_every_repeat_gives_that_rate(self):
+        # cost.usd 0.90 is one repeat of 2 traced cases; all_repeats says
+        # the run spent 1.20 over its 6 messages: $0.20 a message.
+        every = {"status": "priced", "usd": 1.20, "messages_with_usage": 6}
+        cost = self.priced_run(0.90, k=3, all_repeats=every)
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["k"] = 3
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(cost)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual((est["rate_basis"], est["source_messages"]),
+                         ("all_repeats", 6))
+        self.assertAlmostEqual(est["usd_per_message"], 0.20)
+        self.assertAlmostEqual(est["usd"], 1.20)
+        self.assertIn("over every repeat", est["note"])
+        self.assertNotIn("overstates", est["note"])
+        # An all-repeats block with no dollars falls back to the
+        # representative rate, and says it is one repeat's.
+        every["status"] = "unpriced"
+        cost = self.priced_run(0.90, k=3, all_repeats=every)
+        rc, payload, _ = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(cost)])
+        est = payload["estimate"]
+        self.assertEqual(est["rate_basis"], "representative")
+        self.assertAlmostEqual(est["usd_per_message"], 0.45)
+        self.assertIn("representative repeat's", est["note"])
 
     def test_no_priced_run_estimates_messages_and_names_the_model(self):
         plan = make_plan(self.state, self.app.base_url,

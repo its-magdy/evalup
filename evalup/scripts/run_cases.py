@@ -4788,8 +4788,13 @@ def wait_until(when, sleep=time.sleep):
 def estimate_block(runner, report, cost_from):
     """--dry-run's `estimate` (#105): messages always, dollars only from a
     run that was PRICED. The rate is that run's measured dollars per app
-    message -- score_cost.py's `cost.usd` (one representative repeat) over
-    the messages that repeat sent for its traced cases. Never a token count
+    message: score_cost.py's `cost.all_repeats` (#129, a k > 1 run's every
+    repeat) when it is priced, its usd over its messages_with_usage; else
+    `cost.usd` (one representative repeat) over the messages that repeat
+    sent for its traced cases. A rate measured at another k, or over one
+    repeat of k, is caveated in the note (k_caveat), not corrected: a
+    cached app's later repeats are cheaper by an amount only a run at that
+    k measures. Never a token count
     times a price this script guessed: prices are the user's sidecar
     (CONTRIBUTING decision 4), and the plugin ships none."""
     planned, worst = report["app_calls_planned"], report["app_calls_max"]
@@ -4832,8 +4837,24 @@ def estimate_block(runner, report, cost_from):
             "estimate messages and minutes only, name the models above, and "
             "ask the user for their prices. Judge calls are not counted")
         return block
-    sent = traced_messages(runner.state_dir, run_id) \
-        if isinstance(run_id, str) and RUN_ID_RE.fullmatch(run_id) else None
+    # #129: a k > 1 run's cost file prices every repeat (`all_repeats`);
+    # that is the run's whole spend over the messages it sent, so it is the
+    # rate when it is priced. Else one representative repeat per case, over
+    # the messages that repeat sent.
+    every = cost.get("all_repeats")
+    every = every if isinstance(every, dict) else {}
+    every_usd, every_sent = every.get("usd"), every.get("messages_with_usage")
+    if every.get("status") == "priced" \
+            and isinstance(every_usd, (int, float)) \
+            and not isinstance(every_usd, bool) \
+            and isinstance(every_sent, int) \
+            and not isinstance(every_sent, bool) and every_sent > 0:
+        usd, sent, basis = every_usd, every_sent, "all_repeats"
+    else:
+        basis = "representative"
+        sent = traced_messages(runner.state_dir, run_id) \
+            if isinstance(run_id, str) and RUN_ID_RE.fullmatch(run_id) \
+            else None
     if not sent:
         block["note"] = (
             f"{run_id}: priced, but its run directory under "
@@ -4842,18 +4863,41 @@ def estimate_block(runner, report, cost_from):
         return block
     rate = usd / sent
     caveat = CACHE_CAVEAT.get(block["cache_accounting"], CACHE_CAVEAT[None])
+    source_k = run_meta.get("k")
     block.update({
         "usd_per_message": round(rate, 6),
         "usd": round(rate * planned, 4), "usd_max": round(rate * worst, 4),
-        "source_messages": sent,
+        "source_messages": sent, "rate_basis": basis,
+        "source_k": source_k, "k": runner.k,
         "price_table_as_of": cost["price_table"].get("as_of")
         if isinstance(cost.get("price_table"), dict) else None,
         "note": (
-            f"{run_id}'s measured ${rate:.4f} per app message x this plan's "
-            "messages; usd_max is every call retried. It inherits that run's "
-            f"limits: {caveat}. "
-            "Judge calls are not counted")})
+            f"{run_id}'s measured ${rate:.4f} per app message "
+            + ("over every repeat " if basis == "all_repeats" else "")
+            + "x this plan's messages; usd_max is every call retried. It "
+            f"inherits that run's limits: {caveat}. "
+            + k_caveat(run_id, source_k, runner.k, basis)
+            + "Judge calls are not counted")})
     return block
+
+
+def k_caveat(run_id, source_k, k, basis):
+    """#129: the estimate's caveat when its rate was measured at another k,
+    or over one repeat of a k > 1 run. Stated, not modelled: how much cheaper
+    a repeat is once the cache is warm is the app's, and no k=1 run says."""
+    if source_k == k and (k == 1 or basis == "all_repeats"):
+        return ""
+    if source_k is None:
+        head = f"{run_id}'s cost file names no k (this plan's is {k})"
+    elif source_k != k:
+        head = f"{run_id} ran at k = {source_k} and this plan at k = {k}"
+    else:
+        head = (f"{run_id}'s rate is its representative repeat's, not its "
+                "k repeats'")
+    return (f"{head}: on a caching app a repeat after the first reads the "
+            "cache the first one wrote, so a rate from first sends (k = 1, "
+            "or one repeat) overstates a k > 1 run, and a k > 1 rate "
+            "understates a k = 1 run. ")
 
 
 # score_cost.py's `model attribute absent` key (its ABSENT_MODEL), pinned
