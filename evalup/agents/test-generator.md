@@ -38,7 +38,12 @@ its file name, and the seal lists it.
 each surviving tuple into a natural-language message. Do not emit N messages
 in one go: each would condition on the previous ones' surface form and
 collapse into a template. Every realized case carries `template_id` and
-`instantiation_params` (the tuple it came from) — both required.
+`instantiation_params` (the tuple it came from) — both required. Write
+each case straight to its file under `datasets/`: no draft or copy
+anywhere else, `/tmp` included — a copy of a holdout case or template
+outside `datasets/` is outside the seal. A rubric written for holdout
+cases alone is sealed with them, so its `rubric_id` (and file name) is
+`ho_` plus an opaque token too.
 
 If you find yourself writing case prose while still deciding which
 combinations to cover, you have merged the phases. Stop and go back.

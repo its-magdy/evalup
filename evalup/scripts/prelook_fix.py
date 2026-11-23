@@ -64,6 +64,11 @@ Without --apply it is a dry run: what would change, nothing written. After an
 apply, convert and validate (run/SKILL.md SS1), then re-pin: the baseline is
 on the old dataset_version.
 
+--list also lists `sealed_rubrics` by id and hash (#145): a rubric whose id
+is `ho_` + an opaque token, or one only sealed cases pin. A rubric a training
+case pins too is not sealed (the training review reads it) and is named under
+`mixed_rubrics`, as a shared template is under `mixed_templates`.
+
 --list also names `missing_templates`: a template_id a sealed case carries
 that no listed template file has (#133). Its oracle and tuple are then
 outside the seal, wherever the file is; --list prints the listing with an
@@ -82,6 +87,7 @@ import sys
 from datetime import datetime, timezone
 
 from _common import BadJSON, add_version_flag, die, load_text, loads_strict
+from _rubric import split_pin
 from run_cases import atomic_write, sha256_of
 
 DEFAULT_LEDGER = "datasets/holdout-looks.jsonl"
@@ -133,12 +139,41 @@ def template_ids(entries):
             for e in entries]
 
 
-def seal_listing(cases, templates):
-    """What the seal covers, by id and hash: never a field's value."""
+def rubric_pin(case):
+    """The rubric id a case's `expect.answer.rubric` pins, or None."""
+    answer = (case.get("expect") or {}).get("answer") \
+        if isinstance(case.get("expect"), dict) else None
+    ref = answer.get("rubric") if isinstance(answer, dict) else None
+    return split_pin(ref.strip())[0] if isinstance(ref, str) \
+        and ref.strip() else None
+
+
+def rubric_ids(entries):
+    """[{rubric_id, sha256}] from convert_suite.py's `rubrics` (the file's
+    frontmatter rubric_id, else its file name)."""
+    out = []
+    for e in entries or []:
+        front = e.get("frontmatter")
+        rid = front.get("rubric_id") if isinstance(front, dict) else None
+        if not isinstance(rid, str) or not rid.strip():
+            rid = os.path.splitext(os.path.basename(e["file"]))[0]
+        out.append({"rubric_id": rid, "sha256": e["sha256"]})
+    return out
+
+
+def seal_listing(cases, templates, rubrics=None):
+    """What the seal covers, by id and hash: never a field's value.
+
+    A rubric is sealed like a template (#145): when its id is `ho_` + an
+    opaque token, or when only sealed cases pin it. One a training case pins
+    too is not sealed -- the training review reads it anyway -- and is named
+    under mixed_rubrics, as a template is under mixed_templates."""
     sealed = sorted(c["id"] for c in cases if is_holdout(c))
     by_id = {c["id"]: c for c in cases}
     sealed_tids = {by_id[i].get("template_id") for i in sealed}
     training_tids = {c.get("template_id") for c in cases if not is_holdout(c)}
+    sealed_rids = {rubric_pin(by_id[i]) for i in sealed} - {None}
+    training_rids = {rubric_pin(c) for c in cases if not is_holdout(c)}
     sealed_templates = [t for t in template_ids(templates)
                         if t["template_id"].startswith(SEALED_TEMPLATE_PREFIX)
                         or t["template_id"] in sealed_tids]
@@ -156,6 +191,15 @@ def seal_listing(cases, templates):
         "missing_templates": sorted(
             t for t in sealed_tids if isinstance(t, str) and t.strip()
             and t not in {e["template_id"] for e in templates}),
+        "sealed_rubrics": [
+            r for r in rubric_ids(rubrics)
+            if r["rubric_id"].startswith(SEALED_TEMPLATE_PREFIX)
+            or (r["rubric_id"] in sealed_rids
+                and r["rubric_id"] not in training_rids)],
+        "mixed_rubrics": sorted(
+            r["rubric_id"] for r in rubric_ids(rubrics)
+            if r["rubric_id"] in sealed_rids
+            and r["rubric_id"] in training_rids),
     }
 
 
@@ -423,7 +467,7 @@ def main():
     add_version_flag(ap)
     ap.add_argument("state_dir", help="the state location, e.g. <app>/.evalup")
     ap.add_argument("--list", action="store_true",
-                    help="list the sealed cases and templates by id and "
+                    help="list the sealed cases, templates and rubrics by id and "
                          "sha256, and the ledger's line count; change nothing")
     ap.add_argument("--transformation", metavar="FILE|JSON",
                     help="the fix: a JSON object (see the module docstring)")
@@ -450,7 +494,8 @@ def main():
                      "or --apply")
         doc = convert(a.state_dir)
         listing = seal_listing(suite_cases(doc),
-                               convert(a.state_dir, "--templates")["templates"])
+                               convert(a.state_dir, "--templates")["templates"],
+                               doc.get("rubrics"))
         version = (doc.get("manifest") or {}).get("dataset_version", 1)
         out = {"ledger_lines": looks,
                "holdout_runs": holdout_runs(a.state_dir, version), **listing}
@@ -506,7 +551,7 @@ def main():
             die(f"refused: case {case.get('id')!r} has no source file")
         changed.append((case, fixed))
     listing = seal_listing(cases, convert(a.state_dir, "--templates")
-                           ["templates"])
+                           ["templates"], doc.get("rubrics"))
     rows = [{"id": c["id"], "sealed": is_holdout(c),
              "old_sha256": sha256_of(c), "new_sha256": sha256_of(f)}
             for c, f in changed]
@@ -516,6 +561,8 @@ def main():
            "sealed_changed": sum(r["sealed"] for r in rows),
            "sealed_templates": listing["sealed_templates"],
            "mixed_templates": listing["mixed_templates"],
+           "sealed_rubrics": listing["sealed_rubrics"],
+           "mixed_rubrics": listing["mixed_rubrics"],
            "dataset_version": {"from": old_version,
                                "to": old_version + 1 if rows else old_version}}
     if not rows:

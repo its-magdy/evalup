@@ -592,6 +592,13 @@ def render(facts, reasons):
         # not counting.
         verdict += (f" ({failures - gating} failure(s) on non-gating cases,"
                     " not counted)")
+    if not reasons and (facts["mode"] == "holdout"
+                        or isinstance(facts["holdout"], dict)):
+        # #145: a holdout look's cases are unreviewed (reading one unseals
+        # it), so none gates and the gate opens beside stats' keep: false.
+        # The verdict stands; the line says whose decision the look is.
+        verdict += (" -- a holdout look: this gate does not decide it; "
+                    "`evalup stats` (the keep rule) does")
     base = facts.get("baseline")
     excused = len(base["flaky_excused"]) + len(base["failing_excused"]) \
         if base else 0

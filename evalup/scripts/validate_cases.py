@@ -1402,10 +1402,12 @@ def check_manifest(rep, cases, records, manifest):
     by_unit = mapping(manifest.get("coverage_grid", {})).get("by_unit") \
         if isinstance(manifest.get("coverage_grid"), dict) else None
     if isinstance(by_unit, dict):
+        # Cases outside the holdout only (#145): with holdout cases in it,
+        # by_unit minus the training cases is the sealed spread by unit.
         actual_by_unit = {}
         for r in records:
             unit = r["unit"]
-            if not is_nonempty_str(unit):
+            if not is_nonempty_str(unit) or "holdout" in (r["split"] or []):
                 continue
             bucket = actual_by_unit.setdefault(unit, {"total": 0})
             bucket["total"] += 1
@@ -1422,7 +1424,8 @@ def check_manifest(rep, cases, records, manifest):
                 if actual_n != declared_n:
                     rep.error(None, "manifest_mismatch",
                               f"dataset.yaml coverage_grid.by_unit.{unit}."
-                              f"{key}: {declared_n} but actual is {actual_n}")
+                              f"{key}: {declared_n} but actual is {actual_n} "
+                              "(by_unit counts cases outside the holdout)")
 
 
 LABEL_FIX_STATUSES = ("pending", "approved", "applied", "rejected")

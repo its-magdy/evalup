@@ -1011,6 +1011,27 @@ class TestManifestCheck(ValidateTest):
                               "--manifest", manifest)
         self.assertIn("coverage_grid.by_unit.Billing", f["message"])
 
+    def test_coverage_grid_counts_cases_outside_the_holdout(self):
+        # #145: by_unit minus the training cases would be the sealed
+        # spread by unit, so the holdout stays out of it.
+        cases = [good_case("a-happy-1", unit="Billing", test_type="MFT"),
+                 good_case("a-happy-2", unit="Billing", test_type="MFT",
+                           split=["holdout"]),
+                 good_case("a-happy-3", unit="Refunds", test_type="MFT",
+                           split=["holdout"])]
+        manifest = self.write_json(
+            "manifest.json",
+            {"coverage_grid": {"by_unit": {"Billing": {"total": 1,
+                                                        "MFT": 1}}}})
+        rc, out, err = self.validate(cases, "--manifest", manifest)
+        self.assertNotIn("manifest_mismatch", self.codes(out), str(out) + err)
+        manifest = self.write_json(
+            "manifest.json",
+            {"coverage_grid": {"by_unit": {"Billing": {"total": 2}}}})
+        f = self.assert_finds("manifest_mismatch", cases,
+                              "--manifest", manifest)
+        self.assertIn("outside the holdout", f["message"])
+
     def test_no_manifest_flag_skips_the_check_entirely(self):
         rc, out, err = self.validate([good_case()])
         self.assertEqual(rc, 0, err)

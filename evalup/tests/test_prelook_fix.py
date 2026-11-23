@@ -337,6 +337,52 @@ class TestPrelookFix(unittest.TestCase):
         self.assertEqual(doc["missing_templates"], [])
         self.assertNotIn("error", doc)
 
+    def pin_rubric(self, case_id, rubric_id):
+        path = self.state / "datasets" / f"{case_id}.yaml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace(
+            "  answer:\n", f"  answer:\n    rubric: {rubric_id}\n", 1),
+            encoding="utf-8")
+
+    def test_list_seals_rubrics_only_sealed_cases_pin(self):
+        # #145: a rubric only a holdout case pins says what that case
+        # tests; it is sealed like its template. One a training case pins
+        # too is read in the training review, so it is named, not sealed.
+        rubrics = self.state / "rubrics"
+        rubrics.mkdir()
+        for rid in ("decline", "shared", "ho_5e1d0c2a", "train_only"):
+            (rubrics / f"{rid}.md").write_text(
+                f"---\nrubric_id: {rid}\nversion: 1\n---\n"
+                f"{SEALED_ORACLE}\n", encoding="utf-8")
+        self.pin_rubric("c-ho1", "decline-v1")
+        self.pin_rubric("c-ho2", "shared")
+        self.pin_rubric("c-train2", "shared")
+        self.pin_rubric("c-pending", "train_only")
+        rc, out, err = self.run_fix("--list", fix=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assert_no_case_text(out + err)
+        doc = json.loads(out)
+        self.assertEqual([r["rubric_id"] for r in doc["sealed_rubrics"]],
+                         ["decline", "ho_5e1d0c2a"])
+        for r in doc["sealed_rubrics"]:
+            self.assertRegex(r["sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(doc["mixed_rubrics"], ["shared"])
+        # The dry run lists the same seal.
+        rc, out, err = self.run_fix()
+        self.assertEqual(rc, 0, out + err)
+        self.assert_no_case_text(out + err)
+        doc = json.loads(out)
+        self.assertEqual([r["rubric_id"] for r in doc["sealed_rubrics"]],
+                         ["decline", "ho_5e1d0c2a"])
+        self.assertEqual(doc["mixed_rubrics"], ["shared"])
+
+    def test_list_without_rubrics_lists_none(self):
+        rc, out, err = self.run_fix("--list", fix=False)
+        self.assertEqual(rc, 0, out + err)
+        doc = json.loads(out)
+        self.assertEqual(doc["sealed_rubrics"], [])
+        self.assertEqual(doc["mixed_rubrics"], [])
+
     def test_list_fails_on_a_sealed_case_whose_template_has_no_file(self):
         # #133: a sealed case's template the listing never saw is outside
         # the seal; --list says so and exits 2, the listing still printed.
