@@ -84,7 +84,7 @@ Each refusal names its unlock, as a command:
 |---|---|---|
 | 1 | `judge.status: calibrated` when any objective dimension is judge-scored. Check the evidence, not the flag: `paths.judge_calibration`'s sidecar (`score_agreement.py --write`) derives it; a `calibrated` profile without one is hand-set, and the runner refuses it. An uncalibrated judge as a target yields a confidently worse app. | `/evalup:analyze --label` until the sidecar backs it |
 | 2 | Usable case count ≥ ~100 with any judge-scored objective, ≥ ~50 when every objective is deterministic (Bayesian gating). | `/evalup:generate --layer <layer> --count <N>` (adds beside the existing cases, changes none), then its §3 review: a human accepts each training case and flips `gating` in the same edit — never a holdout case, which reading unseals |
-| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on. §4 seals ⌈0.2 × (E + N)⌉ − the current holdout of the N fresh, unread cases (E = the suite's cases now), so any N ≥ ⌈E/4⌉ with E + N ≥ 25 reaches the bar — e.g. 11 usable training cases, no holdout, N = 50: 13 sealed against a bar of 12.2 (20% of the 50 alone, 10, would miss it). Step 4's power check may ask for more; looks spent → `/evalup:analyze --unseal`; a check fix before any look → `evalup prelook-fix` (generate §4) |
+| 3 | A sealed holdout exists: `by_split.holdout` ≥ 20% of the usable count (generate §4's share; 10 at the 50-case floor). Generate skips the holdout below 25 cases, so a suite that grew past 50 may still have none. A seal with fewer looks left than step 4 needs counts as none. | `/evalup:generate --layer <layer> --count <N>` on a layer the suite is thin on. §4 seals ⌈0.2 × (E + N)⌉ − the current holdout of the N fresh, unread cases (E = the suite's cases now), so any N ≥ ⌈E/4⌉ with E + N ≥ 25 reaches the bar — e.g. 11 usable training cases, no holdout, N = 50: 13 sealed against a bar of 12.2 (20% of the 50 alone, 10, would miss it). Step 4's power check may ask for more; with no holdout, run its H = 0 form before refusing here (once loop step 1 has picked a cluster; both only read), so the refusal states the n needed; looks spent → `/evalup:analyze --unseal`; a check fix before any look → `evalup prelook-fix` (generate §4) |
 | 4 | `stage: stable` (a pre-#42 `traffic`/`production` counts as stable). At `early`, route-target and tool boundaries still move, so a gain is indistinguishable from drift. | `/evalup:discover` — its §6 sets `stage` once the user confirms the boundaries hold |
 | 5 | A budget, and its meter (below). | `/evalup:optimize --budget $N`, or ask |
 | 6 | White-box prompt access, and an edit that reaches the running app (below). | none: gray-box or `repo_access: read-only` → recommendations only, written to findings |
@@ -193,23 +193,42 @@ With R, P and H their `app_calls_planned`:
      files you restored.
 
    **Can this holdout keep a fix for this cluster? Ask before the noise
-   pair**, and before each candidate look. Estimate the cluster's holdout
-   headroom C = H × the cluster's failing cases ÷ the rows of that run's
-   `verdicts_for_stats.jsonl` (H = `by_split.holdout`; sealed cases cannot
-   be read, so this assumes the cluster fails there at the training rate).
-   Run `evalup stats --holdout-power <H> --headroom <C>`, adding
+   pair**, and before each candidate look. The cluster's rate R = its
+   failing cases ÷ the rows of that run's `verdicts.jsonl` with `gating`
+   true, `canary` false and `verdict` `pass` or `fail` — the population
+   step 1 clusters (and in the numerator, only such cases of a
+   `clusters.json` cluster's `case_ids`), never every row of `verdicts_for_stats.jsonl` (which
+   keeps canaries and non-gating cases). Its holdout headroom is C = H × R
+   (H = `by_split.holdout`; sealed cases cannot be read, so this assumes the
+   cluster fails there at the training rate). Run
+   `evalup stats --holdout-power <H> --headroom <C>`, adding
    `--noise-disagreements <D>` once the pair exists (D = `fixed_by_candidate`
    + `broken_by_candidate` of `evalup stats` on the pair's two
    `verdicts_for_stats.jsonl`). Print its `min_detectable_effect`,
    `fewest_fixed_to_keep` and `smallest_net_to_keep` before any look.
+   **No holdout (H = 0)**: run `evalup stats --holdout-power 0
+   --cluster-rate <R>` instead. `can_keep` is false and the MDE is null
+   (nothing is sealed), but it prints `holdout_cases_needed`: state R as
+   the effect to detect and that n before refusing (precondition 3).
    `can_keep: false` → refuse: no look can keep this fix. The unlock is a
-   bigger holdout: `/evalup:generate --count <N>`, asking it to seal
-   T = `holdout_cases_needed` − H of the new cases, with N ≥ T and
-   N ≥ ⌈E/4⌉: it seals the larger of T and its share, so both bars hold (a
-   new seal, so the pair is re-measured). `powered: false` → say a real gain will usually not
-   keep and offer the same generate; go on only if the user says so
-   (headless: refuse). E.g. 13 sealed, a cluster failing 14 of 46: C ≈ 3.96,
-   4 fixed needed, so refuse — the re-proof spent three looks to learn that.
+   bigger suite: `/evalup:generate --count <N>`, asking it to seal
+   T = `holdout_cases_needed` − H of the new cases, with
+
+   N = max(T, ⌈E/4⌉, F − U)
+
+   (E = the suite's cases now, U = the usable count now, F = precondition
+   2's floor: 50, or 100 with a judge-scored objective). N ≥ T and
+   N ≥ ⌈E/4⌉ make both holdout bars hold: generate seals the larger of T
+   and its share (a new seal, so the pair is re-measured). N ≥ F − U keeps
+   precondition 2 met after it: the usable count becomes U + N only once a
+   human accepts each of the N − T new training cases, so every one
+   rejected is one more to generate. `powered: false` → say a real gain
+   will usually not keep and offer the same generate; go on only if the
+   user says so (headless: refuse). E.g. 13 sealed, a cluster failing 14 of
+   46 gating training cases: C ≈ 3.96, 4 fixed needed, so refuse — the
+   re-proof spent three looks to learn that. With no holdout, 9 usable
+   cases of 12 and a cluster failing 2 of the 9: R ≈ 0.22, 28 needed, so
+   N = max(28, 3, 41) = 41 — 28 sealed, 13 to accept, 50 usable.
 
    **Before the first edit of a seal, measure its noise pair — on the
    unedited app.** Measured after the edit, the candidate would be its own

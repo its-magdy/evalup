@@ -93,6 +93,12 @@ says when a release bumps it.
   (#110). analyze `--cluster` writes `reports/<run-id>/clusters.json`, and
   optimize falls back to `verdicts.jsonl` without it (#112). No verdict
   changes.
+- Optimize's power check works with no holdout (#130): `stats.py
+  --holdout-power 0 --cluster-rate R` prints `can_keep: false`, a null MDE
+  and `holdout_cases_needed`, so the refusal states the n first. The unlock
+  generates N = max(T, ⌈E/4⌉, F − U), so precondition 2's usable floor
+  holds too, and the cluster's rate counts gating, non-canary cases only,
+  not every row of `verdicts_for_stats.jsonl`. No verdict or keep changes.
 - profile.yaml `app_model` reaches the manifest's `app.model` through
   `make_plan.py`, so the judge's same-family check needs no hand-written
   `--manifest-extra` (#104). A `--manifest-extra` key the runner does not

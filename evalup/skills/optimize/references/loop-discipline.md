@@ -22,7 +22,8 @@ paired tests; "no keep" without saying that reads as "the
 tool doesn't work." Always translate: what effect size is detectable at this
 n, and what n the user needs for the effect they care about (with the generate
 command to get there) — before the noise pair, not after a refused look:
-`stats.py --holdout-power` (optimize step 4). `stats.py` applies one rule at every n — exact
+`stats.py --holdout-power` (optimize step 4; with no holdout yet,
+`--holdout-power 0 --cluster-rate R` still gives the n). `stats.py` applies one rule at every n — exact
 Bayesian P(improvement) against the stated threshold, with an exact one-sided
 sign test alongside — rather than switching methods at some n. That is
 deliberate: CLT-based intervals are unreliable at small n, and a gate that
