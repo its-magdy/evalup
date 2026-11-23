@@ -55,11 +55,13 @@ Usage: stats.py <baseline.jsonl> <candidate.jsonl> [--alpha 0.05]
 The second form (issue #110) is planning only, before any look: the MDE at
 the discordance a whole-cluster fix would produce, and the fewest fixed /
 smallest net fixed-minus-broken that keep_decision could keep at H, searched
-with keep_decision itself. It changes no number the first form prints. The
-third (issue #130) is the same question with no holdout yet: nothing can
-keep (`can_keep: false`, no MDE), and `holdout_cases_needed` is the
-smallest holdout at which the second form, given C = H x R, says both
-`can_keep` and `powered`.
+with keep_decision itself. `fewest_fixed_by_broken` gives the fewest fixed
+at 0, 1 and 2 broken (issue #142): a net that keeps at 0 broken need not
+keep with a break (H = 28: 4/0 keeps, 5/1 is P = 0.938 and does not). It
+changes no number the first form prints. The third (issue #130) is the same
+question with no holdout yet: nothing can keep (`can_keep: false`, no MDE),
+and `holdout_cases_needed` is the smallest holdout at which the second form,
+given C = H x R, says both `can_keep` and `powered`.
 Rows: {"case_id": ..., "verdict": "pass"|"fail"}. Any other verdict is a hard
 error: infra verdicts must be excluded upstream, never counted as failures.
 
@@ -304,6 +306,16 @@ def smallest_keeps(n, threshold, noise=0):
     return out
 
 
+BY_BROKEN = 2
+
+
+def by_broken(keeps):
+    """smallest_keeps' rows for 0..BY_BROKEN broken: what a candidate that
+    also breaks a case or two must fix (issue #142). Read with the net alone,
+    the zero-broken keep was taken to mean any split of that net keeps."""
+    return [k for k in keeps if k["broken"] <= BY_BROKEN]
+
+
 def fewest_fixed_clean(threshold, cap=10000):
     """The fewest fixed cases, none broken and no noise floor, that
     keep_decision keeps: a property of the bar alone, the same at every
@@ -313,6 +325,17 @@ def fewest_fixed_clean(threshold, cap=10000):
         if keep_decision(posterior_prob_improvement(f, 0), 1.0, threshold)[0]:
             return f
     return None
+
+
+def by_broken_note(keeps):
+    """One clause naming the fewest fixed per broken count, for `explained`:
+    '' when there are fewer than two counts to set side by side."""
+    rows = by_broken(keeps)
+    if len(rows) < 2:
+        return ""
+    return ("; the net alone does not decide a keep: " + ", ".join(
+        f"{k['fixed']} fixed with {k['broken']} broken" for k in rows)
+        + " (fewest_fixed_by_broken)")
 
 
 def no_holdout_power(rate, alpha, threshold):
@@ -340,6 +363,7 @@ def no_holdout_power(rate, alpha, threshold):
             f"fixed to keep ({f0}) and bring the minimum detectable effect "
             f"down to the expected {rate:.0%} (fewest_fixed_to_keep and "
             f"smallest_net_to_keep are at that size)")
+        verdict += by_broken_note(keeps)
     return {
         "mode": "holdout_power",
         "holdout_cases": 0,
@@ -351,6 +375,7 @@ def no_holdout_power(rate, alpha, threshold):
         "min_detectable_effect": None,
         "fewest_fixed_to_keep": fewest,
         "smallest_net_to_keep": net,
+        "fewest_fixed_by_broken": by_broken(keeps),
         "can_keep": False,
         "powered": False,
         "holdout_cases_needed": needed,
@@ -413,12 +438,13 @@ def holdout_power(n, headroom, noise, alpha, threshold):
         "min_detectable_effect": round(mde, 3),
         "fewest_fixed_to_keep": fewest,
         "smallest_net_to_keep": net,
+        "fewest_fixed_by_broken": by_broken(keeps),
         "can_keep": can_keep,
         "powered": powered,
         "holdout_cases_needed": needed,
         "explained": verdict + (
             f"; a holdout of ~{needed} case(s) would clear both"
-            if needed and not powered else "") + (
+            if needed and not powered else "") + by_broken_note(keeps) + (
             ". Planning estimate: the MDE is a normal approximation and "
             "the headroom an estimate; the keep rule is the exact one."),
     }

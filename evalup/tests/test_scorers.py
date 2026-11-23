@@ -609,6 +609,64 @@ class TestStatsHoldoutPower(ScorerTest):
                     self.assertFalse(self.gate(n, split["fixed"] - 1,
                                                split["broken"], noise))
 
+    def test_the_27_run3_look_was_never_a_keep(self):
+        # Issue #142: H = 28, C = 5.6, D = 2. Only 4/0 was printed, read as
+        # "net 4 keeps"; the look came back 5 fixed / 1 broken against a
+        # champion of 21/28, P = 0.938, keep false. b = 1 needs 6 fixed.
+        out = self.power(28, "--headroom", 5.6, "--noise-disagreements", 2)
+        self.assertEqual(out["fewest_fixed_by_broken"],
+                         [{"fixed": 4, "broken": 0, "net": 4},
+                          {"fixed": 6, "broken": 1, "net": 5},
+                          {"fixed": 8, "broken": 2, "net": 6}])
+        self.assertIn("the net alone does not decide", out["explained"])
+        self.assertIn("6 fixed with 1 broken", out["explained"])
+        self.assertTrue(out["can_keep"])
+        self.assertFalse(out["powered"])
+        self.assertEqual(out["holdout_cases_needed"], 31)
+        # The look itself, through the two-file gate: champion 21/28 pass,
+        # candidate 25/28 (5 fixed, 1 broken), noise pair 21 vs 19 (D = 2).
+        champ = ["pass"] * 21 + ["fail"] * 7
+        cand = list(champ)
+        for i in range(21, 26):
+            cand[i] = "pass"
+        cand[0] = "fail"
+        noise_b = list(champ)
+        noise_b[1] = noise_b[2] = "fail"
+        self.assertEqual(cand.count("pass"), 25)
+
+        def w(name, vs):
+            return self.write_jsonl(name, [{"case_id": f"c{i:03d}",
+                                            "verdict": v}
+                                           for i, v in enumerate(vs)])
+        rc, gate, err = run_script("stats.py", w("b.jsonl", champ),
+                                   w("c.jsonl", cand), "--noise-floor",
+                                   w("a.jsonl", champ),
+                                   w("n.jsonl", noise_b))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((gate["fixed_by_candidate"],
+                          gate["broken_by_candidate"]), (5, 1))
+        self.assertEqual(round(gate["p_candidate_better"], 3), 0.938)
+        self.assertFalse(gate["keep"])
+        # Each printed row is a keep at its broken count; one fewer is not.
+        for row in out["fewest_fixed_by_broken"]:
+            with self.subTest(row=row):
+                self.assertTrue(self.gate(28, row["fixed"], row["broken"], 2))
+                self.assertFalse(self.gate(28, row["fixed"] - 1,
+                                           row["broken"], 2))
+
+    def test_the_noise_floor_reaches_the_n_needed_when_it_binds(self):
+        # Issue #142 said D never moved holdout_cases_needed; it does,
+        # through fewest_fixed_to_keep (breaks allowed), once the floor
+        # lifts that count past what the MDE term already needs. At D = 2
+        # the posterior's 4 fixed already clears it, so it stays 31.
+        def needed(d):
+            return self.power(28, "--headroom", 5.6, "--noise-disagreements",
+                              d)["holdout_cases_needed"]
+        self.assertEqual(needed(0), 31)
+        self.assertEqual(needed(2), 31)
+        # 7 fixed + 1 broken clears D = 7 (P = 0.98): ceil(7 x 28 / 5.6).
+        self.assertEqual(needed(7), 35)
+
     def test_a_noise_floor_can_make_breaks_lower_the_net(self):
         # 10 disagreements: 0 broken needs 11 fixed, 3 broken needs only 9.
         out = self.power(20, "--headroom", 20, "--noise-disagreements", 10)
@@ -627,6 +685,8 @@ class TestStatsHoldoutPower(ScorerTest):
         self.assertEqual(out["holdout_cases_needed"], 28)
         self.assertEqual(out["fewest_fixed_to_keep"],
                          {"fixed": 4, "broken": 0, "net": 4})
+        self.assertEqual([r["broken"] for r in out["fewest_fixed_by_broken"]],
+                         [0, 1, 2])
         self.assertIn("NO HOLDOUT", out["explained"])
         # The re-run's own figure, 2 of 12 rows (canaries counted), was 38.
         self.assertEqual(
@@ -702,7 +762,8 @@ class TestOptimizeReadsWhatExists(ScorerTest):
                                   "--headroom", 4)
         self.assertEqual(rc, 0, err)
         for key in ("min_detectable_effect", "fewest_fixed_to_keep",
-                    "smallest_net_to_keep", "can_keep", "powered",
+                    "smallest_net_to_keep", "fewest_fixed_by_broken",
+                    "can_keep", "powered",
                     "holdout_cases_needed"):
             with self.subTest(key=key):
                 self.assertIn(f"`{key}", skill)
@@ -736,27 +797,37 @@ class TestOptimizeReadsWhatExists(ScorerTest):
         self.assertEqual(sealed, 13)
         self.assertGreaterEqual(sealed, 0.2 * (e + n))
         self.assertLess(0.2 * n, 0.2 * (e + n))
-        # Any N >= ceil(E/4) fits the share inside the new cases.
+        # Any N >= ceil((E - 5 H0) / 4) fits the share inside the new cases
+        # (#142: ceil(E/4) is that bound at H0 = 0 and over-asks above it),
+        # and it is the least such N.
+        self.assertIn("N ≥ ⌈(E − 5H₀)/4⌉ (⌈E/4⌉ with no holdout)", optimize)
         for e in range(200):
             for h0 in range(e // 2 + 1):
-                n = math.ceil(e / 4)
+                n = max(0, math.ceil((e - 5 * h0) / 4))
                 self.assertLessEqual(math.ceil(0.2 * (e + n)) - h0, n)
+                self.assertLessEqual(n, math.ceil(e / 4))
+                if n:
+                    self.assertGreater(math.ceil(0.2 * (e + n - 1)) - h0,
+                                       n - 1)
 
     def test_a_power_target_reaches_both_bars(self):
         # Optimize step 4's unlock: generate seals the larger of T and its
-        # share, N >= T and >= ceil(E/4). A large, under-sealed suite (100
-        # cases, 10 sealed, 21 needed) once stalled at a 5 x needed bound.
+        # share, N >= T and >= ceil((E - 5H)/4). A large, under-sealed suite
+        # (100 cases, 10 sealed, 21 needed) once stalled at a 5 x needed
+        # bound; ceil(E/4) over-asked once a holdout existed (#142).
         optimize = self.text("skills/optimize/SKILL.md")
-        self.assertIn("N ≥ ⌈E/4⌉", optimize)
+        self.assertIn("N ≥ ⌈(E − 5H)/4⌉", optimize)
+        self.assertNotIn("N ≥ ⌈E/4⌉ make", optimize)
         self.assertNotIn("5 ×\n   `holdout_cases_needed`", optimize)
         for e in range(0, 160, 3):
             for h0 in range(0, e // 3 + 1, 2):
                 for needed in range(h0, h0 + 30, 4):
                     t = needed - h0
-                    n = max(t, math.ceil(e / 4))
+                    n = max(t, math.ceil((e - 5 * h0) / 4))
                     share = max(0, math.ceil(0.2 * (e + n)) - h0)
                     sealed = min(n, max(share, t))
                     with self.subTest(e=e, h0=h0, needed=needed):
+                        self.assertLessEqual(share, n)
                         self.assertGreaterEqual(h0 + sealed, needed)
                         self.assertGreaterEqual(h0 + sealed, 0.2 * (e + n))
 
@@ -764,7 +835,7 @@ class TestOptimizeReadsWhatExists(ScorerTest):
         # Issue #130: N >= T alone left the #27 re-run at 9 + 38 = 47 usable
         # cases, under precondition 2's 50. The formula adds F - U.
         optimize = self.text("skills/optimize/SKILL.md")
-        self.assertIn("N = max(T, ⌈E/4⌉, F − U)", optimize)
+        self.assertIn("N = max(T, ⌈(E − 5H)/4⌉, F − U)", optimize)
         self.assertIn("≥ ~50 when every objective is deterministic", optimize)
         # The headroom's denominator is the cluster's population (#130).
         self.assertNotIn("÷ the rows of that run's\n   `verdicts_for_stats",
@@ -776,7 +847,8 @@ class TestOptimizeReadsWhatExists(ScorerTest):
                     for h0 in range(0, u // 3 + 1, 2):
                         for needed in range(h0, h0 + 40, 7):
                             t = needed - h0
-                            n = max(t, math.ceil(e / 4), floor - u)
+                            n = max(t, math.ceil((e - 5 * h0) / 4),
+                                    floor - u)
                             share = max(0, math.ceil(0.2 * (e + n)) - h0)
                             sealed = min(n, max(share, t))
                             with self.subTest(floor=floor, u=u, e=e, h0=h0,
@@ -796,6 +868,40 @@ class TestOptimizeReadsWhatExists(ScorerTest):
         self.assertIn(f"N = max({t}, {math.ceil(e / 4)}, {floor - u}) = {n}",
                       optimize)
         self.assertEqual(math.ceil(0.2 * (e + n)), 11)  # share < T: 28 sealed
+        # #142's: 28 sealed in a suite of 59, 53 usable, 31 needed. N = 3,
+        # all sealed, where ceil(E/4) asked for 15; both bars still hold.
+        e, u, h0 = 59, 53, 28
+        rc, out, err = run_script("stats.py", "--holdout-power", h0,
+                                  "--headroom", 5.6)
+        self.assertEqual(rc, 0, err)
+        t = out["holdout_cases_needed"] - h0
+        third = math.ceil((e - 5 * h0) / 4)
+        n = max(t, third, floor - u)
+        self.assertEqual((t, third, n), (3, -20, 3))
+        self.assertIn(f"N = max({t}, {third}, {floor - u}) = {n}"
+                      .replace("-", "−"), optimize)
+        self.assertGreaterEqual(h0 + t, 0.2 * (u + n))
+
+    def test_the_power_check_comes_before_the_draft_and_costs_a_rebaseline(
+            self):
+        # Issue #142: the candidate was drafted before the check refused,
+        # a quarantined holdout case was counted in the headroom, and the
+        # unlock's dataset_version bump (gate.py refuses the old baseline)
+        # was not in its cost.
+        optimize = self.text("skills/optimize/SKILL.md")
+        self.assertLess(optimize.index("once step 4's power check on this cluster "
+                                       "has not refused"),
+                        optimize.index("First read\n   every "
+                                       "`candidates/*/outcome.md`"))
+        self.assertIn("before step 3's draft**", optimize)
+        self.assertIn("C = (H − Q) × R", optimize)
+        self.assertIn("`unusable_by_split.holdout.review_quarantined`, 0 "
+                      "when the key is\n   absent", optimize)
+        self.assertIn("Only once the power check has not refused", optimize)
+        self.assertIn("one more regression run in the unlock's cost",
+                      optimize)
+        gate = (SCRIPTS / "gate.py").read_text(encoding="utf-8")
+        self.assertIn("dataset_version: baseline", gate)
 
 
 class TestNoOpKeepRate(unittest.TestCase):

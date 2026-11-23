@@ -97,6 +97,16 @@ says when a release bumps it.
   At k > 1 the judged section of the report now says each verdict covers
   the representative repeat only; judging every repeat stays out of v1, by
   the owner's decision (about 3× the calls).
+- **The optimize power check states what a keep needs** (#142).
+  `stats --holdout-power` adds `fewest_fixed_by_broken`, the fewest fixed
+  at 0, 1 and 2 broken, and says the net alone does not decide a keep: at
+  H = 28 and D = 2, 4/0 keeps but 5/1 (P = 0.938) does not. Optimize runs
+  the check before drafting a candidate, leaves quarantined holdout cases
+  out of the headroom, sizes the unlock with ⌈(E − 5H)/4⌉ (⌈E/4⌉ over-asked
+  once a holdout existed), and counts the re-baseline that the unlock's
+  `dataset_version` bump forces. `holdout_cases_needed` already counted
+  D through `fewest_fixed_to_keep`. It just doesn't bind at D = 2. No change
+  to the keep rule.
 - **An owner who is not in the skill's session has a route to sign off**
   (#131). A relayed answer still accepts nothing (#114); label-lifecycle.md
   §The owner is not in this session now says what the skill does then (stop,
