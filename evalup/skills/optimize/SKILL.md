@@ -197,9 +197,10 @@ With R, P and H their `app_calls_planned`:
      <app> --id <id> <path>...`, every surface file you will touch. It
      copies each to `candidates/<id>/before/` with its sha256, and refuses
      an id already begun (that would snapshot your edit as the original).
-   - Make the edit with Edit (it asks: editing a prompt is the user's
-     call), then `evalup candidate diff --state-dir <state> --app <app>
-     --id <id>` writes `candidates/<id>/diff.patch`.
+   - The edit itself waits for **Then measure** below, after the noise
+     pair: make it with Edit then (it asks: editing a prompt is the user's
+     call), and right after it `evalup candidate diff --state-dir <state>
+     --app <app> --id <id>` writes `candidates/<id>/diff.patch`.
    - Revert is `evalup candidate revert --state-dir <state> --app <app>
      --id <id>`: it restores the copies, checks each sha256 and names the
      files it restored. A file someone else changed since the diff is
@@ -328,9 +329,9 @@ With R, P and H their `app_calls_planned`:
      more look; the runner refuses a
      non-comparable pair before spending it. Then
      `evalup seal-record candidate reports/<candidate>`; its `candidate_looks` is the N below.
-   - **The decision** is one call, saved to `candidates/<id>/holdout-gate.json`
+   - **The decision** is one call, which saves `evalup stats`' output to `candidates/<id>/holdout-gate.json`
      — not the runner's `comparison.json`, which has no noise floor:
-     `evalup stats reports/<champion>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<noise-a>/verdicts_for_stats.jsonl reports/<noise-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
+     `evalup candidate gate --state-dir <state> --app <app> --id <id> reports/<champion>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<noise-a>/verdicts_for_stats.jsonl reports/<noise-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
      N = the length of `candidate_runs`, this one included.
      It keeps on exact posterior P(improvement) ≥ 0.95 (the default; never
      pass a lower `--bayes-threshold` on the holdout) and delta > 0, and only
@@ -368,7 +369,8 @@ With R, P and H their `app_calls_planned`:
    with its `comparison.json`'s `fixed_by_candidate`/`broken_by_candidate`,
    and when a look was spent the holdout run id with `holdout-gate.json`'s
    `keep`, `delta`, `p_candidate_better` and `no_evidence`, copied, never
-   recomputed. Close with one line: what this rules out. That file set is
+   recomputed. Close with one line: what this rules out. Write it as
+   `reflection.md` is written, through `evalup write-artifact`. That file set is
    the rejected-attempts log; the session report lists every reverted
    candidate from it.
 6. **Stop conditions**: budget spent, by its meter (Preconditions); two consecutive candidates rejected on

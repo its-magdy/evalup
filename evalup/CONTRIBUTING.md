@@ -149,7 +149,8 @@ it is Linux-only.
   a run's records or anything outside the state. `tests/test_plugin_layout.py` pins both call sites.
 - **optimize's bookkeeping goes through scripts, never git or hand edits**
   (#143): `evalup candidate begin|diff|revert` snapshots and restores the
-  surface files by copy and sha256 (no git), `evalup seal-record` writes
+  surface files by copy and sha256 (no git), `candidate gate` saves the
+  holdout decision as `holdout-gate.json`, `evalup seal-record` writes
   `reports/holdout-seal.json` from the holdout run's manifest, and
   `evalup cluster-failures` writes `clusters.json` for a non-holdout run.
   None of them reads a file under a holdout run's `cases/`, and `candidate`

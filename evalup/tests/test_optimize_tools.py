@@ -153,6 +153,110 @@ class TestCandidate(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertEqual(self.prompt.read_text("utf-8"), "edit\n")
 
+    def test_revert_without_a_diff_and_of_a_deleted_file(self):
+        # Grok on #152: the edit is the candidate's until a diff records it,
+        # and a deleted surface file is recreated, never a block on the rest.
+        two = self.app / "prompts" / "b.md"
+        two.write_text("second\n", encoding="utf-8")
+        self.cand("begin", "--id", "c1", "prompts/system.md", "prompts/b.md")
+        self.prompt.write_text("edit, never diffed\n", encoding="utf-8")
+        rc, out, _ = self.cand("revert", "--id", "c1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("Be brief.", self.prompt.read_text("utf-8"))
+        self.cand("begin", "--id", "c2", "prompts/system.md", "prompts/b.md")
+        self.prompt.write_text("edit\n", encoding="utf-8")
+        two.write_text("edit b\n", encoding="utf-8")
+        self.cand("diff", "--id", "c2")
+        two.unlink()
+        rc, out, _ = self.cand("revert", "--id", "c2")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(two.read_text("utf-8"), "second\n")
+        self.assertIn("Be brief.", self.prompt.read_text("utf-8"))
+
+    def test_symlinks_in_the_candidate_dir_or_the_live_path_are_refused(self):
+        sealed = self.state / "datasets" / "holdout.yaml"
+        sealed.write_text("SEALED-CASE-BODY\n", encoding="utf-8")
+        # A link planted where begin would write the snapshot.
+        planted = self.state / "candidates" / "c1" / "before" / "prompts"
+        planted.mkdir(parents=True)
+        (planted / "system.md").symlink_to(sealed)
+        rc, out, _ = self.cand("begin", "--id", "c1", "prompts/system.md")
+        self.assertEqual(rc, 2, out)
+        self.assertEqual(sealed.read_text("utf-8"), "SEALED-CASE-BODY\n")
+        # The candidates directory itself a link out of the state.
+        elsewhere = self.app.parent / "elsewhere"
+        elsewhere.mkdir()
+        shutil.rmtree(self.state / "candidates")
+        (self.state / "candidates").symlink_to(elsewhere)
+        rc, out, _ = self.cand("begin", "--id", "c2", "prompts/system.md")
+        self.assertEqual(rc, 2, out)
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        (self.state / "candidates").unlink()
+        # A snapshot swapped for a link after begin never reaches the diff.
+        self.cand("begin", "--id", "c3", "prompts/system.md")
+        snap = self.state / "candidates/c3/before/prompts/system.md"
+        snap.unlink()
+        snap.symlink_to(sealed)
+        self.prompt.write_text("edit\n", encoding="utf-8")
+        rc, out, _ = self.cand("diff", "--id", "c3")
+        self.assertEqual(rc, 2, out)
+        self.assertFalse((self.state / "candidates/c3/diff.patch").exists())
+        # The live path swapped for a link: revert never writes through it.
+        self.cand("begin", "--id", "c4", "prompts/system.md")
+        other = self.app / "prompts" / "other.md"
+        other.write_text("other\n", encoding="utf-8")
+        self.prompt.unlink()
+        self.prompt.symlink_to(other)
+        rc, out, _ = self.cand("revert", "--id", "c4", "--force")
+        self.assertEqual(rc, 2, out)
+        self.assertEqual(other.read_text("utf-8"), "other\n")
+
+    def test_a_hard_linked_surface_file_is_refused(self):
+        sealed = self.state / "datasets" / "holdout.yaml"
+        sealed.write_text("sealed\n", encoding="utf-8")
+        linked = self.app / "prompts" / "linked.md"
+        os.link(sealed, linked)
+        rc, out, _ = self.cand("begin", "--id", "c1", "prompts/linked.md")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("hard link", json.loads(out)["error"])
+
+    def test_a_malformed_record_is_exit_2_not_a_traceback(self):
+        self.cand("begin", "--id", "c1", "prompts/system.md")
+        record = self.state / "candidates/c1/before.json"
+        for text in ("[" * 100000, '{"files": NaN}'):
+            with self.subTest(text=text[:12]):
+                record.write_text(text, encoding="utf-8")
+                rc, out, _ = self.cand("revert", "--id", "c1")
+                self.assertEqual(rc, 2, out)
+                self.assertIn("error", json.loads(out))
+
+    def test_gate_saves_the_stats_decision_verbatim(self):
+        self.cand("begin", "--id", "c1", "prompts/system.md")
+        runs = {}
+        for name, verdicts in (("champ", "pfpf"), ("cand", "pppf"),
+                               ("na", "pfpf"), ("nb", "pfpf")):
+            path = self.app.parent / f"{name}.jsonl"
+            path.write_text("".join(
+                json.dumps({"case_id": f"h{i}",
+                            "verdict": "pass" if v == "p" else "fail"})
+                + "\n" for i, v in enumerate(verdicts)), encoding="utf-8")
+            runs[name] = path
+        rc, out, _ = self.cand("gate", "--id", "c1", runs["champ"],
+                               runs["cand"], "--noise-floor", runs["na"],
+                               runs["nb"], "--candidate-looks", 1)
+        self.assertEqual(rc, 0, out)
+        saved = (self.state / "candidates/c1/holdout-gate.json").read_text(
+            "utf-8")
+        self.assertEqual(saved, out)
+        self.assertIn("keep", json.loads(saved))
+        # Not the decision call: nothing saved.
+        (self.state / "candidates/c1/holdout-gate.json").unlink()
+        rc, out, _ = self.cand("gate", "--id", "c1", runs["champ"],
+                               runs["cand"])
+        self.assertEqual(rc, 2, out)
+        self.assertFalse((self.state / "candidates/c1/holdout-gate.json")
+                         .exists())
+
 
 class RunFixture(unittest.TestCase):
     @classmethod
@@ -340,7 +444,8 @@ class TestOptimizeCallsThem(unittest.TestCase):
     def test_optimize_uses_the_scripts_not_git_or_hand_edits(self):
         text = (ROOT / "skills" / "optimize" / "SKILL.md").read_text("utf-8")
         for call in ("evalup candidate begin", "evalup candidate diff",
-                     "evalup candidate revert", "evalup seal-record noise",
+                     "evalup candidate revert", "evalup candidate gate",
+                     "evalup seal-record noise",
                      "evalup seal-record candidate", "evalup seal-record keep",
                      "evalup seal-record show", "evalup cluster-failures"):
             with self.subTest(call=call):

@@ -47,7 +47,9 @@ says when a release bumps it.
   `candidate begin|diff|revert` copies the surface files with their sha256
   before the edit, writes `diff.patch` after it, and restores and verifies
   them (refusing a path outside the app or inside the state location, a
-  second snapshot over an edit, and a revert over someone else's change);
+  hard-linked file, a symlink on a recorded or snapshot path, a second
+  snapshot over an edit, and a revert over someone else's change), and
+  `candidate gate` runs the holdout decision and saves `holdout-gate.json`;
   `seal-record noise|candidate|keep|show` writes the record with the
   versions copied from the holdout run's manifest, reading no case file;
   `cluster-failures` writes `clusters.json` from a non-holdout run's

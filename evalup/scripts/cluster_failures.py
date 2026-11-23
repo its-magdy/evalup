@@ -43,9 +43,18 @@ import argparse
 import contextlib
 import json
 import os
+import pathlib
 import sys
+import tempfile
 
-from _common import SCHEMA_VERSION, add_version_flag, die, load_jsonl, load_object
+from _common import (
+    SCHEMA_VERSION,
+    add_version_flag,
+    die,
+    load_jsonl,
+    load_object,
+    loads_strict,
+)
 
 SOURCE = "cluster-failures"
 HOLDOUT = "holdout"
@@ -111,23 +120,34 @@ def cluster(rows):
 
 def existing_is_ours(path):
     try:
-        with open(path, encoding="utf-8") as f:
-            doc = json.load(f)
+        doc = loads_strict(pathlib.Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     return isinstance(doc, dict) and doc.get("source") == SOURCE
 
 
 def write_atomic(path, doc):
-    tmp = f"{path}.tmp.{os.getpid()}"
+    """Replace `path` whole through a fresh mkstemp file (never an existing
+    name, never a symlink), with the mode a plain open would give it."""
+    fd = tmp = None
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        fd, tmp = tempfile.mkstemp(prefix=".evalup-", dir=os.path.dirname(path))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = None
             f.write(json.dumps(doc, indent=2) + "\n")
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, path)
+        tmp = None
     except OSError as e:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
         die(f"cannot write {path}: {e}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
 
 
 def main():

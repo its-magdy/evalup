@@ -320,7 +320,10 @@ class TestPluginLayout(unittest.TestCase):
         import re
         optimize = (ROOT / "skills" / "optimize" / "SKILL.md").read_text(
             encoding="utf-8")
-        calls = re.findall(r"evalup stats (\S+) (\S+) --noise-floor "
+        # #143: the call runs through `evalup candidate gate`, which saves
+        # stats' output as the candidate's holdout-gate.json.
+        calls = re.findall(r"evalup candidate gate --state-dir \S+ --app \S+ "
+                           r"--id \S+ (\S+) (\S+) --noise-floor "
                            r"(\S+) (\S+)", optimize)
         self.assertEqual(len(calls), 1, "one decision call")
         champion, candidate, noise_a, noise_b = calls[0]

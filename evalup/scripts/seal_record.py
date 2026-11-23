@@ -52,8 +52,18 @@ import contextlib
 import json
 import os
 import sys
+import tempfile
 
-from _common import SCHEMA_VERSION, SCORING_VERSION, add_version_flag, die, load_object
+from _common import (
+    SCHEMA_VERSION,
+    SCORING_VERSION,
+    BadJSON,
+    add_version_flag,
+    die,
+    load_object,
+    load_text,
+    loads_strict,
+)
 
 NAME = "holdout-seal.json"
 VERSIONS = ("dataset_version", "scoring_version", "k")
@@ -102,9 +112,8 @@ def read_record(path):
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, encoding="utf-8") as f:
-            doc = json.load(f)
-    except (OSError, ValueError) as e:
+        doc = loads_strict(load_text(path))
+    except BadJSON as e:
         die(f"bad input: {path} is unreadable ({e}); move it aside, then "
             "record the noise runs again")
     if not isinstance(doc, dict) or not isinstance(doc.get("noise_runs"),
@@ -116,15 +125,27 @@ def read_record(path):
 
 
 def write_atomic(path, doc):
-    tmp = f"{path}.tmp.{os.getpid()}"
+    """Replace `path` whole through a fresh mkstemp file (never an existing
+    name, never a symlink), with the mode a plain open would give it."""
+    fd = tmp = None
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        fd, tmp = tempfile.mkstemp(prefix=".evalup-", dir=os.path.dirname(path))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = None
             f.write(json.dumps(doc, indent=2) + "\n")
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, path)
+        tmp = None
     except OSError as e:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
         die(f"cannot write {path}: {e}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
 
 
 def same_seal(doc, versions):
