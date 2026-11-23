@@ -64,6 +64,11 @@ Without --apply it is a dry run: what would change, nothing written. After an
 apply, convert and validate (run/SKILL.md SS1), then re-pin: the baseline is
 on the old dataset_version.
 
+--list also names `missing_templates`: a template_id a sealed case carries
+that no listed template file has (#133). Its oracle and tuple are then
+outside the seal, wherever the file is; --list prints the listing with an
+`error` and exits 2.
+
 Exit 0 done (or nothing to do on --list); 2 refused or bad input, with
 {"error": ...} on stdout and nothing written.
 """
@@ -146,6 +151,11 @@ def seal_listing(cases, templates):
         "mixed_templates": sorted(
             t["template_id"] for t in sealed_templates
             if t["template_id"] in training_tids),
+        # A sealed case's template that no listed file holds (#133): the
+        # file sits outside the seal, or is gone. A one-off's null is none.
+        "missing_templates": sorted(
+            t for t in sealed_tids if isinstance(t, str) and t.strip()
+            and t not in {e["template_id"] for e in templates}),
     }
 
 
@@ -442,9 +452,18 @@ def main():
         listing = seal_listing(suite_cases(doc),
                                convert(a.state_dir, "--templates")["templates"])
         version = (doc.get("manifest") or {}).get("dataset_version", 1)
-        print(json.dumps({"ledger_lines": looks,
-                          "holdout_runs": holdout_runs(a.state_dir, version),
-                          **listing}, indent=2))
+        out = {"ledger_lines": looks,
+               "holdout_runs": holdout_runs(a.state_dir, version), **listing}
+        if listing["missing_templates"]:
+            out["error"] = (
+                f"{len(listing['missing_templates'])} sealed case "
+                "template(s) have no listed template file (see "
+                "missing_templates): wherever that file is, its oracle and "
+                "tuples are outside the seal. Move it to "
+                "datasets/templates/<template_id>.yaml without opening it")
+        print(json.dumps(out, indent=2))
+        if "error" in out:
+            sys.exit(2)
         return
     if not a.transformation or not a.motivated_by:
         ap.error("--transformation and --motivated-by are required (or "
