@@ -106,12 +106,18 @@ copied into a report loses its docstring:
     walked here -- see the seal below). A retried case's `latency_s` is its
     LAST attempt's, so it excludes the failed attempts and the backoff between
     them. Nothing in the readable surface says which cases those were.
-  - THE OTHER k-1 REPEATS. At k > 1 the case-level `trajectory.json` is the
-    REPRESENTATIVE repeat's (`run_cases.py`'s publish()); `repeats/<n>/` holds
-    request/response/verdict only and the other trajectories are scored in a
-    scratch dir that is deleted at the end of the case. So cost here is
-    per-case-representative and the run's actual spend was roughly k times it.
-    `k` is reported beside the total so the multiplier is visible.
+  - THE OTHER k-1 REPEATS (#129). At k > 1 the case-level `trajectory.json`
+    is the REPRESENTATIVE repeat's (`run_cases.py`'s publish()), and
+    `cost.usd`, the per-case figures and the paired diff stay that repeat's.
+    `repeats/<n>/` holds request/response/verdict only; the other repeats'
+    trajectories were scored in a scratch dir deleted at the end of the case.
+    But under `traces.source: response` the trace IS the response body, and
+    every `repeats/<n>/response.json` keeps it, usage included. So
+    `cost.all_repeats` prices every repeat from there, by the same table and
+    rules, as an additive block: the run's spend over all k repeats. Under
+    any other source it says so and prices nothing, and `k` x `cost.usd` is
+    a rough figure that overstates a cached app, whose later repeats read
+    the cache the first one wrote. `declared_limits.repeats` says which.
 
 THE HOLDOUT SEAL. Case ids come from `results.json.cases`, which carries no
 holdout row at all (SS10), and every artifact this script opens is addressed by
@@ -506,7 +512,7 @@ def cache_counts_are_parts(manifest):
             and isinstance(sse, dict) and sse.get("protocol") == "ag-ui")
 
 
-def price_run(run_dir, cases, prices, cache_parts=False):
+def price_run(run_dir, cases, prices, cache_parts=False, usage=None):
     """Per-case pico-USD and the model rollup, or the reason there is none.
 
     Returns (per_case_pico, block). `per_case_pico` is None whenever the run's
@@ -523,6 +529,12 @@ def price_run(run_dir, cases, prices, cache_parts=False):
     blend of split and unsplit calls would be a figure that is neither the
     old price nor the corrected one -- the partial total this script
     withholds for an unknown model.
+
+    `usage` (#129) swaps the reader: called as usage(key, cases[key]), it
+    returns that unit's calls or None, as case_usage does for a case. The
+    all-repeats block prices (case, repeat) units through it, so every rule
+    above -- the withheld partial total, the cache split -- is the same
+    code on both figures.
     """
     by_model, per_case, with_trace, unpriced = {}, {}, 0, set()
     tokens_in = tokens_out = unusable = 0
@@ -533,7 +545,8 @@ def price_run(run_dir, cases, prices, cache_parts=False):
     # rate) and the split. The run publishes one of them, never a blend.
     per_case_split = {}
     for case_id in cases:
-        calls = case_usage(run_dir, case_id, cases[case_id])
+        calls = (usage(case_id, cases[case_id]) if usage is not None
+                 else case_usage(run_dir, case_id, cases[case_id]))
         if calls is None:
             continue
         with_trace += 1
@@ -698,6 +711,168 @@ def price_run(run_dir, cases, prices, cache_parts=False):
                             "source": prices["source"],
                             "models_declared": len(prices["table"])}
     return per_case, block
+
+
+# -- every repeat (#129) ---------------------------------------------------
+
+# The one trace source whose usage a repeat's response.json carries: under
+# `traces.source: response` the trace IS the response body
+# (run_cases.trace_from_response), and repeats/<n>/response.json keeps that
+# body for every repeat. Any other source's spans went to the repeat's
+# scratch directory, deleted with it.
+RESPONSE_TRACE_SOURCE = "response"
+# A response's usage keys (_sse's), in the order trajectory_usage returns
+# them: input, output, cache read, cache write. _sse.tool_calls_to_otlp puts
+# exactly these on the chat span normalize_trace.py reads.
+RESPONSE_USAGE_KEYS = ("input_tokens", "output_tokens")
+RESPONSE_CACHE_KEYS = ("cached_input_tokens", "cache_write_input_tokens")
+
+
+def response_usage(path):
+    """The LLM calls one recorded response.json reports, or None.
+
+    Read as run_cases.trace_from_response reads the body for a
+    `traces.source: response` run: a decoded stream's `run_usage` (one entry
+    per model call, #46), else the body's `usage` object; an empty entry is
+    no call, as _sse.tool_calls_to_otlp skips it. The model is ABSENT_MODEL,
+    which every such span is. None when the file is absent or unreadable or
+    reports no usage at all: a repeat that recorded nothing is COUNTED as
+    such, never priced at zero (case_usage's rule).
+    """
+    if not os.path.isfile(path):
+        return None
+    try:
+        doc = read_run_json(path, on_error=_raise)
+    except BadRun:
+        return None
+    body = doc.get("body")
+    if not isinstance(body, dict):
+        return None
+    if isinstance(body.get("sse"), dict) \
+            and isinstance(body.get("run_usage"), list):
+        entries = body["run_usage"]
+    else:
+        entries = [body.get("usage")]
+    calls = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry:
+            continue
+        n_in = token_count(entry.get("input_tokens"))
+        n_out = token_count(entry.get("output_tokens"))
+        bad = n_in is None or n_out is None
+        cache = []
+        for key in RESPONSE_CACHE_KEYS:
+            if entry.get(key) is None:
+                cache.append(None)
+                continue
+            count = token_count(entry[key])
+            bad = bad or count is None
+            cache.append(count or 0)
+        calls.append((None, n_in or 0, n_out or 0, bad, *cache))
+    return calls or None
+
+
+def repeat_units(run_dir, cases, k):
+    """{(case_id, n): [response.json path, ...]} for every repeat sent.
+
+    The repeats come from cases/<id>/verdict.json's `repeats` list (written
+    whenever k > 1 and the case was sent), so the ids are still only
+    results.json's: `cases/` is indexed, never listed. A conversation's
+    repeat sent that entry's `turns_sent` turns, each its own response.json
+    under repeats/<n>/turns/<t>/. A verdict with no `repeats` list is a case
+    the runner refused (SS7's skipped): it sent nothing. An unreadable one is
+    k repeats with no usage, counted rather than dropped.
+    """
+    units = {}
+    for case_id, row in cases.items():
+        case_dir = os.path.join(run_dir, "cases", case_id)
+        try:
+            verdict = read_run_json(os.path.join(case_dir, "verdict.json"),
+                                    on_error=_raise)
+        except BadRun:
+            for n in range(1, k + 1):
+                units[(case_id, n)] = []
+            continue
+        repeats = verdict.get("repeats")
+        if not isinstance(repeats, list):
+            continue
+        for entry in repeats:
+            n = entry.get("n") if isinstance(entry, dict) else None
+            if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+                continue
+            repeat_dir = os.path.join(case_dir, "repeats", str(n))
+            if not row.get("multi_turn"):
+                units[(case_id, n)] = [os.path.join(repeat_dir,
+                                                    "response.json")]
+                continue
+            sent = entry.get("turns_sent")
+            units[(case_id, n)] = [
+                os.path.join(repeat_dir, "turns", str(t), "response.json")
+                for t in range(1, sent + 1)] \
+                if isinstance(sent, int) and not isinstance(sent, bool) \
+                and sent >= 1 else []
+    return units
+
+
+def price_all_repeats(run, prices, cache_parts):
+    """`cost.all_repeats` (#129): every repeat priced, or None at k = 1.
+
+    Additive. `cost.usd` stays the REPRESENTATIVE repeat's per case, as
+    before, and the paired diff still pairs those; this block is the run's
+    spend over all k repeats, through price_run's own rules (a unit is one
+    repeat of one case). Only a `traces.source: response` run keeps each
+    repeat's usage on disk; any other says so and prices nothing here.
+    """
+    k = run["meta"].get("k")
+    if not isinstance(k, int) or isinstance(k, bool) or k < 2:
+        return None
+    traces = run["manifest"].get("traces")
+    source = traces.get("source") if isinstance(traces, dict) else None
+    if source != RESPONSE_TRACE_SOURCE:
+        return {"k": k, "status": "unpriced", "reason": (
+            f"traces.source is {source!r}: only a `traces.source: response` "
+            "run records each repeat's usage (in cases/<id>/repeats/<n>/"
+            "response.json); every other source's spans for the non-"
+            "representative repeats were in a scratch directory deleted "
+            "at the end of the case. See declared_limits.repeats.")}
+    units = repeat_units(run["dir"], run["cases"], k)
+    priced = set()
+
+    def usage(unit, paths):
+        calls = []
+        for path in paths:
+            got = response_usage(path)
+            if got is None:
+                return None
+            calls.extend(got)
+        if not paths:
+            return None
+        priced.add(unit)
+        return calls
+
+    per_unit, inner = price_run(run["dir"], units, prices, cache_parts,
+                                usage=usage)
+    messages = sum(len(units[u]) for u in priced)
+    block = {"k": k, "repeats_sent": len(units),
+             "repeats_with_usage": inner.pop("cases_with_trace"),
+             "repeats_without_usage": inner.pop("cases_without_trace"),
+             "messages_with_usage": messages}
+    inner.pop("usd_per_case_with_trace", None)
+    inner.pop("price_table", None)
+    if not priced:
+        inner["reason"] = (
+            "no repeat's response.json reports usage, so there is nothing to "
+            "price across the repeats; cost.usd above is unaffected.")
+    block.update(inner)
+    if per_unit is not None and messages:
+        block["usd_per_message"] = usd(sum(per_unit.values()) // messages)
+    block["note"] = (
+        "every repeat of every visible case, priced from its own recorded "
+        "response usage by the same table and rules as cost.usd. A repeat "
+        "with no usage is counted in repeats_without_usage and left out of "
+        "usd, never priced at zero. The paired block still compares the "
+        "representative repeats.")
+    return block
 
 
 def usd(pico):
@@ -1134,8 +1309,51 @@ def compare(base, cand, base_cost, cand_cost, a):
     return out
 
 
+def repeats_limit(runs):
+    """declared_limits.repeats (#129): what the cost figures cover at this k,
+    read off each run's all-repeats block rather than a blanket "k times"."""
+    parts = []
+    for run in runs:
+        k = run["meta"].get("k")
+        block = run.get("all_repeats")
+        label = f"{run['meta'].get('run_id')}: " if len(runs) > 1 else ""
+        if block is None:
+            parts.append(
+                f"{label}k = {k}. Each case was sent once, so the "
+                "REPRESENTATIVE repeat is the only one and cost.usd covers "
+                "every message sent.")
+            continue
+        head = (f"{label}k = {k}. cost.usd is the REPRESENTATIVE repeat's "
+                "per case (the case-level trajectory.json), not the run's "
+                "spend. ")
+        cached = ("Nor is k x cost.usd the spend: on a cached app the "
+                  "repeats after the first read the cache it wrote, so k "
+                  "times one repeat overstates it (an upper bound when the "
+                  "representative is the first repeat).")
+        with_usage = block.get("repeats_with_usage")
+        if with_usage and not block.get("repeats_without_usage"):
+            parts.append(head + (
+                "cost.all_repeats reads every repeat from cases/<id>/"
+                "repeats/<n>/response.json, so its tokens{} are what the run "
+                "spent over all {} repeats.".format(
+                    " and usd" if block.get("status") == "priced"
+                    else " (its usd is withheld: see its reason)",
+                    block.get("repeats_sent"))))
+        elif with_usage:
+            parts.append(head + (
+                "cost.all_repeats priced {} of {} repeats from their "
+                "response.json; the other {} recorded no usage, so its "
+                "figures cover those {} only. ".format(
+                    with_usage, block.get("repeats_sent"),
+                    block.get("repeats_without_usage"), with_usage)) + cached)
+        else:
+            parts.append(head + (
+                "Its spend over all k repeats is not priced here "
+                "(cost.all_repeats.reason says why). ") + cached)
+    return " ".join(parts)
+
+
 def declared_limits(runs):
-    ks = sorted({r["meta"].get("k") for r in runs})
     return {
         "cache_accounting": (
             "cost.cache_accounting says which applies. 'priced': the trace "
@@ -1164,12 +1382,7 @@ def declared_limits(runs):
             "cannot be walked without enumerating sealed holdout ids. A "
             "retried case's latency_s is its LAST attempt's, excluding the "
             "failed attempts and the backoff between them."),
-        "repeats": (
-            "k = {}. At k > 1 the case-level trajectory.json is the "
-            "REPRESENTATIVE repeat's; the other repeats' trajectories are "
-            "scored in a scratch directory that is deleted at the end of the "
-            "case, so cost here is per-case-representative and the run spent "
-            "roughly k times it.".format(", ".join(str(k) for k in ks))),
+        "repeats": repeats_limit(runs),
         "holdout": (
             "totals are over VISIBLE cases only. results.json.cases carries "
             "no holdout row, so a holdout run spent more than these numbers "
@@ -1215,6 +1428,10 @@ def main():
     cand_cost, cand_block = price_run(
         cand["dir"], cand["cases"], prices,
         cache_counts_are_parts(cand["manifest"]))
+    cand["all_repeats"] = price_all_repeats(
+        cand, prices, cache_counts_are_parts(cand["manifest"]))
+    if cand["all_repeats"] is not None:
+        cand_block["all_repeats"] = cand["all_repeats"]
 
     out = {
         "harness_version": HARNESS_VERSION,
@@ -1229,6 +1446,10 @@ def main():
         base_cost, base_block = price_run(
             base["dir"], base["cases"], prices,
             cache_counts_are_parts(base["manifest"]))
+        base["all_repeats"] = price_all_repeats(
+            base, prices, cache_counts_are_parts(base["manifest"]))
+        if base["all_repeats"] is not None:
+            base_block["all_repeats"] = base["all_repeats"]
         out["baseline"] = {"run": base["meta"], "cost": base_block,
                            "latency": latency_block(base["cases"])}
         out["paired"] = compare(base, cand, base_cost, cand_cost, a)

@@ -127,6 +127,17 @@ says when a release bumps it.
   requires a tool not classed `safe-live`; `--strict` never promotes it.
   adapter-contract.md and case-format.md say how to check a proposal's
   wording (#103). No verdict changes.
+- **Cost at k > 1 prices every repeat** (#129). A cached app's k = 3 run
+  spent $0.56; `score_cost.py` reported one repeat and said "roughly k
+  times it" ($1.06), and a k = 1 rate estimated $0.93. Under
+  `traces.source: response` the new `cost.all_repeats` prices each
+  `repeats/<n>/response.json`'s usage by the same rules; `cost.usd` keeps
+  its meaning (the representative repeat), as does the paired diff.
+  `declared_limits.repeats` says what each figure covers and that k ×
+  `cost.usd` overstates a cached app. The `--dry-run --cost-from` estimate
+  takes its rate from `all_repeats` when priced (`rate_basis`) and
+  caveats a rate measured at another k. No verdict changes;
+  `SCORING_VERSION` unchanged.
 
 ## [0.1.0] — 2026-11-22
 

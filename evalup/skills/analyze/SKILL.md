@@ -236,7 +236,9 @@ A **trace-less app cannot be priced at all** — `cases/<id>/trajectory.json` is
 the only token source — and its latency block is still complete. Quote
 `declared_limits` with any figure: cached tokens are split out only when
 `cost.cache_accounting` is `priced`, TTFT is not measured, and at `k > 1`
-the cost is one representative repeat's.
+`cost.usd` is one representative repeat's: the run's spend is
+`cost.all_repeats.usd` (every repeat, `traces.source: response` only), and
+k × `cost.usd` overstates a cached app (`declared_limits.repeats`).
 
 ### Rules and risks with no case — report them every time
 Every case names the profile's rule and risk ids it is for in `covers`

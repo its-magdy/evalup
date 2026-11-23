@@ -101,8 +101,9 @@ No adapter field records this; if neither file says, ask before the first
 edit.
 
 **What `--budget $N` meters**: dollars, from `score_cost.py`'s `cost.usd` for
-each run (analyze §What it cost) × the run's `k` — that figure is one
-representative repeat. A holdout run's cases are `holdout_excluded`, so charge
+each run (analyze §What it cost): `cost.all_repeats.usd` when it is priced
+(every repeat), else `cost.usd` × the run's `k` — one representative
+repeat times k, which overstates a cached app. A holdout run's cases are `holdout_excluded`, so charge
 it at the single-turn regression run's `usd_per_case_with_trace` (one call)
 × H, the holdout plan's app calls below (turns and `k` included).
 With the cost capability off or `status: "unpriced"` (trace-less, no
