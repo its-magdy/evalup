@@ -43,10 +43,14 @@ says when a release bumps it.
 
 ### Changed
 - **Seal hygiene** (#145). `prelook-fix --list` (and its dry run) lists
-  `sealed_rubrics` by id and hash: a rubric only sealed cases pin, or one
-  whose id is `ho_` plus an opaque token, which test-generator now writes for
-  a holdout-only rubric. A rubric a training case pins too is named under
-  `mixed_rubrics`, not sealed: the training review reads it.
+  `sealed_rubrics` by id and hash: a rubric only sealed cases pin (top
+  level, `every_turn` or a checkpoint), or one whose id is `ho-` plus an
+  opaque token, which test-generator now writes for a holdout-only rubric.
+  A rubric a training case pins is never sealed (the training review reads
+  it), and is named under `mixed_rubrics` when a sealed case pins it too.
+  analyze's rubric editing skips a sealed rubric; generate's
+  `coverage_grid.rules` lists a rule's unsealed case ids only, and the
+  generator's final message gives its holdout cases as a count.
   `validate-cases --manifest` checks `coverage_grid.by_unit` against cases
   outside the holdout only, so a `dataset.yaml` that counted holdout cases
   there now fails `manifest_mismatch` until the holdout is taken out of it;

@@ -64,10 +64,11 @@ Without --apply it is a dry run: what would change, nothing written. After an
 apply, convert and validate (run/SKILL.md SS1), then re-pin: the baseline is
 on the old dataset_version.
 
---list also lists `sealed_rubrics` by id and hash (#145): a rubric whose id
-is `ho_` + an opaque token, or one only sealed cases pin. A rubric a training
-case pins too is not sealed (the training review reads it) and is named under
-`mixed_rubrics`, as a shared template is under `mixed_templates`.
+--list also lists `sealed_rubrics` by id and hash (#145): a rubric only
+sealed cases pin (top-level, `every_turn` or a checkpoint's expect), or one
+whose id is `ho-` + an opaque token. A rubric a training case pins is never
+sealed (the training review reads it); one a sealed case pins too, or with an
+`ho-` id, is named under `mixed_rubrics`.
 
 --list also names `missing_templates`: a template_id a sealed case carries
 that no listed template file has (#133). Its oracle and tuple are then
@@ -95,6 +96,7 @@ MANIFEST = os.path.join("datasets", "dataset.yaml")
 OPERANDS = {"replace_item": ("from", "to"), "remove_item": ("value",),
             "set": ("from", "to"), "delete": ("from",)}
 SEALED_TEMPLATE_PREFIX = "ho_"
+SEALED_RUBRIC_PREFIX = "ho-"     # a rubric id is [a-z0-9-] (_rubric.py)
 
 
 # -- reading the suite, through convert_suite.py only ------------------------
@@ -139,44 +141,66 @@ def template_ids(entries):
             for e in entries]
 
 
-def rubric_pin(case):
-    """The rubric id a case's `expect.answer.rubric` pins, or None."""
-    answer = (case.get("expect") or {}).get("answer") \
-        if isinstance(case.get("expect"), dict) else None
-    ref = answer.get("rubric") if isinstance(answer, dict) else None
+def rubric_name(ref):
+    """A pin or a rubric id as the seal compares it: stripped, `-vN` off."""
     return split_pin(ref.strip())[0] if isinstance(ref, str) \
         and ref.strip() else None
 
 
+def rubric_pins(case):
+    """Every rubric id a case pins: its `expect.answer.rubric`, and on a
+    conversation its `every_turn` and each checkpoint's (the runner and the
+    judge read the overlaid expect of every turn)."""
+    def pin(expect):
+        answer = expect.get("answer") if isinstance(expect, dict) else None
+        return rubric_name(answer.get("rubric")) \
+            if isinstance(answer, dict) else None
+    expects = [case.get("expect"), case.get("every_turn")]
+    turns = (case.get("input") or {}).get("turns") \
+        if isinstance(case.get("input"), dict) else None
+    for turn in turns if isinstance(turns, list) else []:
+        if isinstance(turn, dict):
+            expects.append(turn.get("expect"))
+    return {pin(e) for e in expects} - {None}
+
+
 def rubric_ids(entries):
-    """[{rubric_id, sha256}] from convert_suite.py's `rubrics` (the file's
-    frontmatter rubric_id, else its file name)."""
+    """[(entry, names)] from convert_suite.py's `rubrics`: `entry` is
+    {rubric_id, sha256} (the frontmatter rubric_id, else the file name),
+    `names` every form a pin could match (both, normalized)."""
     out = []
     for e in entries or []:
         front = e.get("frontmatter")
         rid = front.get("rubric_id") if isinstance(front, dict) else None
+        stem = os.path.splitext(os.path.basename(e["file"]))[0]
+        names = {rubric_name(rid), rubric_name(stem)} - {None}
         if not isinstance(rid, str) or not rid.strip():
-            rid = os.path.splitext(os.path.basename(e["file"]))[0]
-        out.append({"rubric_id": rid, "sha256": e["sha256"]})
+            rid = stem
+        out.append(({"rubric_id": rid, "sha256": e["sha256"]}, names))
     return out
 
 
 def seal_listing(cases, templates, rubrics=None):
     """What the seal covers, by id and hash: never a field's value.
 
-    A rubric is sealed like a template (#145): when its id is `ho_` + an
-    opaque token, or when only sealed cases pin it. One a training case pins
-    too is not sealed -- the training review reads it anyway -- and is named
-    under mixed_rubrics, as a template is under mixed_templates."""
+    A rubric is sealed like a template (#145) when only sealed cases pin it,
+    or when its id is `ho-` + an opaque token (a rubric id takes no `_`) and
+    no training case pins it. A rubric a training case pins is never sealed
+    -- the training review reads it anyway -- and is named under
+    mixed_rubrics when a sealed case pins it too or its id is `ho-`."""
     sealed = sorted(c["id"] for c in cases if is_holdout(c))
     by_id = {c["id"]: c for c in cases}
     sealed_tids = {by_id[i].get("template_id") for i in sealed}
     training_tids = {c.get("template_id") for c in cases if not is_holdout(c)}
-    sealed_rids = {rubric_pin(by_id[i]) for i in sealed} - {None}
-    training_rids = {rubric_pin(c) for c in cases if not is_holdout(c)}
+    sealed_rids = set().union(*(rubric_pins(by_id[i]) for i in sealed))
+    training_rids = set().union(*(rubric_pins(c) for c in cases
+                                  if not is_holdout(c)))
     sealed_templates = [t for t in template_ids(templates)
                         if t["template_id"].startswith(SEALED_TEMPLATE_PREFIX)
                         or t["template_id"] in sealed_tids]
+    rubric_rows = [(entry, names, any(n.startswith(SEALED_RUBRIC_PREFIX)
+                                      for n in names))
+                   for entry, names in rubric_ids(rubrics)]
     return {
         "sealed_cases": [{"id": i, "sha256": sha256_of(by_id[i])}
                          for i in sealed],
@@ -192,14 +216,12 @@ def seal_listing(cases, templates, rubrics=None):
             t for t in sealed_tids if isinstance(t, str) and t.strip()
             and t not in {e["template_id"] for e in templates}),
         "sealed_rubrics": [
-            r for r in rubric_ids(rubrics)
-            if r["rubric_id"].startswith(SEALED_TEMPLATE_PREFIX)
-            or (r["rubric_id"] in sealed_rids
-                and r["rubric_id"] not in training_rids)],
+            entry for entry, names, opaque in rubric_rows
+            if (opaque or names & sealed_rids)
+            and not names & training_rids],
         "mixed_rubrics": sorted(
-            r["rubric_id"] for r in rubric_ids(rubrics)
-            if r["rubric_id"] in sealed_rids
-            and r["rubric_id"] in training_rids),
+            entry["rubric_id"] for entry, names, opaque in rubric_rows
+            if (opaque or names & sealed_rids) and names & training_rids),
     }
 
 

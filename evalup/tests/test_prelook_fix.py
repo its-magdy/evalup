@@ -344,37 +344,73 @@ class TestPrelookFix(unittest.TestCase):
             "  answer:\n", f"  answer:\n    rubric: {rubric_id}\n", 1),
             encoding="utf-8")
 
+    def write_rubric(self, rid, stem=None):
+        rubrics = self.state / "rubrics"
+        rubrics.mkdir(exist_ok=True)
+        front = f"rubric_id: {rid}\n" if rid else ""
+        (rubrics / f"{stem or rid}.md").write_text(
+            f"---\n{front}version: 1\n---\n{SEALED_ORACLE}\n",
+            encoding="utf-8")
+
+    def sealed_and_mixed(self, *argv, **kw):
+        rc, out, err = self.run_fix(*argv, **kw)
+        self.assertEqual(rc, 0, out + err)
+        self.assert_no_case_text(out + err)
+        doc = json.loads(out)
+        for r in doc["sealed_rubrics"]:
+            self.assertRegex(r["sha256"], r"^[0-9a-f]{64}$")
+        return ([r["rubric_id"] for r in doc["sealed_rubrics"]],
+                doc["mixed_rubrics"])
+
     def test_list_seals_rubrics_only_sealed_cases_pin(self):
         # #145: a rubric only a holdout case pins says what that case
         # tests; it is sealed like its template. One a training case pins
         # too is read in the training review, so it is named, not sealed.
-        rubrics = self.state / "rubrics"
-        rubrics.mkdir()
-        for rid in ("decline", "shared", "ho_5e1d0c2a", "train_only"):
-            (rubrics / f"{rid}.md").write_text(
-                f"---\nrubric_id: {rid}\nversion: 1\n---\n"
-                f"{SEALED_ORACLE}\n", encoding="utf-8")
+        for rid in ("decline", "shared", "ho-5e1d0c2a", "train-only"):
+            self.write_rubric(rid)
         self.pin_rubric("c-ho1", "decline-v1")
         self.pin_rubric("c-ho2", "shared")
         self.pin_rubric("c-train2", "shared")
-        self.pin_rubric("c-pending", "train_only")
-        rc, out, err = self.run_fix("--list", fix=False)
-        self.assertEqual(rc, 0, out + err)
-        self.assert_no_case_text(out + err)
-        doc = json.loads(out)
-        self.assertEqual([r["rubric_id"] for r in doc["sealed_rubrics"]],
-                         ["decline", "ho_5e1d0c2a"])
-        for r in doc["sealed_rubrics"]:
-            self.assertRegex(r["sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual(doc["mixed_rubrics"], ["shared"])
+        self.pin_rubric("c-pending", "train-only")
+        self.assertEqual(self.sealed_and_mixed("--list", fix=False),
+                         (["decline", "ho-5e1d0c2a"], ["shared"]))
         # The dry run lists the same seal.
-        rc, out, err = self.run_fix()
-        self.assertEqual(rc, 0, out + err)
-        self.assert_no_case_text(out + err)
-        doc = json.loads(out)
-        self.assertEqual([r["rubric_id"] for r in doc["sealed_rubrics"]],
-                         ["decline", "ho_5e1d0c2a"])
-        self.assertEqual(doc["mixed_rubrics"], ["shared"])
+        self.assertEqual(self.sealed_and_mixed(),
+                         (["decline", "ho-5e1d0c2a"], ["shared"]))
+
+    def test_the_opaque_rubric_id_is_a_legal_one(self):
+        from _rubric import rubric_findings
+        self.assertEqual(rubric_findings({"rubric_id": "ho-5e1d0c2a", "version": 1},
+                                         "ho-5e1d0c2a"), [])
+
+    def test_an_opaque_rubric_a_training_case_pins_is_mixed_not_sealed(self):
+        self.write_rubric("ho-77aa01ff")
+        self.pin_rubric("c-train2", "ho-77aa01ff")
+        self.assertEqual(self.sealed_and_mixed("--list", fix=False),
+                         ([], ["ho-77aa01ff"]))
+
+    def test_a_conversation_pin_is_seen_on_every_turn(self):
+        # every_turn and a checkpoint's expect are judged as the case's.
+        self.write_rubric("decline")
+        self.write_rubric("trap")
+        path = self.state / "datasets" / "c-ho2.yaml"
+        text = path.read_text(encoding="utf-8").replace(
+            f'input:\n  message: "{SEALED_INPUT}"\n',
+            "input:\n  turns:\n    - user: hi\n      expect: "
+            "{answer: {rubric: trap-v1}}\n    - user: again\n")
+        path.write_text(text + "every_turn: {answer: {rubric: decline}}\n",
+                        encoding="utf-8")
+        self.assertEqual(self.sealed_and_mixed("--list", fix=False),
+                         (["decline", "trap"], []))
+
+    def test_a_rubric_file_is_matched_by_its_stem_or_its_id(self):
+        # No rubric_id, or a stem the pin names with a version suffix.
+        self.write_rubric(None, stem="decline")
+        self.write_rubric("trap-v1")
+        self.pin_rubric("c-ho1", "decline-v1")
+        self.pin_rubric("c-ho2", "trap")
+        self.assertEqual(self.sealed_and_mixed("--list", fix=False),
+                         (["decline", "trap-v1"], []))
 
     def test_list_without_rubrics_lists_none(self):
         rc, out, err = self.run_fix("--list", fix=False)

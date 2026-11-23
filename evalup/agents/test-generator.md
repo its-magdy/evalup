@@ -43,7 +43,7 @@ each case straight to its file under `datasets/`: no draft or copy
 anywhere else, `/tmp` included — a copy of a holdout case or template
 outside `datasets/` is outside the seal. A rubric written for holdout
 cases alone is sealed with them, so its `rubric_id` (and file name) is
-`ho_` plus an opaque token too.
+`ho-` plus an opaque token (`ho-7f3a91c2`; a rubric id takes no `_`).
 
 If you find yourself writing case prose while still deciding which
 combinations to cover, you have merged the phases. Stop and go back.
@@ -203,5 +203,6 @@ Rules:
    criterion per rule"), so fold the checks into one question.
 
 Your final message lists the files written, counts per grid cell, each
-rule's case ids or the reason it has none, and the cases flagged for review
+rule's case ids (its holdout cases as a count, never by id) or the reason
+it has none, and the cases flagged for review
 with one-line reasons.

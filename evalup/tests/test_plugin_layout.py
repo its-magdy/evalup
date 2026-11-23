@@ -303,7 +303,8 @@ class TestPluginLayout(unittest.TestCase):
         self.assertIn("8. Rules become checks, never prose.", agent)
         self.assertIn("goes on\n     EVERY case you write", agent)
         self.assertIn(PLAIN_TEXT_IN_SKILLS, agent)
-        self.assertIn("each\nrule's case ids or the reason it has none", agent)
+        self.assertIn("each\nrule's case ids (its holdout cases as a count, never "
+                      "by id) or the reason\nit has none", agent)
         self.assertIn("owner-stated, not common sense", agent)
 
     def test_the_judge_reads_only_named_paths_and_redacts_secrets(self):

@@ -117,7 +117,7 @@ stated count, `expect.result`. Every case names its rule and risk ids in
 `covers`; an unconfirmed rule backs no gating case or canary, a
 contradicted one none until the owner decides. Hand over the validator's
 `summary.traceability.gaps`. `coverage_grid.rules` lists every rule with
-its case ids, or why none (judge-only, layer disabled). Spread cases over
+its unsealed case ids, or why none (judge-only, layer disabled). Spread cases over
 every tool, never mostly the one record a probe grounded.
 
 Quotas — grid depth, `smoke`, `holdout`, `canary`, INV/DIR — are each a **ratio
@@ -266,7 +266,7 @@ on that.
   once, listed only by id+hash, never displayed case-by-case.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
-  templates and the rubrics only it pins (`ho_<opaque-hex>`) are sealed:
+  templates (`ho_<opaque-hex>`) and the rubrics only it pins are sealed:
   never open one.
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement

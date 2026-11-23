@@ -195,10 +195,11 @@ The hash is the run's: `manifest.yaml`'s `cases[].sha256`. The seal's
 templates (`datasets/templates/ho_*`) are sealed with it:
 `evalup prelook-fix <state-dir> --list` names them, and the sealed cases,
 by id and hash. Never open one, and never pass one to a reviewer, the
-judge or a report. So are the rubrics only sealed cases pin (`--list`'s
-`sealed_rubrics`, `rubrics/ho_*` included): the judge pass grades with
-them, and nobody else opens one. A rubric a training case pins too is not
-sealed, since the training review reads it (`mixed_rubrics`).
+judge or a report. So are the rubrics only sealed cases pin, whatever
+their name (`--list`'s `sealed_rubrics`; a new one is `rubrics/ho-*`): the
+judge pass skips holdout cases, so nothing opens one. A rubric a training
+case pins is not sealed, since the training review reads it
+(`mixed_rubrics` when a sealed case pins it too).
 
 ## Re-pinning
 
