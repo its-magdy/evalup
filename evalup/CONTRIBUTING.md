@@ -54,7 +54,7 @@ two scripts get. Eleven review-viewer tests also skip when `node` is absent: the
 boot the page's JS, so check the skip count on a machine without it.
 **Run it before any release.**
 
-There are **25** CLIs in `scripts/` (everything not underscore-prefixed) and
+There are **28** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`,
 `_rubric.py`, `_sse.py` and `_exec.py` are shared modules, not CLIs: they have
 no argparse, so `python _common.py --help` exits 0 having printed nothing,
@@ -147,6 +147,14 @@ it is Linux-only.
   `.md` files inside `--state-dir` only, and `--move` deletes only a
   regular file under `<state>/drafts/`, so a pre-approved call cannot touch
   a run's records or anything outside the state. `tests/test_plugin_layout.py` pins both call sites.
+- **optimize's bookkeeping goes through scripts, never git or hand edits**
+  (#143): `evalup candidate begin|diff|revert` snapshots and restores the
+  surface files by copy and sha256 (no git), `evalup seal-record` writes
+  `reports/holdout-seal.json` from the holdout run's manifest, and
+  `evalup cluster-failures` writes `clusters.json` for a non-holdout run.
+  None of them reads a file under a holdout run's `cases/`, and `candidate`
+  refuses any path inside the state location. The prompt edit itself stays
+  an Edit that asks. `tests/test_optimize_tools.py` pins the calls.
 - **A skill that loads another lists it as `Skill(evalup:<name>)`** in its
   `allowed-tools` — loading a skill that has its own `allowed-tools` needs
   approval, and headless a prompt is a silent denial. Pinned by the same test.

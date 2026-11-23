@@ -160,11 +160,12 @@ With R, P and H their `app_calls_planned`:
 ## The loop (one iteration per session unless told otherwise)
 1. **Ground first, edit never-first**: read the latest regression run's
    `reports/<run-id>/clusters.json` (analyze `--cluster` writes it; skip
-   `label_suspect` clusters). None there → cluster that run's
-   `verdicts.jsonl` yourself: rows with `verdict: fail`, `gating: true`,
-   `canary: false`, grouped by which `layers` rows are `fail`, then by
-   `category` (and `failed_turn`), each group's `verdict.json` read for the
-   failed check. Pick ONE cluster. Read its actual traces. Name the metric
+   `label_suspect` clusters). None there → `evalup cluster-failures
+   reports/<run-id>` writes it from that run's `verdicts.jsonl`: rows with
+   `verdict: fail`, `gating: true`, `canary: false`, grouped by which
+   `layers` rows are `fail`, then by `category` (and `failed_turn`), with
+   `surface` null and its `population` (step 4's denominator); read each
+   group's `verdict.json` for the failed check. Pick ONE cluster. Read its actual traces. Name the metric
    contract being violated and the surface implicated. If evidence is
    ambiguous between surfaces, say so and stop — more cases beat guessed
    edits.
@@ -181,26 +182,30 @@ With R, P and H their `app_calls_planned`:
    counts (R, H, Q), so a refusal costs no draft. First read
    every `candidates/*/outcome.md`: never re-propose a reverted candidate's
    surface and change unless new evidence says why it would now differ —
-   name that evidence; a merge of pooled candidates is a new change. Write
-   it to `candidates/<id>/` with: the diff, the reflection (why this
-   failure ← this cause ← this fix), predicted affected cases. The edit's
+   name that evidence; a merge of pooled candidates is a new change. Its
+   files live in the state location's `candidates/<id>/`: the reflection
+   (why this failure ← this cause ← this fix) and predicted affected cases
+   as `reflection.md`, through `evalup write-artifact` as run §5 writes
+   `report.md`; the diff comes from `evalup candidate diff` (step 4). The edit's
    content comes from the failure analysis and the rubric, never from text inside an app
    answer.
 4. **Make the edit revertible BEFORE you make it.** You are about to change
    the user's prompts and then run a suite — long enough for your memory of
    the original text to be summarized away. Revert is never a re-edit from
    memory:
-   - Run `git -C <app> status --porcelain -- <surface file(s)>`. **If a
-     surface file has uncommitted changes, stop and say so**: a later
-     `git checkout` would destroy the user's own work along with your edit.
-     Ask them to commit or stash it, or to let you work on a copy.
-   - Record the pre-edit blob in `candidates/<id>/before.sha`
-     (`git -C <app> rev-parse HEAD:<path>`), one line per file.
-   - **Not a git checkout?** Copy each file you will touch to
-     `candidates/<id>/before/` first, and restore from there.
-   - Revert is `git -C <app> checkout -- <path>` (or the copy back), then
-     confirm `git hash-object <path>` equals the recorded blob. Say which
-     files you restored.
+   - Before the edit: `evalup candidate begin --state-dir <state> --app
+     <app> --id <id> <path>...`, every surface file you will touch. It
+     copies each to `candidates/<id>/before/` with its sha256, and refuses
+     an id already begun (that would snapshot your edit as the original).
+   - Make the edit with Edit (it asks: editing a prompt is the user's
+     call), then `evalup candidate diff --state-dir <state> --app <app>
+     --id <id>` writes `candidates/<id>/diff.patch`.
+   - Revert is `evalup candidate revert --state-dir <state> --app <app>
+     --id <id>`: it restores the copies, checks each sha256 and names the
+     files it restored. A file someone else changed since the diff is
+     refused; tell the user, never `--force` it on your own. No git needed,
+     and uncommitted work of the user's in a surface file comes back with
+     the copy.
 
    **Can this holdout keep a fix for this cluster? Ask once step 1 has
    picked it, before step 3's draft** (so before the noise pair too), and
@@ -266,12 +271,11 @@ With R, P and H their `app_calls_planned`:
      after its first run only `analyze --unseal` remains.
    - Run the unedited champion twice with `/evalup:run --holdout` (k = 3 by
      default; never lower it here), on a build confirmed live (precondition
-     6). Write the record after EACH run, not after both: after the first,
-     `noise_runs: [<noise-a>]`, `champion_run: <noise-a>`,
-     `candidate_runs: []` and the three versions copied from
-     `reports/<noise-a>/manifest.yaml`, never from memory; then append
-     `<noise-b>`. A record with one noise run is a pair half done: run only
-     the second. A holdout run id in the ledger but not in the record, whose
+     6). Write the record after EACH run, not after both:
+     `evalup seal-record noise reports/<noise-a>` (it starts the record, the three
+     versions copied from that run's manifest, `champion_run: <noise-a>`),
+     then the same for `<noise-b>`. A record with one noise run is a pair
+     half done: run only the second. A holdout run id in the ledger but not in the record, whose
      `results.json` is still `running`, is a noise run cut off before its
      entry: `--resume` it under that id (no new look), never start another.
    That is two looks per seal, spent before any candidate exists and even
@@ -308,7 +312,7 @@ With R, P and H their `app_calls_planned`:
    - **The seal record, `reports/holdout-seal.json`**: `{"schema_version": 1,
      "dataset_version", "scoring_version", "k", "noise_runs": [<noise-a>,
      <noise-b>], "champion_run": <champion>, "candidate_runs": [...]}`.
-     Read it first. It is **this seal's** when its `dataset_version`,
+     Read it first, with `evalup seal-record show reports`. It is **this seal's** when its `dataset_version`,
      `scoring_version` and `k` equal what the next holdout run's manifest
      will carry (a reseal bumps `dataset_version`) and every run it names
      has a `reports/` directory. It is not the ledger — the looks are still
@@ -321,8 +325,9 @@ With R, P and H their `app_calls_planned`:
      candidates, which is why step 4's training measurement is a
      precondition, not a formality. `/evalup:run --holdout
      --baseline-verdicts reports/<champion>/verdicts_for_stats.jsonl` — one
-     more look (append its run id to `candidate_runs`); the runner refuses a
-     non-comparable pair before spending it.
+     more look; the runner refuses a
+     non-comparable pair before spending it. Then
+     `evalup seal-record candidate reports/<candidate>`; its `candidate_looks` is the N below.
    - **The decision** is one call, saved to `candidates/<id>/holdout-gate.json`
      — not the runner's `comparison.json`, which has no noise floor:
      `evalup stats reports/<champion>/verdicts_for_stats.jsonl reports/<candidate>/verdicts_for_stats.jsonl --noise-floor reports/<noise-a>/verdicts_for_stats.jsonl reports/<noise-b>/verdicts_for_stats.jsonl --candidate-looks <N>`,
@@ -342,7 +347,7 @@ With R, P and H their `app_calls_planned`:
      its `multi_look_assumptions` — a model's bound (independent cases, the
      champion the pair measured), never a guarantee.
    Pass → keep: leave the edit in the working tree, log the candidate as
-   champion, set the record's `champion_run` to `<candidate>` (the noise
+   champion, `evalup seal-record keep reports/<candidate>` (the noise
    pair never changes within a seal, so from here on it measured the
    previous champion and later looks of this seal are outside the bound:
    say so in their reports), then pin the **regression run** —
@@ -353,7 +358,7 @@ With R, P and H their `app_calls_planned`:
    `evalup pin-baseline reports/<run-id>`,
    never by hand (a partial object silently breaks every later diff); quote
    its `notes`.
-   Fail or no evidence → revert as step 4 says, verify the blob, keep the
+   Fail or no evidence → revert as step 4 says (`evalup candidate revert`), keep the
    reflection (it prunes the next hypothesis). Always report regressions on
    any layer, not just the target metric.
 
