@@ -79,6 +79,11 @@ says when a release bumps it.
   --templates` feeds it. No verdict changes.
 
 ### Changed
+- **`score-cost`'s retries note** (#140) said `cases/<id>/response.json`
+  could not be read without listing sealed ids; a visible id indexes it,
+  as `cost.all_repeats` already does. It now says what is missing: the
+  runner keeps no failed attempt's body, usage or latency, so retried
+  attempts are not priced and `latency_s` is the last attempt's.
 - **Seal hygiene** (#145). `prelook-fix --list` (and its dry run) lists
   `sealed_rubrics` by id and hash: a rubric only sealed cases pin (top
   level, `every_turn` or a checkpoint), or one whose id is `ho-` plus an

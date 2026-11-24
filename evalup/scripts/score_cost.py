@@ -101,11 +101,14 @@ copied into a report loses its docstring:
     the adapter has no `streaming:` declaration. It is
     RESERVED here on the metric side too: buildable only from a first-token
     event this harness does not collect.
-  - RETRIES. `results.json` records `latency_s` and NOT `attempts` or
-    `retry_count` (those are in `cases/<id>/response.json`, which cannot be
-    walked here -- see the seal below). A retried case's `latency_s` is its
-    LAST attempt's, so it excludes the failed attempts and the backoff between
-    them. Nothing in the readable surface says which cases those were.
+  - RETRIES (#140). `results.json` records `latency_s` and NOT `attempts`
+    or `retry_count`. Each case's `response.json` does record those two, and
+    a visible id can index it (see the seal below), but it is the LAST
+    attempt's response: the runner keeps no failed attempt's body, usage or
+    latency, and the trace joined is the one the last response names. So a
+    retried attempt's tokens are not priced, and a retried case's
+    `latency_s` excludes the failed attempts and the backoff between them.
+    No file holds what is missing, so there is nothing more to read here.
   - THE OTHER k-1 REPEATS (#129). At k > 1 the case-level `trajectory.json`
     is the REPRESENTATIVE repeat's (`run_cases.py`'s publish()), and
     `cost.usd`, the per-case figures and the paired diff stay that repeat's.
@@ -1552,10 +1555,11 @@ def declared_limits(runs):
             "here for the same reason -- it needs a first-token event this "
             "harness does not collect."),
         "retries": (
-            "NOT VISIBLE. results.json records latency_s and not attempts or "
-            "retry_count, and cases/<id>/response.json (which has them) "
-            "cannot be walked without enumerating sealed holdout ids. A "
-            "retried case's latency_s is its LAST attempt's, excluding the "
+            "NOT PRICED. A retried case's failed attempts are not kept: "
+            "cases/<id>/response.json is the LAST attempt's (its attempts and "
+            "retry_count say how many there were), and no file holds a "
+            "failed attempt's body, usage or latency. So their tokens are "
+            "outside cost, and a retried case's latency_s excludes the "
             "failed attempts and the backoff between them."),
         "repeats": repeats_limit(runs),
         "holdout": (
