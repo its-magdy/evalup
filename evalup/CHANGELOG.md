@@ -102,8 +102,8 @@ says when a release bumps it.
   shows the model it was priced at. The run skill says a budget is checked
   against `usd_max`; that in a running session, a subagent included, a
   missing env var goes under `env` in `.claude/settings.local.json` (the
-  shell rule is unchanged); that `comparison.json`'s `n` includes canaries
-  and `gating: false` cases while `gate`'s count does not; and why the
+  shell rule is unchanged); that `comparison.json`'s `n` (the cases both
+  runs scored) includes canaries while `gate`'s counts do not; and why the
   launch stays foreground: the wait-run loop keeps the run alive, and a
   call moved to the background is stopped 30 minutes later. No verdict
   changes; `SCORING_VERSION` is unchanged.

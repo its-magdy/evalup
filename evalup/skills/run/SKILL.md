@@ -255,8 +255,8 @@ beside them with `evalup write-artifact` (see `--help`).
   contract's §10 counts table defines each. "6 test cases and 2 canaries
   ran; 1 failed, 1 skipped" — never "8 ran" beside an `n` of 6. A failure on a `gating: false` case is reported
   as a failure that did not close the gate. `comparison.json`'s `n` counts
-  the cases both runs scored, canaries and `gating: false` included —
-  not `gate`'s count: say which you quote.
+  the cases both runs scored, canaries included; `gate`'s counts leave
+  canaries out: say which you quote.
 - **Unreviewed labels** — when no selected case is `review.status:
   accepted` (a first session), say so above the clusters: a failure may be
   the label's error, not the app's, no case can close a gate yet, and the run

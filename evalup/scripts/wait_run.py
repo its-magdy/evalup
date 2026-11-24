@@ -143,8 +143,9 @@ def plan_of(run_dir, doc):
         plan = json.loads(text)
     except ValueError:
         return None
-    from run_cases import sha256_of  # the runner's own hash, not a copy
-    return candidate if sha256_of(plan) == want else None
+    # The runner's own hash, defaults filled in as it does, not a copy.
+    from run_cases import plan_sha256_of
+    return candidate if plan_sha256_of(plan) == want else None
 
 
 def resume_of(run_dir, now=None):

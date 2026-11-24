@@ -144,14 +144,25 @@ class WaitRunTest(unittest.TestCase):
     def test_the_resume_names_the_plan_the_run_started_from(self):
         # #153: `--plan '<plan.json>'` copied as printed fails. The
         # conventional <state>/work/plan.json is named when it still hashes
-        # to the manifest's plan_sha256 -- the runner's own canonical hash,
-        # so re-serializing the plan with other spacing does not matter.
+        # to the manifest's plan_sha256. The file is shaped as make_plan.py
+        # writes it (no `execution`, a partial `scoring`) and the manifest
+        # hash is the one a real Runner records, after it fills those
+        # defaults in -- a hash of the raw file would never match.
+        import copy
         sys.path.insert(0, str(SCRIPTS))
-        from run_cases import sha256_of
-        plan = {"run_id": self.run_id, "k": 3, "cases": [{"id": "c-1"}]}
+        sys.path.insert(0, str(SCRIPTS.parent / "tests"))
+        import run_cases
+        from test_run_cases import make_plan
+        plan = make_plan(self.run_dir.parent.parent, "http://127.0.0.1:9",
+                         run_id=self.run_id, scoring={"oos_route": None})
+        del plan["execution"]
         path = self.plan_at_work(plan)
+        validated = copy.deepcopy(plan)
+        run_cases.validate_plan(validated, str(self.run_dir))
+        recorded = run_cases.Runner(validated, str(self.run_dir)).plan_sha256
+        self.assertNotEqual(recorded, run_cases.sha256_of(plan))
         self.write("results.json", results(self.run_id, "running"))
-        self.write("manifest.yaml", {"plan_sha256": sha256_of(plan),
+        self.write("manifest.yaml", {"plan_sha256": recorded,
                                      "invocation": {"mode": "http"}})
         rc, out, proc = wait_run(self.run_dir, "--timeout-s", "30")
         self.assertEqual(rc, 4, proc.stdout + proc.stderr)
