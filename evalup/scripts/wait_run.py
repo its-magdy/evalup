@@ -24,7 +24,10 @@ is never backgrounded itself.
      run id rather than starting a fresh run over the cases already paid for.
      The printed `resume` command carries `--not-before` one rate-limit
      window on when the manifest declares a budget (#144), and a resume
-     spends no new holdout look.
+     spends no new holdout look. Its `--plan` is `<state>/work/plan.json`
+     when that file is still the plan the run started from (its hash is the
+     manifest's `plan_sha256`); otherwise it is the placeholder
+     `<plan.json>` and `plan_note` says what to put there (#153).
 
 Prints one JSON object on stdout: the run id, the status, the runner's exit
 code when finalized, the last run.log event, and whether a runner process was
@@ -32,6 +35,10 @@ seen ("alive" / "gone" / "unknown" when `ps` is unavailable).
 
 Usage:
   wait_run.py <reports/<run-id>> [--timeout-s 540] [--interval-s 5]
+
+--timeout-s is at most 600: one Bash call is capped at ten minutes, and a
+call past its cap is moved to the background, where this wait no longer
+holds the turn open. Wait longer by calling it again on exit 3.
 """
 import argparse
 import json
@@ -52,6 +59,10 @@ from _common import (
 
 STILL_RUNNING = 3
 RUNNER_GONE = 4
+PLAN_NOTE = ("<plan.json> is a placeholder, not a path: replace it with the "
+             "plan file this run was started from. <state>/work/plan.json "
+             "is missing or no longer hashes to the manifest's plan_sha256 "
+             "(rebuilt since?), and --resume refuses any other plan")
 
 
 def read_results(run_dir):
@@ -113,13 +124,38 @@ def runner_process(run_dir):
     return "gone"
 
 
+def plan_of(run_dir, doc):
+    """#153: the plan file this run started from, or None. A run's --out is
+    `<state>/reports/<run-id>` (runner-contract SS1) and the run skill builds
+    its plan at `<state>/work/plan.json`, so that is the one candidate. It
+    is named only while its hash is still the manifest's `plan_sha256`: the
+    file is rebuilt every run, and a resume with another plan is refused."""
+    want = doc.get("plan_sha256")
+    if not isinstance(want, str):
+        return None
+    state = os.path.dirname(os.path.dirname(
+        os.path.normpath(run_dir)))
+    candidate = os.path.join(state, "work", "plan.json")
+    text = load_text(candidate, on_error=lambda _m: None)
+    if text is None:
+        return None
+    try:
+        plan = json.loads(text)
+    except ValueError:
+        return None
+    from run_cases import sha256_of  # the runner's own hash, not a copy
+    return candidate if sha256_of(plan) == want else None
+
+
 def resume_of(run_dir, now=None):
     """#144: the command that resumes a killed run, and the --not-before it
     carries. Under a declared rate budget (the manifest records it) that is
     one window after now, rounded up to the second: the runner is gone by
     now, so its last call finished earlier, and a resume started at once
     would share that call's window. The manifest's baseline is carried
-    over. Resuming spends no new holdout look (runner-contract SS6)."""
+    over. Resuming spends no new holdout look (runner-contract SS6).
+    Returns (command, not_before, plan): plan None when the command holds
+    the `<plan.json>` placeholder (#153)."""
     manifest = load_text(os.path.join(run_dir, "manifest.yaml"),
                          on_error=lambda _m: None) or ""
     try:
@@ -127,6 +163,7 @@ def resume_of(run_dir, now=None):
     except ValueError:
         doc = None
     doc = doc if isinstance(doc, dict) else {}
+    plan = plan_of(run_dir, doc)
     invocation = doc.get("invocation")
     gap = resume_gap_s(invocation.get("rate_limit")
                        if isinstance(invocation, dict) else None)
@@ -138,7 +175,8 @@ def resume_of(run_dir, now=None):
         if at.microsecond:
             at = at.replace(microsecond=0) + timedelta(seconds=1)
         when = at.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return resume_command(run_dir, baseline=baseline, not_before=when), when
+    return (resume_command(run_dir, plan, baseline=baseline,
+                           not_before=when), when, plan)
 
 
 def started_run(run_dir):
@@ -162,13 +200,16 @@ def main():
     add_version_flag(ap)
     ap.add_argument("run_dir", help="the run directory (reports/<run-id>)")
     ap.add_argument("--timeout-s", type=float, default=540.0,
-                    help="how long to wait before exiting 3 (default "
-                         "%(default)s: under the ten-minute headless cap on a "
-                         "single Bash call)")
+                    help="how long to wait before exiting 3, at most 600 "
+                         "(default %(default)s: under the ten-minute cap on a "
+                         "single Bash call; past it the call is moved to the "
+                         "background). To wait longer, call again on exit 3")
     ap.add_argument("--interval-s", type=float, default=5.0,
                     help="seconds between checks (default %(default)s)")
     a = ap.parse_args()
-    require_range("--timeout-s", a.timeout_s, lo=0, hi=600)
+    require_range("--timeout-s", a.timeout_s, lo=0, hi=600,
+                  note=" (one Bash call is capped at ten minutes; to "
+                       "wait longer, call wait-run again while it exits 3)")
     require_range("--interval-s", a.interval_s, lo=0.1, hi=60)
 
     run_dir = a.run_dir
@@ -218,7 +259,7 @@ def main():
             status = status_of(results)
             if status is not None and status != "running":
                 continue
-            command, not_before = resume_of(run_dir)
+            command, not_before, plan = resume_of(run_dir)
             print(json.dumps({
                 "run_id": (results or {}).get("run_id")
                 or os.path.basename(os.path.abspath(run_dir)),
@@ -228,6 +269,7 @@ def main():
                 "waited_s": round(time.monotonic() - started, 1),
                 "resume": command,
                 **({"not_before": not_before} if not_before else {}),
+                **({} if plan else {"plan_note": PLAN_NOTE}),
                 "holdout_look": "a resume spends no new one: the ledger "
                                 "holds one row per run id"}, ensure_ascii=False))
             return RUNNER_GONE

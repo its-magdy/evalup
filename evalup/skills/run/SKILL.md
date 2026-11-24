@@ -66,8 +66,7 @@ there is.
 | `holdout` | sealed `holdout` split | 3 by default (`--k N`), pass^k | decision | optimizer's keep/revert step |
 
 No mode flag → `regression`. Release validation is `regression`, then
-`holdout` (two runs; there is no `full` mode). `k` is a plan-level value: `make_plan.py` sets
-the mode's default and `--k N` overrides it; no script reads a per-case `k`.
+`holdout` (two runs; there is no `full` mode). `k` is plan-level: no script reads a per-case `k`.
 **Selection reads the
 case's `split` field, never a directory** — the field is owned by
 `${CLAUDE_PLUGIN_ROOT}/skills/generate/references/case-format.md`, and `full`
@@ -107,9 +106,7 @@ folder only; the rest of the state is versioned — to their `.gitignore`.
   `k` and `gate`, fills every required key, and prints the `run_id`, the
   `--out` directory and a runner command for outside Claude Code: here, run
   `evalup run-cases` with its `--plan` and `--out`. Its other flags are the
-  mode's — `--tag`/`--failing-in` (`--filter-failing`), `--k N`, `--layer X`,
-  `--oos-route`, the retry pair, `--single-turn`/`--max-turns` —
-  run-modes.md's flags section says what each does.
+  mode's; run-modes.md's flags section says what each does.
   A smoke or first run does not open it; the two it may need are here: `--oos-route <name>` — `scoring.oos_route` comes from the
   profile's `oos_handling: route:<name>`, so pass it when the route is
   declared any other way, or OOS metrics go unreported — and `--insecure-tls` for a self-signed local dev host
@@ -140,9 +137,11 @@ time is its `app_calls_planned` × the per-request latency discover §4
 recorded in findings.md, plus the larger of its `wait_floor_s` and
 `pace_floor_s`. Dollars: `--cost-from <last priced run's cost.json>` gives
 `estimate.usd` (+ judge calls; quote its note's cache and k caveats); with none,
-give messages and minutes, name `estimate.models`, ask for prices. A start
+give messages and minutes, name `estimate.models`, ask for prices. A
+budget is checked against `usd_max` (every call retried): when only `usd`
+fits, say so and ask. A start
 time: `--not-before` (`wait-run` exit 3 `not_started`). Under an app-side
-rate limit, state `app_calls_max` (every retry)
+rate limit, state `app_calls_max`
 and size `--max-attempts` to `pace_max_s`. With `resume_expected`
 (`pace_floor_s` ≥ 1800 s), say a resume will come; quote its `command`. Ask "≈ $X, ~Y min.
 Proceed?" — except for a `smoke` run of ≤15 cases (state the estimate and
@@ -150,21 +149,20 @@ go: a first session must not stop here), under a pre-approved budget, or
 under the headless gate (§6). Re-check a finished run
 with `--verify reports/<run-id>`. Conversations are slow (20 five-turn
 ones at k=3 with a trace store ≈ an hour; `app_calls_planned` counts
-turns); headless, expect several `wait_run.py` waits below.
+turns).
 
 **Wait for the runner; never end the turn on a `running` run.** Launch
 `run_cases.py` in the **foreground** of one Bash call with `timeout` at its
-600000 ms maximum — never `run_in_background`: headless, a background shell
-dies seconds after the turn ends, leaving `results.json` at
-`summary.status: "running"`, its cases half paid for. If the harness
-moves the call to the background at that cap, do not stop: call
-`evalup wait-run reports/<run-id>` (same
-600000 ms timeout) and repeat it while it exits 3. It exits 0 once the run is
-finalized (read §3 from the runner exit code it prints); 4 when the run is still
-`running` but no runner process exists — launch its printed `resume`
-likewise, your plan for `<plan.json>` (offer it unless foretold): it
-carries any needed `--not-before`, and spends no new holdout look.
-Report nothing from a run whose status is `running`.
+600000 ms maximum. Past it the harness moves the call to the background and
+stops it 30 minutes later (`run_in_background` may set up to 7200000 ms).
+Either way the turn must not end — headless, a background shell dies
+seconds after, leaving `results.json` at `summary.status: "running"`, its
+cases half paid for — so call `evalup wait-run reports/<run-id>` (same
+timeout; `--timeout-s` stops at 600) and repeat it while it exits 3. It
+exits 0 once the run is finalized (read §3 from the runner exit code it
+prints); 4 when no runner process exists — launch its printed `resume`
+likewise (offer it unless foretold; fill `<plan.json>` per its `plan_note`): it carries any needed `--not-before`, and spends no new
+holdout look. Report nothing from a run whose status is `running`.
 
 ## 3. Read the exit code
 
@@ -176,20 +174,17 @@ code, not to "non-zero".
 | 0 | Complete. Says nothing about pass/fail. | Report (§5). |
 | 1 | Internal error. | Harness bug; report the traceback, don't retry blind. |
 | 2 | Bad plan or usage. **Nothing was written.** | Fix the plan, re-run. Free. |
-| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. A missing env var (`missing_env` names each) cannot be fixed in-session — an `export` does not outlive its Bash call and `source … &&` breaks the shell rule: ask the user to export them before launching `claude`, or to put them under `env` in `.claude/settings.local.json` (read however `claude` was launched, and applied to a running session when the file is saved). Never write a value into a file yourself. |
+| 3 | Pre-flight abort: env var, health check, trace store, `cli` mode. | Fix the app, adapter or state dir. Only the health check was billed. A missing env var (`missing_env` names each) cannot be fixed by a shell call — an `export` does not outlive its Bash call, and `export`/`source … &&` breaks the shell rule, a subagent's too. In a running session (a subagent's always is) the one route is `env` in `.claude/settings.local.json`, applied when the file is saved: stop and ask the user for it (a subagent: its caller). Before launch, an `export` works too. Never write a value into a file yourself. |
 | 4 | A canary failed — harness or judge drift. | **Quote no number from this run.** The app's score is meaningless until the canary passes. `--resume` exits 4 again: fix the drift, then start a new run id. |
 | 5 | Infra rate above `infra_rate_abort` (plan default 0.25). | The service is degraded. Re-run when healthy; never report the partial pass rate. |
 | 6 | Completeness check failed: **a required artifact is missing or inconsistent**. | Read `summary.missing_artifacts`. Not quotable, not a baseline. `--resume` or re-run; never write a report over it. |
 | 7 | A scorer exited 2: artifacts complete, **numbers not**. | Read `summary.scorer_errors` and the `error` layers, fix the malformed `expect` or scorer input, re-score. Report anyway only while naming the layers left unscored. |
 
-A red suite exits **0** — gating is §6's job, not the runner's.
-
 Two infra thresholds, over two denominators: the plan aborts at
 `infra_rate_abort` (0.25) of every case attempted so far, canaries included,
 so a degraded service does not burn the budget; `gate.py` closes on a
 *finished* run whose `summary.infra_rate` (the non-canary cases sent) is
-above `--max-infra-rate` (0.05) — finishing keeps the verdicts paid for, and
-the gate stays strict. On a throttled provider (429/503 walls; an exhausted
+above `--max-infra-rate` (0.05). On a throttled provider (429/503 walls; an exhausted
 5xx is `infra_error` whatever the case expects) fix or wait it out, or raise
 `--max-infra-rate` for that one job and say so in the report. **First read
 `gate.py`'s "same 5xx on every attempt" line** (`summary.repeated_5xx`; the
@@ -259,7 +254,9 @@ beside them with `evalup write-artifact` (see `--help`).
   `summary.attempted` is every case that was sent, canaries included. The
   contract's §10 counts table defines each. "6 test cases and 2 canaries
   ran; 1 failed, 1 skipped" — never "8 ran" beside an `n` of 6. A failure on a `gating: false` case is reported
-  as a failure that did not close the gate.
+  as a failure that did not close the gate. `comparison.json`'s `n` counts
+  the cases both runs scored, canaries and `gating: false` included —
+  not `gate`'s count: say which you quote.
 - **Unreviewed labels** — when no selected case is `review.status:
   accepted` (a first session), say so above the clusters: a failure may be
   the label's error, not the app's, no case can close a gate yet, and the run
@@ -298,7 +295,7 @@ path**: it produces the run, then a separate tokenless step —
 `evalup gate reports/<run-id>` (or `reports/
 --latest --mode regression`) — reads `results.json`, prints a one-screen
 summary and exits 0 open / 1 closed. Run it after every interactive run too:
-it is the fastest honest summary, and the runner's own exit 0 says nothing
+the runner's own exit 0 says nothing
 about pass/fail (§3). Its `--max-infra-rate` (0.05) is stricter than the
 plan's abort (0.25) by design — §3 says what to do on a throttled provider.
 It prints `multi-turn: P/S pass (N conversation(s)); single-turn: P/S pass`
