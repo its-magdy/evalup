@@ -955,8 +955,10 @@ class TestNotADecision(CostCase):
         self.assertIn("NOT MEASURED", limits["ttft"])
         self.assertIn("retry_count", limits["retries"])
         # #140: a visible id indexes response.json; what is missing is the
-        # failed attempts, which the runner never keeps.
+        # attempts before the last, which the runner does not keep.
         self.assertIn("NOT PRICED", limits["retries"])
+        self.assertIn("LAST", limits["retries"])
+        self.assertIn("one trace id", limits["retries"])
         self.assertNotIn("sealed", limits["retries"])
         self.assertIn("REPRESENTATIVE", limits["repeats"])
         self.assertEqual(payload["cost"]["cache_accounting"], "none")
