@@ -544,6 +544,50 @@ class TestValidatorBindings(unittest.TestCase):
         codes, _ = self.lint()
         self.assertIn("criterion_rule_unknown", codes)
 
+    def test_a_sealed_cases_binding_findings_are_counts_never_ids(self):
+        """#139: a sealed case's rule-binding findings come once per rule
+        with no case id, at their severity; a malformed list is described
+        by shape, since its entries are rule ids beside the case id."""
+        sealed = ("c-8b13d0e5", "c-4f2a91c7")
+
+        def fresh():
+            self.doc = converted()
+            for cid in sealed:
+                self.case(cid)["split"] = ["holdout"]
+
+        def check(code, severity, rubrics=True):
+            codes, out = self.lint(rubrics)
+            mine = [f for f in out["findings"] if f["code"] == code]
+            self.assertEqual(len(mine), 1, out["findings"])
+            self.assertEqual((mine[0]["case_id"], mine[0]["severity"]),
+                             (None, severity))
+            self.assertIn("1 sealed holdout case (ids withheld",
+                          mine[0]["message"])
+            for f in out["findings"]:
+                self.assertNotIn(f["case_id"], sealed, f)
+            return mine[0]["message"]
+
+        fresh()
+        check("rule_binding_unchecked", "WARN", rubrics=False)
+        answer = self.case("c-8b13d0e5")["expect"]["answer"]
+        answer["must_not_contain"] = []
+        check("rule_check_missing", "ERROR")
+        fresh()
+        self.case("c-8b13d0e5")["expect"]["answer"]["rules"] = [
+            "plain-text", "grounded-only"]
+        self.assertIn("'grounded-only'", check("rule_unbound", "ERROR"))
+        fresh()
+        self.case("c-4f2a91c7")["expect"]["answer"]["rules"] = ["plain-text"]
+        check("rule_judged_unlisted", "WARN")
+        # A malformed list keeps its case id but withholds its entries.
+        self.case("c-8b13d0e5")["expect"]["answer"]["rules"] = [
+            "plain-text", ""]
+        codes, out = self.lint()
+        bad = [f for f in out["findings"] if f["code"] == "bad_answer_rules"]
+        self.assertEqual([f["case_id"] for f in bad], ["c-8b13d0e5"])
+        self.assertNotIn("plain-text", bad[0]["message"])
+        self.assertIn("a list of 2 (entries withheld", bad[0]["message"])
+
     def test_rules_without_a_profile_warn(self):
         path = self.tmp / "c.json"
         write(path, self.doc)

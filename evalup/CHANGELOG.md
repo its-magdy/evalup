@@ -85,6 +85,14 @@ says when a release bumps it.
   file is the last attempt's, the attempts before it leave no body, latency
   or trace id, `latency_s` excludes them, and their tokens are in `cost`
   only when the app gave every attempt one trace id.
+- **A sealed case's rule findings are counts** (#139). `validate-cases`
+  reports a holdout case's `dangling_cover`, `unconfirmed_rule_gates`,
+  `covers_contradicted_rule`, `rule_check_missing`, `rule_unbound`,
+  `rule_binding_unchecked` and `rule_judged_unlisted` once per rule, as a
+  count with no case id, at the same severity; `bad_covers` and
+  `bad_answer_rules` on one keep the id but withhold the entries. A case id
+  beside the rule it covers says what the sealed case is about, as #133
+  found for traceability.
 - **Seal hygiene** (#145). `prelook-fix --list` (and its dry run) lists
   `sealed_rubrics` by id and hash: a rubric only sealed cases pin (top
   level, `every_turn` or a checkpoint), or one whose id is `ho-` plus an

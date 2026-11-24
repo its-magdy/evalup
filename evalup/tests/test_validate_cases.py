@@ -1732,6 +1732,57 @@ class TestTraceability(ValidateTest):
         self.assertEqual(trace["rules"]["plain-text"]["holdout_cases"], 1)
         self.assertEqual(trace["gaps"], [])
 
+    def test_a_sealed_cases_rule_findings_are_counts_never_ids(self):
+        # #139: dangling_cover, unconfirmed_rule_gates and
+        # covers_contradicted_rule named the sealed case beside the rule.
+        # They now come once per rule with a count and no case id, at the
+        # same severity, so a bad sealed case still fails.
+        def sealed(n, covers):
+            return good_case(f"billing-sealed-0000bee{n}", split=["holdout"],
+                             covers=covers)
+        cases = [sealed(1, ["ghost", "draft", "stale"]),
+                 sealed(2, ["ghost", "draft", "draft"]),
+                 good_case(covers=["ghost", "draft", "stale"])]
+        rules = [a_rule("draft", status="inferred", confirmed_by=None),
+                 a_rule("stale", contradiction="prompts/b.md:9 says 14")]
+        rc, out = self.lint(cases, rules)
+        self.assertEqual(rc, 1)
+        self.assertNotIn("sealed-", json.dumps(out["findings"]))
+        mine = {(f["code"], f["case_id"]): f for f in out["findings"]
+                if f["code"] in ("dangling_cover", "unconfirmed_rule_gates",
+                                 "covers_contradicted_rule")}
+        self.assertEqual(set(mine), set(
+            (code, who) for code in ("dangling_cover",
+                                     "unconfirmed_rule_gates",
+                                     "covers_contradicted_rule")
+            for who in (None, "billing-happy-0000abcd")))
+        for code, n, rid, severity in (
+                ("dangling_cover", 2, "ghost", "ERROR"),
+                ("unconfirmed_rule_gates", 2, "draft", "ERROR"),
+                ("covers_contradicted_rule", 1, "stale", "WARN")):
+            with self.subTest(code):
+                f = mine[(code, None)]
+                self.assertEqual(f["severity"], severity)
+                self.assertIn(f"{n} sealed holdout case", f["message"])
+                self.assertIn(repr(rid), f["message"])
+        # --strict promotes the sealed WARN as it does a training case's.
+        rc, out = self.lint(cases, rules, (), "--strict")
+        self.assertEqual({f["severity"] for f in out["findings"]
+                          if f["code"] == "covers_contradicted_rule"},
+                         {"ERROR"})
+        # A sealed case alone still fails validation.
+        rc, out = self.lint([sealed(1, ["ghost"])], [])
+        self.assertEqual((rc, self.codes(out)), (1, ["dangling_cover"]))
+        # A malformed covers keeps its case id, but not its rule ids.
+        rc, out = self.lint([sealed(1, ["stale", ""])], rules)
+        bad = [f for f in out["findings"] if f["code"] == "bad_covers"]
+        self.assertEqual(len(bad), 1, out["findings"])
+        self.assertNotIn("stale", bad[0]["message"])
+        self.assertIn("a list of 2 (entries withheld", bad[0]["message"])
+        rc, out = self.lint([good_case(covers=["stale", ""])], rules)
+        self.assertIn("'stale'", [f["message"] for f in out["findings"]
+                                  if f["code"] == "bad_covers"][0])
+
     def test_a_rule_with_no_case_is_a_gap_not_a_finding(self):
         rc, out = self.lint([good_case(covers=["refund-cap"])],
                             [a_rule(), a_rule("plain-text")],
