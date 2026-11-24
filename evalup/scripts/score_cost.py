@@ -101,11 +101,18 @@ copied into a report loses its docstring:
     the adapter has no `streaming:` declaration. It is
     RESERVED here on the metric side too: buildable only from a first-token
     event this harness does not collect.
-  - RETRIES. `results.json` records `latency_s` and NOT `attempts` or
-    `retry_count` (those are in `cases/<id>/response.json`, which cannot be
-    walked here -- see the seal below). A retried case's `latency_s` is its
-    LAST attempt's, so it excludes the failed attempts and the backoff between
-    them. Nothing in the readable surface says which cases those were.
+  - RETRIES (#140). `results.json` records `latency_s` and NOT `attempts`
+    or `retry_count`. Each case's `response.json` does record those two, and
+    a visible id can index it (see the seal below), but it is the LAST
+    attempt's record, failed or not. The attempts before it leave no body,
+    latency or trace id in the case's files, so nothing here can attribute
+    their usage or prices them as such. Whether their tokens are in `cost`
+    anyway is the trace's doing: under `traces.source: response` the spans
+    are the last body's alone, and a trace id per request leaves an earlier
+    attempt's spans out of the join, but an app that gives every attempt of
+    a case one trace id puts them all in the joined trajectory, unmarked.
+    A retried case's `latency_s` is the last attempt's, excluding the
+    earlier attempts and the backoff between them.
   - THE OTHER k-1 REPEATS (#129). At k > 1 the case-level `trajectory.json`
     is the REPRESENTATIVE repeat's (`run_cases.py`'s publish()), and
     `cost.usd`, the per-case figures and the paired diff stay that repeat's.
@@ -1552,11 +1559,15 @@ def declared_limits(runs):
             "here for the same reason -- it needs a first-token event this "
             "harness does not collect."),
         "retries": (
-            "NOT VISIBLE. results.json records latency_s and not attempts or "
-            "retry_count, and cases/<id>/response.json (which has them) "
-            "cannot be walked without enumerating sealed holdout ids. A "
-            "retried case's latency_s is its LAST attempt's, excluding the "
-            "failed attempts and the backoff between them."),
+            "NOT PRICED AS SUCH. cases/<id>/response.json is the LAST "
+            "attempt's record (its attempts and retry_count say how many "
+            "there were); the attempts before it leave no body, latency or "
+            "trace id there. Their tokens are outside cost when the trace "
+            "is the last response's (traces.source: response) or a trace id "
+            "per request, and inside it, unmarked, when the app gives every "
+            "attempt one trace id. A retried case's latency_s is the last "
+            "attempt's, excluding the earlier attempts and the backoff "
+            "between them."),
         "repeats": repeats_limit(runs),
         "holdout": (
             "cost and paired are over VISIBLE cases only: results.json.cases "
