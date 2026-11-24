@@ -124,8 +124,10 @@ AND a human's name in `confirmed_by`. The rules' own shape (quote, source,
 date, status) WARNs, as do a case covering a rule that still carries a
 `contradiction:` (covers_contradicted_rule) and rules left under
 confirmed_by_human.business_rules (legacy_rules_location), which nothing
-reads. `summary.traceability` lists each rule's and risk's
-cases (a sealed holdout case as a count, `holdout_cases`, never by id:
+reads. A sealed holdout case's dangling_cover, unconfirmed_rule_gates
+and covers_contradicted_rule come once per rule, as a count with no case
+id (#139), at the same severity. `summary.traceability` lists each rule's
+and risk's cases (a sealed holdout case as a count, `holdout_cases`, never by id:
 #133), the GAPS (an id with no case), the unconfirmed rules and the
 contradicted ones, and the `gating: false` cases covering an unconfirmed
 rule (unconfirmed_non_gating: they close no gate, but gate.py
@@ -1979,17 +1981,25 @@ def check_traceability(rep, cases, profile):
                   and isinstance(c.get("split"), list)
                   and "holdout" in c["split"]}
     non_gating = []
+    # The three per-case findings that name a rule id (#139) go the same
+    # way for a sealed case: counted per (code, rule) and reported with no
+    # case id, still at their severity, so a bad sealed case still fails.
+    sealed_findings = {}
     for case in cases:
         if not isinstance(case, dict):
             continue
         label = case.get("id") if is_nonempty_str(case.get("id")) else None
+        sealed = label in sealed_ids
         covers = case_covers(case)
         for rid in dict.fromkeys(covers):
-            if rid in by_id and label in sealed_ids:
+            if rid in by_id and sealed:
                 sealed_by_id[rid] += 1
             elif rid in by_id:
                 if label is not None and label not in by_id[rid]:
                     by_id[rid].append(label)
+            elif sealed:
+                key = ("dangling_cover", rid)
+                sealed_findings[key] = sealed_findings.get(key, 0) + 1
             else:
                 rep.error(label, "dangling_cover",
                           f"covers or expect.answer.rules names {rid!r}, "
@@ -2005,7 +2015,12 @@ def check_traceability(rep, cases, profile):
         unconfirmed = [rid for rid in covers
                        if statuses.get(rid) == "inferred"]
         canary = "canary" in (case.get("split") or [])
-        if unconfirmed and (gates(case) or canary):
+        if unconfirmed and sealed and gates(case):
+            # (Never a canary: holdout beside canary is holdout_not_sealed.)
+            for rid in dict.fromkeys(unconfirmed):
+                key = ("unconfirmed_rule_gates", rid)
+                sealed_findings[key] = sealed_findings.get(key, 0) + 1
+        elif unconfirmed and (gates(case) or canary):
             # A canary closes no gate, but its `fail` aborts the whole run
             # (EXIT_CANARY): an inferred rule would decide the run instead.
             what = ("case is a canary, whose fail aborts the run," if canary
@@ -2022,13 +2037,18 @@ def check_traceability(rep, cases, profile):
         elif unconfirmed and label is not None:
             non_gating.append(label)
         stale = [rid for rid in covers if rid in contradicted]
-        if stale:
+        if stale and sealed:
+            for rid in dict.fromkeys(stale):
+                key = ("covers_contradicted_rule", rid)
+                sealed_findings[key] = sealed_findings.get(key, 0) + 1
+        elif stale:
             rep.warn(label, "covers_contradicted_rule",
                      f"covers {', '.join(repr(r) for r in stale)}, which "
                      "still carries a `contradiction:`: docs and code "
                      "disagree, so the case's expectation picks a side the "
                      "owner has not chosen. Ask the owner (discover "
                      "interview), then clear the contradiction")
+    report_sealed_findings(rep, sealed_findings)
     rule_rows, risk_rows = {}, {}
     for rid, where in known.items():
         if where.startswith("business_rules"):
@@ -2057,6 +2077,34 @@ def check_traceability(rep, cases, profile):
             c["id"] for c in cases if isinstance(c, dict)
             and is_nonempty_str(c.get("id")) and not case_covers(c)),
     }
+
+
+def report_sealed_findings(rep, counts):
+    """#139: a sealed case's rule findings, as a count per rule with no case
+    id: an id beside the rule it covers says what the sealed case is about
+    (#133). Each remedy is in profile.yaml: reading the sealed cases to
+    change them would unseal them."""
+    for (code, rid), n in sorted(counts.items()):
+        who = (f"{n} sealed holdout case{'' if n == 1 else 's'} (ids "
+               "withheld: #139)")
+        if code == "dangling_cover":
+            rep.error(None, code,
+                      f"{who} name {rid!r} in covers or expect.answer.rules, "
+                      "which is no id in profile.yaml's business_rules or "
+                      "risks; the coverage report would credit a rule that "
+                      "does not exist. Fix the id in profile.yaml (renamed "
+                      "there?)")
+        elif code == "unconfirmed_rule_gates":
+            rep.error(None, code,
+                      f"{who} gate and cover {rid!r}, which no human has "
+                      "confirmed; an inferred rule must never decide a "
+                      "gate. Have the owner confirm the rule (discover "
+                      "interview)")
+        else:
+            rep.warn(None, code,
+                     f"{who} cover {rid!r}, which still carries a "
+                     "`contradiction:`; ask the owner (discover interview), "
+                     "then clear the contradiction")
 
 
 def check_rubrics(rep, cases, path):
