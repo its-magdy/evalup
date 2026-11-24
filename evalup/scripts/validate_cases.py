@@ -113,30 +113,32 @@ plan applies too), and a case pinning a rubric with no file, or an older
 version than the file's, WARNs: the first is never judged, the second is
 judged on the file's version and can never be `calibrated`.
 
-BUSINESS RULES AND TRACEABILITY (--profile, #25). A case names the rule and
-risk ids it is for in `covers`; --profile resolves them against
-profile.yaml's `business_rules` and `risks`. An id that resolves to nothing
-is an ERROR (dangling_cover: the coverage report would credit a rule that
-does not exist), and so is a GATING case covering a rule no human confirmed
-(unconfirmed_rule_gates): an inferred rule may be misread or invented and
-must never decide a gate. A rule is confirmed only with `status: confirmed`
-AND a human's name in `confirmed_by`. The rules' own shape (quote, source,
-date, status) WARNs, as do a case covering a rule that still carries a
-`contradiction:` (covers_contradicted_rule) and rules left under
-confirmed_by_human.business_rules (legacy_rules_location), which nothing
-reads. A sealed holdout case's dangling_cover, unconfirmed_rule_gates
-and covers_contradicted_rule come once per rule, as a count with no case
-id (#139), at the same severity. `summary.traceability` lists each rule's
-and risk's cases (a sealed holdout case as a count, `holdout_cases`, never by id:
-#133), the GAPS (an id with no case), the unconfirmed rules and the
-contradicted ones, and the `gating: false` cases covering an unconfirmed
-rule (unconfirmed_non_gating: they close no gate, but gate.py
---min-pass-rate counts every scored non-canary case). A canary covering an
-unconfirmed rule is the same ERROR as a gating case: its fail aborts the
-run. A gap is a report line, not a finding: a rule with no
-case makes no number untrue -- a rule is only ever reported through its
-cases' checks -- and an inferred or contradicted rule is meant to wait for
-its case, which a --strict failure would push generate to write. `covers`
+BUSINESS RULES AND TRACEABILITY (--profile, #25). A case names the rule
+and risk ids it is for in `covers`; --profile resolves them against
+profile.yaml's `business_rules` and `risks`. An id that resolves to
+nothing is an ERROR (dangling_cover: the coverage report would credit a
+rule that does not exist), and so is a GATING case covering a rule no
+human confirmed (unconfirmed_rule_gates): an inferred rule may be misread
+or invented and must never decide a gate. A rule is confirmed only with
+`status: confirmed` AND a human's name in `confirmed_by`. The rules' own
+shape (quote, source, date, status) WARNs, as do a case covering a rule
+that still carries a `contradiction:` (covers_contradicted_rule) and rules
+left under confirmed_by_human.business_rules (legacy_rules_location),
+which nothing reads. A sealed holdout case's findings that name a rule
+(dangling_cover, unconfirmed_rule_gates, covers_contradicted_rule and the
+four binding findings below) come once per rule, as a count with no case
+id, at the same severity; a malformed covers or expect.answer.rules on one
+keeps its id but withholds the entries (#139). `summary.traceability`
+lists each rule's and risk's cases (a sealed holdout case as a count,
+`holdout_cases`, never by id: #133), the GAPS (an id with no case), the
+unconfirmed rules and the contradicted ones, and the `gating: false` cases
+covering an unconfirmed rule (unconfirmed_non_gating: they close no gate,
+but gate.py --min-pass-rate counts every scored non-canary case). A canary
+covering an unconfirmed rule is the same ERROR as a gating case: its fail
+aborts the run. A gap is a report line, not a finding: a rule with no case
+makes no number untrue -- a rule is only ever reported through its cases'
+checks -- and an inferred or contradicted rule is meant to wait for its
+case, which a --strict failure would push generate to write. `covers`
 reaches no scorer and no verdict.
 
 RULE BINDINGS (--profile, #26). `expect.answer.rules` lists the rules a
@@ -798,7 +800,7 @@ def check_result(rep, case_id, expect):
                   "compare the columns the expected rows define")
 
 
-def check_answer_entries(rep, case_id, expect):
+def check_answer_entries(rep, case_id, expect, sealed=False):
     """must_contain/must_not_contain must be LISTS OF STRINGS.
 
     A bare string is the dangerous slip and gets its own code: `must_contain:
@@ -813,7 +815,8 @@ def check_answer_entries(rep, case_id, expect):
             and all(is_nonempty_str(r) for r in rules)):
         rep.error(case_id, "bad_answer_rules",
                   f"expect.answer.rules must be a non-empty list of "
-                  f"business_rules ids from profile.yaml, got {rules!r}; "
+                  f"business_rules ids from profile.yaml, got "
+                  f"{withheld(rules) if sealed else repr(rules)}; "
                   "rule_report.py would report no rule for this case")
     for field in ("must_contain", "must_not_contain"):
         entries = answer.get(field)
@@ -961,7 +964,7 @@ def check_expect_block(rep, label, case, expect):
     check_args(rep, label, expect)
     check_result(rep, label, expect)
     check_authz(rep, label, expect)
-    check_answer_entries(rep, label, expect)
+    check_answer_entries(rep, label, expect, is_sealed(case))
     check_echo_assertions(rep, label, case, expect)
 
 
@@ -1289,7 +1292,7 @@ def check_case(rep, case, all_ids, enabled, index=None):
     check_args(rep, label, expect)
     check_result(rep, label, expect)
     check_authz(rep, label, expect)
-    check_answer_entries(rep, label, expect)
+    check_answer_entries(rep, label, expect, is_sealed(case))
     check_echo_assertions(rep, label, case, expect)
     check_turns(rep, label, case, enabled)
 
@@ -1842,6 +1845,14 @@ def case_rule_ids(case):
     return out
 
 
+def withheld(value):
+    """A sealed case's malformed rule list, by shape only (#139): its
+    entries are rule ids, and the case id is beside them."""
+    if isinstance(value, list):
+        return f"a list of {len(value)} (entries withheld: a sealed case)"
+    return f"a {type(value).__name__} (withheld: a sealed case)"
+
+
 def check_covers_shape(rep, label, case):
     if "covers" not in case:
         return
@@ -1850,9 +1861,10 @@ def check_covers_shape(rep, label, case):
             or not all(is_nonempty_str(c) for c in covers):
         rep.error(label, "bad_covers",
                   f"covers must be a non-empty list of rule or risk ids from "
-                  f"profile.yaml, got {covers!r}; a malformed link counts in "
-                  "no coverage report and hides the case from the "
-                  "unconfirmed-rule gating check")
+                  f"profile.yaml, got "
+                  f"{withheld(covers) if is_sealed(case) else repr(covers)}"
+                  "; a malformed link counts in no coverage report and "
+                  "hides the case from the unconfirmed-rule gating check")
 
 
 URL_SOURCE = re.compile(r"https?://", re.I)
@@ -1989,7 +2001,8 @@ def check_traceability(rep, cases, profile):
         if not isinstance(case, dict):
             continue
         label = case.get("id") if is_nonempty_str(case.get("id")) else None
-        sealed = label in sealed_ids
+        sealed = label in sealed_ids or is_sealed(case)
+        found = set()           # a sealed case's (code, rule id)s
         covers = case_covers(case)
         for rid in dict.fromkeys(covers):
             if rid in by_id and sealed:
@@ -1998,8 +2011,7 @@ def check_traceability(rep, cases, profile):
                 if label is not None and label not in by_id[rid]:
                     by_id[rid].append(label)
             elif sealed:
-                key = ("dangling_cover", rid)
-                sealed_findings[key] = sealed_findings.get(key, 0) + 1
+                found.add(("dangling_cover", rid))
             else:
                 rep.error(label, "dangling_cover",
                           f"covers or expect.answer.rules names {rid!r}, "
@@ -2017,9 +2029,8 @@ def check_traceability(rep, cases, profile):
         canary = "canary" in (case.get("split") or [])
         if unconfirmed and sealed and gates(case):
             # (Never a canary: holdout beside canary is holdout_not_sealed.)
-            for rid in dict.fromkeys(unconfirmed):
-                key = ("unconfirmed_rule_gates", rid)
-                sealed_findings[key] = sealed_findings.get(key, 0) + 1
+            found.update(("unconfirmed_rule_gates", rid)
+                         for rid in unconfirmed)
         elif unconfirmed and (gates(case) or canary):
             # A canary closes no gate, but its `fail` aborts the whole run
             # (EXIT_CANARY): an inferred rule would decide the run instead.
@@ -2038,9 +2049,7 @@ def check_traceability(rep, cases, profile):
             non_gating.append(label)
         stale = [rid for rid in covers if rid in contradicted]
         if stale and sealed:
-            for rid in dict.fromkeys(stale):
-                key = ("covers_contradicted_rule", rid)
-                sealed_findings[key] = sealed_findings.get(key, 0) + 1
+            found.update(("covers_contradicted_rule", rid) for rid in stale)
         elif stale:
             rep.warn(label, "covers_contradicted_rule",
                      f"covers {', '.join(repr(r) for r in stale)}, which "
@@ -2048,6 +2057,7 @@ def check_traceability(rep, cases, profile):
                      "disagree, so the case's expectation picks a side the "
                      "owner has not chosen. Ask the owner (discover "
                      "interview), then clear the contradiction")
+        count_sealed(sealed_findings, found)
     report_sealed_findings(rep, sealed_findings)
     rule_rows, risk_rows = {}, {}
     for rid, where in known.items():
@@ -2079,32 +2089,63 @@ def check_traceability(rep, cases, profile):
     }
 
 
+# #139: what a sealed case's rule finding says, with no case id. ERROR or
+# WARN as the per-case finding is, so a bad sealed case still fails.
+SEALED_FINDINGS = {
+    "dangling_cover": (
+        "error", "covers or expect.answer.rules names {rid}, which is no id "
+        "in profile.yaml's business_rules or risks; the coverage report "
+        "would credit a rule that does not exist. Fix the id in profile.yaml "
+        "(renamed there?)"),
+    "unconfirmed_rule_gates": (
+        "error", "each gates and covers {rid}, which no human has confirmed; "
+        "an inferred rule must never decide a gate. Have the owner confirm "
+        "the rule (discover interview)"),
+    "covers_contradicted_rule": (
+        "warn", "each covers {rid}, which still carries a `contradiction:`; "
+        "ask the owner (discover interview), then clear the contradiction"),
+    "rule_check_missing": (
+        "error", "expect.answer.rules lists {rid}, whose check in "
+        "profile.yaml the case does not carry; the rule report would credit "
+        "a check the run never made. Fix the check, or the cases with "
+        "`evalup prelook-fix` while the look ledger is empty"),
+    "rule_unbound": (
+        "error", "expect.answer.rules lists {rid}, and nothing on the case "
+        "checks it: the rule has no `check:` in profile.yaml, and no rubric "
+        "criterion judges it on that expect. Give the rule a check (a script "
+        "first), or a rubric criterion that judges it"),
+    "rule_binding_unchecked": (
+        "warn", "expect.answer.rules lists {rid}, which has no check in "
+        "profile.yaml; whether the case's rubric judges it was not checked "
+        "(pass --rubrics)"),
+    "rule_judged_unlisted": (
+        "warn", "its rubric judges {rid}, which expect.answer.rules does not "
+        "list, so the rule report leaves that criterion out"),
+}
+
+
+def is_sealed(case):
+    split = case.get("split")
+    return isinstance(split, list) and "holdout" in split
+
+
+def count_sealed(counts, found):
+    """Add one sealed case's {(code, rule id)} to the per-rule counts."""
+    for key in found:
+        counts[key] = counts.get(key, 0) + 1
+
+
 def report_sealed_findings(rep, counts):
     """#139: a sealed case's rule findings, as a count per rule with no case
     id: an id beside the rule it covers says what the sealed case is about
-    (#133). Each remedy is in profile.yaml: reading the sealed cases to
-    change them would unseal them."""
+    (#133). The remedies are in profile.yaml (or a pre-look fix): reading
+    the sealed cases to change them would unseal them."""
     for (code, rid), n in sorted(counts.items()):
-        who = (f"{n} sealed holdout case{'' if n == 1 else 's'} (ids "
-               "withheld: #139)")
-        if code == "dangling_cover":
-            rep.error(None, code,
-                      f"{who} name {rid!r} in covers or expect.answer.rules, "
-                      "which is no id in profile.yaml's business_rules or "
-                      "risks; the coverage report would credit a rule that "
-                      "does not exist. Fix the id in profile.yaml (renamed "
-                      "there?)")
-        elif code == "unconfirmed_rule_gates":
-            rep.error(None, code,
-                      f"{who} gate and cover {rid!r}, which no human has "
-                      "confirmed; an inferred rule must never decide a "
-                      "gate. Have the owner confirm the rule (discover "
-                      "interview)")
-        else:
-            rep.warn(None, code,
-                     f"{who} cover {rid!r}, which still carries a "
-                     "`contradiction:`; ask the owner (discover interview), "
-                     "then clear the contradiction")
+        severity, text = SEALED_FINDINGS[code]
+        getattr(rep, severity)(
+            None, code,
+            f"{n} sealed holdout case{'' if n == 1 else 's'} (ids withheld, "
+            f"#139): {text.format(rid=repr(rid))}")
 
 
 def check_rubrics(rep, cases, path):
@@ -2212,10 +2253,12 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
                  f"a rubric criterion judges rule {rid!r}, which is no id in "
                  "profile.yaml's business_rules; rule_report.py reports it "
                  "under no rule")
+    sealed_findings = {}
     for case in cases:
         if not isinstance(case, dict):
             continue
         label = case.get("id") if is_nonempty_str(case.get("id")) else None
+        found = set() if is_sealed(case) else None   # #139, as traceability
         top = mapping(mapping(case.get("expect")).get("answer"))
         ref = top.get("rubric")
         rubric_id = split_pin(nfc(ref.strip()))[0] \
@@ -2223,7 +2266,9 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
         judged = (judged_rules or {}).get(rubric_id, {})
         listed = case_rule_ids(case)
         unlisted = sorted({r for r in judged.values() if r not in listed})
-        if unlisted:
+        if unlisted and found is not None:
+            found.update(("rule_judged_unlisted", r) for r in unlisted)
+        elif unlisted:
             rep.warn(label, "rule_judged_unlisted",
                      f"its rubric {rubric_id!r} judges "
                      f"{', '.join(repr(r) for r in unlisted)}, which "
@@ -2248,7 +2293,9 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
                                for kind, entries in check.items()
                                for entry in entries
                                if entry not in (answer.get(kind) or [])]
-                    if missing:
+                    if missing and found is not None:
+                        found.add(("rule_check_missing", rid))
+                    elif missing:
                         rep.error(label, "rule_check_missing",
                                   f"expect.answer.rules lists {rid!r}, whose "
                                   "check in profile.yaml this expect does "
@@ -2259,11 +2306,17 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
                 if deciding and rid in judged.values():
                     continue
                 if deciding and rubric_id and judged_rules is None:
+                    if found is not None:
+                        found.add(("rule_binding_unchecked", rid))
+                        continue
                     rep.warn(label, "rule_binding_unchecked",
                              f"expect.answer.rules lists {rid!r}, which has "
                              "no check in profile.yaml; whether rubric "
                              f"{rubric_id!r} judges it was not checked (pass "
                              "--rubrics)")
+                    continue
+                if found is not None:
+                    found.add(("rule_unbound", rid))
                     continue
                 rep.error(label, "rule_unbound",
                           f"expect.answer.rules lists {rid!r}, and nothing on "
@@ -2274,6 +2327,9 @@ def check_rule_bindings(rep, cases, profile, judged_rules):
                              else ", and the case pins no rubric")
                           + ". Give the rule a check (a script first), or a "
                             "rubric criterion that judges it")
+        if found:
+            count_sealed(sealed_findings, found)
+    report_sealed_findings(rep, sealed_findings)
 
 
 def main():

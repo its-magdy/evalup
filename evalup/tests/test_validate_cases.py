@@ -1773,6 +1773,15 @@ class TestTraceability(ValidateTest):
         # A sealed case alone still fails validation.
         rc, out = self.lint([sealed(1, ["ghost"])], [])
         self.assertEqual((rc, self.codes(out)), (1, ["dangling_cover"]))
+        # A malformed covers keeps its case id, but not its rule ids.
+        rc, out = self.lint([sealed(1, ["stale", ""])], rules)
+        bad = [f for f in out["findings"] if f["code"] == "bad_covers"]
+        self.assertEqual(len(bad), 1, out["findings"])
+        self.assertNotIn("stale", bad[0]["message"])
+        self.assertIn("a list of 2 (entries withheld", bad[0]["message"])
+        rc, out = self.lint([good_case(covers=["stale", ""])], rules)
+        self.assertIn("'stale'", [f["message"] for f in out["findings"]
+                                  if f["code"] == "bad_covers"][0])
 
     def test_a_rule_with_no_case_is_a_gap_not_a_finding(self):
         rc, out = self.lint([good_case(covers=["refund-cap"])],
