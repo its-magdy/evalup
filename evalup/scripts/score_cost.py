@@ -50,7 +50,8 @@ declaration with no reader, which this package does not add.
   and a paired difference of two floats is not reliably zero when it should be.
 MODEL MATCH IS EXACT, on `gen_ai.request.model` verbatim (a call without one
 is `<model attribute absent>`, which `traces.source: response` always is;
-alias that string to price it). No prefix match, no
+alias that string to price it, and its `models` entry names the row in
+`priced_as`). No prefix match, no
 family fallback, no "close enough": decision D2's rule is that inference must
 be DECLARED per app, and `gpt-4o` and `gpt-4o-2024-08-06` are different prices.
 A model the table does not name goes in `unpriced_models` and the run's dollar
@@ -612,6 +613,11 @@ def price_run(run_dir, cases, prices, cache_parts=False, usage=None):
                 unpriced.add(name)
                 continue
             entry["priced"] = True
+            if resolved != name:
+                # #153: the row an alias priced it at, named beside the name
+                # seen -- `<model attribute absent>` is what a response
+                # trace always records.
+                entry["priced_as"] = resolved
             old = n_in * rate[0] + n_out * rate[1]
             pico += old
             if not (cache_parts and reported):

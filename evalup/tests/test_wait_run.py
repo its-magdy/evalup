@@ -130,6 +130,61 @@ class WaitRunTest(unittest.TestCase):
                           "--out", str(self.run_dir), "--resume",
                           "--not-before", out["not_before"]])
         self.assertIn("no new one", out["holdout_look"])
+        # #153: no plan_sha256, so no plan is named, and the note says the
+        # placeholder must be substituted.
+        self.assertIn("placeholder", out["plan_note"])
+
+    def plan_at_work(self, plan):
+        work = self.run_dir.parent.parent / "work"
+        work.mkdir(exist_ok=True)
+        path = work / "plan.json"
+        path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        return path
+
+    def test_the_resume_names_the_plan_the_run_started_from(self):
+        # #153: `--plan '<plan.json>'` copied as printed fails. The
+        # conventional <state>/work/plan.json is named when it still hashes
+        # to the manifest's plan_sha256. The file is shaped as make_plan.py
+        # writes it (no `execution`, a partial `scoring`) and the manifest
+        # hash is the one a real Runner records, after it fills those
+        # defaults in -- a hash of the raw file would never match.
+        import copy
+        sys.path.insert(0, str(SCRIPTS))
+        sys.path.insert(0, str(SCRIPTS.parent / "tests"))
+        import run_cases
+        from test_run_cases import make_plan
+        plan = make_plan(self.run_dir.parent.parent, "http://127.0.0.1:9",
+                         run_id=self.run_id, scoring={"oos_route": None})
+        del plan["execution"]
+        path = self.plan_at_work(plan)
+        validated = copy.deepcopy(plan)
+        run_cases.validate_plan(validated, str(self.run_dir))
+        recorded = run_cases.Runner(validated, str(self.run_dir)).plan_sha256
+        self.assertNotEqual(recorded, run_cases.sha256_of(plan))
+        self.write("results.json", results(self.run_id, "running"))
+        self.write("manifest.yaml", {"plan_sha256": recorded,
+                                     "invocation": {"mode": "http"}})
+        rc, out, proc = wait_run(self.run_dir, "--timeout-s", "30")
+        self.assertEqual(rc, 4, proc.stdout + proc.stderr)
+        argv = shlex.split(out["resume"])
+        self.assertEqual(argv[argv.index("--plan") + 1], str(path))
+        self.assertNotIn("plan_note", out)
+
+    def test_a_rebuilt_plan_is_not_named(self):
+        # The file is rebuilt every run: a plan that no longer matches would
+        # be refused by --resume, so the placeholder and its note stay.
+        sys.path.insert(0, str(SCRIPTS))
+        from run_cases import sha256_of
+        self.plan_at_work({"run_id": "smoke-20990101T000000Z", "k": 1})
+        self.write("results.json", results(self.run_id, "running"))
+        self.write("manifest.yaml", {
+            "plan_sha256": sha256_of({"run_id": self.run_id, "k": 3}),
+            "invocation": {"mode": "http"}})
+        rc, out, _ = wait_run(self.run_dir, "--timeout-s", "30")
+        self.assertEqual(rc, 4)
+        argv = shlex.split(out["resume"])
+        self.assertEqual(argv[argv.index("--plan") + 1], "<plan.json>")
+        self.assertIn("plan_sha256", out["plan_note"])
 
     def test_the_resume_keeps_the_baseline_and_quotes_its_paths(self):
         # #144: a resume without --baseline-verdicts rewrites the manifest
@@ -153,7 +208,7 @@ class WaitRunTest(unittest.TestCase):
         self.write("manifest.yaml", {"invocation": {
             "rate_limit": {"min_interval_s": 0.4}}})
         now = datetime(2026, 11, 23, 10, 0, 0, 700000, tzinfo=timezone.utc)
-        _, when = module.resume_of(str(self.run_dir), now=now)
+        _, when, _ = module.resume_of(str(self.run_dir), now=now)
         self.assertEqual(when, "2026-11-23T10:00:02Z")
 
     def test_with_no_budget_the_resume_has_no_not_before(self):
@@ -250,6 +305,8 @@ class WaitRunTest(unittest.TestCase):
         rc, out, _ = wait_run(self.run_dir, "--timeout-s", "601")
         self.assertEqual(rc, 2)
         self.assertIn("--timeout-s", out["error"])
+        # #153: the cap is said, with the way to wait longer.
+        self.assertIn("call wait-run again", out["error"])
 
     def test_help_and_version(self):
         for flag in ("--help", "--version"):
@@ -257,6 +314,8 @@ class WaitRunTest(unittest.TestCase):
                                   capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, flag)
             self.assertTrue((proc.stdout + proc.stderr).strip(), flag)
+            if flag == "--help":
+                self.assertIn("at most 600", " ".join(proc.stdout.split()))
         self.assertTrue(os.access(SCRIPT, os.X_OK))
 
 

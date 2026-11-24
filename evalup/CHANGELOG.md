@@ -93,6 +93,20 @@ says when a release bumps it.
   `bad_answer_rules` on one keep the id but withhold the entries. A case id
   beside the rule it covers says what the sealed case is about, as #133
   found for traceability.
+- **Run friction from a live k = 3 regression** (#153). `wait-run`'s exit
+  4 names `<state>/work/plan.json` in its `resume` when that file still
+  hashes to the manifest's `plan_sha256`, else keeps `<plan.json>` and adds
+  `plan_note` saying to substitute it. Its `--help` and range error say
+  `--timeout-s` stops at 600, and why. `score-cost` names the price row an
+  alias applied (`models.<name>.priced_as`), so `<model attribute absent>`
+  shows the model it was priced at. The run skill says a budget is checked
+  against `usd_max`; that in a running session, a subagent included, a
+  missing env var goes under `env` in `.claude/settings.local.json` (the
+  shell rule is unchanged); that `comparison.json`'s `n` (the cases both
+  runs scored) includes canaries while `gate`'s counts do not; and why the
+  launch stays foreground: the wait-run loop keeps the run alive, and a
+  call moved to the background is stopped 30 minutes later. No verdict
+  changes; `SCORING_VERSION` is unchanged.
 - **Seal hygiene** (#145). `prelook-fix --list` (and its dry run) lists
   `sealed_rubrics` by id and hash: a rubric only sealed cases pin (top
   level, `every_turn` or a checkpoint), or one whose id is `ho-` plus an

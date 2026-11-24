@@ -53,6 +53,7 @@ Usage:
 import argparse
 import collections
 import contextlib
+import copy
 import email.message
 import hashlib
 import http.client
@@ -356,6 +357,24 @@ def canonical_json(obj):
 
 def sha256_of(obj):
     return hashlib.sha256(canonical_json(obj)).hexdigest()
+
+
+def plan_sha256_of(plan):
+    """The `plan_sha256` the manifest records for this plan as read from
+    its file, or None for a plan the runner would refuse. The runner hashes
+    it after validate_execution_block has filled the `scoring` and
+    `execution` defaults in, so a hash of the raw file (as make_plan.py
+    writes it) would never match. wait_run.py (#153) names a plan file only
+    when this equals the manifest's."""
+    if not isinstance(plan, dict):
+        return None
+    plan = copy.deepcopy(plan)
+    try:
+        validate_execution_block(plan)
+    except (RunnerExit, TypeError, ValueError, KeyError, AttributeError):
+        # Malformed beyond what bad_input names: not a plan to name.
+        return None
+    return sha256_of(plan)
 
 
 def atomic_write(path, text):

@@ -349,6 +349,14 @@ class TestPriceTable(CostCase):
         rc, payload, err = run_script(run, "--prices", table)
         self.assertEqual(rc, 0, err)
         self.assertEqual(payload["cost"]["usd"], 2.5)
+        self.assertEqual(
+            payload["cost"]["models"]["m-1-2026-08-06"]["priced_as"], "m-1")
+        # A model priced under its own name carries no priced_as.
+        rc, payload, err = run_script(
+            self.simple("smoke-20260902T120000Z"), "--prices", self.prices())
+        self.assertEqual(rc, 0, err)
+        for entry in payload["cost"]["models"].values():
+            self.assertNotIn("priced_as", entry)
 
     def test_the_table_must_be_dated_and_sourced(self):
         """Prices go stale silently; a table nobody has to date is a table
@@ -1203,6 +1211,9 @@ class TestCacheAccounting(CostCase):
         self.assertEqual(rc, 0, err)
         self.assertEqual(payload["cost"]["status"], "priced")
         self.assertEqual(payload["cost"]["usd"], 2.2125)
+        # #153: the entry says which row priced it, not only the name seen.
+        entry = payload["cost"]["models"]["<model attribute absent>"]
+        self.assertEqual(entry["priced_as"], "m-1")
 
     def test_a_paired_diff_uses_each_runs_own_split(self):
         base = self.cached_run("smoke-20260901T120000Z", self.USAGE, **AG_UI)
