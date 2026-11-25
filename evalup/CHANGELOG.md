@@ -19,6 +19,14 @@ says when a release bumps it.
 ## [Unreleased]
 
 ### Added
+- **`headroom_note`** in `stats --holdout-power` (#159). Past a noise floor
+  of D every keep changes more than D cases, which can exceed the cluster's
+  headroom while `powered` (an MDE comparison) is true: at H = 45, C = 8.8,
+  D = 9 the output read as a keep both powered and out of reach. The note,
+  also in `explained`, says the headroom counts only the target cluster's
+  expected fixes, that a keep then needs fixes outside it, and that
+  `powered` speaks to the MDE alone. No flag or number changes;
+  `SCORING_VERSION` is unchanged.
 - **`cost.holdout_aggregate`** in `score-cost` (#141). A holdout run's cases
   are all sealed, so it priced nothing and optimize's meter charged a holdout
   look at a one-repeat, cache-write-heavy rate (54–70% high on #27's third
