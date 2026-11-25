@@ -1308,7 +1308,7 @@ class TestAdapterCrossCheck(ValidateTest):
     # #103: an approval interrupt with no text leaves `answer` unscored.
     AG_UI = {"invocation": {"response_format": "sse",
                             "sse": {"protocol": "ag-ui"}},
-             "tools": [{"name": "apply_changes", "side_effects": "needs-mock"},
+             "tools": [{"name": "commit_edits", "side_effects": "needs-mock"},
                        {"name": "send_email", "side_effects": "never-live"},
                        {"name": "search_docs", "side_effects": "safe-live"}]}
 
@@ -1319,9 +1319,9 @@ class TestAdapterCrossCheck(ValidateTest):
             if answer is None else answer})
 
     def test_an_answer_beside_a_gated_tool_warns_under_ag_ui(self):
-        for tools in ({"subset": ["apply_changes"]},
+        for tools in ({"subset": ["commit_edits"]},
                       {"order": ["search_docs", "send_email"]},
-                      {"any_of": [["search_docs"], ["apply_changes"]]}):
+                      {"any_of": [["search_docs"], ["commit_edits"]]}):
             with self.subTest(tools=tools):
                 finding = self.assert_finds(
                     "answer_after_interrupt", [self.proposal(tools)],
@@ -1331,7 +1331,7 @@ class TestAdapterCrossCheck(ValidateTest):
 
     def test_the_interrupt_warning_stays_a_warning_under_strict(self):
         rc, out, _ = self.validate(
-            [self.proposal({"subset": ["apply_changes"]})],
+            [self.proposal({"subset": ["commit_edits"]})],
             *self.adapter(self.AG_UI), "--strict")
         finding = next(f for f in out["findings"]
                        if f["code"] == "answer_after_interrupt")
@@ -1345,8 +1345,8 @@ class TestAdapterCrossCheck(ValidateTest):
             return good_case(cid, split=["holdout"], expect={
                 "tools": {"subset": [tool]},
                 "answer": {"must_not_contain": ["done"]}})
-        cases = [self.proposal({"subset": ["apply_changes"]}),
-                 sealed("billing-sealed-0000beef", "apply_changes"),
+        cases = [self.proposal({"subset": ["commit_edits"]}),
+                 sealed("billing-sealed-0000beef", "commit_edits"),
                  sealed("billing-sealed-0000cafe", "send_email"),
                  sealed("billing-sealed-0000f00d", "search_docs")]
         for flags in ((), ("--strict",)):
@@ -1363,14 +1363,14 @@ class TestAdapterCrossCheck(ValidateTest):
                 self.assertEqual(count["severity"], "WARN")
                 self.assertIn("2 sealed holdout cases (ids withheld",
                               count["message"])
-                self.assertIn("apply_changes", training["message"])
+                self.assertIn("commit_edits", training["message"])
                 self.assertNotIn("sealed-0000", json.dumps(out["findings"]))
-                for leak in ("apply_changes", "send_email", "expect.answer"):
+                for leak in ("commit_edits", "send_email", "expect.answer"):
                     self.assertNotIn(leak, count["message"])
 
     def test_one_sealed_interrupt_is_singular(self):
         case = good_case("billing-sealed-0000beef", split=["holdout"],
-                         expect={"tools": {"subset": ["apply_changes"]},
+                         expect={"tools": {"subset": ["commit_edits"]},
                                  "answer": {"must_not_contain": ["done"]}})
         finding = self.assert_finds("answer_after_interrupt", [case],
                                     *self.adapter(self.AG_UI),
@@ -1386,12 +1386,12 @@ class TestAdapterCrossCheck(ValidateTest):
             "sse": {"protocol": "data-path", "text_path": "t"}})
         quiet = (
             ([self.proposal({"subset": ["search_docs"]})], self.AG_UI),
-            ([self.proposal({"forbidden": ["apply_changes"]})], self.AG_UI),
+            ([self.proposal({"forbidden": ["commit_edits"]})], self.AG_UI),
             ([self.proposal({"subset": ["unknown_tool"]})], self.AG_UI),
-            ([self.proposal({"subset": ["apply_changes"]},
+            ([self.proposal({"subset": ["commit_edits"]},
                             answer={"must_contain": []})], self.AG_UI),
-            ([self.proposal({"subset": ["apply_changes"]})], json_adapter),
-            ([self.proposal({"subset": ["apply_changes"]})], data_path),
+            ([self.proposal({"subset": ["commit_edits"]})], json_adapter),
+            ([self.proposal({"subset": ["commit_edits"]})], data_path),
         )
         for cases, adapter in quiet:
             with self.subTest(cases=cases, adapter=adapter["invocation"]):
@@ -1403,13 +1403,13 @@ class TestAdapterCrossCheck(ValidateTest):
             self.AG_UI["invocation"], conversation={"memory": "session"}))
         on_turn = conversation(turns=[
             {"user": "change it", "expect": {
-                "tools": {"subset": ["apply_changes"]},
+                "tools": {"subset": ["commit_edits"]},
                 "answer": {"must_not_contain": ["done"]}}},
             {"user": "thanks"}])
         every = conversation(
             "c-convo-0002",
             turns=[{"user": "change it",
-                    "expect": {"tools": {"subset": ["apply_changes"]}}},
+                    "expect": {"tools": {"subset": ["commit_edits"]}}},
                    {"user": "thanks"}],
             every_turn={"answer": {"must_not_contain": ["done"]}})
         two = [{"user": "change it"}, {"user": "thanks"}]
@@ -1417,18 +1417,18 @@ class TestAdapterCrossCheck(ValidateTest):
         # so a tool required only there is on the scored block too.
         tool_on_every = conversation(
             "c-convo-0003", turns=two,
-            every_turn={"tools": {"subset": ["apply_changes"]}},
+            every_turn={"tools": {"subset": ["commit_edits"]}},
             expect={"answer": {"must_not_contain": ["done"]}})
         both_on_every = conversation(
             "c-convo-0004", turns=two, expect={},
-            every_turn={"tools": {"order": ["apply_changes"]},
+            every_turn={"tools": {"order": ["commit_edits"]},
                         "answer": {"must_not_contain": ["done"]}})
         answer_on_checkpoint = conversation(
             "c-convo-0005",
             turns=[{"user": "change it", "expect": {
                 "answer": {"must_not_contain": ["done"]}}},
                 {"user": "thanks"}],
-            every_turn={"tools": {"any_of": [["apply_changes"]]}})
+            every_turn={"tools": {"any_of": [["commit_edits"]]}})
         for case in (on_turn, every, tool_on_every, both_on_every,
                      answer_on_checkpoint):
             with self.subTest(case=case["id"]):

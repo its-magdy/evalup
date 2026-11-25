@@ -225,13 +225,13 @@ class ToolAgent:
                 STARTED, *first, {"type": "RUN_ERROR", "message": "provider",
                                   "code": "overloaded"})
         if turn == 2 and self.broken == "pending":
-            pending = tool_call("p2", "apply_changes", "{}")
+            pending = tool_call("p2", "commit_edits", "{}")
             pending[0]["parentMessageId"] = "a2"
             return 200, EVENT_STREAM, stream(STARTED, *first, *pending,
                                              FINISHED)
         if turn == 2 and self.broken == "interrupt":
             return 200, EVENT_STREAM, stream(
-                STARTED, *tool_call("p2", "apply_changes", "{}"), INTERRUPT)
+                STARTED, *tool_call("p2", "commit_edits", "{}"), INTERRUPT)
         return 200, EVENT_STREAM, stream(STARTED, *first, *call, *second,
                                          FINISHED)
 
@@ -495,7 +495,7 @@ class TestToolAgent(HistoryCase):
                       self.assert_stops_at_turn_two("interrupt"))
 
     def test_a_pending_call_stops_it_under_carried(self):
-        self.assertIn("'apply_changes' has no result",
+        self.assertIn("'commit_edits' has no result",
                       self.assert_stops_at_turn_two("pending",
                                                     tools="carried"))
 

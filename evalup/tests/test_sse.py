@@ -82,9 +82,9 @@ class TestAgUi(unittest.TestCase):
     def test_text_and_tool_calls_are_joined_in_order(self):
         body = _sse.decode(agent_run(
             text_message("m1", "Let me ", "look."),
-            tool_call("c1", "find_person", '{"name":', '"Nour"}',
+            tool_call("c1", "lookup_member", '{"name":', '"Nour"}',
                       result='[{"id": 1}]'),
-            tool_call("c2", "get_seats", "{}"),
+            tool_call("c2", "list_slots", "{}"),
             text_message("m2", "Two ", "people."),
             end=dict(FINISHED, usage=[{"inputTokens": 100, "outputTokens": 9},
                                       {"inputTokens": 50, "outputTokens": 1}]),
@@ -92,9 +92,9 @@ class TestAgUi(unittest.TestCase):
         self.assertEqual(body["text"], "Let me look.\n\nTwo people.")
         self.assertIsNone(body["partial_text"])
         self.assertEqual(body["tool_calls"], [
-            {"id": "c1", "name": "find_person",
+            {"id": "c1", "name": "lookup_member",
              "arguments": '{"name":"Nour"}', "result": '[{"id": 1}]'},
-            {"id": "c2", "name": "get_seats", "arguments": "{}",
+            {"id": "c2", "name": "list_slots", "arguments": "{}",
              "result": None}])
         self.assertEqual(body["usage"],
                          {"input_tokens": 150, "output_tokens": 10})
@@ -105,12 +105,12 @@ class TestAgUi(unittest.TestCase):
     def test_items_keep_stream_order_and_parents(self):
         """docs/client-history.md SS3.3: additive; text and tool_calls are
         built as before."""
-        call = tool_call("c1", "find_person", "{}", result="[]")
+        call = tool_call("c1", "lookup_member", "{}", result="[]")
         call[0]["parentMessageId"] = "m1"
         call[-1]["messageId"] = "t1"
         body = _sse.decode(agent_run(
             text_message("m1", "Let me ", "look."), call,
-            tool_call("c2", "get_seats", "{}"),
+            tool_call("c2", "list_slots", "{}"),
             text_message("m2", "Two."),
             [{"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1",
               "delta": " More."}]), AG_UI)
@@ -192,7 +192,7 @@ class TestAgUi(unittest.TestCase):
     def test_an_interrupt_still_finishes_the_run(self):
         body = _sse.decode(agent_run(
             text_message("m1", "Here is the change."),
-            tool_call("c1", "apply_changes", "{}"),
+            tool_call("c1", "commit_edits", "{}"),
             end=dict(FINISHED, outcome={"type": "interrupt",
                                         "interrupts": []})), AG_UI)
         self.assertTrue(body["finished"])
@@ -641,11 +641,11 @@ class TestApprovalInterrupt(SSERunnerCase):
     """#103: a proposal that ends the run on an approval interrupt. Only the
     answer layer's reason names the interrupt; no verdict moves."""
 
-    body = agent_run(tool_call("c1", "apply_changes", "{}"), end=INTERRUPT)
+    body = agent_run(tool_call("c1", "commit_edits", "{}"), end=INTERRUPT)
 
     def case(self):
         case = make_case("c-0001")
-        case["expect"]["tools"] = {"subset": ["apply_changes"]}
+        case["expect"]["tools"] = {"subset": ["commit_edits"]}
         return case
 
     def verdict_for(self, body, out):
@@ -672,7 +672,7 @@ class TestApprovalInterrupt(SSERunnerCase):
         """The interrupt run against the same run without the interrupt,
         which the runner scored before #103: byte-identical but the
         reason."""
-        no_text = agent_run(tool_call("c1", "apply_changes", "{}"))
+        no_text = agent_run(tool_call("c1", "commit_edits", "{}"))
         plain = self.verdict_for(no_text, self.tmp / "plain")
         interrupted = self.verdict_for(type(self).body, self.tmp / "interrupted")
         self.assertNotEqual(plain["layers"]["answer"]["reason"],
@@ -687,7 +687,7 @@ class TestApprovalInterrupt(SSERunnerCase):
     def test_text_before_the_interrupt_is_scored(self):
         verdict = self.verdict_for(agent_run(
             text_message("m1", "ok, I propose this change."),
-            tool_call("c1", "apply_changes", "{}"), end=INTERRUPT),
+            tool_call("c1", "commit_edits", "{}"), end=INTERRUPT),
             self.tmp / "with-text")
         self.assertEqual(verdict["layers"]["answer"]["verdict"], "pass")
         self.assertEqual(verdict["layers"]["trajectory"]["verdict"], "pass")
