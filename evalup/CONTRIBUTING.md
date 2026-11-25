@@ -56,7 +56,7 @@ boot the page's JS, so check the skip count on a machine without it.
 
 There are **28** CLIs in `scripts/` (everything not underscore-prefixed) and
 each must answer `--help` with rc=0 *and* non-empty output. `scripts/_common.py`,
-`_rubric.py`, `_sse.py` and `_exec.py` are shared modules, not CLIs: they have
+`_rubric.py`, `_sse.py`, `_exec.py` and `_history.py` are shared modules, not CLIs: they have
 no argparse, so `python _common.py --help` exits 0 having printed nothing,
 which is why the check tests for output and not just the exit code.
 

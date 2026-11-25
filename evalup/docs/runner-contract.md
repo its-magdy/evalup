@@ -36,7 +36,7 @@ run_cases.py --probe --adapter <state>/adapter.yaml --message "<text>"
 | `--out DIR` | the run directory to write. Must equal `<state>/reports/<run_id>` where `run_id` is the plan's. Required except with `--verify`. |
 | `--resume` | continue an interrupted run into an existing `--out` (§8). Without it, a non-empty `--out` is exit 2. |
 | `--verify DIR` | run **only** the completeness check (§9) over an existing run directory and exit. No app calls, no scoring, no writes. |
-| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is the one pre-flight step it skips, so a dry run still fails on an unresolved env var or a malformed body template. The cost inputs: `app_calls_planned` (a call per case or conversation turn, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus whatever part of `turn_delay_s` that window has not already covered between turns, since the delay runs from the previous reply). With `invocation.rate_limit` declared (§7), also `rate_limit`, `pace_floor_s` and `pace_max_s`: the least seconds that budget lets `app_calls_planned` and `app_calls_max` calls span, the health check aside. Not added to `wait_floor_s`: each interval runs from the earlier call's finish, so the app's latency adds to it, while those waits overlap it. Absent with no budget. A `pace_floor_s` ≥ 1800 s adds `resume_expected` (#144). |
+| `--dry-run` | plan validation + pre-flight (§4) + print the resolved case list and cost inputs; write nothing, call the app zero times. The health check (§4.3) is the one pre-flight step it skips. The cost inputs: `app_calls_planned` (a call per case or conversation turn, × `k`, no retry), `app_calls_max` (that × `execution.max_attempts`: every attempt retried, a conversation from turn 1) and `wait_floor_s` (seconds waited beyond the app's latency with no retry: `quiescence_ms` after each call when traces come from a store — none for `traces.source: response` — plus whatever part of `turn_delay_s` that window has not already covered between turns, since the delay runs from the previous reply). With `invocation.rate_limit` declared (§7), also `rate_limit`, `pace_floor_s` and `pace_max_s`: the least seconds that budget lets `app_calls_planned` and `app_calls_max` calls span, the health check aside. Not added to `wait_floor_s`. Absent with no budget. A `pace_floor_s` ≥ 1800 s adds `resume_expected` (#144). |
 | `--not-before TIME` | start no earlier than TIME (ISO 8601 with a UTC offset — `Z`, `+HH:MM` or `+HHMM`, any fraction ignored — at most 24 h ahead; else exit 2). The runner waits after plan validation and the `--out` check, before pre-flight, **writing nothing**: a runner killed while waiting leaves no run. `started_at` is when the wait ended. With `--dry-run`: no wait, and the report adds `not_before` and `start_wait_s`. `wait_run.py` treats an absent `--out` as `not_started` (exit 3) unless `ps` shows no runner naming it. |
 | `--cost-from PATH` | `--dry-run` only (else exit 2): a run's `score_cost.py` output. The report's `estimate` always carries `messages`, `messages_max` and `models` (`manifest_extra.app.model`, or the cost file's); `usd`, `usd_max` and `usd_per_message` only when that run is `priced`: its `cost.all_repeats.usd` over `messages_with_usage` when `priced` (#129), else its `cost.usd` over the messages its priced cases sent (a case whose trajectories `score_cost.py` would price; a conversation counts its `turns_sent`), × this plan's messages (`rate_basis`). Otherwise null. No price is assumed. A rate from another k is caveated in `note`. |
 | `--baseline-verdicts PATH` | a previous run's `verdicts_for_stats.jsonl`. Shells out to `stats.py` after scoring and writes `comparison.json` (§5.6). |
@@ -68,7 +68,9 @@ never in a shell command.
   response` the same tool-call read. A trace store is neither checked nor
   joined; a declared correlation's trace id is still read and shown. An
   unimplemented store (jaeger, tempo, clickhouse) is still refused, as a run
-  would. A declared `invocation.health_check` is not sent;
+  would. Under `conversation.history` it sends turn 1, then turn 2 (the
+  same `--message`) carrying its rebuilt reply (§7.1), in `history_check`;
+  a turn 2 not 2xx, or a turn 1 that cannot be carried, is exit 3. A declared `invocation.health_check` is not sent;
   `traces.health_check` says so.
 - **Output**, on stdout, always JSON in one shape once the adapter is read
   — a pre-flight failure too, with `request`/`response` null and its own
@@ -243,7 +245,8 @@ beyond the health check.
    by `scripts/_sse.py` into the body
    `{text, partial_text, tool_calls, error, finished, interrupted, usage,
    run_usage, sse}` (`tool_calls` for `ag-ui` only: `{id, name, arguments,
-   result}`, arguments joined from their deltas). An AG-UI server may emit one
+   result}`, arguments joined from their deltas; and `items`, §7.1's
+   stream order). An AG-UI server may emit one
    `RUN_FINISHED` per model call: `run_usage` holds each `RUN_FINISHED` /
    `RUN_ERROR` usage that was reported, `usage` their sum (null when none
    was), and `traces.source: response` writes one chat span per entry, so
@@ -378,12 +381,19 @@ beyond the health check.
      (adapter hard rule 5).
 4b. **Conversation block** (docs/multi-turn.md §2): when the adapter declares
    `invocation.conversation`, check it — `style` one of
-   `client-id|server-id|cookie`; `session_from` exactly one of `body` (a
+   `client-id|server-id|cookie|none` (`none` only beside `history`); `session_from` exactly one of `body` (a
    dotted path) or `header` for `server-id` and absent otherwise; a request
    body carrying `<uuid>` (client-id) or `<session>` (server-id); `header`
    and `cookie` in `http` mode only; `turn_delay_s >= 0`; `memory` one of
-   `session|user`; no unknown key. Any defect is exit 3. The block is
-   recorded as `manifest.conversation` (null when undeclared).
+   `session|user`; no unknown key. `history` (docs/client-history.md §2):
+   `preset` (`ag-ui|openai`) or the `user`/`assistant` templates (JSON
+   objects with `<text>`), not both; `tools` `text-only|carried`, where
+   `carried` needs the three tool templates and an `ag-ui` stream or a JSON
+   body under `traces.source: response`; no `${REF}`. `<history>` sits in
+   the body exactly once, as a whole string value, and only beside
+   `history`; `invocation.history` is refused. Any defect is exit 3. The
+   block is recorded as `manifest.conversation` (null when undeclared;
+   `history` expanded).
 5. **Safety gates**: record `environment.safe_to_attack` and the per-tool
    `side_effects` classes. `never-live` tools present with
    `environment.kind: live-*` → categories that could trigger them are
@@ -598,8 +608,7 @@ is a pass AFTER the run, in the run skill: `scripts/judge_run.py` writes its
 own `judge/` directory beside these files (`judge/judged.json`, verdicts
 `unjudged` / `provisional` / `calibrated`) and none of the files below, and
 nothing on the decision path — `gate.py`, `stats.py`, `--verify`,
-`run_history.py`, optimize — reads it. The
-runner's own output is deterministic and reproducible without a model.
+`run_history.py`, optimize — reads it.
 
 **State-diff is RESERVED, not pending an adapter field.** The runner calls
 `environment.seed`, `.reset` and `.snapshot_state` **nowhere** — an adapter may
@@ -933,6 +942,19 @@ key** rather than sending `null`. Turn 1 without the id makes the case
 (`CookieJar.add_cookie_header` adds nothing when `build_headers` already set
 a `Cookie` for `auth: {type: cookie}`); it is redacted in `request.json`.
 
+**Client-sent history** (`history`, docs/client-history.md §3). Per
+attempt the runner keeps a list `H`. A turn's `<history>` is `H` plus a
+fresh user entry (`H` alone when the body also has `<user turn>`), a
+single-turn case's its one user entry; `<request id>` is fresh per request
+sent. After the stop rule, before turn n+1, the user entry and the rebuilt
+reply join `H`: an entry per text message (AG-UI `messageId` as `<message
+id>`), which joined by a blank line are `answer.txt`, and under `carried`
+each tool call and its result. A reply with no finished text, an interrupt
+with no text, or under `carried` a call with no id or result ends the
+conversation `unscored` (`stop_reason`); turn n+1 is never sent. Inserted
+text is never scanned for placeholders. Under `ag-ui`, `response.json`
+records `snapshot_seen`.
+
 **Traces per turn.** Each turn's trace is collected after its own quiescence
 wait (none for `traces.source: response`, which is read off the turn's own
 response) and read only by that turn's layers. When two turns of one attempt
@@ -998,11 +1020,7 @@ mechanisms, in order of strength:
 **(a) Derived, not accumulated.** `verdicts.jsonl` and
 `verdicts_for_stats.jsonl` are **regenerated in full from the completed case
 directories after every case completes**, temp-then-rename. They are not built
-up at run end, and they are not appended to. So an interrupted run still has
-both files, correct as of its last completed case; a resumed run cannot
-double-count; and the two files cannot disagree with the case dirs. (The rows
-are held in memory during a single run; disk is re-read only at `--resume`
-start.)
+up at run end, and they are not appended to.
 
 - `verdicts.jsonl`, one row per case, the durable record — holdout and canary
   cases included:
@@ -1097,8 +1115,7 @@ runner **exits 6**. `summary.status` becomes `"incomplete"`, never `"ok"`.
 
 ### `manifest.yaml`
 
-JSON bytes in a `.yaml` file (JSON is a subset of YAML 1.2, so `yq -r
-'.run_id'` reads it; the stdlib has no YAML writer).
+JSON bytes in a `.yaml` file.
 
 ```jsonc
 {
@@ -1110,9 +1127,7 @@ JSON bytes in a `.yaml` file (JSON is a subset of YAML 1.2, so `yq -r
   "scoring_version": 1,                   // from _common.SCORING_VERSION: the comparability key (§5.6)
   "plan_sha256": "…",                     // canonical JSON of the plan; resume compares this
   "runner_version": 1,
-  "baseline_verdicts": null,              // or the --baseline-verdicts path. Recorded so §9's
-                                          // comparison.json condition is readable off the tree:
-                                          // --verify has no plan and no argv.
+  "baseline_verdicts": null,              // or the --baseline-verdicts path (§9)
 
   "dataset_version": 1,
   "cases": [{"id": "…", "set": "smoke", "sha256": "…"}],   // sha256 of the case's canonical JSON
@@ -1147,9 +1162,7 @@ JSON bytes in a `.yaml` file (JSON is a subset of YAML 1.2, so `yq -r
 
 ```jsonc
 {"case_id": "…", "repeat": 1, "status": 200, "latency_s": 6.68,
- "attempts": 1, "retry_count": 0, "crashed": false,   // a DROPPED connection, not a timeout: it
-                                                      // feeds summary.crash_rate, and it has to
-                                                      // live on disk or a --resume loses the count
+ "attempts": 1, "retry_count": 0, "crashed": false,   // a DROPPED connection, not a timeout
  "body": { … },                       // raw parsed body, or {"raw": "<text>"} if not JSON
  "answer": "…",                       // the extracted final answer text (also written to answer.txt)
  "trace_id": null}
@@ -1162,8 +1175,7 @@ JSON bytes in a `.yaml` file (JSON is a subset of YAML 1.2, so `yq -r
  "holdout": false, "gating": true,
  "verdict": "pass",
  "k": 1,
- "latency_s": 6.68,                   // the representative repeat's, so a resumed run rebuilds
-                                      // results.json's latency column from verdicts alone (§8)
+ "latency_s": 6.68,                   // the representative repeat's
  "layers": { "http":   {"layer": "http", "verdict": "pass", "status": 200},
              "answer": { …verbatim score_answer.py output… },
              "trajectory": {"layer": "trajectory", "verdict": "unscorable",
@@ -1196,12 +1208,6 @@ JSON bytes in a `.yaml` file (JSON is a subset of YAML 1.2, so `yq -r
 A conversation's `layers` is the union of its turns' rows, keyed
 `t<n>.<layer>`; rules 5-6 read the layer name after the prefix, and a union
 `pass` then needs a graded `pass` on the final turn (§7.1).
-
-A case whose every layer came back `n/a`/`unscorable`/`unscored` is **not**
-a pass (rule 7). `http` (a liveness check) and `loops` (triggered by the
-trace, not by anything the case asserts) never carry a case to `pass` under
-rule 5; rule 6 keeps a case that asserts nothing but `http` a pass. A
-`loops` `fail` still fails the case (rule 4).
 
 `gating` is `false` for a canary and for a case that says `gating: false`
 (the boolean); anything else, an absent key included, is `true`
@@ -1263,8 +1269,7 @@ can take them out.
 
 **The holdout seal, concretely:** a holdout case contributes **no row** to
 `results.json.cases`. Its `case_id` appears nowhere in this file. It appears only
-inside `summary.holdout` as counts. `verdicts.jsonl` (the run's own durable
-record, not the shareable summary) does carry it, since a paired diff needs it.
+inside `summary.holdout` as counts. `verdicts.jsonl` does carry it.
 
 ---
 

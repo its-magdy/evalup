@@ -148,7 +148,10 @@ route targets the app chooses between, if any), model configuration
   `style` (`client-id`, `server-id` or `cookie`); for `server-id`, where turn 1's
   response carries the id (`session_from`). Add `turn_delay_s` when history or
   memory is written asynchronously after the reply, and `memory: user` when you
-  see a user-keyed memory store (else `session`). Never declare it on a guess,
+  see a user-keyed memory store (else `session`). A client posting the whole
+  conversation each turn adds `history` (`style: none` if the app keeps no
+  state; [client-history.md](${CLAUDE_PLUGIN_ROOT}/docs/client-history.md)
+  §5, client-sent history only). Never declare it on a guess,
   but an app whose history is a no-op still gets the block saying how the id is
   passed: the live run is what proves memory works. Set
   `capability_matrix.multi_turn` to match (`enabled: true`, or `enabled: false`
@@ -165,7 +168,8 @@ itself, writes nothing, and prints JSON: `ok`,
 `problems`, `response.answer`, `response.tool_calls`, `env_vars`. Exit 3
 names the problem (`missing_env`: ask the user to export them). Exit 8: a
 4xx the adapter read (`warnings`); only an in-scope probe's exit 0
-verifies. An out-of-scope refusal: note its status in findings.md for
+verifies. With `history` it sends two (`history_check`); a turn-2 400 is
+a wrong mapping. An out-of-scope refusal: note its status in findings.md for
 `oos` cases. A validation error: fix the adapter.
 Compare observed agent and tool names and `invoke_agent` span shape
 (Read the store at the printed `trace_id`) against the profile. Mark

@@ -85,6 +85,7 @@ CONDITIONAL = {
     "docs/concepts.md": "only when the user asks what a term means",
     "docs/runner-contract.md": "the runner's spec, read for a specific rule",
     "docs/multi-turn.md": "conversations only",
+    "docs/client-history.md": "client-sent history only",
     "docs/rubric-format.md":
         "rubrics are authored by the test-generator subagent, in its own "
         "context",
