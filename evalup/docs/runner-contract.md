@@ -827,7 +827,7 @@ ledger.
 
 **The ledger is a `.jsonl` file**, and a path that is not is exit 2. Its
 running total is its line count. Nothing here resets it: a reseal
-(`analyze --unseal`) archives the file's lines to
+(`analyze --unseal`) or a grow (`seal-record archive`) archives it to
 `holdout-looks-v<old dataset_version>.jsonl` and empties it, so the new
 seal's count starts at zero. The plan's `paths.holdout_ledger` names it
 (`datasets/holdout-looks.jsonl` by convention).

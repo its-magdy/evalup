@@ -374,6 +374,133 @@ class TestSealRecord(RunFixture):
         self.assertEqual(rc, 0, out)
 
 
+class TestSealArchive(RunFixture):
+    """#157: a grown seal gets its 5 looks back through a script, never a
+    hand edit of the ledger."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = self.reports.parent
+        (self.state / "datasets").mkdir()
+        self.ledger = self.state / "datasets" / "holdout-looks.jsonl"
+        manifest = json.loads((self.demo_run / "manifest.yaml")
+                              .read_text("utf-8"))
+        self.old = manifest["dataset_version"]
+
+    def set_version(self, version):
+        (self.state / "datasets" / "dataset.yaml").write_text(
+            f"schema_version: 1\ndataset_version: {version}  # grown\n"
+            "cases: 45\n", encoding="utf-8")
+
+    def spend(self, *run_ids):
+        """Two noise runs and a candidate, recorded as optimize does."""
+        lines = []
+        for run_id in run_ids:
+            self.make_run(run_id, "holdout")
+            lines.append(json.dumps({"run_id": run_id, "date": "2026-11-25",
+                                     "mode": "holdout", "reason": "run"}))
+        lines.append(json.dumps({"date": "2026-11-25", "mode": "unseal",
+                                 "reason": "a look"}))
+        self.ledger.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+        for run_id in run_ids[:2]:
+            run("seal_record.py", "noise", self.reports / run_id)
+        return self.ledger.read_bytes()
+
+    def archive(self, *extra):
+        rc, out, err = run("seal_record.py", "archive", self.state, *extra)
+        return rc, json.loads(out) if out.strip() else err
+
+    def test_a_grown_seal_starts_with_all_five_looks(self):
+        before = self.spend("holdout-a", "holdout-b", "holdout-c")
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 0, out)
+        archive = self.state / "datasets" / f"holdout-looks-v{self.old}.jsonl"
+        self.assertEqual(archive.read_bytes(), before)
+        self.assertEqual(self.ledger.read_bytes(), b"")
+        self.assertEqual((out["looks"], out["from_version"],
+                          out["dataset_version"]), (4, self.old, self.old + 1))
+        # The old seal's record moves aside, so show agrees with the new seal.
+        self.assertFalse((self.reports / "holdout-seal.json").exists())
+        old_record = self.reports / f"holdout-seal-v{self.old}.json"
+        self.assertEqual(json.loads(old_record.read_text("utf-8"))
+                         ["noise_runs"], ["holdout-a", "holdout-b"])
+        rc, out, _ = run("seal_record.py", "show", self.reports)
+        self.assertEqual(json.loads(out)["exists"], False)
+        # A second call finds an empty ledger: nothing to archive.
+        rc, out = self.archive()
+        self.assertEqual((rc, out["archived"]), (0, False), out)
+        self.assertIn("nothing to archive", out["notes"][0])
+
+    def test_refusals_change_nothing(self):
+        before = self.spend("holdout-a", "holdout-b")
+        record = (self.reports / "holdout-seal.json").read_bytes()
+        archive = self.state / "datasets" / f"holdout-looks-v{self.old}.jsonl"
+        cases = [("no bump", self.old, (), "not above"),
+                 ("an archive exists", self.old + 1, (), "already exists"),
+                 ("an older archive is higher", self.old + 1, (),
+                  "not above"),
+                 ("--from-version below the manifests", self.old + 1,
+                  ("--from-version", str(self.old - 1)), "below")]
+        for label, version, extra, says in cases:
+            with self.subTest(label):
+                self.set_version(version)
+                if label == "an archive exists":
+                    archive.write_bytes(b"theirs\n")
+                if label == "an older archive is higher":
+                    archive.unlink()
+                    (self.state / "datasets" / f"holdout-looks-v"
+                     f"{self.old + 1}.jsonl").write_bytes(b"x\n")
+                rc, out = self.archive(*extra)
+                self.assertEqual(rc, 2, out)
+                self.assertIn(says, out["error"])
+                self.assertEqual(self.ledger.read_bytes(), before)
+                self.assertEqual((self.reports / "holdout-seal.json")
+                                 .read_bytes(), record)
+        self.assertFalse(archive.exists())
+
+    def test_a_dataset_yaml_without_one_plain_version_is_refused(self):
+        before = self.spend("holdout-a")
+        (self.state / "datasets" / "dataset.yaml").write_text(
+            "dataset_version: '7'\n", encoding="utf-8")
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("plain", out["error"])
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_unseal_lines_alone_need_from_version(self):
+        self.ledger.write_text(json.dumps({"date": "2026-11-25",
+                                           "mode": "unseal",
+                                           "reason": "x"}) + "\n", "utf-8")
+        self.set_version(4)
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--from-version", out["error"])
+        rc, out = self.archive("--from-version", "3")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue((self.state / "datasets" / "holdout-looks-v3.jsonl")
+                        .exists())
+        self.assertIsNone(out["seal_record"])
+
+    def test_archive_flags_belong_to_archive(self):
+        rc, _, err = run("seal_record.py", "show", self.reports,
+                         "--from-version", "3")
+        self.assertEqual(rc, 2)
+        self.assertIn("archive's only", err)
+
+
+class TestGenerateArchivesAGrownSeal(unittest.TestCase):
+    """#157: the grow path names the archive, and who runs it."""
+
+    def test_generate_points_to_the_archive_step(self):
+        skill = (ROOT / "skills" / "generate" / "SKILL.md").read_text("utf-8")
+        ref = (ROOT / "skills" / "generate" / "references"
+               / "label-lifecycle.md").read_text("utf-8")
+        self.assertIn("evalup seal-record archive", skill)
+        self.assertIn("## Growing a seal already looked at", ref)
+        self.assertIn("evalup seal-record archive <state-dir>` yourself", ref)
+
+
 class TestClusterFailures(RunFixture):
     def test_groups_failing_rows_and_counts_the_population(self):
         run_dir = self.make_run("regression-x", "regression")
@@ -447,7 +574,8 @@ class TestOptimizeCallsThem(unittest.TestCase):
                      "evalup candidate revert", "evalup candidate gate",
                      "evalup seal-record noise",
                      "evalup seal-record candidate", "evalup seal-record keep",
-                     "evalup seal-record show", "evalup cluster-failures"):
+                     "evalup seal-record show", "evalup seal-record archive",
+                     "evalup cluster-failures"):
             with self.subTest(call=call):
                 self.assertIn(call, text)
         for gone in ("git -C <app> checkout", "git hash-object",

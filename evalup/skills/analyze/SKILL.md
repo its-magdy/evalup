@@ -355,7 +355,8 @@ the other way, and bump `dataset_version`. Then archive the ledger: the count
 is its line count and nothing resets it, so a bump alone leaves the new seal
 with all 5 looks spent. Write its lines unchanged to
 `datasets/holdout-looks-v<old dataset_version>.jsonl`, then write the ledger
-empty — an archive, never a deletion. A check fix before the seal's first look needs no
+empty — an archive, never a deletion. A grown seal (generate §4) archives
+with `evalup seal-record archive`, no unseal line. A check fix before the seal's first look needs no
 unseal: it is `evalup prelook-fix`
 (`${CLAUDE_PLUGIN_ROOT}/skills/generate/references/label-lifecycle.md`).
 

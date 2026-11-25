@@ -27,6 +27,17 @@ says when a release bumps it.
   expected fixes, that a keep then needs fixes outside it or breaks, and that
   `powered` speaks to the MDE alone. No flag or number changes;
   `SCORING_VERSION` is unchanged.
+- **`evalup seal-record archive <state-dir>`** (#157). Growing the holdout
+  (optimize's unlock, a `generate --count` that seals new cases) bumps
+  `dataset_version`, but only `analyze --unseal` archived the look ledger,
+  so a grown seal started with the old one's spent looks (#27: 3 of 5).
+  The archive copies the ledger byte for byte to
+  `holdout-looks-v<old>.jsonl`, reads it back, then empties the ledger, and
+  moves the old `reports/holdout-seal.json` to `holdout-seal-v<old>.json` so
+  `seal-record show` finds no record for the new seal. It refuses, writing
+  nothing, an existing archive, a `dataset_version` not above the old one
+  and every archive, and a ledger that changed meanwhile; an empty ledger
+  is nothing to archive. generate runs it after a grow. No verdict changes.
 - **`cost.holdout_aggregate`** in `score-cost` (#141). A holdout run's cases
   are all sealed, so it priced nothing and optimize's meter charged a holdout
   look at a one-repeat, cache-write-heavy rate (54–70% high on #27's third

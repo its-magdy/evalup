@@ -26,6 +26,25 @@ every write here copies the versions from the run's own manifest.yaml:
       directory, and whether its scoring_version is this harness's. It does
       not know the next run's dataset_version (that is datasets/dataset.yaml,
       YAML this script does not read): compare it there.
+  evalup seal-record archive <state-dir> [--holdout-ledger <path>]
+                             [--from-version <N>]
+      After a grow made a new seal (#157): sealed cases added and
+      `dataset_version` bumped in datasets/dataset.yaml. Copies the look
+      ledger (datasets/holdout-looks.jsonl) byte for byte to
+      holdout-looks-v<old>.jsonl beside it, verifies the copy, then empties
+      the ledger, so the new seal starts with all 5 looks. It moves
+      reports/holdout-seal.json, the old seal's record, to
+      reports/holdout-seal-v<old>.json the same way, so `show` then says
+      there is no record and the new seal's noise pair is measured. <old>
+      is the highest dataset_version among the manifests of the ledger's
+      runs and the seal record; --from-version names it when neither has
+      one, and must agree with them when they do. It is --unseal's archive
+      step without the unseal line, and it shows no case. A ledger with no
+      line is nothing to archive: it says so, writes nothing, exit 0.
+      Refused, nothing written: an archive file that already exists, a
+      current dataset_version not above <old> and every archived version, a
+      dataset.yaml without one plain `dataset_version: <int>` line, or a
+      ledger that changed while it ran.
 
 Each write refuses (exit 2, nothing written) a run that is not a finished
 holdout run: no manifest.yaml, a run_id that does not match its directory,
@@ -46,11 +65,15 @@ refusal ({"error": ...} on stdout, like every script here).
 Usage:
   seal_record.py {noise,candidate,keep} <reports/<run-id>>
   seal_record.py show <reports>
+  seal_record.py archive <state-dir> [--holdout-ledger <path>]
+                 [--from-version <N>]
 """
 import argparse
 import contextlib
+import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -66,6 +89,8 @@ from _common import (
 )
 
 NAME = "holdout-seal.json"
+DEFAULT_LEDGER = os.path.join("datasets", "holdout-looks.jsonl")
+DATASET_YAML = os.path.join("datasets", "dataset.yaml")
 VERSIONS = ("dataset_version", "scoring_version", "k")
 
 
@@ -124,19 +149,31 @@ def read_record(path):
     return doc
 
 
-def write_atomic(path, doc):
+def write_atomic(path, doc, new_name=False):
     """Replace `path` whole through a fresh mkstemp file (never an existing
-    name, never a symlink), with the mode a plain open would give it."""
+    name, never a symlink), with the mode a plain open would give it. `doc`
+    is JSON, or bytes written as they are. With new_name, an existing
+    `path` is refused instead of replaced (os.link never overwrites)."""
     fd = tmp = None
     try:
         fd, tmp = tempfile.mkstemp(prefix=".evalup-", dir=os.path.dirname(path))
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "wb") as f:
             fd = None
-            f.write(json.dumps(doc, indent=2) + "\n")
+            f.write(doc if isinstance(doc, bytes)
+                    else (json.dumps(doc, indent=2) + "\n").encode("utf-8"))
+            f.flush()
+            os.fsync(f.fileno())
         umask = os.umask(0)
         os.umask(umask)
         os.chmod(tmp, 0o666 & ~umask)
-        os.replace(tmp, path)
+        if new_name:
+            try:
+                os.link(tmp, path)
+            except FileExistsError:
+                die(f"refused: {path} already exists; nothing written")
+            os.unlink(tmp)
+        else:
+            os.replace(tmp, path)
         tmp = None
     except OSError as e:
         die(f"cannot write {path}: {e}")
@@ -242,15 +279,170 @@ def cmd_show(reports):
                 doc.get("scoring_version") == SCORING_VERSION}
 
 
+def read_bytes(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError as e:
+        die(f"cannot read {path}: {e}")
+
+
+def current_dataset_version(state_dir):
+    path = os.path.join(state_dir, DATASET_YAML)
+    if not os.path.isfile(path):
+        die(f"refused: {path} does not exist, so dataset_version is 1: a "
+            "grown seal bumps it first. Nothing written")
+    found = re.findall(r"(?m)^dataset_version:[ \t]*(\d+)[ \t]*(?:#.*)?$",
+                       load_text(path))
+    if len(found) != 1:
+        die(f"refused: {path} does not hold one plain `dataset_version: "
+            "<int>` line; set it so, then re-run. Nothing written")
+    return int(found[0])
+
+
+def ledger_run_ids(data):
+    """The run ids of a ledger's lines (an unseal line has none)."""
+    ids = []
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("run_id"), str):
+            ids.append(row["run_id"])
+    return ids
+
+
+def old_versions(reports, run_ids, record):
+    """{source: dataset_version} the old seal's witnesses give."""
+    seen = {}
+    for run_id in run_ids:
+        path = os.path.join(reports, run_id, "manifest.yaml")
+        if os.path.basename(run_id) != run_id or not os.path.isfile(path):
+            continue
+        try:
+            version = loads_strict(load_text(path)).get("dataset_version")
+        except (BadJSON, AttributeError):
+            continue
+        if is_int(version):
+            seen[f"reports/{run_id}/manifest.yaml"] = version
+    if record is not None and is_int(record.get("dataset_version")):
+        seen[f"reports/{NAME}"] = record["dataset_version"]
+    return seen
+
+
+def cmd_archive(state_dir, ledger_arg, from_version):
+    if not os.path.isdir(state_dir):
+        die(f"bad input: {state_dir}: not a directory")
+    ledger = ledger_arg if os.path.isabs(ledger_arg) \
+        else os.path.join(state_dir, ledger_arg)
+    if not ledger.endswith(".jsonl"):
+        die(f"bad input: --holdout-ledger must be a .jsonl file (got "
+            f"{ledger_arg!r})")
+    data = read_bytes(ledger) if os.path.isfile(ledger) else b""
+    looks = sum(1 for line in data.decode("utf-8", "replace").splitlines()
+                if line.strip())
+    if not looks:
+        return {"archived": False, "ledger": ledger, "looks": 0,
+                "notes": ["the ledger has no line: nothing to archive, "
+                          "nothing written. This seal starts with all 5 "
+                          "looks"]}
+    current = current_dataset_version(state_dir)
+    reports = os.path.join(state_dir, "reports")
+    record_path = os.path.join(reports, NAME)
+    record = read_record(record_path) if os.path.isdir(reports) else None
+    seen = old_versions(reports, ledger_run_ids(data), record)
+    if from_version is not None:
+        wrong = {k: v for k, v in seen.items() if v > from_version}
+        if wrong:
+            die(f"refused: --from-version {from_version} is below what "
+                f"{wrong} record; nothing written")
+        old = from_version
+    elif seen:
+        old = max(seen.values())
+    else:
+        die("refused: no manifest of the ledger's runs and no seal record "
+            "names the old seal's dataset_version; pass --from-version <N> "
+            "(the dataset_version before the grow). Nothing written")
+    stem = ledger[:-len(".jsonl")]
+    directory = os.path.dirname(ledger)
+    archived = sorted(
+        int(m.group(1)) for m in (
+            re.fullmatch(re.escape(os.path.basename(stem)) + r"-v(\d+)\.jsonl",
+                         name) for name in os.listdir(directory)) if m)
+    if current <= max([old] + archived):
+        die(f"refused: datasets/dataset.yaml's dataset_version is {current}, "
+            f"not above the old seal's {old} and every archived version "
+            f"{archived}: bump it with the grow first (a new seal is a new "
+            "dataset_version). Nothing written")
+    archive = f"{stem}-v{old}.jsonl"
+    record_archive = os.path.join(reports, f"holdout-seal-v{old}.json")
+    move_record = record is not None and is_int(
+        record.get("dataset_version")) and record["dataset_version"] < current
+    for path in [archive] + ([record_archive] if move_record else []):
+        if os.path.lexists(path):
+            die(f"refused: {path} already exists: this seal was archived "
+                "already, or the name is taken. Nothing written")
+
+    digest = hashlib.sha256(data).hexdigest()
+    write_atomic(archive, data, new_name=True)
+    if read_bytes(archive) != data:
+        os.unlink(archive)
+        die(f"refused: {archive} did not read back as the ledger; removed "
+            "it, the ledger is unchanged")
+    if read_bytes(ledger) != data:
+        os.unlink(archive)
+        die("refused: the ledger changed while archiving (a holdout run "
+            "appended?); removed the archive, the ledger is unchanged. "
+            "Re-run once no run is going")
+    write_atomic(ledger, b"")
+    if read_bytes(ledger) != b"":
+        die(f"cannot empty {ledger}; the archive {archive} is whole")
+    notes = [f"the ledger's {looks} look(s) of dataset_version {old} are in "
+             f"{archive}; the ledger is empty, so this seal (dataset_version "
+             f"{current}) starts with all 5 looks"]
+    out = {"archived": True, "ledger": ledger, "archive": archive,
+           "looks": looks, "sha256": digest, "from_version": old,
+           "dataset_version": current, "seal_record": None}
+    if move_record:
+        write_atomic(record_archive, read_bytes(record_path), new_name=True)
+        os.unlink(record_path)
+        out["seal_record"] = record_archive
+        notes.append(f"the old seal's record is {record_archive}: `evalup "
+                     "seal-record show` now finds none, so this seal's "
+                     "noise pair comes first")
+    elif record is not None:
+        notes.append(f"{record_path} is at dataset_version "
+                     f"{record.get('dataset_version')!r}, not an older "
+                     "seal's: left in place")
+    out["notes"] = notes
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     add_version_flag(ap)
-    ap.add_argument("command", choices=("noise", "candidate", "keep", "show"))
-    ap.add_argument("target", help="reports/<run-id> (show: reports)")
+    ap.add_argument("command",
+                    choices=("noise", "candidate", "keep", "show", "archive"))
+    ap.add_argument("target", help="reports/<run-id> (show: reports; "
+                                   "archive: the state dir)")
+    ap.add_argument("--holdout-ledger", default=DEFAULT_LEDGER,
+                    help="archive: the run plan's paths.holdout_ledger, "
+                         f"relative to the state dir (default {DEFAULT_LEDGER})")
+    ap.add_argument("--from-version", type=int, metavar="N",
+                    help="archive: the dataset_version before the grow, when "
+                         "no manifest of the ledger's runs names it")
     a = ap.parse_args()
     target = os.path.abspath(a.target)
+    if a.command != "archive" and (a.from_version is not None
+                                   or a.holdout_ledger != DEFAULT_LEDGER):
+        ap.error("--holdout-ledger and --from-version are archive's only")
+    if a.command == "archive":
+        print(json.dumps(cmd_archive(target, a.holdout_ledger,
+                                     a.from_version), indent=2))
+        return 0
     if a.command == "show":
         print(json.dumps(cmd_show(target), indent=2))
         return 0

@@ -267,7 +267,8 @@ on that.
   Unsealing requires `analyze --unseal`, which logs itself and warns that a
   reseal is due after N=5 looks. Optimization never trains on it. Its
   templates (`ho_<opaque-hex>`) and the rubrics only it pins are sealed:
-  never open one.
+  never open one. Sealing more after a look: `evalup seal-record archive`
+  (label-lifecycle.md).
 - `canary` (~10% of full, floor 2): a small fixed subset with stable, versioned
   answers, reused across runs instead of regenerated with smoke/full. Movement
   there signals an app/model/judge change, not a traffic shift. A canary

@@ -71,7 +71,8 @@ CONDITIONAL = {
         "after a run in which a selected case pins a rubric",
     "skills/generate/references/label-lifecycle.md":
         "after review: a wrong accepted label, a bump, a re-pin, a bulk "
-        "accept, an owner not in this session, choosing canaries",
+        "accept, an owner not in this session, choosing canaries, sealing "
+        "more after a look",
     "skills/discover/references/oracle.md":
         "an oracle offer (discover step 5), an expect.result case, or a "
         "seeded fixture built by code (generate §2b's dump)",
