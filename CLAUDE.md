@@ -32,7 +32,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 1430 tests, ~5 min
+python3 -m unittest discover -s tests                    # 1531 tests, ~5 min
 python3 tests/run_shards.py      # CI's 4 shards in parallel, ~50 s; not conclusive
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
@@ -90,9 +90,15 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
     (#106).
   - #122: cross-lane fixes after merging #113–#121; #123: the quickstart
     e2e's estimate keeps the declared app model.
-- **Health** (2026-11-22, `main` at `6f45d95`): 1430 tests pass on 3.14;
-  on the 3.9 floor 1430 pass `--with pyyaml`, 1394 + 36 skips without it
-  (the skips need PyYAML), ruff clean, all 25 CLIs answer `--help`,
+  2026-11-23–25, fixes from the #27 re-run, run 3 and step 8 (#124–#162):
+  probe exit 8, cost per repeat, H = 0 power check, seal hygiene, the
+  optimize scripts (snapshot/revert, `seal-record`, clusters), judge and
+  agent types; then `seal-record archive` (a grown seal gets its 5 looks
+  back, #157), a sealed id never on `answer_after_interrupt` (#158), and
+  the power check's `headroom_note` (#159).
+- **Health** (2026-11-25, `main` at `b35d00e`): 1531 tests pass on 3.14
+  and on the 3.9 floor `--with pyyaml` (without PyYAML, the tests that need
+  it skip; last counted 2026-11-22), ruff clean, all 28 CLIs answer `--help`,
   `claude plugin validate` passes for the plugin (one warning: no icon) and
   the root marketplace. #117's
   `TestNotBefore::test_the_runner_waits_writing_nothing_then_runs` is flaky:
@@ -109,8 +115,17 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   layers scored live from the stream; the judge gave provisional verdicts
   only (4/4 agreement with blind labels, one model family, n = 4); one
   optimize loop was refused at P = 0.938 < 0.95 for want of holdout power
-  (13 cases; ~27 needed), which led to #110. #27 stays open pending a
-  scoped re-run.
+  (13 cases; ~27 needed), which led to #110. **2026-11-24, the first kept
+  optimize loop on a live app:** the seal grown to 45, candidate c2 kept
+  on look 3 of 5 at P = 0.994 (38/45 vs 29/45), its pin 23/28 vs 19/28.
+  Caveats: its training run was not positive (P = 0.773; the owner spent
+  the look anyway), and the 0.20 gain only just clears the MDE of 0.199.
+  Judge checks so far are model-vs-model, one family (7/7 twice; 19/20 on
+  2026-11-25, the one miss a conditional offer the judge called a pass;
+  the owner ruled it a fail). Decided 2026-11-25: the model labels stand as
+  #27's judge check, with no human round; the judge stays provisional
+  (calibration needs ≥ 100 pairs). #27 stays open for a keep with a
+  positive training run and conversations with client-side history.
 - **`claude plugin eval`:** five cases in `evalup/evals/`. The three app-bound
   ones need a Bash-granting sandbox, which this machine refuses (symlinks
   inside `~/.docker`; `DOCKER_CONFIG` does not bypass it); they were proven by
