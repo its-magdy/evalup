@@ -374,6 +374,196 @@ class TestSealRecord(RunFixture):
         self.assertEqual(rc, 0, out)
 
 
+class TestSealArchive(RunFixture):
+    """#157: a grown seal gets its 5 looks back through a script, never a
+    hand edit of the ledger."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = self.reports.parent
+        (self.state / "datasets").mkdir()
+        self.ledger = self.state / "datasets" / "holdout-looks.jsonl"
+        manifest = json.loads((self.demo_run / "manifest.yaml")
+                              .read_text("utf-8"))
+        self.old = manifest["dataset_version"]
+
+    def set_version(self, version):
+        (self.state / "datasets" / "dataset.yaml").write_text(
+            f"schema_version: 1\ndataset_version: {version}  # grown\n"
+            "cases: 45\n", encoding="utf-8")
+
+    def spend(self, *run_ids):
+        """Two noise runs and a candidate, recorded as optimize does."""
+        lines = []
+        for run_id in run_ids:
+            self.make_run(run_id, "holdout")
+            lines.append(json.dumps({"run_id": run_id, "date": "2026-11-25",
+                                     "mode": "holdout", "reason": "run"}))
+        lines.append(json.dumps({"date": "2026-11-25", "mode": "unseal",
+                                 "reason": "a look"}))
+        self.ledger.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+        for run_id in run_ids[:2]:
+            run("seal_record.py", "noise", self.reports / run_id)
+        return self.ledger.read_bytes()
+
+    def archive(self, *extra):
+        rc, out, err = run("seal_record.py", "archive", self.state, *extra)
+        return rc, json.loads(out) if out.strip() else err
+
+    def test_a_grown_seal_starts_with_all_five_looks(self):
+        before = self.spend("holdout-a", "holdout-b", "holdout-c")
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 0, out)
+        archive = self.state / "datasets" / f"holdout-looks-v{self.old}.jsonl"
+        self.assertEqual(archive.read_bytes(), before)
+        self.assertEqual(self.ledger.read_bytes(), b"")
+        self.assertEqual((out["looks"], out["from_version"],
+                          out["dataset_version"]), (4, self.old, self.old + 1))
+        # The old seal's record moves aside, so show agrees with the new seal.
+        self.assertFalse((self.reports / "holdout-seal.json").exists())
+        old_record = self.reports / f"holdout-seal-v{self.old}.json"
+        self.assertEqual(json.loads(old_record.read_text("utf-8"))
+                         ["noise_runs"], ["holdout-a", "holdout-b"])
+        rc, out, _ = run("seal_record.py", "show", self.reports)
+        self.assertEqual(json.loads(out)["exists"], False)
+        # A second call finds an empty ledger: nothing to archive.
+        rc, out = self.archive()
+        self.assertEqual((rc, out["archived"]), (0, False), out)
+        self.assertIn("nothing to archive", out["notes"][0])
+        self.assertIsNone(out["seal_record"])
+        self.assertEqual(archive.read_bytes(), before)
+
+    def assert_unchanged(self, ledger, record, files):
+        self.assertEqual(self.ledger.read_bytes(), ledger)
+        self.assertEqual((self.reports / "holdout-seal.json").read_bytes(),
+                         record)
+        datasets = self.state / "datasets"
+        self.assertEqual(
+            sorted(p.name for p in datasets.iterdir()),
+            sorted(["dataset.yaml", "holdout-looks.jsonl", *files]))
+        for name, body in files.items():
+            self.assertEqual((datasets / name).read_bytes(), body, name)
+        self.assertEqual(sorted(p.name for p in self.reports.iterdir()
+                                if p.is_file()), ["holdout-seal.json"])
+
+    def test_refusals_change_nothing(self):
+        before = self.spend("holdout-a", "holdout-b")
+        record = (self.reports / "holdout-seal.json").read_bytes()
+        mine = f"holdout-looks-v{self.old}.jsonl"
+        higher = f"holdout-looks-v{self.old + 1}.JSONL"
+        cases = [("no bump", self.old, {}, (), "not above"),
+                 ("an archive of other bytes exists", self.old + 1,
+                  {mine: b"theirs\n"}, (), "already exists"),
+                 ("a higher archive, in another case", self.old + 1,
+                  {higher: b"x\n"}, (), "not above"),
+                 ("--from-version below the manifests", self.old + 1, {},
+                  ("--from-version", str(self.old - 1)), "not the old"),
+                 ("--from-version above the manifests", self.old + 3, {},
+                  ("--from-version", str(self.old + 1)), "not the old")]
+        for label, version, files, extra, says in cases:
+            with self.subTest(label):
+                self.set_version(version)
+                for name, body in files.items():
+                    (self.state / "datasets" / name).write_bytes(body)
+                rc, out = self.archive(*extra)
+                self.assertEqual(rc, 2, out)
+                self.assertIn(says, out["error"])
+                self.assert_unchanged(before, record, files)
+                for name in files:
+                    (self.state / "datasets" / name).unlink()
+
+    def test_a_run_without_a_manifest_may_be_this_seals_look(self):
+        before = self.spend("holdout-a", "holdout-b")
+        with self.ledger.open("a", encoding="utf-8") as f:
+            for run_id in ("holdout-gone", ".."):
+                f.write(json.dumps({"run_id": run_id, "mode": "holdout",
+                                    "reason": "run"}) + "\n")
+        before = self.ledger.read_bytes()
+        (self.state / "manifest.yaml").write_text(
+            json.dumps({"dataset_version": self.old + 5}), "utf-8")
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("holdout-gone", out["error"])
+        self.assertIn("'..'", out["error"])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        rc, out = self.archive("--from-version", str(self.old))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.ledger.read_bytes(), b"")
+
+    def test_a_symlinked_ledger_is_refused(self):
+        before = self.spend("holdout-a")
+        real = self.state / "datasets" / "real.jsonl"
+        self.ledger.rename(real)
+        self.ledger.symlink_to(real)
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("symlink", out["error"])
+        self.assertEqual(real.read_bytes(), before)
+
+    def test_an_archive_cut_off_midway_is_finished_by_a_rerun(self):
+        before = self.spend("holdout-a", "holdout-b")
+        record = (self.reports / "holdout-seal.json").read_bytes()
+        archive = self.state / "datasets" / f"holdout-looks-v{self.old}.jsonl"
+        archive.write_bytes(before)         # cut off after the copy
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("finished it", out["notes"][1])
+        self.assertEqual((archive.read_bytes(), self.ledger.read_bytes()),
+                         (before, b""))
+        # Cut off after emptying the ledger: the record is still moved.
+        moved = self.reports / f"holdout-seal-v{self.old}.json"
+        moved.rename(self.reports / "holdout-seal.json")
+        rc, out = self.archive()
+        self.assertEqual((rc, out["archived"]), (0, False), out)
+        self.assertEqual(moved.read_bytes(), record)
+        self.assertFalse((self.reports / "holdout-seal.json").exists())
+
+    def test_a_dataset_yaml_without_one_plain_version_is_refused(self):
+        before = self.spend("holdout-a")
+        (self.state / "datasets" / "dataset.yaml").write_text(
+            "dataset_version: '7'\n", encoding="utf-8")
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("plain", out["error"])
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_unseal_lines_alone_need_from_version(self):
+        self.ledger.write_text(json.dumps({"date": "2026-11-25",
+                                           "mode": "unseal",
+                                           "reason": "x"}) + "\n", "utf-8")
+        self.set_version(4)
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--from-version", out["error"])
+        rc, out = self.archive("--from-version", "3")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue((self.state / "datasets" / "holdout-looks-v3.jsonl")
+                        .exists())
+        self.assertIsNone(out["seal_record"])
+
+    def test_archive_flags_belong_to_archive(self):
+        rc, _, err = run("seal_record.py", "show", self.reports,
+                         "--from-version", "3")
+        self.assertEqual(rc, 2)
+        self.assertIn("archive's only", err)
+
+
+class TestGenerateArchivesAGrownSeal(unittest.TestCase):
+    """#157: the grow path names the archive, and who runs it."""
+
+    def test_generate_points_to_the_archive_step(self):
+        skill = (ROOT / "skills" / "generate" / "SKILL.md").read_text("utf-8")
+        ref = (ROOT / "skills" / "generate" / "references"
+               / "label-lifecycle.md").read_text("utf-8")
+        self.assertIn("evalup seal-record archive", skill)
+        self.assertIn("## Growing a seal already looked at", ref)
+        self.assertIn("evalup seal-record archive <state-dir>` yourself", ref)
+
+
 class TestClusterFailures(RunFixture):
     def test_groups_failing_rows_and_counts_the_population(self):
         run_dir = self.make_run("regression-x", "regression")
@@ -447,7 +637,8 @@ class TestOptimizeCallsThem(unittest.TestCase):
                      "evalup candidate revert", "evalup candidate gate",
                      "evalup seal-record noise",
                      "evalup seal-record candidate", "evalup seal-record keep",
-                     "evalup seal-record show", "evalup cluster-failures"):
+                     "evalup seal-record show", "evalup seal-record archive",
+                     "evalup cluster-failures"):
             with self.subTest(call=call):
                 self.assertIn(call, text)
         for gone in ("git -C <app> checkout", "git hash-object",

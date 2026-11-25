@@ -196,7 +196,8 @@ it is Linux-only.
   the YAML metadata a stdlib-only runner would corrupt, and its total is a LINE
   COUNT — so it holds one row per run id, and a `--resume` does not add one.
   A reseal archives its lines (`holdout-looks-v<old dataset_version>.jsonl`)
-  and empties it; no code resets it.
+  and empties it, by hand under `--unseal` and with `evalup seal-record
+  archive` after a grow; nothing else resets it.
 - **The matrix says `answer_quality`; the runner's rows are `answer`, `rules`
   and `judged`.** `_common.MATRIX_KEY_OF_LAYER` is the one translation, used
   by the runner's lookup and by `make_plan.py --layer`. `http` and `loops`

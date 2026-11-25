@@ -168,6 +168,20 @@ lists them with the review batch); only the owner adds `canary`, in this
 session or by their own edit (Route 1). No script records who chose a
 canary, so this rule is yours to keep.
 
+## Growing a seal already looked at
+
+Sealing new cases into a holdout whose ledger (`datasets/holdout-looks.jsonl`)
+has lines makes a new seal (#157). After the `dataset_version` bump, run
+`evalup seal-record archive <state-dir>` yourself, as `--unseal`'s archive
+step is the skill's: no owner signature, no unseal line, no case shown. It
+copies the ledger byte for byte to `holdout-looks-v<old>.jsonl`, reads the
+copy back, empties the ledger and moves the old `reports/holdout-seal.json`
+to `holdout-seal-v<old>.json`, so the new seal has all 5 looks and
+optimize measures its noise pair afresh. Say what it printed. A refusal
+(an archive name taken, `dataset_version` not bumped, a ledger run with no
+manifest) wrote nothing: fix its cause, never the ledger by hand. One cut
+off midway is finished by running it again.
+
 ## A sealed holdout case, before its first look
 
 A sealed case is never read, so a check defect a training review found can
