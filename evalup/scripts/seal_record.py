@@ -73,6 +73,7 @@ import contextlib
 import hashlib
 import json
 import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -281,8 +282,7 @@ def cmd_show(reports):
 
 def read_bytes(path):
     try:
-        with open(path, "rb") as f:
-            return f.read()
+        return pathlib.Path(path).read_bytes()
     except OSError as e:
         die(f"cannot read {path}: {e}")
 
