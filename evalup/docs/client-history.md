@@ -312,7 +312,9 @@ until an app that reads them is run.
 `adapter-contract.md`, `runner-contract.md` §4/§7.1, discover and the README
 (Limits). Then the live proof and its triage.
 
-## 10. Open questions for the owner
+## 10. Decided (2026-11-25)
+
+The owner accepted all five recommendations below; build to them.
 
 1. **Build `tools: carried` now, or wait for an app that reads tool parts?**
    Recommend now. The usual client-history frameworks do send them, an
