@@ -555,6 +555,109 @@ class TestCarriedJsonBody(HistoryCase):
         self.assertIn("no finished text", verdict["stop_reason"])
 
 
+class TestReviewFixes(HistoryCase):
+    """PR #165's review: the cases its first suite did not hit."""
+
+    def json_app(self, reply):
+        def app_fn(path, body):
+            if path == "/":
+                return 200, JSON, {"message": "up"}
+            return 200, JSON, reply
+        return self.stub(app_fn)
+
+    def carried_json_plan(self, app, case):
+        plan = self.history_plan(app, [case],
+                                 {"preset": "openai", "tools": "carried"})
+        plan["adapter"]["traces"] = {"source": "response"}
+        return plan
+
+    def test_an_absent_tool_call_list_carries_the_text_alone(self):
+        app = self.json_app({"message": "Noted: order #42."})
+        case = three_turns()
+        case["expect"] = {"http": {"status": 200}}
+        self.run_ok(self.carried_json_plan(app, case))
+        self.assertEqual(len(app.calls), 3)
+        self.assertEqual(app.calls[1]["body"]["messages"][1],
+                         {"role": "assistant",
+                          "content": "Noted: order #42."})
+
+    def test_an_integer_call_id_is_carried_as_a_string(self):
+        app = self.json_app({"message": "Found 3.", "tool_calls": [
+            {"id": 1, "name": "count", "arguments": "{}", "result": "3"}]})
+        self.run_ok(self.carried_json_plan(app, three_turns()))
+        messages = app.calls[1]["body"]["messages"]
+        self.assertEqual(messages[1]["tool_calls"][0]["id"], "1")
+        self.assertEqual(messages[2]["tool_call_id"], "1")
+
+    def test_a_late_text_for_an_early_parent_keeps_the_stream_order(self):
+        def app_fn(path, body):
+            if path == "/":
+                return 200, JSON, {"message": "up"}
+            first = tool_call("c1", "count", "{}", result="3")
+            first[0]["parentMessageId"] = "m1"
+            return 200, EVENT_STREAM, stream(
+                STARTED, *first, *text_message("m2", "Checking."),
+                *text_message("m1", "Done."),
+                *tool_call("c2", "count", "{}", result="4"), FINISHED)
+        app = self.stub(app_fn)
+        case = three_turns()
+        case["expect"] = {"http": {"status": 200}}
+        self.run_ok(self.ag_ui_plan(app, [case], tools="carried",
+                                    traces=True))
+        self.assertEqual(len(app.calls), 3)
+        texts = [m["content"] for m in app.calls[1]["body"]["messages"]
+                 if m["role"] == "assistant" and m["content"]]
+        self.assertEqual("\n\n".join(texts),
+                         self.turn_answer("c-hist-03", 1))
+        self.assertEqual(texts, ["Checking.", "Done."])
+
+    def test_a_final_turn_with_no_text_is_scored_not_stopped(self):
+        def app_fn(path, body):
+            if path == "/":
+                return 200, JSON, {"message": "up"}
+            turn = sum(1 for m in body.get("messages") or []
+                       if m.get("role") == "user")
+            if turn == 2:
+                return 200, EVENT_STREAM, stream(STARTED, FINISHED)
+            return 200, EVENT_STREAM, stream(
+                STARTED, *text_message("m1", "Noted #42."), FINISHED)
+        app = self.stub(app_fn)
+        self.run_ok(self.ag_ui_plan(app, [order_case()]))
+        verdict = self.read("cases", "c-hist-01", "verdict.json")
+        # Scored by the answer layer as any final turn is, not stopped.
+        self.assertEqual(verdict["turns_sent"], 2)
+        self.assertIsNone(verdict["stop_reason"])
+        self.assertEqual(verdict["layers"]["t2.answer"]["verdict"],
+                         "unscored")
+
+    def test_a_single_turn_retry_gets_fresh_ids(self):
+        app = self.stub(StrictAgUi(fail_once_at=1))
+        case = make_case("c-0001", expect={"answer": {"must_contain": ["ok"]}})
+        self.run_ok(self.ag_ui_plan(app, [case]))
+        first, retry = (c["body"] for c in app.calls)
+        self.assertNotEqual(first["runId"], retry["runId"])
+        self.assertNotEqual(first["messages"][0]["id"],
+                            retry["messages"][0]["id"])
+
+
+class TestPhaseOneRequestId(HistoryCase):
+    def test_a_turn_mentioning_request_id_is_sent_as_written(self):
+        app = self.json_app_plain()
+        plan = make_plan(self.state, app.base_url, cases=[make_case(
+            "c-0001", input={"messages": [
+                {"role": "user", "content": "what is a <request id>?"}]})])
+        plan["adapter"]["invocation"]["request_body"] = \
+            '{"prompt": "User: <user turn>"}'
+        self.run_ok(plan)
+        self.assertEqual(app.calls[0]["body"]["prompt"],
+                         "User: what is a <request id>?")
+
+    def json_app_plain(self):
+        def app_fn(path, body):
+            return 200, JSON, {"message": "ok"}
+        return self.stub(app_fn)
+
+
 class TestOtherModesReceiveTheArray(HistoryCase):
     def test_function_mode(self):
         (self.tmp / "hist_entry.py").write_text(

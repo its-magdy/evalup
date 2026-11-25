@@ -269,9 +269,19 @@ def _results(config, calls, message_ids):
         for call in calls]
 
 
+def _call_id(call):
+    """A call's id as a string: a non-empty string, or an int (a JSON body
+    may number its calls). None when it has neither."""
+    cid = call.get("id") if isinstance(call, dict) else None
+    if isinstance(cid, str) and cid:
+        return cid
+    if isinstance(cid, int) and not isinstance(cid, bool):
+        return str(cid)
+    return None
+
+
 def _uncarriable(call):
-    if not (isinstance(call, dict) and isinstance(call.get("id"), str)
-            and call["id"]):
+    if _call_id(call) is None:
         return "a tool call in the reply carried no id"
     if call.get("result") is None:
         return (f"tool call {call.get('name')!r} has no result: a pending "
@@ -305,6 +315,7 @@ def reply_entries(config, body, answer, gap, protocol, json_calls=None):
             why = _uncarriable(call)
             if why:
                 return None, why
+        calls = [dict(call, id=_call_id(call)) for call in calls]
         entries = []
         if calls:
             # A JSON body gives no order between its calls and its text: the
@@ -349,8 +360,12 @@ def _ag_ui_entries(config, body, answer, carried):
             if not item.get("text"):
                 continue
             named = by_id.get(item.get("id"))
-            if named is not None and not named["text"]:
-                # A call named this message before its text arrived.
+            if (named is not None and not named["text"]
+                    and groups and groups[-1] is named):
+                # A call named this message before its text arrived, and
+                # nothing came between: the text fills that entry. Text that
+                # arrives after other entries opens its own, so the history
+                # keeps the stream's order.
                 named["text"] = item["text"]
                 current = named
             else:
@@ -360,6 +375,7 @@ def _ag_ui_entries(config, body, answer, carried):
             why = _uncarriable(call)
             if why:
                 return None, why
+            call = dict(call, id=_call_id(call))
             parent = item.get("parent_message_id")
             if parent in by_id:
                 group = by_id[parent]
@@ -372,6 +388,11 @@ def _ag_ui_entries(config, body, answer, carried):
             group["calls"].append(call)
         elif kind == "tool_result":
             current = None
+    if "\n\n".join(g["text"] for g in groups if g["text"]) != answer:
+        # The guard above read the items; this one reads what is carried.
+        return None, ("the rebuilt history's assistant texts do not join to "
+                      "the scored answer in the stream's order, so carrying "
+                      "them would send what was not scored")
     entries = []
     for group in groups:
         entries.append(_assistant(config, group["text"], group["id"],

@@ -345,10 +345,15 @@ Where the code had to settle something the design left open:
   `TOOL_CALL_RESULT` `messageId` when it gave one, else a minted UUID.
 - **A call whose `parentMessageId` names no text message seen yet** opens
   an entry with that id and `<text>` `""`; a text message with that id
-  arriving later fills it.
+  fills it only if nothing came between, else it opens its own entry, so
+  the carried texts keep the stream's order. The rebuilt entries' texts
+  are checked against the scored answer, not only the stream's.
 - **A JSON body under `carried`** gives no order between its calls and its
   text: the calls go first, on one entry with `<text>` `""`, then their
-  results, then the answer's entry.
+  results, then the answer's entry. An absent list (as an OpenAI-shaped
+  body omits it) is no calls; an integer call id is carried as a string.
+- **`<request id>` renders only where the request template uses it**, so
+  a Phase 1 adapter sends a user turn that mentions it as written.
 - **AG-UI's joined text messages must equal the scored answer**, or the
   reply cannot be carried (only when `response_body` marks a field other
   than the decoded `text`): "what is carried is what was scored" is

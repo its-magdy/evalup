@@ -2711,6 +2711,11 @@ class Runner:
                         "route_from_response".format(", ".join(wanted)))
         return None
 
+    @property
+    def uses_request_id(self):
+        return template_mentions(self.request_template,
+                                 _history.REQUEST_ID_MARKER)
+
     def request_values(self, case, text, session_id, session, history):
         """The placeholders one request renders (adapter-contract.md).
         `<request id>` is fresh per request sent; `<history>` is set only
@@ -2718,8 +2723,12 @@ class Runner:
         persona = case.get("persona") or (case.get("identity") or {}).get("role")
         values = {"<user turn>": text, "<uuid>": session_id,
                   "<persona>": persona, "<case id>": case["id"],
-                  SESSION_MARKER: session,
-                  _history.REQUEST_ID_MARKER: str(uuid.uuid4())}
+                  SESSION_MARKER: session}
+        if self.uses_request_id:
+            # Only when the template uses it: Phase 1 adapters render exactly
+            # the placeholders they did, so a user turn that merely mentions
+            # "<request id>" is sent as written.
+            values[_history.REQUEST_ID_MARKER] = str(uuid.uuid4())
         if self.history is not None:
             values[_history.HISTORY_MARKER] = history
         return values
@@ -2755,7 +2764,8 @@ class Runner:
                 # A retry is a request sent: a fresh <request id> (AG-UI's
                 # runId must not repeat) and, under a history, a fresh user
                 # entry -- every id fresh, as a restarted conversation's.
-                values[_history.REQUEST_ID_MARKER] = str(uuid.uuid4())
+                if self.uses_request_id:
+                    values[_history.REQUEST_ID_MARKER] = str(uuid.uuid4())
                 if self.history is not None:
                     values[_history.HISTORY_MARKER] = _history.history_value(
                         self.history, [],
@@ -2890,9 +2900,16 @@ class Runner:
             else None
         json_calls = None
         if protocol is None and self.history["tools"] == _history.CARRIED:
-            json_calls = response_tool_calls(
-                body, (self.adapter.get("traces") or {}).get(
-                    "tool_calls_path", "tool_calls"))
+            path = (self.adapter.get("traces") or {}).get(
+                "tool_calls_path", "tool_calls")
+            json_calls = response_tool_calls(body, path)
+            if (json_calls[0] is None and isinstance(body, dict)
+                    and not stream_gap(body)
+                    and dotted_get(body, path) is None):
+                # An absent list is a reply with no tool calls (an
+                # OpenAI-shaped body omits it): carry the text alone. The
+                # trace layer still reads the absence its own way.
+                json_calls = ([], None)
         return _history.reply_entries(
             self.history, body, answer, stream_gap(body, answer=True),
             protocol, json_calls)
