@@ -597,6 +597,41 @@ class TestStatsHoldoutPower(ScorerTest):
         self.assertTrue(out["powered"])
         self.assertEqual(out["holdout_cases_needed"], 50)
 
+    def test_a_keep_beyond_the_headroom_is_noted_not_unpowered(self):
+        # Issue #159 (#27's v7 seal): D = 9, so every keep changes >= 10
+        # cases, above the 8.8 of headroom, while the MDE says powered. The
+        # note says what each covers; no flag or number moves.
+        out = self.power(45, "--headroom", 8.8, "--noise-disagreements", 9)
+        self.assertTrue(out["can_keep"])
+        self.assertTrue(out["powered"])
+        self.assertEqual(out["fewest_fixed_by_broken"], [
+            {"fixed": 10, "broken": 0, "net": 10},
+            {"fixed": 9, "broken": 1, "net": 8},
+            {"fixed": 8, "broken": 2, "net": 6}])
+        note = out["headroom_note"]
+        self.assertIn("at least 10 case(s)", note)
+        self.assertIn("only the target cluster's expected fixes", note)
+        self.assertIn("fixes outside the cluster, or breaks", note)
+        self.assertIn("`powered` speaks to the minimum detectable effect "
+                      "alone", note)
+        self.assertIn(note, out["explained"])
+        # The numbers are those of the run without the note's condition.
+        for k, v in self.power(45, "--headroom", 10,
+                               "--noise-disagreements", 9).items():
+            if k not in ("headroom", "expected_effect",
+                         "min_detectable_effect", "headroom_note",
+                         "explained"):
+                self.assertEqual(out[k], v, k)
+
+    def test_no_note_when_a_keep_fits_the_headroom(self):
+        # Exactly the fewest changed count: not above it, so no note.
+        for argv in ((45, "--headroom", 10, "--noise-disagreements", 9),
+                     (50, "--headroom", 20), (13, "--headroom", 3.96),
+                     (0, "--cluster-rate", 0.3)):
+            out = self.power(*argv)
+            self.assertIsNone(out["headroom_note"], argv)
+            self.assertNotIn("outside the cluster", out["explained"])
+
     def test_named_splits_are_the_gates_own(self):
         for n, noise in ((13, 0), (20, 3), (20, 10)):
             out = self.power(n, "--headroom", n, "--noise-disagreements",

@@ -231,6 +231,8 @@ With R, P and H their `app_calls_planned`:
    at 0, 1 and 2 broken (those H has room for): a net that keeps clean need
    not keep with a break
    (#27's H = 28, D = 2: 4/0 keeps, 5/1 is P = 0.938 and does not).
+   Print `headroom_note` when set: a keep then needs fixes outside the
+   cluster or breaks, and `powered` speaks to the MDE alone.
    **No holdout (H = 0)**: run `evalup stats --holdout-power 0
    --cluster-rate <R>` instead. `can_keep` is false and the MDE is null
    (nothing is sealed), but it prints `holdout_cases_needed`: state R as
