@@ -143,7 +143,8 @@ returned object).
 **Client-sent history (OpenAI-style, the whole history in each request) is
 not Phase 1.** Every app wants a different shape (`role/content`, `parts`,
 `text`, a nested `history` field), so it needs a declared mapping, and
-inventing that mapping well deserves its own pass.
+inventing that mapping well deserves its own pass. That pass is designed, not
+built, in [client-history.md](client-history.md).
 
 `discover` reads the conversation handling it already looks for
 (`discover/SKILL.md` §3, "conversation/session handling") and writes the
@@ -364,7 +365,8 @@ cases/<case-id>/
 
 ## 9. Not in Phase 1
 
-- **Client-sent history** (§2): a declared shape mapping first. It is also
+- **Client-sent history** (§2): a declared shape mapping first, designed in
+  [client-history.md](client-history.md). It is also
   what makes "gold history" tests possible (MT-Bench-101, MultiChallenge):
   the same final turn after a fixed history, isolating one turn from
   everything before it.
