@@ -1337,6 +1337,48 @@ class TestAdapterCrossCheck(ValidateTest):
                        if f["code"] == "answer_after_interrupt")
         self.assertEqual(finding["severity"], "WARN")
 
+    def test_a_sealed_cases_interrupt_warning_is_a_count(self):
+        """#158: a sealed case's answer_after_interrupt names neither its
+        id nor the tool it requires (#133, #139); a training case's keeps
+        both. One line for all the sealed cases, never promoted."""
+        def sealed(cid, tool):
+            return good_case(cid, split=["holdout"], expect={
+                "tools": {"subset": [tool]},
+                "answer": {"must_not_contain": ["done"]}})
+        cases = [self.proposal({"subset": ["apply_changes"]}),
+                 sealed("billing-sealed-0000beef", "apply_changes"),
+                 sealed("billing-sealed-0000cafe", "send_email"),
+                 sealed("billing-sealed-0000f00d", "search_docs")]
+        for flags in ((), ("--strict",)):
+            with self.subTest(flags=flags):
+                rc, out, _ = self.validate(cases, *self.adapter(self.AG_UI),
+                                           *flags)
+                found = [f for f in out["findings"]
+                         if f["code"] == "answer_after_interrupt"]
+                self.assertEqual(
+                    sorted((f["case_id"] or "") for f in found),
+                    ["", "billing-happy-0000abcd"])
+                count = next(f for f in found if f["case_id"] is None)
+                training = next(f for f in found if f["case_id"])
+                self.assertEqual(count["severity"], "WARN")
+                self.assertIn("2 sealed holdout cases (ids withheld",
+                              count["message"])
+                self.assertIn("apply_changes", training["message"])
+                self.assertNotIn("sealed-0000", json.dumps(out["findings"]))
+                for leak in ("apply_changes", "send_email", "expect.answer"):
+                    self.assertNotIn(leak, count["message"])
+
+    def test_one_sealed_interrupt_is_singular(self):
+        case = good_case("billing-sealed-0000beef", split=["holdout"],
+                         expect={"tools": {"subset": ["apply_changes"]},
+                                 "answer": {"must_not_contain": ["done"]}})
+        finding = self.assert_finds("answer_after_interrupt", [case],
+                                    *self.adapter(self.AG_UI),
+                                    severity="WARN")
+        self.assertIsNone(finding["case_id"])
+        self.assertTrue(finding["message"].startswith(
+            "1 sealed holdout case (ids withheld"))
+
     def test_no_interrupt_warning_without_all_three(self):
         json_adapter = dict(self.AG_UI, invocation={})
         data_path = dict(self.AG_UI, invocation={
