@@ -16,7 +16,10 @@ Two protocols, declared in `invocation.sse.protocol`, never guessed:
   RUN_FINISHED closes the run and may carry token usage, RUN_ERROR fails it.
   A server running an agent loop may emit one RUN_FINISHED per model call;
   usage is then summed over every RUN_FINISHED and RUN_ERROR, never the
-  last one's alone (#46), and kept per event as `run_usage`. Summing across
+  last one's alone (#46), and kept per event as `run_usage`. `items` lists
+  the text messages, tool calls (with their parentMessageId) and tool
+  results in stream order, for a client-sent history
+  (docs/client-history.md SS3.3). Summing across
   runs is the protocol's own accounting too: each run reports only its own
   calls (a subagent's run under parentRunId, a resumed run), never another
   run's, so distinct runs add without double-counting.
@@ -158,6 +161,16 @@ def _ag_ui(payloads):
     error, finished, interrupted, run_usage = None, False, False, []
     types, bad = {}, 0
     last_message, last_call = None, None
+    # Stream order, for a client-sent history (docs/client-history.md
+    # SS3.3): each text message where it first appeared, each tool call
+    # where it started (with its parentMessageId), each tool result where
+    # it arrived. Additive: `text` and `tool_calls` are built as before.
+    items, seen_items = [], set()
+
+    def item(kind, key, **extra):
+        if (kind, key) not in seen_items:
+            seen_items.add((kind, key))
+            items.append(dict({"type": kind, "id": key}, **extra))
     for payload in payloads:
         event = _loads(payload)
         if not isinstance(event, dict) or not isinstance(event.get("type"),
@@ -171,12 +184,14 @@ def _ag_ui(payloads):
             if last_message not in messages:
                 messages[last_message] = []
                 order.append(last_message)
+            item("text", last_message)
         elif kind in _TEXT:
             # A CHUNK may omit its messageId: it continues the last message.
             mid = event.get("messageId", last_message)
             if mid not in messages:
                 messages[mid] = []
                 order.append(mid)
+            item("text", mid)
             last_message = mid
             if isinstance(event.get("delta"), str):
                 messages[mid].append(event["delta"])
@@ -186,6 +201,9 @@ def _ag_ui(payloads):
                 calls[cid] = {"id": cid, "name": None, "arguments": [],
                               "result": None}
                 call_order.append(cid)
+                parent = event.get("parentMessageId")
+                item("tool_call", cid, parent_message_id=parent
+                     if isinstance(parent, str) else None)
             last_call = cid
             if isinstance(event.get("toolCallName"), str):
                 calls[cid]["name"] = event["toolCallName"]
@@ -202,6 +220,9 @@ def _ag_ui(payloads):
             if call is not None:
                 call["result"] = content if isinstance(content, str) \
                     else json.dumps(content, ensure_ascii=False)
+                mid = event.get("messageId")
+                item("tool_result", call["id"], message_id=mid
+                     if isinstance(mid, str) else None)
         elif kind == "RUN_FINISHED":
             finished = True
             outcome = event.get("outcome")
@@ -215,6 +236,9 @@ def _ag_ui(payloads):
     pieces = ["".join(messages[mid]) for mid in order]
     joined = "\n\n".join(piece for piece in pieces if piece)
     complete = finished and error is None
+    for entry in items:
+        if entry["type"] == "text":
+            entry["text"] = "".join(messages[entry["id"]])
     tool_calls = []
     for cid in call_order:
         call = calls[cid]
@@ -223,7 +247,7 @@ def _ag_ui(payloads):
                            "result": call["result"]})
     return {"text": joined if complete and pieces else None,
             "partial_text": None if complete else joined,
-            "tool_calls": tool_calls, "error": error,
+            "tool_calls": tool_calls, "items": items, "error": error,
             "finished": finished, "interrupted": interrupted,
             "usage": _sum_usage(run_usage), "run_usage": run_usage,
             "sse": {"protocol": "ag-ui", "frames": len(payloads),
