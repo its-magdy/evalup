@@ -79,6 +79,10 @@ says when a release bumps it.
   --templates` feeds it. No verdict changes.
 
 ### Changed
+- **A sealed case's `answer_after_interrupt` is a count** (#158).
+  `validate-cases --adapter` named a holdout case beside the gated tool it
+  requires; sealed cases now share one WARN with neither id nor tool
+  (still never promoted by `--strict`). Training cases keep theirs.
 - **`score-cost`'s retries note** (#140) said `cases/<id>/response.json`
   could not be read without listing sealed ids; a visible id indexes it,
   as `cost.all_repeats` already does. It now says what is missing: that

@@ -102,7 +102,8 @@ pre-#42 `stage` name (stage_renamed), the one WARN --strict does NOT
 promote: a file written by an older evalup is a migration to do, not a
 claim the suite fails to back, and failing a gating CI job on it
 would be the release-breaks-everything problem #38 removes, in another form.
-answer_after_interrupt (--adapter, #103) is not promoted either.
+answer_after_interrupt (--adapter, #103) is not promoted either; on a
+sealed holdout case it is one count with neither id nor tool (#158).
 The pre-#38 keys `profile_version` / `adapter_version` are read as the old
 name of the same field.
 
@@ -1694,6 +1695,7 @@ def check_adapter(rep, cases, records, adapter):
                    if isinstance(tool, dict)
                    and is_nonempty_str(tool.get("name"))
                    and tool.get("side_effects") not in (None, "safe-live")}
+    sealed_interrupts = 0
     for i, (record, case) in enumerate(zip(records, cases)):
         label = record["id"] or f"<no id: cases[{i}]>"
         expect = mapping(case.get("expect"))
@@ -1730,7 +1732,10 @@ def check_adapter(rep, cases, records, adapter):
                          "this case. Assert the route through "
                          "route_from_response instead")
         unsafe = interrupt_tools(case, gated_tools) if ag_ui else []
-        if unsafe:
+        if unsafe and is_sealed(case):
+            # #158: a count, never the id or the tools (#139, #133).
+            sealed_interrupts += 1
+        elif unsafe:
             # advise: text before the interrupt IS scored, so a --strict job
             # must not fail a case that is written right.
             rep.advise(label, "answer_after_interrupt",
@@ -1766,6 +1771,19 @@ def check_adapter(rep, cases, records, adapter):
                      f"route_from_status and sees only {sorted(observable)}. "
                      "Expect one of those labels (keep the domain in `unit`), "
                      "or declare a route_from_response path")
+    if sealed_interrupts:
+        # #158: an id beside the tool it needs says what the sealed case is
+        # about (#133), so sealed cases are one count with neither. Nothing
+        # to fix in them: the remedy, if any, is the tool's side_effects.
+        n = sealed_interrupts
+        rep.advise(None, "answer_after_interrupt",
+                   f"{n} sealed holdout case{'' if n == 1 else 's'} (ids "
+                   "withheld, #158) may end on an approval interrupt under "
+                   "this ag-ui adapter with no text before it, leaving "
+                   "`answer` unscored; such a case passes on its tools "
+                   "alone (case-format.md, Scoring semantics). A tool "
+                   "wrongly left out of safe-live is fixed in the "
+                   "adapter's tools, never by reading the sealed cases")
 
 
 def answer_asserted(block):
