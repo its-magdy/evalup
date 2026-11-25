@@ -142,6 +142,11 @@ class TestConversationPreflight(RunnerCase):
         self.assert_preflight("no <uuid> placeholder", style="client-id",
                               request_body='{"message": "<user turn>"}')
 
+    def test_style_none_needs_a_history(self):
+        """docs/client-history.md SS2: `none` is legal only beside
+        `history`, so a block still cannot turn a driver on by omission."""
+        self.assert_preflight("legal only beside history", style="none")
+
     def test_delay_and_memory(self):
         self.assert_preflight("turn_delay_s must be", style="client-id",
                               turn_delay_s=-1)

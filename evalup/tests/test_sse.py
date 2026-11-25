@@ -102,6 +102,26 @@ class TestAgUi(unittest.TestCase):
         self.assertFalse(body["interrupted"])
         self.assertIsNone(body["error"])
 
+    def test_items_keep_stream_order_and_parents(self):
+        """docs/client-history.md SS3.3: additive; text and tool_calls are
+        built as before."""
+        call = tool_call("c1", "find_person", "{}", result="[]")
+        call[0]["parentMessageId"] = "m1"
+        call[-1]["messageId"] = "t1"
+        body = _sse.decode(agent_run(
+            text_message("m1", "Let me ", "look."), call,
+            tool_call("c2", "get_seats", "{}"),
+            text_message("m2", "Two."),
+            [{"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1",
+              "delta": " More."}]), AG_UI)
+        self.assertEqual(body["items"], [
+            {"type": "text", "id": "m1", "text": "Let me look. More."},
+            {"type": "tool_call", "id": "c1", "parent_message_id": "m1"},
+            {"type": "tool_result", "id": "c1", "message_id": "t1"},
+            {"type": "tool_call", "id": "c2", "parent_message_id": None},
+            {"type": "text", "id": "m2", "text": "Two."}])
+        self.assertEqual(body["text"], "Let me look. More.\n\nTwo.")
+
     def test_usage_sums_over_every_terminal_event(self):
         # #46: a server that emits one RUN_FINISHED per model call (an agent
         # loop) reported only the last call's tokens. Every RUN_FINISHED and
