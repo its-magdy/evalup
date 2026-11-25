@@ -611,7 +611,7 @@ class TestStatsHoldoutPower(ScorerTest):
         note = out["headroom_note"]
         self.assertIn("at least 10 case(s)", note)
         self.assertIn("only the target cluster's expected fixes", note)
-        self.assertIn("fixes outside the cluster", note)
+        self.assertIn("fixes outside the cluster, or breaks", note)
         self.assertIn("`powered` speaks to the minimum detectable effect "
                       "alone", note)
         self.assertIn(note, out["explained"])

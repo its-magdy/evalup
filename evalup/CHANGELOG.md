@@ -24,7 +24,7 @@ says when a release bumps it.
   headroom while `powered` (an MDE comparison) is true: at H = 45, C = 8.8,
   D = 9 the output read as a keep both powered and out of reach. The note,
   also in `explained`, says the headroom counts only the target cluster's
-  expected fixes, that a keep then needs fixes outside it, and that
+  expected fixes, that a keep then needs fixes outside it or breaks, and that
   `powered` speaks to the MDE alone. No flag or number changes;
   `SCORING_VERSION` is unchanged.
 - **`cost.holdout_aggregate`** in `score-cost` (#141). A holdout run's cases

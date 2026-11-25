@@ -58,10 +58,10 @@ smallest net fixed-minus-broken that keep_decision could keep at H, searched
 with keep_decision itself. `fewest_fixed_by_broken` gives the fewest fixed
 at 0, 1 and 2 broken (issue #142): a net that keeps at 0 broken need not
 keep with a break (H = 28: 4/0 keeps, 5/1 is P = 0.938 and does not).
-`headroom_note` (issue #159) is set when every keeping split changes more
-cases than the headroom (a noise floor can do that while `powered` is true);
-it says what each covers and moves no flag. It
-changes no number the first form prints. The third (issue #130) is the same
+`headroom_note` (issue #159) is set when `can_keep` is true and every
+keeping split changes more cases than the headroom (a noise floor can do
+that while `powered` is true); it says what each covers and moves no flag.
+It changes no number the first form prints. The third (issue #130) is the same
 question with no holdout yet: nothing can keep (`can_keep: false`, no MDE),
 and `holdout_cases_needed` is the smallest holdout at which the second form,
 given C = H x R, says both `can_keep` and `powered`.
@@ -343,10 +343,12 @@ def by_broken_note(keeps):
 
 def headroom_note(keeps, headroom):
     """Issue #159: a note, never a verdict, when every keeping split changes
-    more cases than the headroom. Past a noise floor of D a keep changes more
-    than D cases, which can exceed the cluster's headroom while `powered`
-    (an MDE comparison) is true. Read literally that is a keep both powered
-    and out of reach; this says what each number covers. None otherwise."""
+    more cases than the headroom (asked only when can_keep; otherwise CANNOT
+    KEEP already says the headroom is short). Past a noise floor of D a keep
+    changes more than D cases, which can exceed the cluster's headroom while
+    `powered` (an MDE comparison) is true. Read literally that is a keep
+    both powered and out of reach; this says what each number covers. None
+    otherwise."""
     least = min((k["fixed"] + k["broken"] for k in keeps), default=None)
     if least is None or least <= headroom:
         return None
@@ -354,8 +356,9 @@ def headroom_note(keeps, headroom):
         f"Every keeping split changes at least {least} case(s) (fixed + "
         f"broken), more than the headroom of {headroom:g}. The headroom "
         "counts only the target cluster's expected fixes, so a keep then "
-        "needs fixes outside the cluster (a split with breaks reaches the "
-        "count only by breaking cases); `powered` speaks to the minimum "
+        "needs fixes outside the cluster, or breaks: a split fixing no more "
+        "than the headroom reaches that count only by breaking cases "
+        "(fewest_fixed_by_broken); `powered` speaks to the minimum "
         "detectable effect alone")
 
 
