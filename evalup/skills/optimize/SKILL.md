@@ -249,7 +249,8 @@ With R, P and H their `app_calls_planned`:
    of T and its share, and the second fits that share inside the N new
    cases (a new seal, so the pair is re-measured, and a `dataset_version`
    bump, so precondition 3's extra regression run is in the cost; generate
-   then runs `evalup seal-record archive <state>`, so it has all 5 looks). N ≥ F − U keeps
+   then runs `evalup seal-record archive <state>`: all 5 looks only on its
+   exit 0, never after an `error`). N ≥ F − U keeps
    precondition 2 met after it: the usable count becomes U + N only once a
    human accepts each of the N − T new training cases, so every one
    rejected is one more to generate. `powered: false` → say a real gain

@@ -29,22 +29,27 @@ every write here copies the versions from the run's own manifest.yaml:
   evalup seal-record archive <state-dir> [--holdout-ledger <path>]
                              [--from-version <N>]
       After a grow made a new seal (#157): sealed cases added and
-      `dataset_version` bumped in datasets/dataset.yaml. Copies the look
-      ledger (datasets/holdout-looks.jsonl) byte for byte to
-      holdout-looks-v<old>.jsonl beside it, verifies the copy, then empties
-      the ledger, so the new seal starts with all 5 looks. It moves
-      reports/holdout-seal.json, the old seal's record, to
-      reports/holdout-seal-v<old>.json the same way, so `show` then says
-      there is no record and the new seal's noise pair is measured. <old>
-      is the highest dataset_version among the manifests of the ledger's
-      runs and the seal record; --from-version names it when neither has
-      one, and must agree with them when they do. It is --unseal's archive
-      step without the unseal line, and it shows no case. A ledger with no
-      line is nothing to archive: it says so, writes nothing, exit 0.
-      Refused, nothing written: an archive file that already exists, a
-      current dataset_version not above <old> and every archived version, a
-      dataset.yaml without one plain `dataset_version: <int>` line, or a
-      ledger that changed while it ran.
+      `dataset_version` bumped in datasets/dataset.yaml (read as text: one
+      plain `dataset_version: <int>` line). Copies the look ledger
+      (datasets/holdout-looks.jsonl) byte for byte to
+      holdout-looks-v<old>.jsonl beside it and reads the copy back; copies
+      reports/holdout-seal.json, an older seal's record, to
+      holdout-seal-v<its dataset_version>.json the same way; only then
+      empties the ledger in place (the same file, so a runner appending to
+      it still appends to the ledger) and removes the old record. The new
+      seal starts with all 5 looks, and `show` finds no record, so its noise
+      pair is measured. <old> is the highest dataset_version the manifests
+      of the ledger's runs and the seal record give; --from-version names
+      it when none does, and must equal it when one does. A ledger run with
+      no readable manifest is refused without --from-version: it may be the
+      new seal's look. It is --unseal's archive step without the unseal
+      line, and it shows no case. A ledger with no line is nothing to
+      archive: exit 0 (an older seal's record left behind is still moved).
+      An archive cut off midway is finished by running it again: an
+      archive file holding exactly the ledger's bytes is kept.
+      Refused, nothing written: an archive name already taken by other
+      bytes, a current dataset_version not above <old> and every archived
+      version, a symlinked ledger, or a ledger that changed while it ran.
 
 Each write refuses (exit 2, nothing written) a run that is not a finished
 holdout run: no manifest.yaml, a run_id that does not match its directory,
@@ -171,7 +176,7 @@ def write_atomic(path, doc, new_name=False):
             try:
                 os.link(tmp, path)
             except FileExistsError:
-                die(f"refused: {path} already exists; nothing written")
+                die(f"refused: {path} already exists; it was not written")
             os.unlink(tmp)
         else:
             os.replace(tmp, path)
@@ -313,22 +318,96 @@ def ledger_run_ids(data):
     return ids
 
 
+def safe_run_id(run_id):
+    """A run id names one directory under reports/: never `.`, `..` or a
+    path."""
+    return run_id not in ("", ".", "..") and os.sep not in run_id \
+        and "/" not in run_id and os.path.normpath(run_id) == run_id
+
+
 def old_versions(reports, run_ids, record):
-    """{source: dataset_version} the old seal's witnesses give."""
-    seen = {}
+    """({source: dataset_version} the old seal's witnesses give, [the
+    ledger's run ids no manifest gives a version for])."""
+    seen, unknown = {}, []
     for run_id in run_ids:
         path = os.path.join(reports, run_id, "manifest.yaml")
-        if os.path.basename(run_id) != run_id or not os.path.isfile(path):
-            continue
-        try:
-            version = loads_strict(load_text(path)).get("dataset_version")
-        except (BadJSON, AttributeError):
-            continue
+        version = None
+        if safe_run_id(run_id) and os.path.isfile(path):
+            try:
+                doc = loads_strict(load_text(path))
+                version = doc.get("dataset_version") \
+                    if isinstance(doc, dict) else None
+            except BadJSON:
+                version = None
         if is_int(version):
             seen[f"reports/{run_id}/manifest.yaml"] = version
+        else:
+            unknown.append(run_id)
     if record is not None and is_int(record.get("dataset_version")):
         seen[f"reports/{NAME}"] = record["dataset_version"]
-    return seen
+    return seen, unknown
+
+
+def archived_versions(directory, stem):
+    """The <N> of every <stem>-v<N>.jsonl in `directory`, whatever its case
+    (a case-insensitive volume treats .JSONL as the same name)."""
+    pattern = re.compile(re.escape(stem.casefold()) + r"-v(\d+)\.jsonl")
+    return sorted(int(m.group(1)) for m in (
+        pattern.fullmatch(name.casefold()) for name in os.listdir(directory))
+        if m)
+
+
+def copy_verified(path, data, what):
+    """Write `data` to the new name `path` and read it back. A `path`
+    already holding exactly `data` is a copy an interrupted archive made:
+    kept, and reported as such. Returns True when it wrote."""
+    if os.path.lexists(path):
+        if not os.path.islink(path) and os.path.isfile(path) \
+                and read_bytes(path) == data:
+            return False
+        die(f"refused: {path} already exists and is not this {what}: this "
+            "seal was archived already, or the name is taken. Nothing "
+            "written")
+    write_atomic(path, data, new_name=True)
+    if read_bytes(path) != data:
+        os.unlink(path)
+        die(f"refused: {path} did not read back as the {what}; removed it. "
+            "Nothing else written")
+    return True
+
+
+def empty_in_place(ledger, data):
+    """Empty the ledger's own inode, after checking it still holds `data`:
+    a runner that opened it to append keeps appending to the live ledger."""
+    fd = os.open(ledger, os.O_RDWR)
+    try:
+        with os.fdopen(fd, "r+b") as f:
+            fd = None
+            if f.read() != data:
+                return False
+            f.seek(0)
+            f.truncate()
+            f.flush()
+            os.fsync(f.fileno())
+    finally:
+        if fd is not None:
+            os.close(fd)
+    return True
+
+
+def stale_record(record, current):
+    return record is not None and is_int(record.get("dataset_version")) \
+        and record["dataset_version"] < current
+
+
+def move_record(reports, record_path, record):
+    """Copy an older seal's record to holdout-seal-v<its version>.json,
+    verified, then remove it. Returns the archive path."""
+    target = os.path.join(reports,
+                          f"holdout-seal-v{record['dataset_version']}.json")
+    copy_verified(target, read_bytes(record_path), "seal record")
+    os.unlink(record_path)
+    return target
 
 
 def cmd_archive(state_dir, ledger_arg, from_version):
@@ -339,24 +418,39 @@ def cmd_archive(state_dir, ledger_arg, from_version):
     if not ledger.endswith(".jsonl"):
         die(f"bad input: --holdout-ledger must be a .jsonl file (got "
             f"{ledger_arg!r})")
+    if os.path.islink(ledger):
+        die(f"refused: {ledger} is a symlink; the runner appends to its "
+            "target. Archive that file by its own path. Nothing written")
     data = read_bytes(ledger) if os.path.isfile(ledger) else b""
     looks = sum(1 for line in data.decode("utf-8", "replace").splitlines()
                 if line.strip())
-    if not looks:
-        return {"archived": False, "ledger": ledger, "looks": 0,
-                "notes": ["the ledger has no line: nothing to archive, "
-                          "nothing written. This seal starts with all 5 "
-                          "looks"]}
-    current = current_dataset_version(state_dir)
     reports = os.path.join(state_dir, "reports")
     record_path = os.path.join(reports, NAME)
     record = read_record(record_path) if os.path.isdir(reports) else None
-    seen = old_versions(reports, ledger_run_ids(data), record)
+    if not looks:
+        out = {"archived": False, "ledger": ledger, "looks": 0,
+               "seal_record": None,
+               "notes": ["the ledger has no line: nothing to archive. This "
+                         "seal starts with all 5 looks"]}
+        if record is not None:
+            current = current_dataset_version(state_dir)
+            if stale_record(record, current):
+                out["seal_record"] = move_record(reports, record_path, record)
+                out["notes"].append(
+                    f"moved an older seal's record to {out['seal_record']} "
+                    "(an archive cut off before its last step?)")
+        return out
+    current = current_dataset_version(state_dir)
+    seen, unknown = old_versions(reports, ledger_run_ids(data), record)
+    if unknown and from_version is None:
+        die(f"refused: no readable manifest gives the dataset_version of "
+            f"the ledger's run(s) {unknown}: one may be this seal's look. "
+            "Restore reports/<run-id>, or pass --from-version <N> if you "
+            "know they are the old seal's. Nothing written")
     if from_version is not None:
-        wrong = {k: v for k, v in seen.items() if v > from_version}
-        if wrong:
-            die(f"refused: --from-version {from_version} is below what "
-                f"{wrong} record; nothing written")
+        if seen and max(seen.values()) != from_version:
+            die(f"refused: --from-version {from_version} is not the old "
+                f"seal's version these record: {seen}. Nothing written")
         old = from_version
     elif seen:
         old = max(seen.values())
@@ -365,52 +459,48 @@ def cmd_archive(state_dir, ledger_arg, from_version):
             "names the old seal's dataset_version; pass --from-version <N> "
             "(the dataset_version before the grow). Nothing written")
     stem = ledger[:-len(".jsonl")]
-    directory = os.path.dirname(ledger)
-    archived = sorted(
-        int(m.group(1)) for m in (
-            re.fullmatch(re.escape(os.path.basename(stem)) + r"-v(\d+)\.jsonl",
-                         name) for name in os.listdir(directory)) if m)
-    if current <= max([old] + archived):
+    archived = archived_versions(os.path.dirname(ledger),
+                                 os.path.basename(stem))
+    archive = f"{stem}-v{old}.jsonl"
+    resumed = os.path.isfile(archive) and not os.path.islink(archive) \
+        and read_bytes(archive) == data
+    above = [v for v in archived if not (resumed and v == old)]
+    if current <= max([old] + above):
         die(f"refused: datasets/dataset.yaml's dataset_version is {current}, "
             f"not above the old seal's {old} and every archived version "
             f"{archived}: bump it with the grow first (a new seal is a new "
             "dataset_version). Nothing written")
-    archive = f"{stem}-v{old}.jsonl"
-    record_archive = os.path.join(reports, f"holdout-seal-v{old}.json")
-    move_record = record is not None and is_int(
-        record.get("dataset_version")) and record["dataset_version"] < current
-    for path in [archive] + ([record_archive] if move_record else []):
-        if os.path.lexists(path):
-            die(f"refused: {path} already exists: this seal was archived "
-                "already, or the name is taken. Nothing written")
+    if stale_record(record, current):
+        target = os.path.join(
+            reports, f"holdout-seal-v{record['dataset_version']}.json")
+        if os.path.lexists(target) and read_bytes(target) != \
+                read_bytes(record_path):
+            die(f"refused: {target} already exists and is not this seal "
+                "record. Nothing written")
 
     digest = hashlib.sha256(data).hexdigest()
-    write_atomic(archive, data, new_name=True)
-    if read_bytes(archive) != data:
-        os.unlink(archive)
-        die(f"refused: {archive} did not read back as the ledger; removed "
-            "it, the ledger is unchanged")
-    if read_bytes(ledger) != data:
-        os.unlink(archive)
+    wrote = copy_verified(archive, data, "ledger")
+    if not empty_in_place(ledger, data):
+        if wrote:
+            os.unlink(archive)
         die("refused: the ledger changed while archiving (a holdout run "
-            "appended?); removed the archive, the ledger is unchanged. "
-            "Re-run once no run is going")
-    write_atomic(ledger, b"")
-    if read_bytes(ledger) != b"":
-        die(f"cannot empty {ledger}; the archive {archive} is whole")
+            "appended?); the ledger is unchanged"
+            + ("; removed the archive" if wrote else "")
+            + ". Re-run once no run is going")
     notes = [f"the ledger's {looks} look(s) of dataset_version {old} are in "
              f"{archive}; the ledger is empty, so this seal (dataset_version "
              f"{current}) starts with all 5 looks"]
+    if not wrote:
+        notes.append(f"{archive} already held these bytes: an earlier "
+                     "archive was cut off, and this one finished it")
     out = {"archived": True, "ledger": ledger, "archive": archive,
            "looks": looks, "sha256": digest, "from_version": old,
            "dataset_version": current, "seal_record": None}
-    if move_record:
-        write_atomic(record_archive, read_bytes(record_path), new_name=True)
-        os.unlink(record_path)
-        out["seal_record"] = record_archive
-        notes.append(f"the old seal's record is {record_archive}: `evalup "
-                     "seal-record show` now finds none, so this seal's "
-                     "noise pair comes first")
+    if stale_record(record, current):
+        out["seal_record"] = move_record(reports, record_path, record)
+        notes.append(f"the old seal's record is {out['seal_record']}: "
+                     "`evalup seal-record show` now finds none, so this "
+                     "seal's noise pair comes first")
     elif record is not None:
         notes.append(f"{record_path} is at dataset_version "
                      f"{record.get('dataset_version')!r}, not an older "

@@ -178,8 +178,9 @@ copies the ledger byte for byte to `holdout-looks-v<old>.jsonl`, reads the
 copy back, empties the ledger and moves the old `reports/holdout-seal.json`
 to `holdout-seal-v<old>.json`, so the new seal has all 5 looks and
 optimize measures its noise pair afresh. Say what it printed. A refusal
-(an archive already there, `dataset_version` not bumped) wrote nothing:
-fix its cause, never the ledger by hand.
+(an archive name taken, `dataset_version` not bumped, a ledger run with no
+manifest) wrote nothing: fix its cause, never the ledger by hand. One cut
+off midway is finished by running it again.
 
 ## A sealed holdout case, before its first look
 

@@ -431,33 +431,96 @@ class TestSealArchive(RunFixture):
         rc, out = self.archive()
         self.assertEqual((rc, out["archived"]), (0, False), out)
         self.assertIn("nothing to archive", out["notes"][0])
+        self.assertIsNone(out["seal_record"])
+        self.assertEqual(archive.read_bytes(), before)
+
+    def assert_unchanged(self, ledger, record, files):
+        self.assertEqual(self.ledger.read_bytes(), ledger)
+        self.assertEqual((self.reports / "holdout-seal.json").read_bytes(),
+                         record)
+        datasets = self.state / "datasets"
+        self.assertEqual(
+            sorted(p.name for p in datasets.iterdir()),
+            sorted(["dataset.yaml", "holdout-looks.jsonl", *files]))
+        for name, body in files.items():
+            self.assertEqual((datasets / name).read_bytes(), body, name)
+        self.assertEqual(sorted(p.name for p in self.reports.iterdir()
+                                if p.is_file()), ["holdout-seal.json"])
 
     def test_refusals_change_nothing(self):
         before = self.spend("holdout-a", "holdout-b")
         record = (self.reports / "holdout-seal.json").read_bytes()
-        archive = self.state / "datasets" / f"holdout-looks-v{self.old}.jsonl"
-        cases = [("no bump", self.old, (), "not above"),
-                 ("an archive exists", self.old + 1, (), "already exists"),
-                 ("an older archive is higher", self.old + 1, (),
-                  "not above"),
-                 ("--from-version below the manifests", self.old + 1,
-                  ("--from-version", str(self.old - 1)), "below")]
-        for label, version, extra, says in cases:
+        mine = f"holdout-looks-v{self.old}.jsonl"
+        higher = f"holdout-looks-v{self.old + 1}.JSONL"
+        cases = [("no bump", self.old, {}, (), "not above"),
+                 ("an archive of other bytes exists", self.old + 1,
+                  {mine: b"theirs\n"}, (), "already exists"),
+                 ("a higher archive, in another case", self.old + 1,
+                  {higher: b"x\n"}, (), "not above"),
+                 ("--from-version below the manifests", self.old + 1, {},
+                  ("--from-version", str(self.old - 1)), "not the old"),
+                 ("--from-version above the manifests", self.old + 3, {},
+                  ("--from-version", str(self.old + 1)), "not the old")]
+        for label, version, files, extra, says in cases:
             with self.subTest(label):
                 self.set_version(version)
-                if label == "an archive exists":
-                    archive.write_bytes(b"theirs\n")
-                if label == "an older archive is higher":
-                    archive.unlink()
-                    (self.state / "datasets" / f"holdout-looks-v"
-                     f"{self.old + 1}.jsonl").write_bytes(b"x\n")
+                for name, body in files.items():
+                    (self.state / "datasets" / name).write_bytes(body)
                 rc, out = self.archive(*extra)
                 self.assertEqual(rc, 2, out)
                 self.assertIn(says, out["error"])
-                self.assertEqual(self.ledger.read_bytes(), before)
-                self.assertEqual((self.reports / "holdout-seal.json")
-                                 .read_bytes(), record)
-        self.assertFalse(archive.exists())
+                self.assert_unchanged(before, record, files)
+                for name in files:
+                    (self.state / "datasets" / name).unlink()
+
+    def test_a_run_without_a_manifest_may_be_this_seals_look(self):
+        before = self.spend("holdout-a", "holdout-b")
+        with self.ledger.open("a", encoding="utf-8") as f:
+            for run_id in ("holdout-gone", ".."):
+                f.write(json.dumps({"run_id": run_id, "mode": "holdout",
+                                    "reason": "run"}) + "\n")
+        before = self.ledger.read_bytes()
+        (self.state / "manifest.yaml").write_text(
+            json.dumps({"dataset_version": self.old + 5}), "utf-8")
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("holdout-gone", out["error"])
+        self.assertIn("'..'", out["error"])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        rc, out = self.archive("--from-version", str(self.old))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.ledger.read_bytes(), b"")
+
+    def test_a_symlinked_ledger_is_refused(self):
+        before = self.spend("holdout-a")
+        real = self.state / "datasets" / "real.jsonl"
+        self.ledger.rename(real)
+        self.ledger.symlink_to(real)
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 2, out)
+        self.assertIn("symlink", out["error"])
+        self.assertEqual(real.read_bytes(), before)
+
+    def test_an_archive_cut_off_midway_is_finished_by_a_rerun(self):
+        before = self.spend("holdout-a", "holdout-b")
+        record = (self.reports / "holdout-seal.json").read_bytes()
+        archive = self.state / "datasets" / f"holdout-looks-v{self.old}.jsonl"
+        archive.write_bytes(before)         # cut off after the copy
+        self.set_version(self.old + 1)
+        rc, out = self.archive()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("finished it", out["notes"][1])
+        self.assertEqual((archive.read_bytes(), self.ledger.read_bytes()),
+                         (before, b""))
+        # Cut off after emptying the ledger: the record is still moved.
+        moved = self.reports / f"holdout-seal-v{self.old}.json"
+        moved.rename(self.reports / "holdout-seal.json")
+        rc, out = self.archive()
+        self.assertEqual((rc, out["archived"]), (0, False), out)
+        self.assertEqual(moved.read_bytes(), record)
+        self.assertFalse((self.reports / "holdout-seal.json").exists())
 
     def test_a_dataset_yaml_without_one_plain_version_is_refused(self):
         before = self.spend("holdout-a")
