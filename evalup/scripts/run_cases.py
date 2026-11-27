@@ -911,6 +911,7 @@ def render_template(node, values):
     A string that IS a placeholder becomes the typed value; a string that
     merely CONTAINS one gets textual substitution, so both
     `"message": "<user turn>"` and `"prompt": "User says: <user turn>"` work.
+    Substitution is one pass, so a value's own text is sent as written.
     The one exception is an unset `<session>` as a dict entry's whole value:
     the entry is dropped (SESSION_MARKER says why).
     """
@@ -925,11 +926,18 @@ def render_template(node, values):
         return node
     if node in values:
         return values[node]
-    out = node
-    for marker, value in values.items():
-        if marker in out:
-            out = out.replace(marker, "" if value is None else str(value))
-    return out
+    markers = [marker for marker in values if marker in node]
+    if not markers:
+        return node
+    # One pass, left to right, longest marker first at a position: inserted
+    # text (a user turn that mentions "<case id>") is never scanned again.
+    pattern = re.compile("|".join(
+        re.escape(m) for m in sorted(markers, key=len, reverse=True)))
+
+    def put(match):
+        value = values[match.group(0)]
+        return "" if value is None else str(value)
+    return pattern.sub(put, node)
 
 
 def template_mentions(node, marker):
