@@ -864,7 +864,7 @@ def user_text(case):
     return "\n".join(parts)
 
 
-def check_echo_assertions(rep, case_id, case, expect):
+def check_echo_assertions(rep, case_id, case, expect, turn=None):
     """A must_contain entry the case's own input already satisfies.
 
     For example, a case asked about "Mohammed", asserted `/(?i:mohammed)/`, and
@@ -873,30 +873,51 @@ def check_echo_assertions(rep, case_id, case, expect):
     so the pass measures nothing. Same entry grammar as score_answer.py (plain
     substring, or /regex/), compared case-insensitively because an echo may
     re-case the words; a regex that does not compile or terminate is left to
-    the scorer's own report."""
+    the scorer's own report.
+
+    `turn` is the index of the conversation turn this expect checks (#168):
+    only turns up to it can be echoed, and a hit in an EARLIER turn only is
+    a recall check -- an app can repeat it only if the history reached it --
+    so it is said as that, not as an echo of the request."""
     answer = mapping(expect.get("answer"))
     entries = answer.get("must_contain")
-    text = user_text(case)
-    if not isinstance(entries, list) or not text:
+    turns = conversation_turns(case)
+    earlier = ""
+    if turn is not None and turns and 0 <= turn < len(turns):
+        text = nfc(turns[turn][0] or "")
+        earlier = "\n".join(nfc(t) for t, _ in turns[:turn] if t)
+    else:
+        text = user_text(case)
+    if not isinstance(entries, list) or not (text or earlier):
         return
+
+    def occurs(entry, haystack):
+        if not haystack:
+            return False
+        if len(entry) > 2 and entry.startswith("/") and entry.endswith("/"):
+            try:
+                return run_bounded(lambda p=entry[1:-1]: re.search(
+                    p, haystack, re.IGNORECASE)) is not None
+            except (re.error, RegexTimeout):
+                return False
+        return nfc(entry).casefold() in haystack.casefold()
     for i, entry in enumerate(entries):
         if not isinstance(entry, str) or not entry:
             continue
-        if len(entry) > 2 and entry.startswith("/") and entry.endswith("/"):
-            pattern = entry[1:-1]
-            try:
-                hit = run_bounded(lambda p=pattern: re.search(
-                    p, text, re.IGNORECASE)) is not None
-            except (re.error, RegexTimeout):
-                continue
-        else:
-            hit = nfc(entry).casefold() in text.casefold()
-        if hit:
+        if occurs(entry, text):
             rep.warn(case_id, "echo_assertion",
                      f"expect.answer.must_contain[{i}] ({entry!r}) already "
                      "occurs in the case's own user message, so an app that "
                      "echoes the request passes it without answering; assert "
                      "something only a correct answer contains")
+        elif occurs(entry, earlier):
+            rep.warn(case_id, "echo_assertion",
+                     f"expect.answer.must_contain[{i}] ({entry!r}) occurs "
+                     "only in an earlier user turn: a recall check, which "
+                     "an app passes only if the history reached it. Fine "
+                     "for a memory case; if the turn asks for more than "
+                     "the recalled fact, also assert what only a correct "
+                     "answer to this turn contains")
 
 
 def gates(case):
@@ -955,7 +976,7 @@ class Scoped:
         self.rep.warn(case_id, code, f"{self.where}: {message}")
 
 
-def check_expect_block(rep, label, case, expect):
+def check_expect_block(rep, label, case, expect, turn=None):
     """The per-expect checks, for an expect that is not the top-level one."""
     check_expect_shapes(rep, label, expect)
     for key in sorted(reserved_expectations(expect)):
@@ -966,7 +987,7 @@ def check_expect_block(rep, label, case, expect):
     check_result(rep, label, expect)
     check_authz(rep, label, expect)
     check_answer_entries(rep, label, expect, is_sealed(case))
-    check_echo_assertions(rep, label, case, expect)
+    check_echo_assertions(rep, label, case, expect, turn)
 
 
 def check_turns(rep, label, case, enabled):
@@ -1063,7 +1084,7 @@ def check_turns(rep, label, case, enabled):
                       f"{type(own).__name__}")
             continue
         check_expect_block(Scoped(rep, f"{where}.expect (a checkpoint)"),
-                           label, case, own)
+                           label, case, own, i)
 
     if isinstance(every_turn, dict):
         for i, turn in enumerate(turns):
@@ -1294,7 +1315,9 @@ def check_case(rep, case, all_ids, enabled, index=None):
     check_result(rep, label, expect)
     check_authz(rep, label, expect)
     check_answer_entries(rep, label, expect, is_sealed(case))
-    check_echo_assertions(rep, label, case, expect)
+    final = conversation_turns(case)
+    check_echo_assertions(rep, label, case, expect,
+                          len(final) - 1 if final else None)
     check_turns(rep, label, case, enabled)
 
     if case.get("no_op_expectation") == "pass" \
