@@ -32,7 +32,7 @@ one. The short version:
 
 ```sh
 cd evalup
-python3 -m unittest discover -s tests                    # 1531 tests, ~5 min
+python3 -m unittest discover -s tests                    # 1577 tests, ~6 min
 python3 tests/run_shards.py      # CI's 4 shards in parallel, ~50 s; not conclusive
 ruff check --config ruff.toml .                          # --config is required
 uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests -q
@@ -59,9 +59,8 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   review and canary work, the 2026-10-09 CI and repo-settings PRs (#1, #3,
   #4, #5), and multi-turn Phase 1 (#2, squash-merged 2026-11-19 as
   `796c8d3`) built per `evalup/docs/multi-turn.md`. First pushed 2026-09-30.
-  **Multi-turn is merged but not yet proven on a live app**: the user merged
-  it before the planned RefApp run, and decided 2026-11-19 to prove it on a
-  different app instead. Decided 2026-10-06 (after a second opinion): a
+  Multi-turn was merged before any live run; it was proven live on
+  2026-11-27, client-sent history (#165) on the #27 app. Decided 2026-10-06 (after a second opinion): a
   checkpoint can veto a conversation but never certify it — a union `pass`
   needs a graded `pass` on the final turn (`run_cases.final_turn_certifies`).
   Since then (roadmap #32, PRs #44–#93): the keep rule and schema versions
@@ -96,7 +95,7 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   agent types; then `seal-record archive` (a grown seal gets its 5 looks
   back, #157), a sealed id never on `answer_after_interrupt` (#158), and
   the power check's `headroom_note` (#159).
-- **Health** (2026-11-25, `main` at `b35d00e`): 1531 tests pass on 3.14
+- **Health** (2026-11-27, `main` at `4ba26c6`): 1577 tests pass on 3.14
   and on the 3.9 floor `--with pyyaml` (without PyYAML, the tests that need
   it skip; last counted 2026-11-22), ruff clean, all 28 CLIs answer `--help`,
   `claude plugin validate` passes for the plugin (one warning: no icon) and
@@ -124,8 +123,14 @@ uv run --python 3.9 --with pytest --with pytest-subtests python -m pytest tests 
   2026-11-25, the one miss a conditional offer the judge called a pass;
   the owner ruled it a fail). Decided 2026-11-25: the model labels stand as
   #27's judge check, with no human round; the judge stays provisional
-  (calibration needs ≥ 100 pairs). #27 stays open for a keep with a
-  positive training run and conversations with client-side history.
+  (calibration needs ≥ 100 pairs). **2026-11-27, conversations live:**
+  client-sent history (#165, #166: an `ag-ui` preset, `tools: text-only`
+  because the app drops tool parts) ran §8's five conversations: k = 3
+  15/15, every turn carried the prior `answer.txt` verbatim (33/33 pairs),
+  ~$0.72. `tools: carried` and the `openai` preset are proven by stubs
+  only. **#27 closed 2026-11-27**; a keep with a positive training run was
+  not reached (the seal would need 69 cases; the owner declined). Friction
+  from the run: #167, #168.
 - **`claude plugin eval`:** five cases in `evalup/evals/`. The three app-bound
   ones need a Bash-granting sandbox, which this machine refuses (symlinks
   inside `~/.docker`; `DOCKER_CONFIG` does not bypass it); they were proven by
