@@ -932,6 +932,31 @@ class TestDryRunEstimate(RunnerCase):
         self.assertAlmostEqual(est["usd_per_message"], 0.45)
         self.assertIn("representative repeat's", est["note"])
 
+    def test_a_priced_probe_gives_a_first_estimate(self):
+        """#167: score_cost.py --probe's output, before any run was priced:
+        its dollars over the requests that reported usage, said as a
+        cold-cache upper bound."""
+        path = self.tmp / "probe-cost.json"
+        path.write_text(json.dumps({
+            "run": {"run_id": None, "k": 1, "source": "probe"},
+            "cost": {"status": "priced", "usd": 0.10,
+                     "cache_accounting": "priced", "models": {},
+                     "price_table": {"as_of": "2026-11-01"},
+                     "probe": {"requests": 2, "messages_with_usage": 2}}}),
+            encoding="utf-8")
+        plan = make_plan(self.state, self.app.base_url,
+                         cases=[make_case("c-0001"), make_case("c-0002")])
+        plan["k"] = 3
+        rc, payload, proc = self.invoke(
+            plan, extra_argv=["--dry-run", "--cost-from", str(path)])
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        est = payload["estimate"]
+        self.assertEqual((est["rate_basis"], est["from_run"]),
+                         ("probe", "the probe"))
+        self.assertAlmostEqual(est["usd_per_message"], 0.05)
+        self.assertAlmostEqual(est["usd"], 0.30)
+        self.assertIn("upper bound", est["note"])
+
     def test_no_priced_run_estimates_messages_and_names_the_model(self):
         plan = make_plan(self.state, self.app.base_url,
                          cases=[make_case("c-0001"), make_case("c-0002")])

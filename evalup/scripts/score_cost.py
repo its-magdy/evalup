@@ -786,8 +786,14 @@ def response_usage(path):
         entries = body["run_usage"]
     else:
         entries = [body.get("usage")]
+    return usage_calls(entries)
+
+
+def usage_calls(entries):
+    """The LLM calls a list of usage entries reports, or None for none --
+    response_usage's reading, shared with the probe's (#167)."""
     calls = []
-    for entry in entries:
+    for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict) or not entry:
             continue
         n_in = token_count(entry.get("input_tokens"))
@@ -1610,12 +1616,55 @@ def attach_sealed(run, block, prices):
             block["all_repeats"]["reason"] = why
 
 
+def price_probe(path, prices):
+    """#167: `--probe`, the usage a `run-cases --probe` report recorded,
+    priced by the same rules, for a dry run's estimate before any run has
+    been priced. Every request the probe sent is one unit. The probe's
+    cache is cold, so a cached app's real run costs less per message."""
+    doc = load_json(path)
+    usage = doc.get("usage") if isinstance(doc, dict) else None
+    if not isinstance(doc, dict) or doc.get("probe") is not True \
+            or not isinstance(usage, dict) \
+            or not isinstance(usage.get("requests"), list):
+        die(f"--probe {path}: not a run-cases --probe report with a "
+            "`usage` block (a probe whose app reported no usage has none)")
+    units = {f"request-{i + 1}": entries
+             for i, entries in enumerate(usage["requests"])}
+    priced = set()
+
+    def reader(unit, entries):
+        calls = usage_calls(entries)
+        if calls is not None:
+            priced.add(unit)
+        return calls
+
+    _, block = price_run(None, units, prices,
+                         usage.get("cache_counts_are_parts") is True,
+                         usage=reader)
+    block["probe"] = {"requests": len(units),
+                      "messages_with_usage": len(priced)}
+    block["note"] = (
+        "priced from the probe's own requests: a cold cache and one or two "
+        "messages, so for a cached app an upper bound on a run's rate. A "
+        "priced run's cost file replaces it.")
+    return {"harness_version": HARNESS_VERSION,
+            "run": {"run_id": None, "k": 1, "source": "probe",
+                    "probe_file": path},
+            "cost": block}
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Cost and latency for one evalup run, or a paired "
                     "diff of two. Reports; decides nothing.")
     add_version_flag(ap)
-    ap.add_argument("run", help="the run directory to report on")
+    ap.add_argument("run", nargs="?",
+                    help="the run directory to report on")
+    ap.add_argument("--probe", metavar="PROBE_JSON",
+                    help="instead of a run: price the usage a `run-cases "
+                         "--probe` report recorded, for `run-cases --dry-run "
+                         "--cost-from` before any run is priced (#167). "
+                         "Needs --prices")
     ap.add_argument("--baseline",
                     help="a second run directory; adds the paired block")
     ap.add_argument("--prices",
@@ -1638,6 +1687,17 @@ def main():
     require_range("--max-exact-states", a.max_exact_states, lo=1)
 
     prices = load_prices(a.prices) if a.prices else None
+    if a.probe is not None:
+        if a.run is not None or a.baseline:
+            die("--probe prices a probe report instead of a run: give no "
+                "run directory and no --baseline")
+        if prices is None:
+            die("--probe needs --prices: a probe's estimate is its dollars")
+        write_output(a.out, json.dumps(price_probe(a.probe, prices),
+                                       indent=2) + "\n")
+        return
+    if a.run is None:
+        die("give a run directory (or --probe PROBE_JSON)")
     cand = load_run(a.run)
     cand_cost, cand_block = price_run(
         cand["dir"], cand["cases"], prices,
