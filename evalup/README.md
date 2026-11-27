@@ -81,14 +81,14 @@ where this harness is meant to run.
 
 ## Installation
 
-The latest release is **v0.1.0**. It is not listed in a public plugin
+The latest release is **v0.2.0**. It is not listed in a public plugin
 marketplace yet, so install it from a clone of the tag. Leave out
-`--branch v0.1.0` to track `main` instead.
+`--branch v0.2.0` to track `main` instead.
 
 **Load it for one session:**
 
 ```bash
-git clone --branch v0.1.0 https://github.com/its-magdy/evalup.git evalup-repo
+git clone --branch v0.2.0 https://github.com/its-magdy/evalup.git evalup-repo
 claude --plugin-dir ./evalup-repo/evalup
 ```
 
@@ -341,7 +341,7 @@ and edit the lines marked `EDIT`:
   deterministic layers only, and judged verdicts never gate.
 
 It checks out your app, fetches the plugin at **`EVALUP_REF`**, a release
-tag (`v0.1.0`; an immutable release keeps its tag on one commit; a commit SHA also works),
+tag (`v0.2.0`; an immutable release keeps its tag on one commit; a commit SHA also works),
 installs PyYAML for `convert_suite.py` alone (everything else is stdlib, on
 Python 3.9 or later), validates the suite, runs a `regression` run at `EVALUP_K` (default 3),
 gates it, and uploads the run directory as the `evalup-run` artifact. Under

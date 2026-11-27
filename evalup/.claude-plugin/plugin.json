@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "evalup",
   "displayName": "EvalUp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Evaluate and improve LLM chat/agent applications: discover the app's architecture, generate eval datasets, run layered scoring (routing, tools, trajectory, answer quality), analyze failures, and optimize prompts and tool descriptions with statistical keep/revert gates.",
   "keywords": [
     "evaluation",

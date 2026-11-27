@@ -3,7 +3,7 @@
 > Point it at an AI feature and, in one session, see which answers are wrong, with evidence you can check, and which prompt to fix.
 
 [![ci](https://github.com/its-magdy/evalup/actions/workflows/ci.yml/badge.svg)](https://github.com/its-magdy/evalup/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.1.0-blue)
+![version](https://img.shields.io/badge/version-0.2.0-blue)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 evalup is a Claude Code plugin for LLM chat and agent apps. It reads your
@@ -71,11 +71,11 @@ subagents; runs report judged layers as not measured.
 
 ## Installation
 
-Clone the latest release, **v0.1.0** (leave out `--branch v0.1.0` to track
+Clone the latest release, **v0.2.0** (leave out `--branch v0.2.0` to track
 `main` instead):
 
 ```bash
-git clone --branch v0.1.0 https://github.com/its-magdy/evalup.git evalup-repo
+git clone --branch v0.2.0 https://github.com/its-magdy/evalup.git evalup-repo
 ```
 
 Then install it through the clone's marketplace, so every session has the
@@ -99,7 +99,7 @@ python3 evalup-repo/evalup/scripts/stats.py --version
 ```
 
 ```
-evalup harness 0.1.0
+evalup harness 0.2.0
 ```
 
 Configuration, where state lives (`your-app/.evalup/`), and the permission
