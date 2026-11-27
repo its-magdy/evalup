@@ -432,8 +432,13 @@ versions. Diffs between incomparable runs are refused.
   conversation (`input.turns`): the user's turns are scripted, the app's real
   replies are the history, and the run stops at the first failed turn. It runs
   only when the adapter declares `invocation.conversation`, and is skipped
-  otherwise. Not built: a simulated user, client-sent history, pre-written
-  assistant turns, and whole-conversation end-state checks
+  otherwise. An app whose client sends the whole conversation in every
+  request (OpenAI-style, AG-UI) declares `conversation.history`: the runner
+  builds that array from the scripted turns and the app's own scored
+  replies, never an assistant line it wrote (`docs/client-history.md`).
+  Stub apps prove it, `tools: carried` included; no live app has run it
+  yet. Not built: a simulated user, pre-written assistant turns, resuming
+  an interrupted run, and whole-conversation end-state checks
   (`docs/multi-turn.md` §9). A suite made only of skipped cases closes the
   gate. WebSocket apps are not driven, and a CLI only through
   `invocation.mode: exec` (JSON in, JSON out); streaming (SSE) answers are

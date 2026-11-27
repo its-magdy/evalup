@@ -1,18 +1,18 @@
 # Client-sent history — design
 
-**Status:** design, **not built** (written 2026-11-25, for the owner's
-review). It extends multi-turn Phase 1 ([multi-turn.md](multi-turn.md)) to
-apps whose **client** sends the whole conversation in every request
+**Status:** **built** (2026-11-25) to this design, with §10's decisions;
+proven by stub apps (`tests/test_sent_history.py`), not yet on a live app
+(§8). The rules are in `runner-contract.md` §1.1/§4/§7.1 and
+`adapter-contract.md`; §11 says what the code settled that this left open.
+It extends multi-turn Phase 1 ([multi-turn.md](multi-turn.md)) to apps whose **client** sends the whole conversation in every request
 (OpenAI-style), where Phase 1 covers apps that keep the history themselves.
 It is a change to how evalup **reaches** an app (transport and intake), which
 the scope rules allow; no scorer changes, and no verdict means anything new.
 `SCORING_VERSION` does not move.
 
-A separate file, not a section of `multi-turn.md`: that note is the spec of
-what is built and already runs to 450 lines, and this one is a proposal the
-owner may change. When it is built, its rules move into `runner-contract.md`
-§7.1 and `adapter-contract.md` like Phase 1's did, and this file shrinks to
-the reasons.
+A separate file, not a section of `multi-turn.md`, which already runs to
+450 lines. The contracts hold the rules in short; where they and this file
+differ, `runner-contract.md` wins.
 
 ## 1. The model in one paragraph
 
@@ -334,3 +334,38 @@ The owner accepted all five recommendations below; build to them.
 5. **`style: none` as an explicit value, or `style` optional beside
    `history`?** Recommend explicit: hard rule 3's "never on by accident"
    reads better with a word than with a gap.
+
+## 11. As built (2026-11-25)
+
+Where the code had to settle something the design left open:
+
+- **The decoder's `items`** lists tool results too (`{type: tool_result,
+  id, message_id}`), so §3.3's "since the previous tool result" can be
+  read off the stream. A tool result entry's `<message id>` is the app's
+  `TOOL_CALL_RESULT` `messageId` when it gave one, else a minted UUID.
+- **A call whose `parentMessageId` names no text message seen yet** opens
+  an entry with that id and `<text>` `""`; a text message with that id
+  fills it only if nothing came between, else it opens its own entry, so
+  the carried texts keep the stream's order. The rebuilt entries' texts
+  are checked against the scored answer, not only the stream's.
+- **A JSON body under `carried`** gives no order between its calls and its
+  text: the calls go first, on one entry with `<text>` `""`, then their
+  results, then the answer's entry. An absent list (as an OpenAI-shaped
+  body omits it) is no calls; an integer call id is carried as a string.
+- **`<request id>` renders only where the request template uses it**, so
+  a Phase 1 adapter sends a user turn that mentions it as written.
+- **AG-UI's joined text messages must equal the scored answer**, or the
+  reply cannot be carried (only when `response_body` marks a field other
+  than the decoded `text`): "what is carried is what was scored" is
+  checked, not assumed.
+- **A `${REF}` in a history template is refused** at pre-flight: the array
+  holds case and app text only, and a resolved value would be recorded in
+  every `request.json`.
+- **A single-turn retry** gets a fresh `<request id>` and a fresh user
+  entry, as a restarted conversation does.
+- **`snapshot_seen`** is a top-level key of `response.json`, under an
+  `ag-ui` stream with a declared history only.
+- **The probe's turn 2** re-sends the same `--message`; its report's
+  `history_check` carries turn 2's status, answer and request body.
+- **The validator is unchanged** (§4): it reads cases, and no case rule is
+  new.

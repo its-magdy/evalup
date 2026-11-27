@@ -563,6 +563,67 @@ class TestJsonToolCalls(ProbeCase):
         self.assertIn("tool_calls_path", report["error"])
 
 
+def history_app(path, body, headers):
+    """Stateless and OpenAI-shaped; refuses an assistant entry that has no
+    `content`, the shape a wrong history mapping sends."""
+    messages = body.get("messages") or []
+    if any(m.get("role") == "assistant" and "content" not in m
+           for m in messages):
+        return 400, {"message": "assistant message needs content"}, {}
+    # Words, not a count: the probe scrubs the auth value "1" everywhere.
+    return 200, {"message": "re: " + " / ".join(
+        m.get("content", "") for m in messages)}, {}
+
+
+class TestHistoryCheck(ProbeCase):
+    """docs/client-history.md SS5: under a declared history the probe sends
+    turn 1, then turn 2 carrying turn 1's rebuilt reply, and passes when
+    both are 2xx -- a wrong mapping is a 400 here, not on every case."""
+
+    responder = staticmethod(history_app)
+
+    def history_adapter(self, assistant='{"role": "assistant", '
+                                        '"content": "<text>"}'):
+        adapter = make_adapter(self.app.base_url)
+        adapter["invocation"]["request_body"] = '{"messages": "<history>"}'
+        adapter["invocation"]["conversation"] = {"style": "none", "history": {
+            "user": '{"role": "user", "content": "<text>"}',
+            "assistant": assistant}}
+        return self.write_adapter(adapter)
+
+    def test_two_requests_and_the_second_carries_the_first_reply(self):
+        rc, report, proc = self.probe(self.history_adapter())
+        self.assertEqual(rc, 0, proc.stdout + proc.stderr)
+        self.assertEqual(len(self.app.calls), 2)
+        check = report["history_check"]
+        self.assertTrue(check["ok"])
+        self.assertEqual(check["turn2"]["status"], 200)
+        self.assertEqual(check["turn2"]["request_body"]["messages"], [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "re: hello"},
+            {"role": "user", "content": "hello"}])
+        self.assertEqual(report["response"]["answer"], "re: hello")
+        self.assertEqual(check["turn2"]["answer"],
+                         "re: hello / re: hello / hello")
+        self.assertEqual(self.tree(), [".evalup", ".evalup/adapter.json"])
+
+    def test_a_wrong_mapping_is_caught_by_the_second_request(self):
+        rc, report, _ = self.probe(self.history_adapter(
+            assistant='{"role": "assistant", "text": "<text>"}'))
+        self.assertEqual(rc, 3)
+        self.assertEqual(len(self.app.calls), 2)
+        self.assertFalse(report["history_check"]["ok"])
+        self.assertIn("history check: turn 2", report["error"])
+        self.assertIn("HTTP 400", report["error"])
+
+    def test_no_history_still_sends_one_request(self):
+        adapter = make_adapter(self.app.base_url)
+        rc, report, _ = self.probe(self.write_adapter(adapter))
+        self.assertEqual(rc, 0, report)
+        self.assertEqual(len(self.app.calls), 1)
+        self.assertNotIn("history_check", report)
+
+
 class TestStreams(unittest.TestCase):
     body = agent_run(text_message("m1", "hello ", "there"),
                      tool_call("c1", "lookup", '{"q": "x"}', result="{}"))

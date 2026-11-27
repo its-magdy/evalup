@@ -56,9 +56,10 @@ invocation:
   response_body: '{"message": "<answer>"}'
   # Request placeholders: <user turn> (the case's one user message, or the
   # current turn of a conversation), <uuid> (a fresh id per repeat -- per
-  # conversation attempt, reused on every turn), <persona>, <case id>, and
+  # conversation attempt, reused on every turn), <persona>, <case id>,
   # <session> (the id a server-id app returned on turn 1; see `conversation`
-  # below). A string that IS a placeholder becomes the typed value; one that
+  # below), <request id> (fresh per request sent) and <history> (see
+  # `history` below). A string that IS a placeholder becomes the typed value; one that
   # merely CONTAINS one gets textual substitution. An unset <session> as a
   # key's whole value DROPS the key (turn 1, every single-turn case) rather
   # than sending null.
@@ -128,13 +129,12 @@ invocation:
                                           # Called with the rendered request_body;
                                           # returns the answer string, or
                                           # {text, status, trace_id, ...}.
-                                          # NOTE: timeout_s is NOT enforced in this mode
-                                          # (an in-process call cannot be interrupted from
-                                          # the stdlib) -- the callable owns its timeout.
+                                          # NOTE: timeout_s is NOT enforced in this mode:
+                                          # the callable owns its timeout.
   # exec mode (a command per call): [adapters/exec.md](adapters/exec.md)
   conversation:                           # optional: how the app keeps a conversation
-    style: client-id                      # (docs/multi-turn.md SS2). WITHOUT this block
-                                          # every input.turns case is SKIPPED (hard rule 3).
+    style: client-id                      # (hard rule 3). none: the app keeps no state
+                                          # (legal only beside `history`).
                                           # client-id: the app takes an id the client
                                           #   invents -- the runner renders <uuid> once per
                                           #   conversation attempt and reuses it every turn;
@@ -161,9 +161,9 @@ invocation:
                                           # memory outlives the session (per user), so any
                                           # case can see an earlier one's turns; the manifest
                                           # and report say verdicts may be contaminated.
-  # NO `session` block (an old adapters/dotnet.md shape): a block must never
-  # turn on a driver by accident (hard rule 3). The runner reads
-  # `conversation` only, checked at pre-flight (exit 3).
+    # history: {preset: ag-ui, tools: text-only}  # client-sent history only: the
+    #   body marks '"messages": "<history>"', built from the turns and the app's
+    #   scored replies. Presets, templates: docs/client-history.md SS2.
   response_format: json        # | sse: a text/event-stream reply becomes {text,
   # tool_calls, error, finished, usage}; mark '{"text": "<answer>"}'. A failed
   # stream is `unscored`, as is `answer` after an approval interrupt with no
@@ -245,8 +245,7 @@ data:
 3. **A conversation runs only through `invocation.conversation`.** A case
    written as `input.turns` (case-format.md) is sent turn by turn in one
    conversation when the adapter declares that block, and is **skipped**,
-   not failed, when it does not (every turn would land in a fresh
-   conversation). The block is the only switch — a legacy `session:` block
+   not failed, when it does not. The block is the only switch — a legacy `session:` block
    turns nothing on. And a case whose `input.messages` is not exactly one
    user message is skipped whatever the adapter says: the runner would send
    that message alone. (docs/multi-turn.md)
@@ -307,7 +306,5 @@ instruction or inferred from context:
    whatever the tool classes say: a backstop for a wrong `needs-mock`
    classification.
 
-An app that builds a per-call wrapper puts it in one place: look up the
-tool's `side_effects` and the environment's `kind`/`safe_to_attack`, then
-pass, mock or raise, and log the decision. How it intercepts (middleware,
-decorator, DI) is the per-adapter doc's (`adapters/dotnet.md` for .NET).
+A per-call wrapper (pass, mock or raise, logged) is the per-adapter doc's
+(`adapters/dotnet.md` for .NET).

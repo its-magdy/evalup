@@ -19,6 +19,27 @@ says when a release bumps it.
 ## [Unreleased]
 
 ### Added
+- **Client-sent history conversations** (`docs/client-history.md`, #27,
+  #32). For an app whose client posts the whole conversation each turn,
+  `invocation.conversation.history` declares the message shape: the
+  `ag-ui` or `openai` preset, or `user`/`assistant` (and tool) templates,
+  and `tools: text-only | carried`. The runner keeps, per conversation
+  attempt, the list a client would hold: each user turn, then the app's
+  own reply rebuilt from that turn's response, byte for byte what was
+  scored. The body marks the array with `<history>` (exactly once);
+  `<request id>` is a fresh id per request (AG-UI's `runId`), and
+  `style: none` names an app that keeps no state, legal only beside
+  `history`. A reply that cannot be carried before the last turn (no
+  finished text, an approval interrupt with no text, or under `carried`
+  a call with no id or result) ends the conversation `unscored`, never
+  sending a turn built on an invented line. The AG-UI decoder adds
+  `items` (stream order), a history turn's `response.json` records
+  `snapshot_seen` (a `MESSAGES_SNAPSHOT` is never adopted), and
+  `--probe` sends two requests under a history, so a wrong mapping is a
+  400 before a run. Pre-flight refuses every malformed block (exit 3).
+  Adapters without `history` send what they sent before; no verdict
+  changes meaning and `SCORING_VERSION` is unchanged. Proven by stub
+  apps only: a live run is the next step (#27).
 - **`headroom_note`** in `stats --holdout-power` (#159). Past a noise floor
   of D every keep changes more than D cases, which can exceed the cluster's
   headroom while `powered` (an MDE comparison) is true: at H = 45, C = 8.8,
