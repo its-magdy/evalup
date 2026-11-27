@@ -121,7 +121,21 @@ says when a release bumps it.
   seal's templates (`templates/ho_*`) by id and hash; `convert_suite.py
   --templates` feeds it. No verdict changes.
 
+- **A first estimate from the probe** (#167). `--probe` reports the token
+  usage each request's response carried (`usage`), and `score-cost --probe
+  <report> --prices <table>` prices it into a file `--dry-run --cost-from`
+  takes (`rate_basis: probe`), so a first run has a dollar figure before
+  any run was priced. The probe's cache is cold, so for a cached app it is
+  an upper bound; the note says so.
+
 ### Changed
+- **A request template is substituted in one pass** (#166). A user turn
+  that mentions a placeholder (`<case id>`, `<request id>`) beside another
+  in the same string is sent as written, as message templates already were.
+- **`echo_assertion` reads the turns up to its own** (#168). A checkpoint
+  is no longer warned on by a turn not yet sent, and a final-turn check
+  for a fact stated only in an earlier turn is said as a recall check (an
+  app passes it only if the history reached it), still a WARN.
 - **A sealed case's `answer_after_interrupt` is a count** (#158).
   `validate-cases --adapter` named a holdout case beside the gated tool it
   requires; sealed cases now share one WARN with neither id nor tool

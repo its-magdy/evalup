@@ -909,6 +909,29 @@ class TestConversationCases(ValidateTest):
             expect={"answer": {"must_contain": ["Cairo"]}})
         self.assert_finds("echo_assertion", [case], severity="WARN")
 
+    def test_a_fact_from_an_earlier_turn_is_said_as_recall(self):
+        # #168: the final turn asks the fact back; an app can repeat it
+        # only if the history reached it, so it is not an echo of the turn.
+        case = conversation(
+            expect={"answer": {"must_contain": ["Cairo"]}})
+        f = self.assert_finds("echo_assertion", [case], severity="WARN")
+        self.assertIn("only in an earlier user turn", f["message"])
+        self.assertIn("recall check", f["message"])
+
+    def test_the_final_turns_own_text_is_still_an_echo(self):
+        case = conversation(
+            expect={"answer": {"must_contain": ["expired"]}})
+        f = self.assert_finds("echo_assertion", [case], severity="WARN")
+        self.assertIn("own user message", f["message"])
+
+    def test_a_checkpoint_is_not_echoed_by_a_later_turn(self):
+        case = conversation(turns=[
+            {"user": "show me the licences for the Cairo team",
+             "expect": {"answer": {"must_contain": ["expired"]}}},
+            {"user": "only the expired ones"}])
+        self.assertNotIn("echo_assertion",
+                         self.codes(self.validate([case])[1]))
+
 
 class TestExitContract(ValidateTest):
     def test_warnings_alone_exit_0(self):

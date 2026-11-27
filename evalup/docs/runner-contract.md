@@ -81,7 +81,8 @@ never in a shell command.
   `answer`, `trace_id` (a declared correlation's; null under `traces.source:
   response`, whose ids are minted), `tool_calls` (null unless `traces.source:
   response`), and `body_preview` (the first 4,000 characters of the body as
-  JSON, `body_truncated` saying whether that was all of it).
+  JSON, `body_truncated` if cut), and `usage` for `score_cost.py --probe`
+  (#167).
 - **Secrets.** Stricter than §3's record. Every resolved env value of four
   characters or more, and every auth value whatever its length, is put back
   as `${NAME}` *everywhere* in the output, the app's answer and body

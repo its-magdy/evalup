@@ -28,6 +28,7 @@ from test_run_cases import (  # noqa: E402 - the shared fixtures
 )
 from test_sse import (  # noqa: E402
     EVENT_STREAM,
+    FINISHED,
     RawApp,
     agent_run,
     stream,
@@ -666,6 +667,74 @@ class TestStreams(unittest.TestCase):
         self.assertIn("terminal event", report["error"])
         self.assertEqual(len(report["problems"]), 2)  # gap once, + no answer
         self.assertIsNone(report["response"]["tool_calls"])
+
+
+class TestProbeUsage(unittest.TestCase):
+    """#167: the probe records the usage its response reported, and
+    score-cost --probe prices it for a first dry run's estimate."""
+
+    USAGE = {"inputTokens": 1000, "outputTokens": 100,
+             "cacheWriteInputTokens": 800}
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.body = agent_run(text_message("m1", "hello"),
+                              end=dict(FINISHED, usage=[self.USAGE]))
+        self.raw = RawApp(lambda path: (200, EVENT_STREAM, self.body))
+        self.addCleanup(self.raw.close)
+
+    probe = TestStreams.probe
+
+    def test_the_report_carries_usage_and_score_cost_prices_it(self):
+        rc, report = self.probe()
+        self.assertEqual(rc, 0, report)
+        usage = report["usage"]
+        self.assertTrue(usage["cache_counts_are_parts"])
+        self.assertEqual(len(usage["requests"]), 1)
+        self.assertEqual(usage["requests"][0][0]["input_tokens"], 1000)
+        probe_json = self.tmp / "probe.json"
+        probe_json.write_text(json.dumps(report), encoding="utf-8")
+        table = self.tmp / "prices.json"
+        table.write_text(json.dumps({
+            "schema": "evalup/price-table/1", "as_of": "2026-09-01",
+            "source": "test", "aliases": {"<model attribute absent>": "m"},
+            "models": {"m": {"input_per_mtok": "2", "output_per_mtok": "10",
+                             "cache_read_per_mtok": "0.2",
+                             "cache_write_per_mtok": "2.5"}}}),
+            encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "score_cost.py"), "--probe",
+             str(probe_json), "--prices", str(table)],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        doc = json.loads(proc.stdout)
+        self.assertEqual(doc["run"]["source"], "probe")
+        # 200 uncached x 2 + 800 x 2.5 + 100 x 10, per million tokens.
+        self.assertEqual(doc["cost"]["usd"], round(3400 / 1e6, 6))
+        self.assertEqual(doc["cost"]["probe"]["messages_with_usage"], 1)
+
+    def test_no_usage_reported_is_no_usage_block(self):
+        self.body = agent_run(text_message("m1", "hello"))
+        rc, report = self.probe()
+        self.assertEqual(rc, 0, report)
+        self.assertNotIn("usage", report)
+
+    def test_score_cost_probe_needs_prices_and_a_usage_block(self):
+        bad = self.tmp / "probe.json"
+        bad.write_text(json.dumps({"probe": True}), encoding="utf-8")
+        table = self.tmp / "prices.json"
+        table.write_text(json.dumps({
+            "schema": "evalup/price-table/1", "as_of": "2026-09-01",
+            "source": "test", "models": {"m": {
+                "input_per_mtok": "2", "output_per_mtok": "10"}}}),
+            encoding="utf-8")
+        for argv in (["--probe", str(bad)],
+                     ["--probe", str(bad), "--prices", str(table)]):
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPTS / "score_cost.py"), *argv],
+                capture_output=True, text=True, check=False)
+            self.assertEqual(proc.returncode, 2, proc.stdout)
 
 
 class TestStreamedRefusal(unittest.TestCase):
