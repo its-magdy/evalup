@@ -850,6 +850,16 @@ class TestRender(unittest.TestCase):
                                               "content": "<uuid>"}],
                                 "note": "u-1"})
 
+    def test_inserted_user_text_is_not_scanned_again(self):
+        # One pass: a user turn that mentions a placeholder is sent as
+        # written, even beside <request id> in the same string.
+        body = run_cases.render_template(
+            {"prompt": "<request id> User: <user turn>"},
+            {"<user turn>": "what is a <request id> or <case id>?",
+             "<request id>": "r-1", "<case id>": "c-1"})
+        self.assertEqual(body, {"prompt": "r-1 User: what is a "
+                                          "<request id> or <case id>?"})
+
 
 if __name__ == "__main__":
     unittest.main()

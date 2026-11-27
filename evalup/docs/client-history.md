@@ -352,8 +352,9 @@ Where the code had to settle something the design left open:
   text: the calls go first, on one entry with `<text>` `""`, then their
   results, then the answer's entry. An absent list (as an OpenAI-shaped
   body omits it) is no calls; an integer call id is carried as a string.
-- **`<request id>` renders only where the request template uses it**, so
-  a Phase 1 adapter sends a user turn that mentions it as written.
+- **`<request id>` renders only where the request template uses it**, and
+  the request template is substituted in one pass like a message template,
+  so a user turn that mentions any placeholder is sent as written.
 - **AG-UI's joined text messages must equal the scored answer**, or the
   reply cannot be carried (only when `response_body` marks a field other
   than the decoded `text`): "what is carried is what was scored" is
