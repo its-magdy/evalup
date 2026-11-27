@@ -10,7 +10,7 @@ documents named below, not here.
 
 ## Layout
 
-- **`evalup/`** — the plugin (v0.1.0). 7 skills (`start`, `discover`,
+- **`evalup/`** — the plugin (v0.2.0). 7 skills (`start`, `discover`,
   `generate`, `run`, `analyze`, `optimize`, `help`), 3 agents, 28 CLIs in
   `scripts/` (each an `evalup <name>` subcommand; `_*.py` are shared
   modules), specs in `docs/`, the worked example in `examples/quickstart/`,

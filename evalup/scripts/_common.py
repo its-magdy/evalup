@@ -23,7 +23,7 @@ from collections.abc import Hashable
 # .claude-plugin/plugin.json — tests/test_scorers.py asserts the two match. It
 # is NOT the comparability key any more (#38): a release that only fixes a
 # skill's prose must not make every pinned baseline incomparable.
-HARNESS_VERSION = "0.1.0"
+HARNESS_VERSION = "0.2.0"
 
 # The comparability key (#38). Two runs are comparable only at the same
 # SCORING_VERSION. BUMP IT (by one) when a change alters what a recorded

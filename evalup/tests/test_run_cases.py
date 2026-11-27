@@ -2129,8 +2129,8 @@ class TestResume(RunnerCase):
     def test_resume_of_a_pre_field_run_warns_and_completes(self):
         plan = make_plan(self.state, self.app.base_url, cases=self.cases())
         self.kill_mid_run(plan)
-        self.edit_manifest(scoring_version=None,
-                           harness_version=run_cases.HARNESS_VERSION)
+        # 0.1.0 is the one release that wrote runs without the field.
+        self.edit_manifest(scoring_version=None, harness_version="0.1.0")
         rc, _, proc = self.invoke(plan, extra_argv=["--resume"])
         self.assertEqual(rc, 0, proc.stdout + proc.stderr)
         self.assertIn("predates scoring_version", proc.stderr)
@@ -3146,7 +3146,9 @@ class TestBaselineComparison(RunnerCase):
         """#38 (c): a manifest written before the field existed is compared
         on harness_version, the old rule, and says so on stderr and in
         comparison.json."""
-        baseline = self.a_baseline(drop=("scoring_version",))
+        # 0.1.0 is the one release that wrote runs without the field.
+        baseline = self.a_baseline(drop=("scoring_version",),
+                                   harness_version="0.1.0")
         plan = make_plan(self.state, self.app.base_url,
                          cases=[make_case("c-0001"), make_case("c-0002")])
         rc, _, proc = self.invoke(

@@ -50,7 +50,7 @@ env:
   # Bump it on purpose, and re-pin your baseline when the new version's
   # scoring_version differs (gate.py --baseline refuses the pair).
   EVALUP_REPO_URL: https://github.com/its-magdy/evalup.git
-  EVALUP_REF: v0.1.0
+  EVALUP_REF: v0.2.0
 
   # EDIT: the state location, relative to the repository root.
   EVALUP_STATE_DIR: .evalup
